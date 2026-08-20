@@ -1,0 +1,78 @@
+/**
+ * ArgusFlow 默认视觉主题。
+ *
+ * 组件和全局样式只消费这些语义变量；后续更换配色、字阶、圆角或阴影时，
+ * 应优先修改本文件，避免把新的视觉常量重新散落到 TSX 中。
+ */
+:root {
+  color-scheme: light;
+
+  --font-family-ui: Inter, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-family-mono: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  --font-size-caption: 0.75rem;
+  --font-size-body: 0.875rem;
+  --font-size-title: 1rem;
+  --font-size-brand: 1.0625rem;
+  --line-height-compact: 1.35;
+  --line-height-body: 1.55;
+
+  --color-app-background: #eaf0f7;
+  --color-panel-background: #f8fafd;
+  --color-toolbar-background: rgba(255, 255, 255, 0.94);
+  --color-surface: #ffffff;
+  --color-surface-subtle: #f1f5fa;
+  --color-surface-hover: #e8eff8;
+  --color-canvas: #edf3f8;
+  --color-canvas-glow: rgba(37, 99, 235, 0.08);
+  --color-canvas-grid: #c8d5e4;
+
+  --color-border: #d5deea;
+  --color-border-strong: #bccadc;
+  --color-text-primary: #182538;
+  --color-text-secondary: #516176;
+  --color-text-muted: #728196;
+  --color-text-subtle: #93a0b2;
+
+  --color-accent: #2563eb;
+  --color-accent-hover: #1d4ed8;
+  --color-accent-soft: #dbeafe;
+  --color-accent-contrast: #ffffff;
+  --color-accent-border: rgba(37, 99, 235, 0.42);
+  --color-success: #16803d;
+  --color-success-soft: #dcfce7;
+  --color-warning: #c25b0b;
+  --color-warning-soft: #ffedd5;
+  --color-danger: #be123c;
+  --color-danger-soft: #ffe4e6;
+  --color-danger-hover: #fecdd3;
+  --color-danger-border: rgba(190, 18, 60, 0.2);
+  --color-danger-border-hover: rgba(190, 18, 60, 0.4);
+  --color-danger-ring: rgba(190, 18, 60, 0.14);
+  --color-violet: #7c3aed;
+  --color-event-log: #087f8c;
+
+  --color-edge: #7d93ad;
+  --color-minimap-mask: rgba(237, 243, 248, 0.76);
+  --color-focus-ring: rgba(37, 99, 235, 0.22);
+  --color-grid-line: rgba(125, 147, 173, 0.045);
+  --color-node-background: rgba(255, 255, 255, 0.96);
+
+  --color-node-start-from: #22a06b;
+  --color-node-start-to: #14b8a6;
+  --color-node-log-from: #3b82f6;
+  --color-node-log-to: #2563eb;
+  --color-node-delay-from: #f59e0b;
+  --color-node-delay-to: #ea580c;
+  --color-node-end-from: #8b5cf6;
+  --color-node-end-to: #7c3aed;
+
+  --radius-control: 0.625rem;
+  --radius-card: 0.875rem;
+  --shadow-toolbar: 0 1px 0 rgba(24, 37, 56, 0.04), 0 8px 24px rgba(35, 55, 80, 0.05);
+  --shadow-card: 0 10px 28px rgba(48, 65, 88, 0.1);
+  --shadow-card-resting: 0 3px 12px rgba(48, 65, 88, 0.04);
+  --shadow-card-hover: 0 7px 18px rgba(37, 99, 235, 0.08);
+  --shadow-floating: 0 12px 32px rgba(48, 65, 88, 0.14);
+  --shadow-primary-button: 0 6px 16px rgba(37, 99, 235, 0.2);
+  --shadow-brand-icon: 0 4px 8px rgba(48, 65, 88, 0.14);
+}

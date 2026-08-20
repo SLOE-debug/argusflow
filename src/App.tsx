@@ -10,7 +10,10 @@ export default function App() {
   const studio = useWorkflowStudio();
 
   return (
-    <main className="grid h-full grid-rows-[auto_minmax(0,1fr)_auto] bg-[#08111f] text-slate-200">
+    <main
+      data-theme="daylight"
+      className="argus-app grid h-full grid-rows-[auto_minmax(0,1fr)_auto]"
+    >
       <RunToolbar
         workflowName={studio.workflowName}
         running={studio.running}
@@ -21,7 +24,7 @@ export default function App() {
         onValidate={() => void studio.validate()}
         onRun={() => void studio.run()}
       />
-      <div className="grid min-h-0 grid-cols-[190px_minmax(0,1fr)_250px]">
+      <div className="grid min-h-0 grid-cols-[220px_minmax(0,1fr)_292px]">
         <NodePalette onAdd={studio.addNode} />
         <WorkflowCanvas
           nodes={studio.nodes}

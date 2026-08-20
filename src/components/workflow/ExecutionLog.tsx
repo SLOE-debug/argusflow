@@ -9,35 +9,37 @@ type ExecutionLogProps = {
 
 /** 为不同事件类型配置日志文字颜色，便于区分生命周期和错误。 */
 const eventTone = {
-  workflow_started: 'text-sky-300',
-  node_started: 'text-slate-400',
-  log: 'text-cyan-200',
-  node_succeeded: 'text-emerald-300',
-  node_failed: 'text-rose-300',
-  workflow_completed: 'text-emerald-300',
-  workflow_failed: 'text-rose-300',
+  workflow_started: 'argus-event-info',
+  node_started: 'argus-event-neutral',
+  log: 'argus-event-log',
+  node_succeeded: 'argus-event-success',
+  node_failed: 'argus-event-error',
+  workflow_completed: 'argus-event-success',
+  workflow_failed: 'argus-event-error',
 };
 
 /** 展示执行事件流及结构校验问题。 */
 export function ExecutionLog({ events, report }: ExecutionLogProps) {
   return (
-    <section className="grid min-h-40 grid-cols-[minmax(0,1fr)_320px] border-t border-[#1d3048] bg-[#081321]">
-      <div className="min-w-0 p-4">
+    <section className="argus-log-panel grid min-h-44 grid-cols-[minmax(0,1fr)_340px] border-t">
+      <div className="min-w-0 p-5">
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-xs font-semibold tracking-[0.14em] text-slate-400 uppercase">
+          <h2 className="argus-muted text-xs font-bold tracking-[0.12em] uppercase">
             执行日志
           </h2>
-          <span className="text-[10px] text-slate-600">{events.length} events</span>
+          <span className="argus-subtle text-xs">{events.length} events</span>
         </div>
-        <div className="h-24 space-y-1 overflow-y-auto font-mono text-[11px]">
-          {events.length === 0 && <p className="text-slate-600">运行工作流后，事件会显示在这里。</p>}
+        <div className="argus-mono h-24 space-y-1 overflow-y-auto text-xs leading-5">
+          {events.length === 0 && (
+            <p className="argus-subtle">运行工作流后，事件会显示在这里。</p>
+          )}
           {events.map((event) => (
             <div key={`${event.run_id}-${event.sequence}`} className="flex gap-3">
-              <span className="w-7 shrink-0 text-right text-slate-700">
+              <span className="argus-subtle w-7 shrink-0 text-right">
                 {String(event.sequence).padStart(2, '0')}
               </span>
               <span className={`w-34 shrink-0 ${eventTone[event.kind]}`}>{event.kind}</span>
-              <span className="truncate text-slate-400">
+              <span className="argus-muted truncate">
                 {event.node_id ? `[${event.node_id}] ` : ''}
                 {event.message ?? ''}
               </span>
@@ -45,15 +47,15 @@ export function ExecutionLog({ events, report }: ExecutionLogProps) {
           ))}
         </div>
       </div>
-      <div className="border-l border-[#1d3048] p-4">
-        <h2 className="mb-3 text-xs font-semibold tracking-[0.14em] text-slate-400 uppercase">
+      <div className="argus-divider border-l p-5">
+        <h2 className="argus-muted mb-3 text-xs font-bold tracking-[0.12em] uppercase">
           校验结果
         </h2>
-        <div className="h-24 overflow-y-auto text-[11px]">
-          {!report && <p className="text-slate-600">尚未校验</p>}
-          {report?.valid && <p className="text-emerald-300">✓ 工作流结构有效</p>}
+        <div className="h-24 overflow-y-auto text-xs leading-5">
+          {!report && <p className="argus-subtle">尚未校验</p>}
+          {report?.valid && <p className="argus-event-success">✓ 工作流结构有效</p>}
           {report?.issues.map((issue, index) => (
-            <p key={`${issue.code}-${issue.node_id}-${index}`} className="mb-1 text-rose-300">
+            <p key={`${issue.code}-${issue.node_id}-${index}`} className="argus-event-error mb-1">
               {issue.node_id ? `[${issue.node_id}] ` : ''}
               {issue.message}
             </p>

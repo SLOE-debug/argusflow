@@ -6,10 +6,10 @@ type NodePaletteProps = {
 /** 提供可编辑节点类型入口及当前版本的自动化能力提示。 */
 export function NodePalette({ onAdd }: NodePaletteProps) {
   return (
-    <aside className="border-r border-[#1d3048] bg-[#0c1828] p-4">
-      <div className="mb-4">
-        <p className="text-[11px] font-semibold tracking-[0.2em] text-sky-400 uppercase">节点</p>
-        <h2 className="mt-1 text-sm font-semibold text-slate-100">流程组件</h2>
+    <aside className="argus-sidebar border-r p-5">
+      <div className="mb-5">
+        <p className="argus-section-label font-bold tracking-[0.16em] uppercase">节点</p>
+        <h2 className="argus-title mt-1.5 font-bold">流程组件</h2>
       </div>
       <div className="space-y-2">
         <PaletteButton
@@ -25,9 +25,9 @@ export function NodePalette({ onAdd }: NodePaletteProps) {
           onClick={() => onAdd('delay')}
         />
       </div>
-      <div className="mt-6 rounded-xl border border-dashed border-[#29415e] bg-[#101f33]/60 p-3">
-        <p className="text-xs font-medium text-slate-300">RPA 节点</p>
-        <p className="mt-1 text-[11px] leading-5 text-slate-500">
+      <div className="argus-callout mt-7 rounded-xl border border-dashed p-3.5">
+        <p className="argus-body text-sm font-semibold">RPA 节点</p>
+        <p className="mt-1.5 text-xs leading-5">
           UIA、CDP 与视觉动作契约已就位，真实执行将在后续版本接入。
         </p>
       </div>
@@ -52,14 +52,14 @@ function PaletteButton({ icon, title, description, onClick }: PaletteButtonProps
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full items-center gap-3 rounded-xl border border-[#253b55] bg-[#122238] px-3 py-3 text-left transition hover:border-sky-500/60 hover:bg-[#172c46]"
+      className="argus-card-button flex w-full items-center gap-3 px-3.5 py-3.5 text-left"
     >
-      <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-400/10 text-sky-300">
+      <span className="argus-icon-tile flex h-9 w-9 items-center justify-center rounded-lg text-base font-bold">
         {icon}
       </span>
       <span>
-        <span className="block text-sm font-medium text-slate-200">{title}</span>
-        <span className="block text-[11px] text-slate-500">{description}</span>
+        <span className="argus-body block text-sm font-semibold">{title}</span>
+        <span className="argus-muted mt-0.5 block text-xs">{description}</span>
       </span>
     </button>
   );

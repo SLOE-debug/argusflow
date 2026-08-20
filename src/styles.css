@@ -1,12 +1,12 @@
+@import "./theme.css";
 @import "tailwindcss";
 @import "@xyflow/react/dist/style.css";
 
 :root {
-  color: #d9e7f7;
-  background: #08111f;
-  font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif;
+  color: var(--color-text-primary);
+  background: var(--color-app-background);
+  font-family: var(--font-family-ui);
+  font-size: 16px;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
@@ -24,6 +24,10 @@ body,
   overflow: hidden;
 }
 
+body {
+  background: var(--color-app-background);
+}
+
 button,
 input,
 textarea {
@@ -33,41 +37,294 @@ textarea {
 button:focus-visible,
 input:focus-visible,
 textarea:focus-visible {
-  outline: 2px solid #38bdf8;
+  outline: 2px solid var(--color-accent);
   outline-offset: 2px;
 }
 
+.argus-app {
+  color: var(--color-text-primary);
+  background: var(--color-app-background);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
+.argus-toolbar {
+  border-color: var(--color-border);
+  background: var(--color-toolbar-background);
+  box-shadow: var(--shadow-toolbar);
+  backdrop-filter: blur(16px);
+}
+
+.argus-sidebar,
+.argus-log-panel {
+  border-color: var(--color-border);
+  background: var(--color-panel-background);
+}
+
+.argus-section-label {
+  color: var(--color-accent);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-compact);
+}
+
+.argus-title,
+.argus-body {
+  color: var(--color-text-primary);
+}
+
+.argus-title {
+  font-size: var(--font-size-title);
+}
+
+.argus-brand-title {
+  color: var(--color-text-primary);
+  font-size: var(--font-size-brand);
+}
+
+.argus-brand-icon {
+  filter: drop-shadow(var(--shadow-brand-icon));
+}
+
+.argus-mono {
+  font-family: var(--font-family-mono);
+}
+
+.argus-muted {
+  color: var(--color-text-muted);
+}
+
+.argus-subtle {
+  color: var(--color-text-subtle);
+}
+
+.argus-divider {
+  border-color: var(--color-border);
+}
+
+.argus-input,
+.argus-readonly-field {
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
+}
+
+.argus-input:hover {
+  border-color: var(--color-border-strong);
+}
+
+.argus-input:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
+}
+
+.argus-button-primary,
+.argus-button-secondary,
+.argus-button-danger,
+.argus-card-button {
+  border-radius: var(--radius-control);
+  transition: border-color 150ms ease, background-color 150ms ease, color 150ms ease,
+    transform 150ms ease, box-shadow 150ms ease;
+}
+
+.argus-button-primary {
+  color: var(--color-accent-contrast);
+  background: var(--color-accent);
+  box-shadow: var(--shadow-primary-button);
+}
+
+.argus-button-primary:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+  transform: translateY(-1px);
+}
+
+.argus-button-secondary {
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+}
+
+.argus-button-secondary:hover:not(:disabled) {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+}
+
+.argus-button-primary:disabled,
+.argus-button-secondary:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+  box-shadow: none;
+}
+
+.argus-button-danger {
+  color: var(--color-danger);
+  border: 1px solid var(--color-danger-border);
+  background: var(--color-danger-soft);
+}
+
+.argus-button-danger:hover {
+  border-color: var(--color-danger-border-hover);
+  background: var(--color-danger-hover);
+}
+
+.argus-card-button {
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card-resting);
+}
+
+.argus-card-button:hover {
+  border-color: var(--color-accent-border);
+  background: var(--color-accent-soft);
+  box-shadow: var(--shadow-card-hover);
+  transform: translateY(-1px);
+}
+
+.argus-icon-tile {
+  color: var(--color-accent);
+  background: var(--color-accent-soft);
+}
+
+.argus-callout,
+.argus-empty-state {
+  color: var(--color-text-muted);
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-subtle);
+}
+
 .argusflow-grid {
-  background-color: #0b1627;
+  background-color: var(--color-canvas);
   background-image:
-    linear-gradient(rgba(56, 189, 248, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(56, 189, 248, 0.035) 1px, transparent 1px);
-  background-size: 28px 28px;
+    radial-gradient(circle at 12% 8%, var(--color-canvas-glow), transparent 34%),
+    linear-gradient(var(--color-grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-grid-line) 1px, transparent 1px);
+  background-size: auto, 28px 28px, 28px 28px;
 }
 
 .react-flow__edge-path {
-  stroke: #54708f;
+  stroke: var(--color-edge);
   stroke-width: 2;
 }
 
 .react-flow__edge.selected .react-flow__edge-path {
-  stroke: #38bdf8;
+  stroke: var(--color-accent);
 }
 
 .react-flow__controls {
-  border: 1px solid #243a54;
-  border-radius: 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
   overflow: hidden;
-  box-shadow: none;
+  box-shadow: var(--shadow-card);
 }
 
 .react-flow__controls-button {
-  color: #bfd3e8;
-  background: #101f33;
-  border-bottom-color: #243a54;
+  color: var(--color-text-secondary);
+  background: var(--color-surface);
+  border-bottom-color: var(--color-border);
 }
 
 .react-flow__controls-button:hover {
-  background: #18304b;
+  color: var(--color-accent);
+  background: var(--color-accent-soft);
 }
 
+.react-flow__controls-button svg {
+  fill: currentColor;
+}
+
+.argusflow-minimap {
+  border: 1px solid var(--color-border-strong) !important;
+  border-radius: var(--radius-card) !important;
+  background: var(--color-surface) !important;
+  box-shadow: var(--shadow-card);
+}
+
+.argus-node-card {
+  color: var(--color-text-primary);
+  border-color: var(--color-border-strong);
+  border-radius: var(--radius-card);
+  background: var(--color-node-background);
+  box-shadow: var(--shadow-floating);
+}
+
+.argus-node-card.is-selected {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-focus-ring), var(--shadow-floating);
+}
+
+.argus-node-card.is-invalid {
+  border-color: var(--color-danger);
+  box-shadow: 0 0 0 3px var(--color-danger-ring), var(--shadow-floating);
+}
+
+.argus-node-icon {
+  color: var(--color-text-secondary);
+  background: var(--color-surface-subtle);
+}
+
+.argus-handle {
+  border-color: var(--color-surface) !important;
+  background: var(--color-accent) !important;
+}
+
+.argus-accent-start {
+  background: linear-gradient(90deg, var(--color-node-start-from), var(--color-node-start-to));
+}
+
+.argus-accent-log {
+  background: linear-gradient(90deg, var(--color-node-log-from), var(--color-node-log-to));
+}
+
+.argus-accent-delay {
+  background: linear-gradient(90deg, var(--color-node-delay-from), var(--color-node-delay-to));
+}
+
+.argus-accent-end {
+  background: linear-gradient(90deg, var(--color-node-end-from), var(--color-node-end-to));
+}
+
+.argus-status-idle {
+  background: var(--color-text-subtle);
+}
+
+.argus-status-running {
+  background: var(--color-accent);
+  box-shadow: 0 0 0 4px var(--color-focus-ring);
+}
+
+.argus-status-success {
+  background: var(--color-success);
+}
+
+.argus-status-error {
+  background: var(--color-danger);
+  box-shadow: 0 0 0 4px var(--color-danger-ring);
+}
+
+.argus-event-info {
+  color: var(--color-accent);
+}
+
+.argus-event-neutral {
+  color: var(--color-text-muted);
+}
+
+.argus-event-log {
+  color: var(--color-event-log);
+}
+
+.argus-event-success {
+  color: var(--color-success);
+}
+
+.argus-event-error {
+  color: var(--color-danger);
+}
+
+* {
+  scrollbar-color: var(--color-border-strong) transparent;
+  scrollbar-width: thin;
+}

@@ -22,33 +22,33 @@ export function NodeInspector({
   onDelete,
 }: NodeInspectorProps) {
   return (
-    <aside className="border-l border-[#1d3048] bg-[#0c1828] p-4">
-      <p className="text-[11px] font-semibold tracking-[0.2em] text-sky-400 uppercase">属性</p>
+    <aside className="argus-sidebar border-l p-5">
+      <p className="argus-section-label font-bold tracking-[0.16em] uppercase">属性</p>
       {!node && !selectedEdgeId && (
         <EmptyInspector message="选择一个节点或连线以查看属性" />
       )}
       {selectedEdgeId && !node && (
-        <div className="mt-4">
-          <p className="text-sm font-medium text-slate-200">已选择连线</p>
-          <p className="mt-1 break-all text-xs text-slate-500">{selectedEdgeId}</p>
+        <div className="mt-5">
+          <p className="argus-body text-sm font-semibold">已选择连线</p>
+          <p className="argus-muted mt-1.5 break-all text-xs">{selectedEdgeId}</p>
           <DeleteButton onClick={onDelete} />
         </div>
       )}
       {node && (
-        <div className="mt-4 space-y-4">
+        <div className="mt-5 space-y-5">
           <div>
-            <label className="text-xs text-slate-500">节点类型</label>
-            <div className="mt-1 rounded-lg border border-[#263d57] bg-[#101f33] px-3 py-2 text-sm text-slate-200">
+            <label className="argus-muted text-xs font-medium">节点类型</label>
+            <div className="argus-readonly-field mt-1.5 px-3 py-2.5 text-sm">
               {node.data.label}
             </div>
           </div>
           <div>
-            <label className="text-xs text-slate-500">节点 ID</label>
-            <div className="mt-1 break-all text-xs text-slate-400">{node.id}</div>
+            <label className="argus-muted text-xs font-medium">节点 ID</label>
+            <div className="argus-muted mt-1.5 break-all text-xs">{node.id}</div>
           </div>
           {node.data.kind === 'log' && (
             <div>
-              <label htmlFor="log-message" className="text-xs text-slate-500">
+              <label htmlFor="log-message" className="argus-muted text-xs font-medium">
                 日志内容
               </label>
               <textarea
@@ -56,13 +56,13 @@ export function NodeInspector({
                 value={node.data.message ?? ''}
                 onChange={(event) => onUpdate({ message: event.target.value, invalid: false })}
                 rows={4}
-                className="mt-1 w-full resize-none rounded-lg border border-[#263d57] bg-[#101f33] px-3 py-2 text-sm text-slate-200 placeholder:text-slate-600"
+                className="argus-input mt-1.5 w-full resize-none px-3 py-2.5 text-sm placeholder:text-[var(--color-text-subtle)]"
               />
             </div>
           )}
           {node.data.kind === 'delay' && (
             <div>
-              <label htmlFor="delay-duration" className="text-xs text-slate-500">
+              <label htmlFor="delay-duration" className="argus-muted text-xs font-medium">
                 等待毫秒（1–60000）
               </label>
               <input
@@ -74,13 +74,13 @@ export function NodeInspector({
                 onChange={(event) =>
                   onUpdate({ milliseconds: Number(event.target.value), invalid: false })
                 }
-                className="mt-1 w-full rounded-lg border border-[#263d57] bg-[#101f33] px-3 py-2 text-sm text-slate-200"
+                className="argus-input mt-1.5 w-full px-3 py-2.5 text-sm"
               />
             </div>
           )}
           {canDelete && <DeleteButton onClick={onDelete} />}
           {!canDelete && (
-            <p className="rounded-lg bg-[#101f33] px-3 py-2 text-xs text-slate-500">
+            <p className="argus-callout rounded-lg px-3 py-2.5 text-xs">
               Start 和 End 是首版工作流的固定节点。
             </p>
           )}
@@ -93,7 +93,7 @@ export function NodeInspector({
 /** 未选中画布元素时的属性面板占位内容。 */
 function EmptyInspector({ message }: { message: string }) {
   return (
-    <div className="mt-4 rounded-xl border border-dashed border-[#29415e] px-3 py-6 text-center text-xs leading-5 text-slate-500">
+    <div className="argus-empty-state mt-5 rounded-xl border border-dashed px-4 py-8 text-center text-xs leading-5">
       {message}
     </div>
   );
@@ -105,7 +105,7 @@ function DeleteButton({ onClick }: { onClick: () => void }) {
     <button
       type="button"
       onClick={onClick}
-      className="mt-4 w-full rounded-lg border border-rose-400/30 bg-rose-400/8 px-3 py-2 text-xs font-medium text-rose-300 transition hover:bg-rose-400/15"
+      className="argus-button-danger mt-4 w-full px-3 py-2.5 text-sm font-semibold"
     >
       删除选中项
     </button>

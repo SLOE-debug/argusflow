@@ -1,4 +1,5 @@
 import type { ValidationReport } from '../../features/workflow/contracts';
+import appIcon from '../../assets/argusflow-icon.png';
 
 type RunToolbarProps = {
   /** 当前工作流名称及其输入回写处理器。 */
@@ -31,23 +32,27 @@ export function RunToolbar({
   onRun,
 }: RunToolbarProps) {
   return (
-    <header className="flex min-h-16 items-center gap-4 border-b border-[#1d3048] bg-[#0a1525] px-5">
-      <div className="flex items-center gap-3 border-r border-[#20344d] pr-5">
-        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-sky-400 to-cyan-600 font-black text-[#06111f] shadow-[0_0_24px_rgba(56,189,248,0.2)]">
-          A
-        </div>
+    <header className="argus-toolbar flex min-h-18 items-center gap-5 border-b px-6">
+      <div className="argus-divider flex items-center gap-3.5 border-r pr-6">
+        <img
+          src={appIcon}
+          alt=""
+          className="argus-brand-icon h-12 w-12 shrink-0 object-contain"
+        />
         <div>
-          <div className="text-sm font-bold tracking-wide text-white">ArgusFlow</div>
-          <div className="text-[10px] tracking-[0.16em] text-slate-500 uppercase">Workflow Studio</div>
+          <div className="argus-brand-title font-bold tracking-wide">
+            ArgusFlow
+          </div>
+          <div className="argus-muted text-xs tracking-[0.14em] uppercase">Workflow Studio</div>
         </div>
       </div>
       <input
         aria-label="工作流名称"
         value={workflowName}
         onChange={(event) => onNameChange(event.target.value)}
-        className="min-w-0 flex-1 rounded-lg border border-transparent bg-transparent px-3 py-2 text-sm font-medium text-slate-200 transition hover:border-[#263d57] focus:border-sky-500/60"
+        className="argus-input min-w-0 flex-1 px-3.5 py-2.5 text-sm font-semibold"
       />
-      <div className="hidden max-w-80 truncate text-xs text-slate-500 xl:block">
+      <div className="argus-muted hidden max-w-80 truncate text-xs xl:block">
         {errorMessage ??
           (report
             ? report.valid
@@ -61,7 +66,7 @@ export function RunToolbar({
         type="button"
         onClick={onValidate}
         disabled={running}
-        className="rounded-lg border border-[#29415e] bg-[#122238] px-4 py-2 text-xs font-semibold text-slate-200 transition hover:border-sky-500/50 disabled:cursor-not-allowed disabled:opacity-50"
+        className="argus-button-secondary px-4 py-2.5 text-sm font-semibold"
       >
         校验
       </button>
@@ -69,7 +74,7 @@ export function RunToolbar({
         type="button"
         onClick={onRun}
         disabled={running}
-        className="rounded-lg bg-sky-400 px-5 py-2 text-xs font-bold text-[#06111f] transition hover:bg-sky-300 disabled:cursor-not-allowed disabled:bg-sky-900 disabled:text-sky-500"
+        className="argus-button-primary px-5 py-2.5 text-sm font-bold"
       >
         {running ? '运行中…' : '运行工作流'}
       </button>

@@ -82,15 +82,20 @@ export function WorkflowCanvas({
         maxZoom={1.7}
         defaultEdgeOptions={{ type: 'smoothstep' }}
       >
-        <Background color="#28405b" gap={28} size={1} variant={BackgroundVariant.Dots} />
+        <Background
+          color="var(--color-canvas-grid)"
+          gap={28}
+          size={1.2}
+          variant={BackgroundVariant.Dots}
+        />
         <Controls position="bottom-left" showInteractive={false} />
         <MiniMap
           position="bottom-right"
           pannable
           zoomable
-          nodeColor="#1f789d"
-          maskColor="rgba(5, 12, 23, 0.72)"
-          className="!border !border-[#243a54] !bg-[#101f33]"
+          nodeColor="var(--color-accent)"
+          maskColor="var(--color-minimap-mask)"
+          className="argusflow-minimap"
         />
       </ReactFlow>
     </div>
