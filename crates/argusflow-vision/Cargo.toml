@@ -1,0 +1,12 @@
+[package]
+name = "argusflow-vision"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+argusflow-agent.workspace = true
+argusflow-core.workspace = true
+async-trait.workspace = true
+

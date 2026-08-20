@@ -1,0 +1,12 @@
+[package]
+name = "argusflow-agent"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+argusflow-core.workspace = true
+argusflow-runtime.workspace = true
+async-trait.workspace = true
+

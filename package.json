@@ -1,0 +1,37 @@
+{
+  "name": "argusflow",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "os": ["win32"],
+  "scripts": {
+    "start": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/dev.ps1",
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "tauri": "tauri",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.11.1",
+    "@xyflow/react": "^12.11.3",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.18",
+    "@tauri-apps/cli": "^2.11.4",
+    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/node": "^24.10.1",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.4",
+    "jsdom": "^28.1.0",
+    "tailwindcss": "^4.1.18",
+    "typescript": "^7.0.2",
+    "vite": "8.2.1",
+    "vitest": "^4.0.18"
+  },
+  "packageManager": "pnpm@11.20.0"
+}

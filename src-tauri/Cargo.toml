@@ -1,0 +1,28 @@
+[package]
+name = "argusflow-desktop"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "argusflow_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[[bin]]
+name = "argusflow"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+argusflow-agent.workspace = true
+argusflow-browser.workspace = true
+argusflow-core.workspace = true
+argusflow-runtime.workspace = true
+argusflow-vision.workspace = true
+argusflow-windows.workspace = true
+serde.workspace = true
+tauri = { version = "2.11.5", features = [] }
+
