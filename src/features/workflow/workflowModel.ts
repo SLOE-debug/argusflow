@@ -1,178 +1,111 @@
-import type { Edge, Node } from '@xyflow/react';
+import type { FlowEdge, FlowNode, FlowPoint } from '../../flow/types';
+import type { ConditionBranch, ConditionOperator, ExecutionEvent, JsonObject, JsonValue, WorkflowDefinition, WorkflowNodeKind } from './contracts';
 
-import type { WorkflowDefinition, WorkflowNodeKind } from './contracts';
-import type { ExecutionEvent } from './contracts';
-
-/** 画布当前允许用户新增的节点类型；action 暂由后端契约保留。 */
-export type EditableNodeKind = 'start' | 'log' | 'delay' | 'end';
-/** 节点在一次运行中的可视状态。 */
+export type EditableNodeKind = 'start' | 'log' | 'delay' | 'condition' | 'end';
 export type NodeRunState = 'idle' | 'running' | 'success' | 'error';
 
-/** React Flow 节点数据与工作流编辑字段的组合。 */
-export type WorkflowNodeData = Record<string, unknown> & {
-  /** 序列化时决定后端节点行为的类型。 */
+/** ArgusFlow 节点在通用 Flow 内核中保存的业务字段。 */
+export type WorkflowNodeData = {
   kind: EditableNodeKind;
-  /** 画布卡片上展示的用户可读名称。 */
   label: string;
-  /** Log 节点输出的文本内容。 */
   message?: string;
-  /** Delay 节点等待时长，单位为毫秒。 */
   milliseconds?: number;
-  /** 运行期间用于渲染状态指示灯的状态。 */
+  pointer?: string;
+  operator?: ConditionOperator;
+  operand?: JsonValue;
   runState?: NodeRunState;
-  /** 校验失败时标记节点并显示错误样式。 */
   invalid?: boolean;
 };
 
-/** 带有 workflow 自定义数据的 React Flow 节点。 */
-export type WorkflowCanvasNode = Node<WorkflowNodeData, 'workflow'>;
-/** 工作流画布使用的 React Flow 边类型。 */
-export type WorkflowCanvasEdge = Edge;
+export type WorkflowEdgeData = { branch: ConditionBranch | null };
+export type WorkflowCanvasNode = FlowNode<WorkflowNodeData>;
+export type WorkflowCanvasEdge = FlowEdge<WorkflowEdgeData>;
 
-/** 首次打开编辑器时展示的线性示例节点。 */
-export const DEFAULT_NODES: WorkflowCanvasNode[] = [
-  canvasNode('start', 80, 'start', 'Start'),
-  canvasNode('log', 320, 'log', 'Log', { message: 'ArgusFlow 已启动' }),
-  canvasNode('delay', 560, 'delay', 'Delay', { milliseconds: 600 }),
-  canvasNode('end', 800, 'end', 'End'),
-];
+/** 编辑器以完全空白文档开始。 */
+export const DEFAULT_NODES: WorkflowCanvasNode[] = [];
+export const DEFAULT_EDGES: WorkflowCanvasEdge[] = [];
 
-/** 首次打开编辑器时连接示例节点的默认边。 */
-export const DEFAULT_EDGES: WorkflowCanvasEdge[] = [
-  workflowEdge('start', 'log'),
-  workflowEdge('log', 'delay'),
-  workflowEdge('delay', 'end'),
-];
+const NODE_DEFAULTS: Record<EditableNodeKind, { label: string; size: { width: number; height: number }; extras?: Partial<WorkflowNodeData> }> = {
+  start: { label: '开始', size: { width: 168, height: 68 } },
+  log: { label: '日志', size: { width: 200, height: 72 }, extras: { message: '记录一条运行信息' } },
+  delay: { label: '等待', size: { width: 200, height: 72 }, extras: { milliseconds: 500 } },
+  condition: { label: '条件', size: { width: 200, height: 72 }, extras: { pointer: '/enabled', operator: 'equal', operand: true } },
+  end: { label: '结束', size: { width: 168, height: 68 } },
+};
 
-/**
- * 将画布状态转换为后端 Rust 命令所需的工作流契约。
- * @param workflowId 当前工作流 ID。
- * @param name 工作流名称。
- * @param nodes 画布节点集合。
- * @param edges 画布边集合。
- * @returns 不含 React Flow 展示字段的后端工作流定义。
- */
-export function toWorkflowDefinition(
-  workflowId: string,
-  name: string,
-  nodes: WorkflowCanvasNode[],
-  edges: WorkflowCanvasEdge[],
-): WorkflowDefinition {
+/** 在指定世界坐标创建一个业务节点。 */
+export function createNode(kind: EditableNodeKind, position: FlowPoint = { x: 200, y: 160 }): WorkflowCanvasNode {
+  const defaults = NODE_DEFAULTS[kind];
   return {
-    schema_version: 1,
+    id: `${kind}-${crypto.randomUUID()}`,
+    kind,
+    position,
+    size: defaults.size,
+    data: { kind, label: defaults.label, runState: 'idle', ...defaults.extras },
+  };
+}
+
+/** 新增边并根据 Condition 已占分支自动分配 true/false。 */
+export function createEdge(source: string, target: string, nodes: WorkflowCanvasNode[], edges: WorkflowCanvasEdge[], sourceSide?: WorkflowCanvasEdge['source']['side'], targetSide?: WorkflowCanvasEdge['target']['side']): WorkflowCanvasEdge {
+  const sourceNode = nodes.find((node) => node.id === source);
+  let branch: ConditionBranch | null = null;
+  if (sourceNode?.kind === 'condition') {
+    const used = new Set(edges.filter((edge) => edge.source.nodeId === source).map((edge) => edge.data.branch));
+    branch = used.has('true') ? 'false' : 'true';
+  }
+  return { id: `edge-${crypto.randomUUID()}`, source: { nodeId: source, side: sourceSide }, target: { nodeId: target, side: targetSide }, data: { branch } };
+}
+
+/** 将画布状态转换为后端 schema v2 契约。 */
+export function toWorkflowDefinition(workflowId: string, name: string, variables: JsonObject, nodes: WorkflowCanvasNode[], edges: WorkflowCanvasEdge[]): WorkflowDefinition {
+  return {
+    schema_version: 2,
     id: workflowId,
     name,
-    nodes: nodes.map((node) => ({
-      id: node.id,
-      position: node.position,
-      ...toNodeKind(node.data),
-    })),
-    edges: edges.map((edge) => ({
-      id: edge.id,
-      source: edge.source,
-      target: edge.target,
-    })),
+    variables,
+    nodes: nodes.map((node) => ({ id: node.id, position: node.position, ...toNodeKind(node.data) })),
+    edges: edges.map((edge) => ({ id: edge.id, source: edge.source.nodeId, target: edge.target.nodeId, branch: edge.data.branch })),
   };
 }
 
-/**
- * 创建可编辑的 Log 或 Delay 节点，并为其生成全局唯一 ID。
- * @param kind 要创建的节点类型。
- * @param index 用于计算初始位置的当前节点数量或序号。
- * @returns 带默认参数和初始运行状态的画布节点。
- */
-export function createNode(kind: 'log' | 'delay', index: number): WorkflowCanvasNode {
-  const id = `${kind}-${crypto.randomUUID()}`;
-  const extras =
-    kind === 'log'
-      ? { message: '记录一条运行信息' }
-      : { milliseconds: 500 };
-
-  return canvasNode(id, 260 + index * 36, kind, kind === 'log' ? 'Log' : 'Delay', extras, 120 + index * 28);
+/** 根据后端事件更新对应节点状态。 */
+export function applyExecutionEventToNodes(nodes: WorkflowCanvasNode[], event: ExecutionEvent): WorkflowCanvasNode[] {
+  if (event.kind === 'workflow_started') return nodes.map((node) => ({ ...node, data: { ...node.data, runState: 'idle', invalid: false } }));
+  const runState = event.kind === 'node_started' ? 'running' : event.kind === 'node_succeeded' ? 'success' : event.kind === 'node_failed' ? 'error' : null;
+  if (!event.node_id || !runState) return nodes;
+  return nodes.map((node) => node.id === event.node_id ? { ...node, data: { ...node.data, runState } } : node);
 }
 
-/**
- * 创建使用平滑折线渲染的有向画布边。
- * @param source 起始节点 ID。
- * @param target 目标节点 ID。
- * @returns 可直接交给 React Flow 的边对象。
- */
-export function workflowEdge(source: string, target: string): WorkflowCanvasEdge {
-  return {
-    id: `${source}-${target}`,
-    source,
-    target,
-    type: 'smoothstep',
-  };
-}
-
-/**
- * 根据后端事件更新对应节点状态；工作流开始事件会重置所有节点标记。
- * @param nodes 当前画布节点。
- * @param event 后端推送的执行事件。
- * @returns 更新后的新节点数组，不修改输入节点。
- */
-export function applyExecutionEventToNodes(
-  nodes: WorkflowCanvasNode[],
-  event: ExecutionEvent,
-): WorkflowCanvasNode[] {
-  if (event.kind === 'workflow_started') {
-    return nodes.map((node) => ({
-      ...node,
-      data: { ...node.data, runState: 'idle', invalid: false },
-    }));
+/** 检查新增或重连后的有向图约束。 */
+export function canConnect(nodes: WorkflowCanvasNode[], edges: WorkflowCanvasEdge[], source: string, target: string, ignoredEdgeId?: string): boolean {
+  if (source === target || edges.some((edge) => edge.id !== ignoredEdgeId && edge.source.nodeId === source && edge.target.nodeId === target)) return false;
+  const sourceNode = nodes.find((node) => node.id === source);
+  const targetNode = nodes.find((node) => node.id === target);
+  if (!sourceNode || !targetNode || sourceNode.kind === 'end' || targetNode.kind === 'start') return false;
+  const outgoing = edges.filter((edge) => edge.id !== ignoredEdgeId && edge.source.nodeId === source).length;
+  if (outgoing >= (sourceNode.kind === 'condition' ? 2 : 1)) return false;
+  const adjacency = new Map<string, string[]>();
+  for (const edge of edges.filter((edge) => edge.id !== ignoredEdgeId)) adjacency.set(edge.source.nodeId, [...(adjacency.get(edge.source.nodeId) ?? []), edge.target.nodeId]);
+  const queue = [target];
+  const visited = new Set<string>();
+  while (queue.length > 0) {
+    const id = queue.shift()!;
+    if (id === source) return false;
+    if (visited.has(id)) continue;
+    visited.add(id);
+    queue.push(...(adjacency.get(id) ?? []));
   }
-
-  // 只有节点级事件能改变单个节点状态，日志和工作流完成事件应保持节点原状态。
-  const runState =
-    event.kind === 'node_started'
-      ? 'running'
-      : event.kind === 'node_succeeded'
-        ? 'success'
-        : event.kind === 'node_failed'
-          ? 'error'
-          : null;
-  if (!event.node_id || !runState) {
-    return nodes;
-  }
-
-  return nodes.map((node) =>
-    node.id === event.node_id
-      ? { ...node, data: { ...node.data, runState } }
-      : node,
-  );
-}
-
-function canvasNode(
-  id: string,
-  x: number,
-  kind: EditableNodeKind,
-  label: string,
-  extras: Partial<WorkflowNodeData> = {},
-  y = 220,
-): WorkflowCanvasNode {
-  return {
-    id,
-    type: 'workflow',
-    position: { x, y },
-    data: {
-      kind,
-      label,
-      runState: 'idle',
-      ...extras,
-    },
-  };
+  return true;
 }
 
 function toNodeKind(data: WorkflowNodeData): WorkflowNodeKind {
   switch (data.kind) {
-    case 'start':
-      return { type: 'start' };
-    case 'log':
-      return { type: 'log', message: data.message ?? '' };
-    case 'delay':
-      return { type: 'delay', milliseconds: data.milliseconds ?? 0 };
-    case 'end':
-      return { type: 'end' };
+    case 'start': return { type: 'start' };
+    case 'log': return { type: 'log', message: data.message ?? '' };
+    case 'delay': return { type: 'delay', milliseconds: data.milliseconds ?? 0 };
+    case 'condition': return { type: 'condition', predicate: { pointer: data.pointer ?? '', operator: data.operator ?? 'equal', operand: isUnary(data.operator) ? null : data.operand ?? null } };
+    case 'end': return { type: 'end' };
   }
 }
+
+export const isUnary = (operator?: ConditionOperator): boolean => operator === 'exists' || operator === 'not_exists' || operator === 'is_empty' || operator === 'not_empty';

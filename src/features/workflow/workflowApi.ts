@@ -1,11 +1,16 @@
 import { invoke } from '@tauri-apps/api/core';
 
 import type {
+  BackendCommandErrorCode,
   CommandError,
   RunStarted,
   ValidationReport,
   WorkflowDefinition,
 } from './contracts';
+import { COMMAND_ERROR_CODES } from './contracts';
+
+/** 后端当前允许返回的稳定命令错误码集合。 */
+const commandErrorCodes = new Set<string>(COMMAND_ERROR_CODES);
 
 /** 请求后端校验工作流结构，并返回可定位到节点或边的问题。 */
 export function validateWorkflow(workflow: WorkflowDefinition): Promise<ValidationReport> {
@@ -36,8 +41,13 @@ function isCommandError(value: unknown): value is CommandError {
   }
   const candidate = value as Partial<CommandError>;
   return (
-    typeof candidate.code === 'string' &&
+    isBackendCommandErrorCode(candidate.code) &&
     typeof candidate.message === 'string' &&
     Array.isArray(candidate.issues)
   );
+}
+
+/** 检查未知字符串是否属于 Rust `CommandErrorCode` 契约。 */
+function isBackendCommandErrorCode(value: unknown): value is BackendCommandErrorCode {
+  return typeof value === 'string' && commandErrorCodes.has(value);
 }

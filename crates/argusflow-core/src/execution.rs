@@ -19,6 +19,8 @@ pub struct ExecutionEvent {
     pub sequence: u64,
     /// 相关节点 ID；工作流级事件不绑定具体节点。
     pub node_id: Option<String>,
+    /// 相关连线 ID；只有连线流转事件携带该字段。
+    pub edge_id: Option<String>,
     /// 事件的生命周期类别。
     pub kind: ExecutionEventKind,
     /// 可选的人类可读消息或错误摘要。
@@ -37,6 +39,8 @@ pub enum ExecutionEventKind {
     Log,
     /// 某个节点执行成功。
     NodeSucceeded,
+    /// 运行时已选择并进入一条连线。
+    EdgeTraversed,
     /// 某个节点执行失败。
     NodeFailed,
     /// 工作流中的所有节点已完成。

@@ -55,38 +55,54 @@ impl ExecutionEventSink for TauriEventSink {
 /// 面向 Tauri 调用方的统一命令错误载荷。
 pub struct CommandError {
     /// 稳定的机器可读错误代码。
-    pub code: &'static str,
+    pub code: CommandErrorCode,
     /// 适合展示或记录的错误说明。
     pub message: String,
     /// 工作流校验失败时的详细问题；其他错误类型为空。
     pub issues: Vec<ValidationIssue>,
 }
 
+/// Tauri 工作流命令返回的稳定错误类别。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CommandErrorCode {
+    /// 工作流定义未通过运行前校验。
+    ValidationFailed,
+    /// 同一个运行时引擎已有活动任务。
+    RunInProgress,
+    /// 执行事件无法投递给前端。
+    EventDeliveryFailed,
+    /// 校验后依赖的结构约束在执行期间失效。
+    ExecutionInvariantFailed,
+    /// 自动化后端执行动作失败。
+    AutomationFailed,
+}
+
 impl From<RuntimeError> for CommandError {
     fn from(error: RuntimeError) -> Self {
         match error {
             RuntimeError::ValidationFailed { report } => Self {
-                code: "validation_failed",
+                code: CommandErrorCode::ValidationFailed,
                 message: "工作流校验失败".to_owned(),
                 issues: report.issues,
             },
             RuntimeError::RunInProgress { run_id } => Self {
-                code: "run_in_progress",
+                code: CommandErrorCode::RunInProgress,
                 message: format!("工作流运行 {run_id} 尚未结束"),
                 issues: Vec::new(),
             },
             RuntimeError::EventSink(message) => Self {
-                code: "event_delivery_failed",
+                code: CommandErrorCode::EventDeliveryFailed,
                 message,
                 issues: Vec::new(),
             },
             RuntimeError::ExecutionInvariant(message) => Self {
-                code: "execution_invariant_failed",
+                code: CommandErrorCode::ExecutionInvariantFailed,
                 message,
                 issues: Vec::new(),
             },
             RuntimeError::Automation(error) => Self {
-                code: "automation_failed",
+                code: CommandErrorCode::AutomationFailed,
                 message: error.to_string(),
                 issues: Vec::new(),
             },

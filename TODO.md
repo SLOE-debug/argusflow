@@ -28,7 +28,7 @@
 
 ### 核心契约
 
-- [x] `CORE-001` `P0` 定义版本化 `WorkflowDefinition`、节点、连线和画布位置。
+- [x] `CORE-001` `P0` 定义 schema v2 `WorkflowDefinition`、JSON 变量、节点、分支连线和画布位置。
 - [x] `CORE-002` `P0` 定义 Start、Log、Delay、Action、End 节点契约。
 - [x] `CORE-003` `P0` 定义 Click 与 SetValue 自动化动作契约。
 - [x] `CORE-004` `P0` 定义 Native、Browser、VisualText、Coordinate 选择器。
@@ -37,21 +37,23 @@
 - [ ] `CORE-007` `P1` 增加窗口、进程和应用范围的目标约束。
 - [ ] `CORE-008` `P1` 增加观察结果、元素快照、矩形和置信度契约。
 - [ ] `CORE-009` `P1` 增加节点输入/输出端口及类型化数据传递契约。
-- [ ] `CORE-010` `P2` 增加条件、分支、循环、变量和表达式契约。
+- [x] `CORE-010` `P2` 增加结构化 JSON 条件、True/False 分支与只读变量契约。
+- [ ] `CORE-012` `P2` 增加循环、变量写入和受控表达式契约。
 - [ ] `CORE-011` `P2` 建立 Rust/TypeScript 契约自动生成，消除手工镜像。
 
 ### 工作流运行时
 
 - [x] `RUNTIME-001` `P0` 校验 schema 版本、名称、节点和连线 ID。
 - [x] `RUNTIME-002` `P0` 校验唯一 Start/End、边端点、自环、环路和可达性。
-- [x] `RUNTIME-003` `P0` 首版限制为单入单出的线性执行链。
+- [x] `RUNTIME-003` `P0` 校验无环条件 DAG，并保证每次运行只选择一条命中路径。
 - [x] `RUNTIME-004` `P0` 异步执行 Start、Log、Delay 和 End。
 - [x] `RUNTIME-005` `P0` 发送有序运行事件并拒绝重复并发启动。
 - [x] `RUNTIME-006` `P0` Action 未接入时返回明确失败事件。
 - [ ] `RUNTIME-007` `P1` 支持取消当前运行与应用退出时的安全清理。
 - [ ] `RUNTIME-008` `P1` 支持节点超时、重试、失败策略和执行上下文。
 - [ ] `RUNTIME-009` `P1` 支持运行快照、历史记录和失败现场保存。
-- [ ] `RUNTIME-010` `P2` 支持 DAG、条件分支、循环和并行节点。
+- [x] `RUNTIME-010` `P2` 支持条件 DAG、JSON 谓词、分支汇合和连线流转事件。
+- [ ] `RUNTIME-012` `P2` 支持循环和并行节点。
 - [ ] `RUNTIME-011` `P2` 支持断点、单步执行和从指定节点重放。
 
 ### Tauri 桌面端
@@ -66,16 +68,17 @@
 
 ### 可视化工作流编辑器
 
-- [x] `EDITOR-001` `P0` 集成 React、TypeScript、Vite、Tailwind CSS 和 React Flow。
-- [x] `EDITOR-002` `P0` 提供 Start、Log、Delay、End 默认工作流。
-- [x] `EDITOR-003` `P0` 支持 Log/Delay 节点新增、删除、拖动和属性编辑。
-- [x] `EDITOR-004` `P0` 支持线性连线创建、选择和删除。
+- [x] `EDITOR-001` `P0` 集成 React、TypeScript、Vite、Tailwind CSS、Zustand 和项目内自研 Flow 引擎。
+- [x] `EDITOR-002` `P0` 提供 Start、Log、Delay、Condition、End 节点注册表和空白初始文档。
+- [x] `EDITOR-003` `P0` 支持多形态节点新增、删除、流畅拖动和属性编辑。
+- [x] `EDITOR-004` `P0` 支持四向锚点连线、选择、删除、端点重连和条件分支标签。
 - [x] `EDITOR-005` `P0` 展示 Rust 校验问题并标记对应节点。
 - [x] `EDITOR-006` `P0` 展示实时执行日志与节点运行状态。
 - [ ] `EDITOR-007` `P1` 支持工作流新建、打开、保存、另存为和最近文件。
 - [ ] `EDITOR-008` `P1` 增加 Click、SetValue、Wait、窗口和浏览器节点面板。
-- [ ] `EDITOR-009` `P1` 增加撤销/重做、复制/粘贴、多选和框选。
-- [ ] `EDITOR-010` `P1` 增加画布自动布局、对齐、吸附和节点搜索。
+- [x] `EDITOR-009` `P1` 增加撤销/重做、复制/粘贴、重复、多选、框选和桌面快捷键。
+- [x] `EDITOR-010` `P1` 增加对齐、等距分布、自动吸附、辅助线、节点搜索和缩放平移。
+- [x] `EDITOR-014` `P1` 增加圆角正交自动避障、Worker 精确路由、视口裁剪和运行粒子流动。
 - [ ] `EDITOR-011` `P1` 增加节点级错误、耗时、输入和输出检查器。
 - [ ] `EDITOR-012` `P2` 增加子流程、节点分组、注释和可复用模板。
 - [ ] `EDITOR-013` `P2` 增加运行时间线、断点和单步调试界面。

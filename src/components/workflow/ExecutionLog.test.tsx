@@ -14,6 +14,7 @@ describe('ExecutionLog', () => {
         workflow_id: 'workflow',
         sequence: 2,
         node_id: 'log',
+        edge_id: null,
         kind: 'log',
         message: 'ArgusFlow 已启动',
       },

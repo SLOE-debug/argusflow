@@ -1,219 +1,149 @@
 import { listen } from '@tauri-apps/api/event';
-import {
-  addEdge,
-  useEdgesState,
-  useNodesState,
-  type Connection,
-} from '@xyflow/react';
-import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useStore } from 'zustand';
 
-import type { ExecutionEvent, ValidationReport } from './contracts';
+import { createFlowStore } from '../../flow/store';
+import type { FlowAnchorSide, FlowPoint } from '../../flow/types';
+import type { ExecutionEvent, JsonObject, ValidationReport } from './contracts';
 import {
-  DEFAULT_EDGES,
-  DEFAULT_NODES,
-  applyExecutionEventToNodes,
-  createNode,
-  toWorkflowDefinition,
-  type WorkflowCanvasEdge,
-  type WorkflowCanvasNode,
+  DEFAULT_EDGES, DEFAULT_NODES, applyExecutionEventToNodes, canConnect, createEdge,
+  createNode, toWorkflowDefinition, type EditableNodeKind, type WorkflowCanvasEdge,
+  type WorkflowCanvasNode, type WorkflowEdgeData, type WorkflowNodeData,
 } from './workflowModel';
 import { normalizeCommandError, runWorkflow, validateWorkflow } from './workflowApi';
 
 const WORKFLOW_EVENT_NAME = 'argusflow://workflow-event';
 
-/** 管理工作流画布、后端校验/运行请求及实时执行状态的编辑器 Hook。 */
+/** 编排自研 Flow store、工作流设置和后端运行事件。 */
 export function useWorkflowStudio() {
-  /** 编辑器本次挂载期间保持稳定的工作流 ID，重新打开编辑器时重新生成。 */
   const workflowId = useMemo(() => crypto.randomUUID(), []);
-  const [workflowName, setWorkflowName] = useState('我的第一个 ArgusFlow');
-  const [nodes, setNodes, onNodesChange] = useNodesState<WorkflowCanvasNode>(DEFAULT_NODES);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(DEFAULT_EDGES);
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  const flowStore = useMemo(() => createFlowStore<WorkflowNodeData, WorkflowEdgeData>({ metadata: { workflowName: '未命名工作流', variables: {} }, nodes: DEFAULT_NODES, edges: DEFAULT_EDGES }), []);
+  const nodes = useStore(flowStore, (state) => state.nodes) as WorkflowCanvasNode[];
+  const edges = useStore(flowStore, (state) => state.edges) as WorkflowCanvasEdge[];
+  const selectedNodeIds = useStore(flowStore, (state) => state.selectedNodeIds);
+  const selectedEdgeId = useStore(flowStore, (state) => state.selectedEdgeId);
+  const workflowName = useStore(flowStore, (state) => state.metadata.workflowName as string);
+  const variables = useStore(flowStore, (state) => state.metadata.variables as JsonObject);
+  const [variablesDraft, setVariablesDraft] = useState('{}');
+  const [variablesError, setVariablesError] = useState<string | null>(null);
   const [report, setReport] = useState<ValidationReport | null>(null);
   const [events, setEvents] = useState<ExecutionEvent[]>([]);
   const [running, setRunning] = useState(false);
   const [runId, setRunId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const setWorkflowName = (name: string) => flowStore.getState().setMetadata({ workflowName: name }, true, 'workflow-name');
 
   useEffect(() => {
+    try {
+      if (JSON.stringify(JSON.parse(variablesDraft)) !== JSON.stringify(variables)) setVariablesDraft(JSON.stringify(variables, null, 2));
+    } catch {
+      // 非法草稿必须保留给用户修正，不能被历史状态覆盖。
+    }
+  }, [variables, variablesDraft]);
+
+  useEffect(() => {
+    // 普通浏览器开发预览没有 Tauri IPC；只在桌面 WebView 中注册事件桥接。
+    if (!(window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__) return;
     let disposed = false;
     let unlisten: (() => void) | undefined;
-
-    // 监听器可能在异步注册完成前卸载，因此用 disposed 防止卸载后的回调泄漏。
     void listen<ExecutionEvent>(WORKFLOW_EVENT_NAME, ({ payload }) => {
       setEvents((current) => [...current, payload]);
-      setNodes((current) => applyExecutionEventToNodes(current, payload));
-      if (payload.kind === 'workflow_completed' || payload.kind === 'workflow_failed') {
-        setRunning(false);
-      }
-    }).then((stopListening) => {
-      if (disposed) stopListening();
-      else unlisten = stopListening;
-    });
+      flowStore.setState((state) => ({ nodes: applyExecutionEventToNodes(state.nodes as WorkflowCanvasNode[], payload) }));
+      if (payload.kind === 'edge_traversed' && payload.edge_id) flowStore.getState().activateEdge(payload.edge_id);
+      if (payload.kind === 'workflow_completed' || payload.kind === 'workflow_failed') setRunning(false);
+    }).then((stopListening) => disposed ? stopListening() : unlisten = stopListening);
+    return () => { disposed = true; unlisten?.(); };
+  }, [flowStore]);
 
-    return () => {
-      disposed = true;
-      unlisten?.();
-    };
-  }, [setNodes]);
-
-  const selectedNode = nodes.find((node) => node.id === selectedNodeId) ?? null;
-  const canDelete =
-    Boolean(selectedEdgeId) ||
-    selectedNode?.data.kind === 'log' ||
-    selectedNode?.data.kind === 'delay';
-  /** 始终从最新画布状态生成请求，避免校验或运行时使用过期快照。 */
-  const currentWorkflow = () =>
-    toWorkflowDefinition(workflowId, workflowName, nodes, edges);
+  const selectedNode = selectedNodeIds.size === 1 ? nodes.find((node) => selectedNodeIds.has(node.id)) ?? null : null;
+  const selectedEdge = edges.find((edge) => edge.id === selectedEdgeId) ?? null;
+  const currentWorkflow = () => toWorkflowDefinition(workflowId, workflowName, variables, flowStore.getState().nodes as WorkflowCanvasNode[], flowStore.getState().edges as WorkflowCanvasEdge[]);
 
   const validate = async () => {
     setErrorMessage(null);
+    if (variablesError) { setErrorMessage(variablesError); return null; }
     try {
       const nextReport = await validateWorkflow(currentWorkflow());
       setReport(nextReport);
-      markInvalidNodes(nextReport, setNodes);
+      const invalidIds = new Set(nextReport.issues.flatMap((issue) => issue.node_id ? [issue.node_id] : []));
+      flowStore.setState((state) => ({ nodes: state.nodes.map((node) => ({ ...node, data: { ...(node.data as WorkflowNodeData), invalid: invalidIds.has(node.id) } })) }));
       return nextReport;
-    } catch (error) {
-      setErrorMessage(normalizeCommandError(error).message);
-      return null;
-    }
+    } catch (error) { setErrorMessage(normalizeCommandError(error).message); return null; }
   };
 
   const run = async () => {
-    setEvents([]);
-    setRunId(null);
-    setErrorMessage(null);
-    resetNodeStates(setNodes);
+    setEvents([]); setRunId(null); setErrorMessage(null);
+    flowStore.setState((state) => ({ nodes: state.nodes.map((node) => ({ ...node, data: { ...(node.data as WorkflowNodeData), runState: 'idle', invalid: false } })) }));
     const nextReport = await validate();
     if (!nextReport?.valid) return;
-
     setRunning(true);
+    try { const started = await runWorkflow(currentWorkflow()); setRunId(started.run_id); }
+    catch (error) { const commandError = normalizeCommandError(error); setErrorMessage(commandError.message); setRunning(false); }
+  };
+
+  const addNode = (kind: EditableNodeKind, position?: FlowPoint) => {
+    if ((kind === 'start' || kind === 'end') && nodes.some((node) => node.kind === kind)) return;
+    /** 面板点击没有鼠标世界坐标，因此以可见起始区为基准交错放置，避免节点完全重叠。 */
+    const initialPosition = position ?? { x: 80 + nodes.length % 3 * 230, y: 110 + Math.floor(nodes.length / 3) * 180 };
+    const node = createNode(kind, initialPosition);
+    flowStore.getState().transact((state) => ({ ...state, nodes: [...state.nodes, node] }));
+    flowStore.getState().selectNodes([node.id]);
+    setReport(null);
+  };
+
+  const connect = (source: string, target: string, sourceSide?: FlowAnchorSide, targetSide?: FlowAnchorSide) => {
+    const state = flowStore.getState();
+    if (!canConnect(state.nodes as WorkflowCanvasNode[], state.edges as WorkflowCanvasEdge[], source, target)) return false;
+    const edge = createEdge(source, target, state.nodes as WorkflowCanvasNode[], state.edges as WorkflowCanvasEdge[], sourceSide, targetSide);
+    state.transact((snapshot) => ({ ...snapshot, edges: [...snapshot.edges, edge] }));
+    setReport(null);
+    return true;
+  };
+
+  const reconnect = (edgeId: string, endpoint: 'source' | 'target', nodeId: string, side?: FlowAnchorSide) => {
+    const edge = edges.find((candidate) => candidate.id === edgeId);
+    if (!edge) return false;
+    const source = endpoint === 'source' ? nodeId : edge.source.nodeId;
+    const target = endpoint === 'target' ? nodeId : edge.target.nodeId;
+    if (!canConnect(nodes, edges, source, target, edgeId)) return false;
+    const newSourceNode = nodes.find((node) => node.id === source);
+    const usedBranches = new Set(edges.filter((candidate) => candidate.id !== edgeId && candidate.source.nodeId === source).map((candidate) => candidate.data.branch));
+    const branch = newSourceNode?.kind === 'condition'
+      ? edge.source.nodeId === source && edge.data.branch && !usedBranches.has(edge.data.branch)
+        ? edge.data.branch
+        : usedBranches.has('true') ? 'false' : 'true'
+      : null;
+    flowStore.getState().transact((state) => ({ ...state, edges: state.edges.map((candidate) => candidate.id === edgeId ? { ...candidate, [endpoint]: { nodeId, side }, data: { branch } } : candidate) }));
+    return true;
+  };
+
+  const updateNode = (data: Partial<WorkflowNodeData>) => {
+    if (!selectedNode) return;
+    flowStore.getState().transact((state) => ({ ...state, nodes: state.nodes.map((node) => node.id === selectedNode.id ? { ...node, data: { ...(node.data as WorkflowNodeData), ...data } } : node) }), `node-fields:${selectedNode.id}`);
+    setReport(null);
+  };
+
+  const updateEdgeBranch = (branch: 'true' | 'false') => {
+    if (!selectedEdge) return;
+    flowStore.getState().transact((state) => {
+      const conflict = state.edges.find((edge) => edge.id !== selectedEdge.id && edge.source.nodeId === selectedEdge.source.nodeId && (edge.data as WorkflowEdgeData).branch === branch);
+      return { ...state, edges: state.edges.map((edge) => edge.id === selectedEdge.id ? { ...edge, data: { branch } } : edge.id === conflict?.id ? { ...edge, data: { branch: selectedEdge.data.branch } } : edge) };
+    });
+  };
+
+  const updateVariables = (draft: string) => {
+    setVariablesDraft(draft);
     try {
-      const started = await runWorkflow(currentWorkflow());
-      setRunId(started.run_id);
-    } catch (error) {
-      const commandError = normalizeCommandError(error);
-      setErrorMessage(commandError.message);
-      if (commandError.issues.length > 0) {
-        const nextReport = { valid: false, issues: commandError.issues };
-        setReport(nextReport);
-        markInvalidNodes(nextReport, setNodes);
-      }
-      setRunning(false);
-    }
-  };
-
-  const connect = (connection: Connection) => {
-    setEdges((current) =>
-      addEdge(
-        { ...connection, id: `${connection.source}-${connection.target}`, type: 'smoothstep' },
-        current,
-      ),
-    );
-    setReport(null);
-  };
-
-  /** 限制自环、固定端点方向和重复入/出边，使前端连线先满足后端的线性链约束。 */
-  const isValidConnection = (connection: Connection | WorkflowCanvasEdge) => {
-    if (!connection.source || !connection.target || connection.source === connection.target) {
-      return false;
-    }
-    const sourceNode = nodes.find((node) => node.id === connection.source);
-    const targetNode = nodes.find((node) => node.id === connection.target);
-    return (
-      sourceNode?.data.kind !== 'end' &&
-      targetNode?.data.kind !== 'start' &&
-      !edges.some((edge) => edge.source === connection.source) &&
-      !edges.some((edge) => edge.target === connection.target)
-    );
-  };
-
-  const addNode = (kind: 'log' | 'delay') => {
-    const node = createNode(kind, nodes.length);
-    setNodes((current) => [...current, node]);
-    setSelectedNodeId(node.id);
-    setSelectedEdgeId(null);
-    setReport(null);
-  };
-
-  const updateNode = (data: Partial<WorkflowCanvasNode['data']>) => {
-    if (!selectedNodeId) return;
-    setNodes((current) =>
-      current.map((node) =>
-        node.id === selectedNodeId ? { ...node, data: { ...node.data, ...data } } : node,
-      ),
-    );
-    setReport(null);
-  };
-
-  const deleteSelection = () => {
-    if (selectedEdgeId) {
-      setEdges((current) => current.filter((edge) => edge.id !== selectedEdgeId));
-      setSelectedEdgeId(null);
-      setReport(null);
-      return;
-    }
-    if (!selectedNode || !['log', 'delay'].includes(selectedNode.data.kind)) return;
-    setNodes((current) => current.filter((node) => node.id !== selectedNode.id));
-    setEdges((current) =>
-      current.filter(
-        (edge) => edge.source !== selectedNode.id && edge.target !== selectedNode.id,
-      ),
-    );
-    setSelectedNodeId(null);
-    setReport(null);
+      const parsed: unknown = JSON.parse(draft);
+      if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') throw new Error('变量根值必须是 JSON 对象');
+      flowStore.getState().setMetadata({ variables: parsed as JsonObject }, true, 'workflow-variables'); setVariablesError(null);
+    } catch (error) { setVariablesError(error instanceof Error ? error.message : 'JSON 格式无效'); }
   };
 
   return {
-    workflowName,
-    setWorkflowName,
-    nodes,
-    edges,
-    onNodesChange,
-    onEdgesChange,
-    selectedNode,
-    selectedEdgeId,
-    setSelectedNodeId,
-    setSelectedEdgeId,
-    report,
-    events,
-    running,
-    runId,
-    errorMessage,
-    canDelete,
-    validate,
-    run,
-    connect,
-    isValidConnection,
-    addNode,
-    updateNode,
-    deleteSelection,
+    flowStore, workflowName, setWorkflowName, variablesDraft, variablesError, updateVariables,
+    nodes, edges, selectedNode, selectedNodeIds, selectedEdge, selectedEdgeId, report, events,
+    running, runId, errorMessage, validate, run, addNode, connect, reconnect, updateNode,
+    updateEdgeBranch, deleteSelection: () => flowStore.getState().deleteSelection(),
   };
-}
-
-/** 开始新一轮运行前清除上一次运行和校验留下的节点标记。 */
-function resetNodeStates(setNodes: Dispatch<SetStateAction<WorkflowCanvasNode[]>>) {
-  setNodes((current) =>
-    current.map((node) => ({
-      ...node,
-      data: { ...node.data, runState: 'idle', invalid: false },
-    })),
-  );
-}
-
-/** 将后端报告中的节点问题投影到画布，供卡片显示错误边框。 */
-function markInvalidNodes(
-  report: ValidationReport,
-  setNodes: Dispatch<SetStateAction<WorkflowCanvasNode[]>>,
-) {
-  const invalidIds = new Set(
-    report.issues.flatMap((issue) => (issue.node_id ? [issue.node_id] : [])),
-  );
-  setNodes((current) =>
-    current.map((node) => ({
-      ...node,
-      data: { ...node.data, invalid: invalidIds.has(node.id) },
-    })),
-  );
 }

@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use uuid::Uuid;
 
-use crate::AutomationAction;
+use crate::{AutomationAction, ConditionPredicate};
 
 /// 可序列化的完整工作流定义。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -12,6 +13,8 @@ pub struct WorkflowDefinition {
     pub id: Uuid,
     /// 面向用户显示的工作流名称。
     pub name: String,
+    /// 条件节点读取的只读 JSON 变量；根值必须是对象。
+    pub variables: Value,
     /// 按节点定义执行内容及画布位置。
     pub nodes: Vec<WorkflowNode>,
     /// 描述节点之间执行顺序的有向连线。
@@ -55,6 +58,11 @@ pub enum WorkflowNodeKind {
         /// 暂停时长，单位为毫秒；运行时校验范围为 1 到 60000。
         milliseconds: u64,
     },
+    /// 根据结构化谓词选择 True 或 False 分支。
+    Condition {
+        /// 在只读工作流变量上执行的安全条件。
+        predicate: ConditionPredicate,
+    },
     /// 将自动化操作交给匹配的后端执行。
     Action {
         /// 要交给自动化后端执行的动作。
@@ -73,4 +81,16 @@ pub struct WorkflowEdge {
     pub source: String,
     /// 目标节点 ID。
     pub target: String,
+    /// Condition 源节点的分支标签；其他节点的连线必须为空。
+    pub branch: Option<ConditionBranch>,
+}
+
+/// Condition 节点的两个互斥出口。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConditionBranch {
+    /// 条件成立时选择的出口。
+    True,
+    /// 条件不成立时选择的出口。
+    False,
 }

@@ -1,103 +1,54 @@
+import type { StoreApi } from 'zustand';
+
 import {
-  Background,
-  BackgroundVariant,
-  Controls,
-  MiniMap,
-  ReactFlow,
-  type Connection,
-  type EdgeMouseHandler,
-  type NodeMouseHandler,
-  type OnConnect,
-  type OnEdgesChange,
-  type OnNodesChange,
-} from '@xyflow/react';
-
+  FlowCanvas,
+  FlowProvider,
+  type FlowAnchorSide,
+  type FlowPoint,
+  type FlowState,
+} from '../../flow';
 import type {
-  WorkflowCanvasEdge,
-  WorkflowCanvasNode,
+  WorkflowEdgeData,
+  WorkflowNodeData,
 } from '../../features/workflow/workflowModel';
-import { WorkflowNodeCard } from './WorkflowNodeCard';
-
-const nodeTypes = { workflow: WorkflowNodeCard };
+import { workflowNodeRegistry } from './WorkflowNodeCard';
 
 type WorkflowCanvasProps = {
-  /** 当前画布节点及其运行/校验状态。 */
-  nodes: WorkflowCanvasNode[];
-  /** 当前画布连接，边 ID 必须在删除和选中时保持稳定。 */
-  edges: WorkflowCanvasEdge[];
-  /** React Flow 节点变更处理器。 */
-  onNodesChange: OnNodesChange<WorkflowCanvasNode>;
-  /** React Flow 边变更处理器。 */
-  onEdgesChange: OnEdgesChange<WorkflowCanvasEdge>;
-  /** 新连接创建后的业务处理器。 */
-  onConnect: OnConnect;
-  /** 创建连接前执行的节点入度/出度及自环校验。 */
-  isValidConnection: (connection: Connection | WorkflowCanvasEdge) => boolean;
-  /** 选中节点或清除节点选择。 */
-  onSelectNode: (nodeId: string | null) => void;
-  /** 选中边或清除边选择。 */
-  onSelectEdge: (edgeId: string | null) => void;
+  store: StoreApi<FlowState<WorkflowNodeData, WorkflowEdgeData>>;
+  onAddNode: (kind: WorkflowNodeData['kind'], position: FlowPoint) => void;
+  onConnect: (
+    source: string,
+    target: string,
+    sourceSide?: FlowAnchorSide,
+    targetSide?: FlowAnchorSide,
+  ) => boolean;
+  onReconnect: (
+    edgeId: string,
+    endpoint: 'source' | 'target',
+    nodeId: string,
+    side?: FlowAnchorSide,
+  ) => boolean;
 };
 
-/** 工作流可视化编辑画布，负责 React Flow 展示和选择事件编排。 */
+/** 将 ArgusFlow 节点注册表和业务约束接入自研 Flow 画布。 */
 export function WorkflowCanvas({
-  nodes,
-  edges,
-  onNodesChange,
-  onEdgesChange,
+  store,
+  onAddNode,
   onConnect,
-  isValidConnection,
-  onSelectNode,
-  onSelectEdge,
+  onReconnect,
 }: WorkflowCanvasProps) {
-  const handleNodeClick: NodeMouseHandler<WorkflowCanvasNode> = (_event, node) => {
-    onSelectNode(node.id);
-    onSelectEdge(null);
-  };
-  const handleEdgeClick: EdgeMouseHandler<WorkflowCanvasEdge> = (_event, edge) => {
-    onSelectEdge(edge.id);
-    onSelectNode(null);
+  const addWorkflowNode = (kind: string, position: FlowPoint) => {
+    onAddNode(kind as WorkflowNodeData['kind'], position);
   };
 
   return (
-    <div className="argusflow-grid h-full min-h-0">
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        nodeTypes={nodeTypes}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
+    <FlowProvider store={store}>
+      <FlowCanvas
+        registry={workflowNodeRegistry}
+        onAddNode={addWorkflowNode}
         onConnect={onConnect}
-        isValidConnection={isValidConnection}
-        onNodeClick={handleNodeClick}
-        onEdgeClick={handleEdgeClick}
-        onPaneClick={() => {
-          onSelectNode(null);
-          onSelectEdge(null);
-        }}
-        deleteKeyCode={null}
-        fitView
-        fitViewOptions={{ padding: 0.2 }}
-        minZoom={0.35}
-        maxZoom={1.7}
-        defaultEdgeOptions={{ type: 'smoothstep' }}
-      >
-        <Background
-          color="var(--color-canvas-grid)"
-          gap={28}
-          size={1.2}
-          variant={BackgroundVariant.Dots}
-        />
-        <Controls position="bottom-left" showInteractive={false} />
-        <MiniMap
-          position="bottom-right"
-          pannable
-          zoomable
-          nodeColor="var(--color-accent)"
-          maskColor="var(--color-minimap-mask)"
-          className="argusflow-minimap"
-        />
-      </ReactFlow>
-    </div>
+        onReconnect={onReconnect}
+      />
+    </FlowProvider>
   );
 }

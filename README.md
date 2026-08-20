@@ -1,15 +1,16 @@
 # ArgusFlow
 
-ArgusFlow 是一个严格面向 Windows 的 Rust Agent Runtime 与可视化工作流设计器骨架。桌面端使用 Tauri 2，前端使用 React、TypeScript、Tailwind CSS 和 React Flow。
+ArgusFlow 是一个严格面向 Windows 的 Rust Agent Runtime 与可视化工作流设计器骨架。桌面端使用 Tauri 2，前端使用 React、TypeScript、Tailwind CSS、Zustand 和项目内自研 Flow 引擎。
 
 > ArgusFlow 只支持 `x86_64-pc-windows-msvc`。Cargo 已将该目标设为默认值，所有 Rust crate 在非 Windows 目标上都会直接拒绝编译；项目不提供 Linux、macOS 或移动端兼容层。
 
 当前版本提供：
 
 - 可序列化的工作流、RPA 动作和目标选择器契约；
-- 线性工作流校验与 `Start → Log/Delay → End` 内存演示执行；
+- 条件 DAG 工作流校验、完整 JSON 变量比较与单路径模拟执行；
 - UIA、CDP、视觉/OCR、GUI grounding 和 SendInput 的后端边界；
-- 可编辑的节点画布、属性面板与实时运行日志。
+- 支持框选、快捷编辑、对齐分布、吸附辅助线、缩放平移、四向锚点、端点重连和正交避障的自研节点画布；
+- Start、End、Log、Delay、Condition 多形态节点、连线流动粒子、属性面板与实时运行日志。
 
 完整功能状态和后续路线统一维护在 [TODO.md](TODO.md)。任何功能实现、删除或优先级调整都应同步更新该清单。
 

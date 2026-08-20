@@ -6,11 +6,15 @@
 compile_error!("ArgusFlow only supports Windows targets.");
 
 mod automation;
+mod condition;
 mod error;
 mod execution;
 mod workflow;
 
 pub use automation::{ActionOutcome, AutomationAction, BackendKind, Selector};
+pub use condition::{ConditionEvaluationError, ConditionOperator, ConditionPredicate};
 pub use error::AutomationError;
 pub use execution::{ExecutionEvent, ExecutionEventKind, RunStarted};
-pub use workflow::{Position, WorkflowDefinition, WorkflowEdge, WorkflowNode, WorkflowNodeKind};
+pub use workflow::{
+    ConditionBranch, Position, WorkflowDefinition, WorkflowEdge, WorkflowNode, WorkflowNodeKind,
+};

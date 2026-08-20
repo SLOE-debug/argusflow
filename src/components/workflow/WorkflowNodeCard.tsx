@@ -1,73 +1,127 @@
-import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { Clock3, GitBranch, List, Play, Square, type LucideIcon } from 'lucide-react';
 
-import type { WorkflowCanvasNode } from '../../features/workflow/workflowModel';
+import type { FlowNodeRendererProps, NodeDefinition } from '../../flow';
+import type {
+  NodeRunState,
+  WorkflowNodeData,
+} from '../../features/workflow/workflowModel';
 
-/** 各节点类型在画布卡片顶部使用的渐变色。 */
-const nodeAccent = {
-  start: 'argus-accent-start',
-  log: 'argus-accent-log',
-  delay: 'argus-accent-delay',
-  end: 'argus-accent-end',
+type WorkflowNodeKind = WorkflowNodeData['kind'];
+
+type NodeSize = {
+  readonly width: number;
+  readonly height: number;
 };
 
-/** 各节点类型在卡片中显示的简化图标。 */
-const nodeIcon = {
-  start: '▶',
-  log: '≡',
-  delay: '◷',
-  end: '■',
+type WorkflowNodeRegistry = Record<
+  WorkflowNodeKind,
+  NodeDefinition<WorkflowNodeData>
+>;
+
+/** 画布节点类型对应的统一线性图标。 */
+const icons: Record<WorkflowNodeKind, LucideIcon> = {
+  start: Play,
+  log: List,
+  delay: Clock3,
+  condition: GitBranch,
+  end: Square,
 };
 
-/** 展示节点标签、运行状态、类型详情及可连接端点的画布卡片。 */
-export function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowCanvasNode>) {
-  const details =
-    data.kind === 'log'
-      ? data.message
-      : data.kind === 'delay'
-        ? `${data.milliseconds ?? 0} ms`
-        : data.kind === 'start'
-          ? '工作流入口'
-          : '工作流出口';
-  const statusClass = {
-    idle: 'argus-status-idle',
-    running: 'argus-status-running',
-    success: 'argus-status-success',
-    error: 'argus-status-error',
-  }[data.runState ?? 'idle'];
+/** 画布节点类型对应的强调色与浅色渐变。 */
+const nodeTones: Record<WorkflowNodeKind, string> = {
+  start: 'text-emerald-600 from-emerald-50',
+  end: 'text-rose-600 from-rose-50',
+  condition: 'text-violet-600 from-violet-50',
+  delay: 'text-orange-600 from-orange-50',
+  log: 'text-blue-600 from-blue-50',
+};
+
+/** 执行状态点对应的颜色和动画。 */
+const statusTones: Record<NodeRunState, string> = {
+  idle: 'bg-slate-400',
+  running: 'animate-pulse bg-blue-500 ring-4 ring-blue-100',
+  success: 'bg-emerald-500',
+  error: 'bg-rose-500',
+};
+
+/** ArgusFlow 节点注册表，由通用 Flow 内核按 kind 分派。 */
+export const workflowNodeRegistry = {
+  start: createDefinition('start', '开始', { width: 168, height: 68 }, true),
+  log: createDefinition('log', '日志', { width: 200, height: 72 }),
+  delay: createDefinition('delay', '等待', { width: 200, height: 72 }),
+  condition: createDefinition('condition', '条件', { width: 200, height: 72 }),
+  end: createDefinition('end', '结束', { width: 168, height: 68 }, true),
+} satisfies WorkflowNodeRegistry;
+
+/** 构造带统一业务渲染器的节点定义。 */
+function createDefinition(
+  kind: WorkflowNodeKind,
+  title: string,
+  defaultSize: NodeSize,
+  singleton = false,
+): NodeDefinition<WorkflowNodeData> {
+  return {
+    kind,
+    title,
+    defaultSize,
+    singleton,
+    component: WorkflowNodeCard,
+  };
+}
+
+/** 根据节点类型渲染矩形业务卡片。 */
+export function WorkflowNodeCard({ node }: FlowNodeRendererProps<WorkflowNodeData>) {
+  const data = node.data;
+  const detail = resolveNodeDetail(data);
+  const status = data.runState ?? 'idle';
+  const invalidTone = data.invalid
+    ? 'border-rose-500 ring-[3px] ring-rose-100'
+    : 'border-slate-300';
+  const Icon = icons[data.kind];
+  const cardClassName = [
+    'relative flex h-full w-full items-center gap-3 overflow-hidden rounded-xl border',
+    'bg-gradient-to-br to-white px-3 py-2',
+    'shadow-[0_7px_18px_rgba(43,60,82,.10),0_1px_2px_rgba(43,60,82,.08)]',
+    'transition-shadow hover:shadow-[0_10px_24px_rgba(43,60,82,.13)]',
+    nodeTones[data.kind],
+    invalidTone,
+  ].join(' ');
 
   return (
-    <div
-      className={`argus-node-card w-48 overflow-hidden border backdrop-blur transition ${
-        data.invalid ? 'is-invalid' : selected ? 'is-selected' : ''
-      }`}
-    >
-      {data.kind !== 'start' && (
-        <Handle
-          type="target"
-          position={Position.Left}
-          className="argus-handle !h-3 !w-3 !border-2"
-        />
-      )}
-      <div className={`h-1 ${nodeAccent[data.kind]}`} />
-      <div className="flex items-start gap-3 px-4 py-3.5">
-        <span className="argus-node-icon flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-sm font-bold">
-          {nodeIcon[data.kind]}
+    <div className={cardClassName}>
+      <span className="absolute inset-y-2 left-0 w-[3px] rounded-r bg-current" />
+      <Icon
+        className="size-5 shrink-0 stroke-[1.9]"
+        aria-hidden="true"
+      />
+      <div className="flex min-w-0 flex-1 flex-col justify-center text-slate-800">
+        <strong className="truncate text-sm leading-tight">{data.label}</strong>
+        <span className="mt-0.5 truncate text-[11px] leading-tight text-slate-500">
+          {detail}
         </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center justify-between gap-3">
-            <span className="argus-body text-sm font-bold">{data.label}</span>
-            <span className={`h-2 w-2 rounded-full ${statusClass}`} />
-          </div>
-          <p className="argus-muted mt-1 truncate text-xs">{details}</p>
-        </div>
       </div>
-      {data.kind !== 'end' && (
-        <Handle
-          type="source"
-          position={Position.Right}
-          className="argus-handle !h-3 !w-3 !border-2"
-        />
-      )}
+      <span
+        className={
+          'size-2 shrink-0 rounded-full border-2 border-white ' +
+          `shadow-[0_0_0_1px_rgba(88,105,128,.18)] ${statusTones[status]}`
+        }
+      />
     </div>
   );
+}
+
+/** 将节点专属配置压缩为卡片副标题。 */
+function resolveNodeDetail(data: WorkflowNodeData): string {
+  switch (data.kind) {
+    case 'log':
+      return data.message ?? '';
+    case 'delay':
+      return `${data.milliseconds ?? 0} ms`;
+    case 'condition':
+      return `${data.pointer || '/'} · ${data.operator}`;
+    case 'start':
+      return '流程入口';
+    case 'end':
+      return '流程出口';
+  }
 }
