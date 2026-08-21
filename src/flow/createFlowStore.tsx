@@ -28,7 +28,7 @@ export function createFlowStore<TData = unknown, TEdgeData = unknown>(
     metadata: initial?.metadata ?? {},
     nodes: initial?.nodes ?? [],
     edges: initial?.edges ?? [],
-    viewport: { x: 80, y: 60, zoom: 1 },
+    viewport: { x: 0, y: 42, zoom: 1 },
     selectedNodeIds: new Set(),
     selectedEdgeId: null,
     hoveredNodeId: null,

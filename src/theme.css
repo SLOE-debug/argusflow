@@ -7,7 +7,7 @@
 :root {
   color-scheme: light;
 
-  --font-family-ui: Inter, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-family-ui: Inter, "Segoe UI Variable Text", "Microsoft YaHei UI", "Segoe UI", system-ui, sans-serif;
   --font-family-mono: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
   --font-size-caption: 0.75rem;
   --font-size-body: 0.875rem;

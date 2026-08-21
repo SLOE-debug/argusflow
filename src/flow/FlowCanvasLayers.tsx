@@ -40,21 +40,20 @@ type FlowCanvasLayersProps = Readonly<{
 
 /** 框选覆盖层样式。 */
 const SELECTION_OVERLAY_CLASS_NAME = [
-  'pointer-events-none absolute rounded-[10px] border border-dashed',
-  'border-blue-600/80 bg-gradient-to-br from-blue-500/15 to-blue-400/5',
-  'shadow-[inset_0_0_0_1px_rgba(255,255,255,.5),0_8px_24px_rgba(37,99,235,.1)]',
+  'pointer-events-none absolute rounded-md border border-dashed',
+  'border-blue-600/80 bg-blue-500/10',
 ].join(' ');
 
 /** 随视口变化的点阵背景样式。 */
 const CANVAS_GRID_CLASS_NAME = [
   'pointer-events-none absolute inset-0',
-  'bg-[radial-gradient(circle,#b8c5d5_1.1px,transparent_1.2px)]',
+  'bg-[linear-gradient(to_right,#edf1f6_1px,transparent_1px),linear-gradient(to_bottom,#edf1f6_1px,transparent_1px)]',
 ].join(' ');
 
 /** 节点吸附参考线的基础样式。 */
 const ALIGNMENT_GUIDE_CLASS_NAME = [
   'pointer-events-none absolute z-[100]',
-  'bg-pink-500 ring-1 ring-pink-500/10',
+  'bg-blue-500/80',
 ].join(' ');
 
 /** 装配画布网格、连线和随世界坐标变换的节点交互图层。 */

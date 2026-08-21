@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
-import { ChevronDown, ChevronUp } from 'lucide-react';
 
-import { ExecutionLog } from './components/workflow/ExecutionLog';
+import { WindowTitleBar } from './components/shell/WindowTitleBar';
+import { EditorCommandBar } from './components/workflow/EditorCommandBar';
 import { NodeInspector } from './components/workflow/NodeInspector';
 import { NodePalette } from './components/workflow/NodePalette';
-import { RunToolbar } from './components/workflow/RunToolbar';
 import { WorkflowCanvas } from './components/workflow/WorkflowCanvas';
+import { WorkflowWorkspace } from './components/workflow/WorkflowWorkspace';
+import { WorkspaceStatusBar } from './components/workflow/WorkspaceStatusBar';
+import { resolveWorkflowStatus } from './components/workflow/workflowStatus';
 import { useWorkflowStudio } from './features/workflow/useWorkflowStudio';
 
 /** ArgusFlow 桌面 IDE 工作台入口。 */
@@ -13,7 +15,7 @@ export default function App() {
   const studio = useWorkflowStudio();
   const [libraryOpen, setLibraryOpen] = useState(true);
   const [inspectorOpen, setInspectorOpen] = useState(true);
-  const [consoleOpen, setConsoleOpen] = useState(false);
+  const [consoleOpen, setConsoleOpen] = useState(true);
 
   useEffect(() => {
     const hasConsoleContent =
@@ -29,25 +31,38 @@ export default function App() {
   /** 左右面板开关对应的工作区列布局。 */
   const mainColumns = libraryOpen
     ? inspectorOpen
-      ? 'grid-cols-[226px_minmax(0,1fr)_292px]'
-      : 'grid-cols-[226px_minmax(0,1fr)]'
+      ? 'grid-cols-[224px_minmax(0,1fr)_336px]'
+      : 'grid-cols-[224px_minmax(0,1fr)]'
     : inspectorOpen
-      ? 'grid-cols-[minmax(0,1fr)_292px]'
+      ? 'grid-cols-[minmax(0,1fr)_336px]'
       : 'grid-cols-[minmax(0,1fr)]';
 
   const toggleLibrary = () => setLibraryOpen((value) => !value);
   const toggleInspector = () => setInspectorOpen((value) => !value);
   const toggleConsole = () => setConsoleOpen((value) => !value);
+  const workflowStatus = resolveWorkflowStatus(
+    studio.running,
+    studio.report,
+    studio.errorMessage,
+  );
 
   return (
     <main
       data-theme="daylight"
-      className="grid h-full w-full grid-rows-[52px_minmax(0,1fr)_auto] bg-[#edf2f8] text-[#182236]"
+      className="grid h-full w-full grid-rows-[56px_52px_minmax(0,1fr)_40px] bg-slate-50 text-slate-800"
     >
-      <RunToolbar
+      <WindowTitleBar
+        workflowName={studio.workflowName}
         running={studio.running}
         report={studio.report}
         errorMessage={studio.errorMessage}
+      />
+      <EditorCommandBar
+        store={studio.flowStore}
+        running={studio.running}
+        libraryOpen={libraryOpen}
+        inspectorOpen={inspectorOpen}
+        consoleOpen={consoleOpen}
         onValidate={() => void studio.validate()}
         onRun={() => void studio.run()}
         onToggleLibrary={toggleLibrary}
@@ -61,14 +76,21 @@ export default function App() {
             onAdd={studio.addNode}
           />
         )}
-        <section className="relative min-h-0 min-w-0 overflow-hidden">
-          <WorkflowCanvas
-            store={studio.flowStore}
-            onAddNode={studio.addNode}
-            onConnect={studio.connect}
-            onReconnect={studio.reconnect}
-          />
-        </section>
+        <WorkflowWorkspace
+          open={consoleOpen}
+          events={studio.events}
+          report={studio.report}
+          workflowName={studio.workflowName}
+          onToggle={toggleConsole}
+          canvas={(
+            <WorkflowCanvas
+              store={studio.flowStore}
+              onAddNode={studio.addNode}
+              onConnect={studio.connect}
+              onReconnect={studio.reconnect}
+            />
+          )}
+        />
         {inspectorOpen && (
           <NodeInspector
             workflowName={studio.workflowName}
@@ -85,35 +107,10 @@ export default function App() {
           />
         )}
       </div>
-      <section className="z-[18] border-t border-slate-300 bg-slate-50">
-        <button
-          type="button"
-          className="flex h-[34px] w-full items-center px-3 text-left text-slate-600 hover:bg-white"
-          onClick={toggleConsole}
-        >
-          <span className="text-xs font-extrabold tracking-[.06em]">运行与校验</span>
-          <span className="ml-2.5 text-[11px] text-slate-500">
-            {studio.events.length} EVENTS
-          </span>
-          {consoleOpen ? (
-            <ChevronDown
-              className="ml-auto size-5"
-              aria-hidden="true"
-            />
-          ) : (
-            <ChevronUp
-              className="ml-auto size-5"
-              aria-hidden="true"
-            />
-          )}
-        </button>
-        {consoleOpen && (
-          <ExecutionLog
-            events={studio.events}
-            report={studio.report}
-          />
-        )}
-      </section>
+      <WorkspaceStatusBar
+        store={studio.flowStore}
+        status={workflowStatus}
+      />
     </main>
   );
 }

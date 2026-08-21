@@ -21,17 +21,15 @@ const ANCHOR_POSITIONS = {
 
 /** 选中框视觉样式。 */
 const SELECTION_OUTLINE_CLASS_NAME = [
-  'pointer-events-none absolute -inset-1 rounded-2xl border',
-  'border-blue-600/80 ring-[3px] ring-blue-500/10',
-  'shadow-[0_8px_24px_rgba(37,99,235,.08)]',
+  'pointer-events-none absolute -inset-1 rounded-[8px] border',
+  'border-blue-500 ring-2 ring-blue-500/10',
 ].join(' ');
 
 /** 连线锚点视觉样式；方位类由锚点方向单独补充。 */
 const ANCHOR_CLASS_NAME = [
-  'absolute z-30 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full',
-  'border-2 border-white bg-blue-500 p-0',
-  'shadow-[0_1px_5px_rgba(30,64,175,.4)]',
-  'transition-[width,height,background-color] hover:size-[13px] hover:bg-blue-700',
+  'absolute z-30 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full',
+  'border border-white bg-blue-600 p-0 outline-none',
+  'transition-[width,height,background-color] hover:size-2.5 hover:bg-blue-700',
 ].join(' ');
 
 type FlowNodeViewProps = Readonly<{
@@ -100,7 +98,7 @@ export const FlowNodeView = memo(function FlowNodeView({
         selected={selected}
       />
       {selected ? <NodeSelectionOutline /> : null}
-      {hovered || selected ? (
+      {hovered ? (
         <NodeAnchors
           node={node}
           onConnectionStart={onConnectionStart}

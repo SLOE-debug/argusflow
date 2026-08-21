@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   AlignCenterHorizontal,
   AlignCenterVertical,
@@ -8,17 +8,23 @@ import {
   AlignStartHorizontal,
   AlignStartVertical,
   AlignVerticalSpaceBetween,
-  ChevronRight,
   CirclePlay,
+  ClipboardPaste,
   Clock3,
+  Copy,
+  CopyPlus,
   GitBranch,
   LayoutPanelLeft,
   List,
   Plus,
+  Redo2,
   Square,
+  Trash2,
+  Undo2,
   type LucideIcon,
 } from 'lucide-react';
 
+import { FlowMenuItem, FlowMenuSeparator, FlowMenuSurface } from './FlowMenu';
 import type { AlignMode, DistributeMode } from './selection';
 import { useFlowStore } from './store';
 import type { FlowNode, NodeDefinition, NodeRegistry } from './types';
@@ -45,6 +51,15 @@ type ArrangeAction = Readonly<{
   | Readonly<{ kind: 'distribute'; mode: DistributeMode }>
 );
 
+type OpenSubmenu = 'nodes' | 'arrange' | null;
+
+/** 各级菜单的稳定键盘焦点标识。 */
+const MENU_IDS = {
+  root: 'flow-context-root',
+  nodes: 'flow-context-nodes',
+  arrange: 'flow-context-arrange',
+} as const;
+
 /** 右键菜单内业务节点类型对应的图标。 */
 const NODE_ICONS: Readonly<Record<string, LucideIcon>> = {
   start: CirclePlay,
@@ -54,83 +69,33 @@ const NODE_ICONS: Readonly<Record<string, LucideIcon>> = {
   log: List,
 };
 
-/** 右键菜单中各节点类型的图标色。 */
+/** 节点图标使用的单一强调色，不再绘制彩色图标底板。 */
 const NODE_ICON_TONES: Readonly<Record<string, string>> = {
-  start: 'bg-emerald-100 text-emerald-700',
-  end: 'bg-rose-100 text-rose-700',
-  condition: 'bg-violet-100 text-violet-700',
-  delay: 'bg-orange-100 text-orange-700',
-  log: 'bg-blue-100 text-blue-700',
+  start: 'text-emerald-700',
+  end: 'text-rose-700',
+  condition: 'text-violet-700',
+  delay: 'text-orange-700',
+  log: 'text-blue-700',
 };
 
 const HORIZONTAL_ALIGN_ACTIONS = [
   { kind: 'align', label: '左对齐', icon: AlignStartVertical, mode: 'left' },
-  { kind: 'align', label: '居中', icon: AlignCenterVertical, mode: 'center-x' },
+  { kind: 'align', label: '水平居中', icon: AlignCenterVertical, mode: 'center-x' },
   { kind: 'align', label: '右对齐', icon: AlignEndVertical, mode: 'right' },
 ] as const satisfies ReadonlyArray<ArrangeAction>;
 
 const VERTICAL_ALIGN_ACTIONS = [
-  { kind: 'align', label: '顶部', icon: AlignStartHorizontal, mode: 'top' },
-  { kind: 'align', label: '居中', icon: AlignCenterHorizontal, mode: 'center-y' },
-  { kind: 'align', label: '底部', icon: AlignEndHorizontal, mode: 'bottom' },
+  { kind: 'align', label: '顶部对齐', icon: AlignStartHorizontal, mode: 'top' },
+  { kind: 'align', label: '垂直居中', icon: AlignCenterHorizontal, mode: 'center-y' },
+  { kind: 'align', label: '底部对齐', icon: AlignEndHorizontal, mode: 'bottom' },
 ] as const satisfies ReadonlyArray<ArrangeAction>;
 
 const DISTRIBUTE_ACTIONS = [
-  {
-    kind: 'distribute',
-    label: '水平分布',
-    icon: AlignVerticalSpaceBetween,
-    mode: 'horizontal',
-  },
-  {
-    kind: 'distribute',
-    label: '垂直分布',
-    icon: AlignHorizontalSpaceBetween,
-    mode: 'vertical',
-  },
+  { kind: 'distribute', label: '水平分布', icon: AlignVerticalSpaceBetween, mode: 'horizontal' },
+  { kind: 'distribute', label: '垂直分布', icon: AlignHorizontalSpaceBetween, mode: 'vertical' },
 ] as const satisfies ReadonlyArray<ArrangeAction>;
 
-/** 一级菜单项的统一 Tailwind 样式。 */
-const MENU_ITEM_CLASS_NAME = [
-  'relative flex min-h-10 w-full items-center gap-2 rounded-lg border-0',
-  'bg-transparent px-2 py-1 text-left text-[13px] text-slate-700',
-  'hover:bg-blue-50 hover:text-blue-700',
-  'disabled:cursor-not-allowed disabled:opacity-50',
-].join(' ');
-
-/** 主菜单浮层样式。 */
-const CONTEXT_MENU_CLASS_NAME = [
-  'absolute z-[120] w-[220px] rounded-[14px] border border-slate-300/90',
-  'bg-white/98 p-2 text-slate-800 backdrop-blur-xl',
-  'shadow-[0_20px_48px_rgba(28,43,65,.18),0_3px_10px_rgba(28,43,65,.08)]',
-].join(' ');
-
-/** 二级排列菜单浮层样式。 */
-const ARRANGE_MENU_CLASS_NAME = [
-  'absolute -bottom-2 w-[238px] rounded-[14px] border border-slate-300/90',
-  'bg-white p-2',
-  'shadow-[0_20px_48px_rgba(28,43,65,.16),0_3px_10px_rgba(28,43,65,.07)]',
-].join(' ');
-
-/** 二级排列按钮样式。 */
-const ARRANGE_ACTION_CLASS_NAME = [
-  'flex h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-lg',
-  'bg-slate-50 px-1 py-1 text-slate-600 hover:bg-blue-50 hover:text-blue-700',
-].join(' ');
-
-/** 菜单分组标题样式。 */
-const MENU_HEADING_CLASS_NAME = [
-  'flex min-h-[26px] items-center gap-2 px-2 py-0.5 text-[11px]',
-  'font-extrabold tracking-[.06em] text-slate-500',
-].join(' ');
-
-/** 排列入口图标容器样式。 */
-const ARRANGE_TRIGGER_ICON_CLASS_NAME = [
-  'flex size-7 shrink-0 items-center justify-center rounded-lg',
-  'bg-blue-100 text-blue-700',
-].join(' ');
-
-/** 画布右键菜单：提供节点创建，并在多选时提供排列与对齐二级菜单。 */
+/** Windows 风格画布右键菜单，提供现有编辑、创建和排列能力。 */
 export function FlowContextMenu({
   context,
   registry,
@@ -138,12 +103,45 @@ export function FlowContextMenu({
   onAddNode,
   onClose,
 }: FlowContextMenuProps) {
-  const [arrangeOpen, setArrangeOpen] = useState(false);
-  const selectedCount = useFlowStore((state) => state.selectedNodeIds.size);
+  const [openSubmenu, setOpenSubmenu] = useState<OpenSubmenu>(null);
+  const selectedNodeCount = useFlowStore((state) => state.selectedNodeIds.size);
+  const selectedEdgeId = useFlowStore((state) => state.selectedEdgeId);
+  const pastCount = useFlowStore((state) => state.past.length);
+  const futureCount = useFlowStore((state) => state.future.length);
+  const hasClipboard = useFlowStore((state) => state.clipboard !== null);
+  const undo = useFlowStore((state) => state.undo);
+  const redo = useFlowStore((state) => state.redo);
+  const copy = useFlowStore((state) => state.copy);
+  const paste = useFlowStore((state) => state.paste);
+  const duplicate = useFlowStore((state) => state.duplicate);
+  const deleteSelection = useFlowStore((state) => state.deleteSelection);
   const align = useFlowStore((state) => state.align);
   const distribute = useFlowStore((state) => state.distribute);
-  const openArrangeMenu = () => setArrangeOpen(true);
-  const closeArrangeMenu = () => setArrangeOpen(false);
+  const hasSelection = selectedNodeCount > 0 || selectedEdgeId !== null;
+  /** 注册表中声明为单例的节点类型。 */
+  const singletonKinds = new Set(
+    Object.values(registry)
+      .filter((definition) => definition.singleton)
+      .map((definition) => definition.kind),
+  );
+  const submenuSideClassName = context.submenuSide === 'left'
+    ? 'right-full mr-1'
+    : 'left-full ml-1';
+
+  useEffect(() => {
+    setOpenSubmenu(null);
+    queueMicrotask(() => {
+      document.querySelector<HTMLButtonElement>(
+        `[data-menu-owner="${MENU_IDS.root}"]:not(:disabled)`,
+      )?.focus();
+    });
+  }, [context]);
+
+  /** 执行无参数 Store 命令并关闭菜单。 */
+  const runCommand = (command: () => void) => {
+    command();
+    onClose();
+  };
   const addNode = (definition: NodeDefinition) => {
     onAddNode(definition.kind, context.world);
     onClose();
@@ -153,218 +151,201 @@ export function FlowContextMenu({
     else distribute(action.mode);
     onClose();
   };
+  const closeSubmenu = () => {
+    const expandedTrigger = document.querySelector<HTMLButtonElement>(
+      `[data-menu-owner="${MENU_IDS.root}"][aria-expanded="true"]`,
+    );
+    setOpenSubmenu(null);
+    queueMicrotask(() => expandedTrigger?.focus());
+  };
 
   return (
-    <div
-      role="menu"
-      className={CONTEXT_MENU_CLASS_NAME}
+    <FlowMenuSurface
+      menuId={MENU_IDS.root}
+      ariaLabel="画布菜单"
+      className="absolute"
       style={{ left: context.x, top: context.y }}
-      onPointerDown={(event) => event.stopPropagation()}
+      onBack={onClose}
     >
-      <MenuHeading
-        icon={Plus}
-        label="添加节点"
+      <FlowMenuItem
+        menuId={MENU_IDS.root}
+        label="撤销"
+        shortcut="Ctrl+Z"
+        icon={Undo2}
+        disabled={pastCount === 0}
+        onHighlight={() => setOpenSubmenu(null)}
+        onClick={() => runCommand(undo)}
       />
-      <div className="flex flex-col gap-0.5">
-        {Object.values(registry).map((definition) => (
-          <NodeMenuItem
-            key={definition.kind}
-            definition={definition}
-            disabled={Boolean(
-              definition.singleton
-              && nodes.some((node) => node.kind === definition.kind),
-            )}
-            onAdd={addNode}
+      <FlowMenuItem
+        menuId={MENU_IDS.root}
+        label="重做"
+        shortcut="Ctrl+Y"
+        icon={Redo2}
+        disabled={futureCount === 0}
+        onHighlight={() => setOpenSubmenu(null)}
+        onClick={() => runCommand(redo)}
+      />
+      <FlowMenuSeparator />
+      <FlowMenuItem
+        menuId={MENU_IDS.root}
+        label="复制"
+        shortcut="Ctrl+C"
+        icon={Copy}
+        disabled={selectedNodeCount === 0}
+        onHighlight={() => setOpenSubmenu(null)}
+        onClick={() => runCommand(copy)}
+      />
+      <FlowMenuItem
+        menuId={MENU_IDS.root}
+        label="粘贴"
+        shortcut="Ctrl+V"
+        icon={ClipboardPaste}
+        disabled={!hasClipboard}
+        onHighlight={() => setOpenSubmenu(null)}
+        onClick={() => runCommand(() => paste(singletonKinds))}
+      />
+      <FlowMenuItem
+        menuId={MENU_IDS.root}
+        label="创建副本"
+        shortcut="Ctrl+D"
+        icon={CopyPlus}
+        disabled={selectedNodeCount === 0}
+        onHighlight={() => setOpenSubmenu(null)}
+        onClick={() => runCommand(() => duplicate(singletonKinds))}
+      />
+      <FlowMenuItem
+        menuId={MENU_IDS.root}
+        label="删除"
+        shortcut="Del"
+        icon={Trash2}
+        disabled={!hasSelection}
+        onHighlight={() => setOpenSubmenu(null)}
+        onClick={() => runCommand(() => deleteSelection())}
+      />
+      <FlowMenuSeparator />
+      <FlowMenuItem
+        menuId={MENU_IDS.root}
+        label="添加节点"
+        icon={Plus}
+        submenuId={MENU_IDS.nodes}
+        submenuOpen={openSubmenu === 'nodes'}
+        onOpenSubmenu={() => setOpenSubmenu('nodes')}
+      >
+        <NodeSubmenu
+          className={submenuSideClassName}
+          registry={registry}
+          nodes={nodes}
+          onAdd={addNode}
+          onBack={closeSubmenu}
+        />
+      </FlowMenuItem>
+      {selectedNodeCount > 1 ? (
+        <FlowMenuItem
+          menuId={MENU_IDS.root}
+          label="排列与对齐"
+          icon={LayoutPanelLeft}
+          submenuId={MENU_IDS.arrange}
+          submenuOpen={openSubmenu === 'arrange'}
+          onOpenSubmenu={() => setOpenSubmenu('arrange')}
+        >
+          <ArrangeSubmenu
+            className={submenuSideClassName}
+            onAction={runArrangeAction}
+            onBack={closeSubmenu}
           />
-        ))}
-      </div>
-      {selectedCount > 1 ? (
-        <>
-          <div className="mx-1 my-1.5 h-px bg-slate-200" />
-          <div
-            className="relative"
-            onMouseEnter={openArrangeMenu}
-            onMouseLeave={closeArrangeMenu}
-          >
-            <button
-              type="button"
-              aria-expanded={arrangeOpen}
-              aria-haspopup="menu"
-              className={`${MENU_ITEM_CLASS_NAME} ${arrangeOpen ? 'bg-blue-50 text-blue-700' : ''}`}
-              role="menuitem"
-              onClick={openArrangeMenu}
-            >
-              <span className={ARRANGE_TRIGGER_ICON_CLASS_NAME}>
-                <LayoutPanelLeft
-                  aria-hidden="true"
-                  className="size-5"
-                />
-              </span>
-              <span className="min-w-0 flex-1">排列与对齐</span>
-              <small className="ml-auto text-[10px] text-slate-400">
-                {selectedCount} 个
-              </small>
-              <ChevronRight
-                aria-hidden="true"
-                className="size-5 shrink-0 text-slate-400"
-              />
-            </button>
-            <ArrangeSubmenu
-              action={runArrangeAction}
-              open={arrangeOpen}
-              side={context.submenuSide}
-            />
-          </div>
-        </>
+        </FlowMenuItem>
       ) : null}
-    </div>
+    </FlowMenuSurface>
   );
 }
 
-type MenuHeadingProps = Readonly<{
-  icon?: LucideIcon;
-  label: string;
-}>;
-
-/** 渲染右键菜单的分组标题。 */
-function MenuHeading({ icon: Icon, label }: MenuHeadingProps) {
-  return (
-    <div
-      className={MENU_HEADING_CLASS_NAME}
-    >
-      {Icon ? (
-        <Icon
-          aria-hidden="true"
-          className="size-5"
-        />
-      ) : null}
-      <span>{label}</span>
-    </div>
-  );
-}
-
-type NodeMenuItemProps = Readonly<{
-  definition: NodeDefinition;
-  disabled: boolean;
+type NodeSubmenuProps = Readonly<{
+  className: string;
+  registry: Readonly<NodeRegistry>;
+  nodes: ReadonlyArray<FlowNode>;
   onAdd: (definition: NodeDefinition) => void;
+  onBack: () => void;
 }>;
 
-/** 渲染一项可创建的业务节点。 */
-function NodeMenuItem({ definition, disabled, onAdd }: NodeMenuItemProps) {
-  const Icon = NODE_ICONS[definition.kind] ?? Plus;
-  const iconTone = NODE_ICON_TONES[definition.kind] ?? 'bg-blue-100 text-blue-700';
-  const handleClick = () => onAdd(definition);
-
+/** 可添加节点的纵向级联菜单。 */
+function NodeSubmenu({ className, registry, nodes, onAdd, onBack }: NodeSubmenuProps) {
   return (
-    <button
-      type="button"
-      className={MENU_ITEM_CLASS_NAME}
-      disabled={disabled}
-      role="menuitem"
-      onClick={handleClick}
+    <FlowMenuSurface
+      menuId={MENU_IDS.nodes}
+      ariaLabel="添加节点"
+      className={`absolute bottom-0 ${className}`}
+      onBack={onBack}
     >
-      <span className={`flex size-7 shrink-0 items-center justify-center rounded-lg ${iconTone}`}>
-        <Icon
-          aria-hidden="true"
-          className="size-5"
-        />
-      </span>
-      <span className="min-w-0 flex-1">{definition.title}</span>
-      {disabled ? (
-        <small className="ml-auto text-[10px] text-slate-400">已添加</small>
-      ) : null}
-    </button>
+      {Object.values(registry).map((definition) => {
+        const Icon = NODE_ICONS[definition.kind] ?? Plus;
+        const iconTone = NODE_ICON_TONES[definition.kind] ?? 'text-blue-700';
+        const disabled = Boolean(
+          definition.singleton && nodes.some((node) => node.kind === definition.kind),
+        );
+
+        return (
+          <FlowMenuItem
+            key={definition.kind}
+            menuId={MENU_IDS.nodes}
+            label={definition.title}
+            icon={Icon}
+            iconTone={iconTone}
+            disabled={disabled}
+            onClick={() => onAdd(definition)}
+          />
+        );
+      })}
+    </FlowMenuSurface>
   );
 }
 
 type ArrangeSubmenuProps = Readonly<{
-  action: (action: ArrangeAction) => void;
-  open: boolean;
-  side: CanvasContextMenu['submenuSide'];
-}>;
-
-/** 渲染右键菜单的二级排列操作面板。 */
-function ArrangeSubmenu({ action, open, side }: ArrangeSubmenuProps) {
-  const visibilityClassName = open ? 'block' : 'hidden';
-  const sideClassName = side === 'left' ? 'right-full' : 'left-full';
-
-  return (
-    <div
-      role="menu"
-      className={`${visibilityClassName} ${sideClassName} ${ARRANGE_MENU_CLASS_NAME}`}
-    >
-      <MenuHeading label="水平对齐" />
-      <ArrangeActionGroup
-        actions={HORIZONTAL_ALIGN_ACTIONS}
-        className="mb-1 grid grid-cols-3 gap-1"
-        onAction={action}
-      />
-      <MenuHeading label="垂直对齐" />
-      <ArrangeActionGroup
-        actions={VERTICAL_ALIGN_ACTIONS}
-        className="mb-1 grid grid-cols-3 gap-1"
-        onAction={action}
-      />
-      <MenuHeading label="均匀分布" />
-      <ArrangeActionGroup
-        actions={DISTRIBUTE_ACTIONS}
-        className="grid grid-cols-2 gap-1"
-        onAction={action}
-      />
-    </div>
-  );
-}
-
-type ArrangeActionGroupProps = Readonly<{
-  actions: ReadonlyArray<ArrangeAction>;
   className: string;
   onAction: (action: ArrangeAction) => void;
+  onBack: () => void;
 }>;
 
-/** 按配置渲染同一排列操作分组。 */
-function ArrangeActionGroup({
-  actions,
-  className,
-  onAction,
-}: ArrangeActionGroupProps) {
+/** 对齐与分布操作的纵向级联菜单。 */
+function ArrangeSubmenu({ className, onAction, onBack }: ArrangeSubmenuProps) {
   return (
-    <div className={className}>
-      {actions.map((action) => (
-        <MenuAction
-          key={`${action.kind}-${action.mode}`}
-          action={action}
-          onAction={onAction}
-        />
-      ))}
-    </div>
+    <FlowMenuSurface
+      menuId={MENU_IDS.arrange}
+      ariaLabel="排列与对齐"
+      className={`absolute bottom-0 ${className}`}
+      onBack={onBack}
+    >
+      <ArrangeActionItems
+        actions={HORIZONTAL_ALIGN_ACTIONS}
+        onAction={onAction}
+      />
+      <FlowMenuSeparator />
+      <ArrangeActionItems
+        actions={VERTICAL_ALIGN_ACTIONS}
+        onAction={onAction}
+      />
+      <FlowMenuSeparator />
+      <ArrangeActionItems
+        actions={DISTRIBUTE_ACTIONS}
+        onAction={onAction}
+      />
+    </FlowMenuSurface>
   );
 }
 
-type MenuActionProps = Readonly<{
-  action: ArrangeAction;
+type ArrangeActionItemsProps = Readonly<{
+  actions: ReadonlyArray<ArrangeAction>;
   onAction: (action: ArrangeAction) => void;
 }>;
 
-/** 二级菜单中的图标化排列操作。 */
-function MenuAction({ action, onAction }: MenuActionProps) {
-  const Icon = action.icon;
-  const handleClick = () => onAction(action);
-
-  return (
-    <button
-      type="button"
-      className={ARRANGE_ACTION_CLASS_NAME}
-      role="menuitem"
-      title={action.label}
-      onClick={handleClick}
-    >
-      <Icon
-        aria-hidden="true"
-        className="size-5"
-      />
-      <span className="max-w-full truncate text-[11px] leading-none">
-        {action.label}
-      </span>
-    </button>
-  );
+/** 将同一分组中的排列动作渲染为菜单项。 */
+function ArrangeActionItems({ actions, onAction }: ArrangeActionItemsProps) {
+  return actions.map((action) => (
+    <FlowMenuItem
+      key={`${action.kind}-${action.mode}`}
+      menuId={MENU_IDS.arrange}
+      label={action.label}
+      icon={action.icon}
+      onClick={() => onAction(action)}
+    />
+  ));
 }

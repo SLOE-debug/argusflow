@@ -352,22 +352,22 @@ export function useCanvasPointerInteractions({
     if (!world) return;
 
     const bounds = event.currentTarget.getBoundingClientRect();
-    /** 主菜单宽度为 220px，并为阴影保留少量安全边距。 */
+    /** 主菜单宽度为 192px，并为阴影保留少量安全边距。 */
     const menuX = Math.min(
       event.clientX - bounds.left,
-      Math.max(8, bounds.width - 228),
+      Math.max(8, bounds.width - 200),
     );
     /** 菜单固定在画布内，避免靠近底部时操作项被裁切。 */
     const menuY = Math.min(
       event.clientY - bounds.top,
-      Math.max(8, bounds.height - 390),
+      Math.max(8, bounds.height - 260),
     );
 
     setContextMenu({
       x: menuX,
       y: menuY,
       world,
-      submenuSide: menuX > bounds.width - 450 ? 'left' : 'right',
+      submenuSide: menuX > bounds.width - 396 ? 'left' : 'right',
     });
   }, [pointerWorld]);
 

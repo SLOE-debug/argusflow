@@ -6,7 +6,7 @@ import { createFlowStore } from '../../flow/store';
 import type { FlowAnchorSide, FlowPoint } from '../../flow/types';
 import type { ExecutionEvent, JsonObject, ValidationReport } from './contracts';
 import {
-  DEFAULT_EDGES, DEFAULT_NODES, applyExecutionEventToNodes, canConnect, createEdge,
+  DEFAULT_EDGES, DEFAULT_NODES, DEFAULT_SELECTED_NODE_ID, applyExecutionEventToNodes, canConnect, createEdge,
   createNode, toWorkflowDefinition, type EditableNodeKind, type WorkflowCanvasEdge,
   type WorkflowCanvasNode, type WorkflowEdgeData, type WorkflowNodeData,
 } from './workflowModel';
@@ -17,14 +17,28 @@ const WORKFLOW_EVENT_NAME = 'argusflow://workflow-event';
 /** 编排自研 Flow store、工作流设置和后端运行事件。 */
 export function useWorkflowStudio() {
   const workflowId = useMemo(() => crypto.randomUUID(), []);
-  const flowStore = useMemo(() => createFlowStore<WorkflowNodeData, WorkflowEdgeData>({ metadata: { workflowName: '未命名工作流', variables: {} }, nodes: DEFAULT_NODES, edges: DEFAULT_EDGES }), []);
+  const flowStore = useMemo(() => {
+    /** 带参考工作流的独立画布 Store。 */
+    const store = createFlowStore<WorkflowNodeData, WorkflowEdgeData>({
+      metadata: {
+        workflowName: '数据同步流程',
+        variables: { enabled: true, batchSize: 100 },
+      },
+      nodes: DEFAULT_NODES,
+      edges: DEFAULT_EDGES,
+    });
+    store.getState().selectNodes([DEFAULT_SELECTED_NODE_ID]);
+    return store;
+  }, []);
   const nodes = useStore(flowStore, (state) => state.nodes) as WorkflowCanvasNode[];
   const edges = useStore(flowStore, (state) => state.edges) as WorkflowCanvasEdge[];
   const selectedNodeIds = useStore(flowStore, (state) => state.selectedNodeIds);
   const selectedEdgeId = useStore(flowStore, (state) => state.selectedEdgeId);
   const workflowName = useStore(flowStore, (state) => state.metadata.workflowName as string);
   const variables = useStore(flowStore, (state) => state.metadata.variables as JsonObject);
-  const [variablesDraft, setVariablesDraft] = useState('{}');
+  const [variablesDraft, setVariablesDraft] = useState(
+    JSON.stringify({ enabled: true, batchSize: 100 }, null, 2),
+  );
   const [variablesError, setVariablesError] = useState<string | null>(null);
   const [report, setReport] = useState<ValidationReport | null>(null);
   const [events, setEvents] = useState<ExecutionEvent[]>([]);
@@ -84,7 +98,7 @@ export function useWorkflowStudio() {
   const addNode = (kind: EditableNodeKind, position?: FlowPoint) => {
     if ((kind === 'start' || kind === 'end') && nodes.some((node) => node.kind === kind)) return;
     /** 面板点击没有鼠标世界坐标，因此以可见起始区为基准交错放置，避免节点完全重叠。 */
-    const initialPosition = position ?? { x: 80 + nodes.length % 3 * 230, y: 110 + Math.floor(nodes.length / 3) * 180 };
+    const initialPosition = position ?? { x: 64 + nodes.length % 3 * 194, y: 82 + Math.floor(nodes.length / 3) * 132 };
     const node = createNode(kind, initialPosition);
     flowStore.getState().transact((state) => ({ ...state, nodes: [...state.nodes, node] }));
     flowStore.getState().selectNodes([node.id]);

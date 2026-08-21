@@ -1,6 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { canConnect, createEdge, createNode, toWorkflowDefinition } from './workflowModel';
+import { workflowNodeRegistry } from '../../components/workflow/WorkflowNodeCard';
+import {
+  WORKFLOW_NODE_SIZES,
+  canConnect,
+  createEdge,
+  createNode,
+  toWorkflowDefinition,
+  type EditableNodeKind,
+} from './workflowModel';
 
 describe('workflow model', () => {
   it('maps the empty canvas to the schema v2 Rust contract', () => {
@@ -16,6 +24,18 @@ describe('workflow model', () => {
     expect(node.id).toBe('condition-generated-id');
     expect(node.data.operator).toBe('equal');
     expect(node.position).toEqual({ x: 20, y: 40 });
+    vi.unstubAllGlobals();
+  });
+
+  it('uses one compact size contract for models and renderers', () => {
+    vi.stubGlobal('crypto', { randomUUID: () => 'generated-id' });
+    const kinds = Object.keys(WORKFLOW_NODE_SIZES) as EditableNodeKind[];
+
+    for (const kind of kinds) {
+      expect(createNode(kind).size).toEqual(WORKFLOW_NODE_SIZES[kind]);
+      expect(workflowNodeRegistry[kind].defaultSize).toEqual(WORKFLOW_NODE_SIZES[kind]);
+    }
+
     vi.unstubAllGlobals();
   });
 

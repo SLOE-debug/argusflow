@@ -21,16 +21,140 @@ export type WorkflowEdgeData = { branch: ConditionBranch | null };
 export type WorkflowCanvasNode = FlowNode<WorkflowNodeData>;
 export type WorkflowCanvasEdge = FlowEdge<WorkflowEdgeData>;
 
-/** 编辑器以完全空白文档开始。 */
-export const DEFAULT_NODES: WorkflowCanvasNode[] = [];
-export const DEFAULT_EDGES: WorkflowCanvasEdge[] = [];
+/** 工作流节点在高密度桌面画布中的统一尺寸。 */
+export const WORKFLOW_NODE_SIZES = {
+  start: { width: 118, height: 56 },
+  log: { width: 142, height: 56 },
+  delay: { width: 136, height: 56 },
+  condition: { width: 132, height: 56 },
+  end: { width: 122, height: 56 },
+} as const satisfies Readonly<
+  Record<EditableNodeKind, Readonly<{ width: number; height: number }>>
+>;
 
-const NODE_DEFAULTS: Record<EditableNodeKind, { label: string; size: { width: number; height: number }; extras?: Partial<WorkflowNodeData> }> = {
-  start: { label: '开始', size: { width: 168, height: 68 } },
-  log: { label: '日志', size: { width: 200, height: 72 }, extras: { message: '记录一条运行信息' } },
-  delay: { label: '等待', size: { width: 200, height: 72 }, extras: { milliseconds: 500 } },
-  condition: { label: '条件', size: { width: 200, height: 72 }, extras: { pointer: '/enabled', operator: 'equal', operand: true } },
-  end: { label: '结束', size: { width: 168, height: 68 } },
+/** 初始示例工作流中的条件节点 ID，供工作台默认选中并展示属性面板。 */
+export const DEFAULT_SELECTED_NODE_ID = 'condition_1';
+
+/** 初始示例工作流；仅使用后端 schema v2 已支持的节点类型。 */
+export const DEFAULT_NODES: WorkflowCanvasNode[] = [
+  {
+    id: 'start_1',
+    kind: 'start',
+    position: { x: 20, y: 112 },
+    size: { ...WORKFLOW_NODE_SIZES.start },
+    data: { kind: 'start', label: '开始', runState: 'idle' },
+  },
+  {
+    id: 'read_task_1',
+    kind: 'log',
+    position: { x: 174, y: 112 },
+    size: { ...WORKFLOW_NODE_SIZES.log },
+    data: {
+      kind: 'log',
+      label: '读取任务',
+      message: '读取待处理任务',
+      runState: 'idle',
+    },
+  },
+  {
+    id: DEFAULT_SELECTED_NODE_ID,
+    kind: 'condition',
+    position: { x: 354, y: 112 },
+    size: { ...WORKFLOW_NODE_SIZES.condition },
+    data: {
+      kind: 'condition',
+      label: '条件判断',
+      pointer: '/enabled',
+      operator: 'equal',
+      operand: true,
+      runState: 'idle',
+    },
+  },
+  {
+    id: 'delay_1',
+    kind: 'delay',
+    position: { x: 358, y: 268 },
+    size: { ...WORKFLOW_NODE_SIZES.delay },
+    data: {
+      kind: 'delay',
+      label: '延迟等待',
+      milliseconds: 60_000,
+      runState: 'idle',
+    },
+  },
+  {
+    id: 'write_log_1',
+    kind: 'log',
+    position: { x: 626, y: 112 },
+    size: { ...WORKFLOW_NODE_SIZES.log },
+    data: {
+      kind: 'log',
+      label: '写入日志',
+      message: '记录处理结果',
+      runState: 'idle',
+    },
+  },
+  {
+    id: 'end_1',
+    kind: 'end',
+    position: { x: 636, y: 324 },
+    size: { ...WORKFLOW_NODE_SIZES.end },
+    data: { kind: 'end', label: '结束', runState: 'idle' },
+  },
+];
+
+/** 初始示例工作流的两路条件分支和汇合路径。 */
+export const DEFAULT_EDGES: WorkflowCanvasEdge[] = [
+  {
+    id: 'edge_start_read',
+    source: { nodeId: 'start_1', side: 'right' },
+    target: { nodeId: 'read_task_1', side: 'left' },
+    data: { branch: null },
+  },
+  {
+    id: 'edge_read_condition',
+    source: { nodeId: 'read_task_1', side: 'right' },
+    target: { nodeId: DEFAULT_SELECTED_NODE_ID, side: 'left' },
+    data: { branch: null },
+  },
+  {
+    id: 'edge_condition_log',
+    source: { nodeId: DEFAULT_SELECTED_NODE_ID, side: 'right' },
+    target: { nodeId: 'write_log_1', side: 'left' },
+    data: { branch: 'true' },
+  },
+  {
+    id: 'edge_condition_delay',
+    source: { nodeId: DEFAULT_SELECTED_NODE_ID, side: 'bottom' },
+    target: { nodeId: 'delay_1', side: 'top' },
+    data: { branch: 'false' },
+  },
+  {
+    id: 'edge_delay_log',
+    source: { nodeId: 'delay_1', side: 'right' },
+    target: { nodeId: 'write_log_1', side: 'bottom' },
+    data: { branch: null },
+  },
+  {
+    id: 'edge_log_end',
+    source: { nodeId: 'write_log_1', side: 'bottom' },
+    target: { nodeId: 'end_1', side: 'top' },
+    data: { branch: null },
+  },
+];
+
+const NODE_DEFAULTS: Readonly<
+  Record<EditableNodeKind, Readonly<{
+    label: string;
+    size: Readonly<{ width: number; height: number }>;
+    extras?: Partial<WorkflowNodeData>;
+  }>>
+> = {
+  start: { label: '开始', size: WORKFLOW_NODE_SIZES.start },
+  log: { label: '日志', size: WORKFLOW_NODE_SIZES.log, extras: { message: '记录一条运行信息' } },
+  delay: { label: '等待', size: WORKFLOW_NODE_SIZES.delay, extras: { milliseconds: 500 } },
+  condition: { label: '条件', size: WORKFLOW_NODE_SIZES.condition, extras: { pointer: '/enabled', operator: 'equal', operand: true } },
+  end: { label: '结束', size: WORKFLOW_NODE_SIZES.end },
 };
 
 /** 在指定世界坐标创建一个业务节点。 */
@@ -40,7 +164,7 @@ export function createNode(kind: EditableNodeKind, position: FlowPoint = { x: 20
     id: `${kind}-${crypto.randomUUID()}`,
     kind,
     position,
-    size: defaults.size,
+    size: { ...defaults.size },
     data: { kind, label: defaults.label, runState: 'idle', ...defaults.extras },
   };
 }

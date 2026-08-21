@@ -55,7 +55,7 @@ export function FlowCanvas({
   return (
     <div
       ref={containerRef}
-      className={`absolute inset-0 touch-none overflow-hidden bg-[#eaf0f7] ${cursorClassName}`}
+      className={`absolute inset-0 touch-none overflow-hidden bg-white ${cursorClassName}`}
       onContextMenu={interactions.handleContextMenu}
       onPointerDown={interactions.handlePanePointerDown}
       onWheel={interactions.handleWheel}

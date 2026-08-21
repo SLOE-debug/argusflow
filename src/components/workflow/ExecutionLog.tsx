@@ -7,7 +7,7 @@ import type {
 
 type ExecutionLogProps = {
   /** 按后端 sequence 顺序排列的实时执行事件。 */
-  events: ExecutionEvent[];
+  events: ReadonlyArray<ExecutionEvent>;
   /** 最近一次工作流结构校验结果。 */
   report: ValidationReport | null;
 };
@@ -29,30 +29,30 @@ export function ExecutionLog({ events, report }: ExecutionLogProps) {
   return (
     <section
       className={
-        'grid h-[152px] min-h-0 grid-cols-[minmax(0,1fr)_340px] ' +
+        'grid h-[132px] min-h-0 grid-cols-[minmax(0,1fr)_300px] ' +
         'border-t border-slate-200'
       }
     >
-      <div className="min-w-0 overflow-auto px-3 py-2.5">
-        <div className="mb-2 flex items-center justify-between">
-          <h2 className="text-[11px] font-bold tracking-[0.1em] text-slate-500 uppercase">
+      <div className="min-w-0 overflow-auto px-2 py-1.5">
+        <div className="mb-1 flex items-center justify-between">
+          <h2 className="text-[10px] font-semibold text-slate-500">
             执行日志
           </h2>
           <span className="text-[11px] text-slate-400">{events.length} events</span>
         </div>
-        <div className="h-24 space-y-1 overflow-y-auto font-mono text-[11px] leading-5">
+        <div className="h-[96px] space-y-0.5 overflow-y-auto font-mono text-[10px] leading-4">
           {events.length === 0 && (
             <p className="text-slate-400">运行工作流后，事件会显示在这里。</p>
           )}
           {events.map((event) => (
             <div
               key={`${event.run_id}-${event.sequence}`}
-              className="flex gap-2.5"
+              className="flex gap-2"
             >
-              <span className="w-7 shrink-0 text-right text-slate-400">
+              <span className="w-6 shrink-0 text-right text-slate-400">
                 {String(event.sequence).padStart(2, '0')}
               </span>
-              <span className={`w-[136px] shrink-0 ${eventTone[event.kind]}`}>
+              <span className={`w-[124px] shrink-0 ${eventTone[event.kind]}`}>
                 {event.kind}
               </span>
               <span className="truncate text-slate-600">
@@ -63,16 +63,16 @@ export function ExecutionLog({ events, report }: ExecutionLogProps) {
           ))}
         </div>
       </div>
-      <div className="min-w-0 overflow-auto border-l border-slate-200 px-3 py-2.5">
-        <h2 className="mb-2 text-[11px] font-bold tracking-[0.1em] text-slate-500 uppercase">
+      <div className="min-w-0 overflow-auto border-l border-slate-200 px-2 py-1.5">
+        <h2 className="mb-1 text-[10px] font-semibold text-slate-500">
           校验结果
         </h2>
-        <div className="h-24 overflow-y-auto text-xs leading-5">
+        <div className="h-[96px] overflow-y-auto text-[11px] leading-4">
           {!report && <p className="text-slate-400">尚未校验</p>}
           {report?.valid && (
             <p className="flex items-center gap-1.5 text-emerald-700">
               <CircleCheck
-                className="size-5 shrink-0"
+                className="size-3.5 shrink-0"
                 aria-hidden="true"
               />
               工作流结构有效

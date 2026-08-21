@@ -174,8 +174,8 @@ function FlowEdgePath({
       />
       {branchLabel ? (
         <EdgeBranchLabel
-          edgeId={edge.id}
           label={branchLabel}
+          route={route}
         />
       ) : null}
       {active ? (
@@ -199,32 +199,36 @@ function FlowEdgePath({
 /** 从未知的业务边数据中安全读取可显示的分支文本。 */
 function readBranchLabel(data: unknown): string | null {
   if (typeof data !== 'object' || data === null || !('branch' in data)) return null;
-  return typeof data.branch === 'string' && data.branch.length > 0
-    ? data.branch
-    : null;
+  if (data.branch === 'true') return '满足条件';
+  if (data.branch === 'false') return '不满足条件';
+  return null;
 }
 
 /** 将分支文本沿连线路径居中显示。 */
 function EdgeBranchLabel({
-  edgeId,
   label,
-}: Readonly<{ edgeId: string; label: string }>) {
+  route,
+}: Readonly<{ label: string; route: RoutedEdge }>) {
+  const sourcePoint = route.points[0];
+  const isPositiveBranch = label === '满足条件';
+  /** 正分支在线上方居中，负分支在竖线左侧保持水平可读。 */
+  const position = isPositiveBranch
+    ? { x: sourcePoint.x + 76, y: sourcePoint.y - 10, anchor: 'middle' as const }
+    : { x: sourcePoint.x - 12, y: sourcePoint.y + 58, anchor: 'end' as const };
+
   return (
     <text
-      fill="#6d28d9"
+      fill={label === '满足条件' ? '#16a34a' : '#ef4444'}
       fontSize="11"
-      fontWeight="800"
+      fontWeight="600"
       paintOrder="stroke"
-      stroke="#eef3f9"
+      stroke="#ffffff"
       strokeWidth="4"
-      textAnchor="middle"
+      textAnchor={position.anchor}
+      x={position.x}
+      y={position.y}
     >
-      <textPath
-        href={`#path-${edgeId}`}
-        startOffset="50%"
-      >
-        {label}
-      </textPath>
+      {label}
     </text>
   );
 }
