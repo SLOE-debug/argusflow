@@ -14,6 +14,13 @@ import type { FlowAnchorSide, FlowPoint, NodeRegistry } from './types';
 type FlowCanvasProps = Readonly<{
   registry: Readonly<NodeRegistry>;
   onAddNode: (kind: string, position: FlowPoint) => void;
+  /** 在连线落点新建节点，并在同一业务事务内完成连线。 */
+  onAddConnectedNode: (
+    kind: string,
+    position: FlowPoint,
+    sourceNodeId: string,
+    sourceSide: FlowAnchorSide,
+  ) => boolean;
   onConnect: (
     source: string,
     target: string,
@@ -35,6 +42,7 @@ export const MAX_CANVAS_ZOOM = 2.5;
 export function FlowCanvas({
   registry,
   onAddNode,
+  onAddConnectedNode,
   onConnect,
   onReconnect,
 }: FlowCanvasProps) {
@@ -111,6 +119,7 @@ export function FlowCanvas({
           context={interactions.contextMenu}
           nodes={store.getState().nodes}
           onAddNode={onAddNode}
+          onAddConnectedNode={onAddConnectedNode}
           onClose={interactions.closeContextMenu}
           registry={registry}
         />

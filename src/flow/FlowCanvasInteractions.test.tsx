@@ -54,6 +54,7 @@ describe('FlowCanvas interactions', () => {
   });
 
   afterEach(() => {
+    Reflect.deleteProperty(document, 'elementFromPoint');
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -69,6 +70,7 @@ describe('FlowCanvas interactions', () => {
         <FlowCanvas
           registry={registry}
           onAddNode={vi.fn()}
+          onAddConnectedNode={() => true}
           onConnect={() => true}
           onReconnect={() => true}
         />
@@ -96,6 +98,7 @@ describe('FlowCanvas interactions', () => {
         <FlowCanvas
           registry={registry}
           onAddNode={vi.fn()}
+          onAddConnectedNode={() => true}
           onConnect={() => true}
           onReconnect={() => true}
         />
@@ -121,6 +124,68 @@ describe('FlowCanvas interactions', () => {
     fireEvent.keyUp(window, { code: 'Space', key: ' ' });
   });
 
+  it('nudges selected nodes with arrow keys and groups repeated moves', () => {
+    const nodes = [createNode('a', 20), createNode('b', 160)];
+    const store = createFlowStore({ nodes, edges: [] });
+    store.getState().selectNodes(['a', 'b']);
+    render(
+      <FlowProvider store={store}>
+        <FlowCanvas
+          registry={registry}
+          onAddNode={vi.fn()}
+          onAddConnectedNode={() => true}
+          onConnect={() => true}
+          onReconnect={() => true}
+        />
+      </FlowProvider>,
+    );
+
+    const rightWasNotCancelled = fireEvent.keyDown(window, {
+      key: 'ArrowRight',
+    });
+    fireEvent.keyDown(window, { key: 'ArrowUp', shiftKey: true });
+
+    expect(rightWasNotCancelled).toBe(false);
+    expect(store.getState().nodes.map((item) => item.position)).toEqual([
+      { x: 21, y: 10 },
+      { x: 161, y: 10 },
+    ]);
+    expect(store.getState().past).toHaveLength(1);
+
+    store.getState().undo();
+    expect(store.getState().nodes).toBe(nodes);
+  });
+
+  it('preserves native arrow-key behavior in editable and menu controls', () => {
+    const nodes = [createNode('a', 20)];
+    const store = createFlowStore({ nodes, edges: [] });
+    store.getState().selectNodes(['a']);
+    const { container } = render(
+      <FlowProvider store={store}>
+        <FlowCanvas
+          registry={registry}
+          onAddNode={vi.fn()}
+          onAddConnectedNode={() => true}
+          onConnect={() => true}
+          onReconnect={() => true}
+        />
+      </FlowProvider>,
+    );
+    const input = document.createElement('input');
+    container.append(input);
+
+    expect(fireEvent.keyDown(input, { key: 'ArrowRight' })).toBe(true);
+    fireEvent.contextMenu(container.querySelector('.touch-none')!, {
+      clientX: 100,
+      clientY: 100,
+    });
+    const menu = screen.getByRole('menu', { name: '画布菜单' });
+    expect(fireEvent.keyDown(menu, { key: 'ArrowDown' })).toBe(false);
+
+    expect(store.getState().nodes).toBe(nodes);
+    expect(store.getState().past).toHaveLength(0);
+  });
+
   it('lets the transparent edge path receive hover and selection events', () => {
     const nodes = [createNode('a', 0), createNode('b', 120)];
     const store = createFlowStore({
@@ -137,6 +202,7 @@ describe('FlowCanvas interactions', () => {
         <FlowCanvas
           registry={registry}
           onAddNode={vi.fn()}
+          onAddConnectedNode={() => true}
           onConnect={() => true}
           onReconnect={() => true}
         />
@@ -156,6 +222,43 @@ describe('FlowCanvas interactions', () => {
     expect(visiblePath).toHaveAttribute('stroke', '#0f766e');
   });
 
+  it('opens node creation when a connection ends on empty canvas', () => {
+    const store = createFlowStore({ nodes: [createNode('a', 20)], edges: [] });
+    const onAddConnectedNode = vi.fn(() => true);
+    Object.defineProperty(document, 'elementFromPoint', {
+      configurable: true,
+      value: vi.fn(() => null),
+    });
+    const { container } = render(
+      <FlowProvider store={store}>
+        <FlowCanvas
+          registry={registry}
+          onAddNode={vi.fn()}
+          onAddConnectedNode={onAddConnectedNode}
+          onConnect={() => true}
+          onReconnect={() => true}
+        />
+      </FlowProvider>,
+    );
+    const node = container.querySelector('[data-flow-node-id="a"]');
+    fireEvent.pointerEnter(node!);
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'a right 锚点' }), {
+      button: 0,
+      clientX: 100,
+      clientY: 80,
+    });
+    fireEvent.pointerUp(window, { clientX: 300, clientY: 200 });
+
+    expect(screen.getByRole('menu', { name: '添加并连接节点' })).toBeVisible();
+    fireEvent.click(screen.getByRole('menuitem', { name: '测试' }));
+    expect(onAddConnectedNode).toHaveBeenCalledWith(
+      'test',
+      { x: 260, y: 133 },
+      'a',
+      'right',
+    );
+  });
+
   it('pans from an edge without selecting it when the pan tool is active', () => {
     const nodes = [createNode('a', 0), createNode('b', 120)];
     const store = createFlowStore({
@@ -172,6 +275,7 @@ describe('FlowCanvas interactions', () => {
         <FlowCanvas
           registry={registry}
           onAddNode={vi.fn()}
+          onAddConnectedNode={() => true}
           onConnect={() => true}
           onReconnect={() => true}
         />

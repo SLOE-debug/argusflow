@@ -35,10 +35,13 @@ describe('WindowTitleBar', () => {
         running={false}
         report={null}
         errorMessage={null}
+        homeActive={false}
+        onOpenHome={vi.fn()}
+        onOpenWorkflow={vi.fn()}
       />,
     );
 
-    fireEvent.mouseDown(screen.getByText('测试流程').parentElement!, {
+    fireEvent.mouseDown(screen.getByText('ArgusFlow Studio').parentElement!, {
       button: 0,
       detail: 1,
     });
@@ -60,10 +63,13 @@ describe('WindowTitleBar', () => {
         running={false}
         report={null}
         errorMessage={null}
+        homeActive={false}
+        onOpenHome={vi.fn()}
+        onOpenWorkflow={vi.fn()}
       />,
     );
 
-    fireEvent.mouseDown(screen.getByText('测试流程').parentElement!, {
+    fireEvent.mouseDown(screen.getByText('ArgusFlow Studio').parentElement!, {
       button: 0,
       detail: 2,
     });
@@ -80,6 +86,9 @@ describe('WindowTitleBar', () => {
         running={false}
         report={null}
         errorMessage={null}
+        homeActive={false}
+        onOpenHome={vi.fn()}
+        onOpenWorkflow={vi.fn()}
       />,
     );
 
@@ -93,11 +102,38 @@ describe('WindowTitleBar', () => {
         running={false}
         report={null}
         errorMessage={null}
+        homeActive={false}
+        onOpenHome={vi.fn()}
+        onOpenWorkflow={vi.fn()}
       />,
     );
 
     const statusText = screen.getByText(/已保存/);
     expect(statusText.parentElement).toHaveClass('flex', 'h-[26px]', 'items-center');
     expect(statusText.previousElementSibling).not.toHaveClass('translate-y-px');
+  });
+
+  it('opens home and the current workflow from title-bar navigation', () => {
+    const onOpenHome = vi.fn();
+    const onOpenWorkflow = vi.fn();
+    render(
+      <WindowTitleBar
+        workflowName="测试流程"
+        running={false}
+        report={null}
+        errorMessage={null}
+        homeActive
+        onOpenHome={onOpenHome}
+        onOpenWorkflow={onOpenWorkflow}
+      />,
+    );
+
+    const homeButton = screen.getByRole('button', { name: '打开工作区概览' });
+    expect(homeButton).toHaveAttribute('aria-current', 'page');
+    fireEvent.click(homeButton);
+    fireEvent.click(screen.getByRole('button', { name: '打开工作流 测试流程' }));
+
+    expect(onOpenHome).toHaveBeenCalledOnce();
+    expect(onOpenWorkflow).toHaveBeenCalledOnce();
   });
 });

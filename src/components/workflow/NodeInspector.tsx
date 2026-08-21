@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react';
 import { useStore, type StoreApi } from 'zustand';
 
 import type { FlowState } from '../../flow';
@@ -36,11 +35,8 @@ type NodeInspectorProps = Readonly<{
   onDelete: () => void;
 }>;
 
-type InspectorTab = 'workflow' | 'selection';
-
-/** 工作流和当前选择共用的右侧属性检查器。 */
+/** 工作流和当前选择共用的单一右侧属性检查器。 */
 export function NodeInspector(props: NodeInspectorProps) {
-  const [activeTab, setActiveTab] = useState<InspectorTab>('selection');
   const selectedCount = useStore(
     props.store,
     (state) => state.selectedNodeIds.size,
@@ -54,31 +50,24 @@ export function NodeInspector(props: NodeInspectorProps) {
     state.edges.find((candidate) => candidate.id === state.selectedEdgeId) ?? null
   ));
 
-  useEffect(() => {
-    if (node || edge || selectedCount > 1) setActiveTab('selection');
-  }, [edge, node, selectedCount]);
-
-  /** 没有选择时，节点属性页回退到工作流设置以避免空面板。 */
-  const showWorkflow = activeTab === 'workflow' || (
-    !node && !edge && selectedCount <= 1
-  );
+  const inspectorContext = node
+    ? '节点'
+    : edge
+      ? '连线'
+      : selectedCount > 1
+        ? `${selectedCount} 项`
+        : '流程';
 
   return (
-    <aside className="z-10 flex min-h-0 min-w-0 flex-col overflow-hidden border-l border-slate-200 bg-white">
-      <header className="flex h-[34px] shrink-0 items-center border-b border-slate-200 bg-slate-50 px-2">
-        <InspectorTabButton
-          active={showWorkflow}
-          label="流程设置"
-          onClick={() => setActiveTab('workflow')}
-        />
-        <InspectorTabButton
-          active={!showWorkflow}
-          label="节点属性"
-          onClick={() => setActiveTab('selection')}
-        />
+    <aside className="z-10 flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-l border-slate-200 bg-white">
+      <header className="flex h-[34px] shrink-0 items-center border-b border-slate-200 bg-slate-50 px-3">
+        <h2 className="text-[12px] font-semibold text-slate-800">属性</h2>
+        <span className="ml-auto rounded bg-slate-200/70 px-1.5 py-0.5 text-[10px] leading-none text-slate-500">
+          {inspectorContext}
+        </span>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {showWorkflow ? (
+        {!node && !edge && selectedCount <= 1 ? (
           <WorkflowInspectorFields
             workflowName={props.workflowName}
             variablesDraft={props.variablesDraft}
@@ -87,17 +76,17 @@ export function NodeInspector(props: NodeInspectorProps) {
             onVariablesChange={props.onVariablesChange}
           />
         ) : null}
-        {!showWorkflow && selectedCount > 1 ? (
+        {selectedCount > 1 ? (
           <MultipleSelection count={selectedCount} />
         ) : null}
-        {!showWorkflow && node ? (
+        {node ? (
           <NodeInspectorFields
             node={node}
             onUpdate={props.onUpdateNode}
             onDelete={props.onDelete}
           />
         ) : null}
-        {!showWorkflow && edge ? (
+        {edge ? (
           <EdgeInspectorFields
             edge={edge}
             onBranchChange={props.onUpdateEdgeBranch}
@@ -106,29 +95,5 @@ export function NodeInspector(props: NodeInspectorProps) {
         ) : null}
       </div>
     </aside>
-  );
-}
-
-type InspectorTabButtonProps = Readonly<{
-  active: boolean;
-  label: string;
-  onClick: () => void;
-}>;
-
-/** 属性面板顶端的 34px 紧凑页签。 */
-function InspectorTabButton({ active, label, onClick }: InspectorTabButtonProps) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={
-        'relative flex h-[34px] items-center px-2.5 text-[11px] leading-none ' +
-        (active
-          ? 'font-semibold text-slate-800 after:absolute after:inset-x-2.5 after:bottom-0 after:h-0.5 after:bg-blue-600'
-          : 'text-slate-500 hover:text-slate-800')
-      }
-    >
-      {label}
-    </button>
   );
 }

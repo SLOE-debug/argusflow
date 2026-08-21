@@ -45,18 +45,26 @@ export function moveSelectedNodes<TData>(
   selectedNodeIds: ReadonlySet<string>,
   delta: FlowPoint,
 ): ReadonlyArray<FlowNode<TData>> {
-  if (delta.x === 0 && delta.y === 0) return nodes;
-  return nodes.map((node) => (
-    selectedNodeIds.has(node.id)
-      ? {
-          ...node,
-          position: {
-            x: node.position.x + delta.x,
-            y: node.position.y + delta.y,
-          },
-        }
-      : node
-  ));
+  if (
+    selectedNodeIds.size === 0
+    || (delta.x === 0 && delta.y === 0)
+  ) return nodes;
+
+  /** 实际匹配到节点时才发布新集合，避免过期选择产生空历史。 */
+  let moved = false;
+  const nextNodes = nodes.map((node) => {
+    if (!selectedNodeIds.has(node.id)) return node;
+
+    moved = true;
+    return {
+      ...node,
+      position: {
+        x: node.position.x + delta.x,
+        y: node.position.y + delta.y,
+      },
+    };
+  });
+  return moved ? nextNodes : nodes;
 }
 
 /** 删除当前选择，并同步删除与已删除节点关联的边。 */

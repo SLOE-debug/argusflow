@@ -52,6 +52,14 @@ export type CanvasContextMenu = Readonly<{
   y: number;
   world: FlowPoint;
   submenuSide: 'left' | 'right';
+  /** 从节点连线落到空白处时，保留待完成的起点。 */
+  pendingConnection?: PendingNodeConnection;
+}>;
+
+/** 等待通过新建节点完成的连线起点。 */
+export type PendingNodeConnection = Readonly<{
+  sourceNodeId: string;
+  sourceSide: FlowAnchorSide;
 }>;
 
 /** 画布对外暴露的具名指针手势和临时视觉状态。 */
@@ -122,6 +130,36 @@ export function useCanvasPointerInteractions({
       store.getState().viewport,
     );
   }, [containerRef, store]);
+
+  /** 在指针落点打开普通画布菜单或待连线的节点菜单。 */
+  const openContextMenu = useCallback((
+    pointer: Pick<PointerEvent, 'clientX' | 'clientY'>,
+    pendingConnection?: PendingNodeConnection,
+  ) => {
+    const element = containerRef.current;
+    const world = pointerWorld(pointer);
+    if (!element || !world) return;
+
+    const bounds = element.getBoundingClientRect();
+    /** 主菜单宽度为 192px，并为阴影保留少量安全边距。 */
+    const menuX = Math.min(
+      pointer.clientX - bounds.left,
+      Math.max(8, bounds.width - 200),
+    );
+    /** 菜单固定在画布内，避免靠近底部时操作项被裁切。 */
+    const menuY = Math.min(
+      pointer.clientY - bounds.top,
+      Math.max(8, bounds.height - 260),
+    );
+
+    setContextMenu({
+      x: menuX,
+      y: menuY,
+      world,
+      submenuSide: menuX > bounds.width - 396 ? 'left' : 'right',
+      pendingConnection,
+    });
+  }, [containerRef, pointerWorld]);
 
   const handleNodeDragStart = useCallback((nodeId: string, event: ReactPointerEvent) => {
     if (event.button !== 0) return;
@@ -261,6 +299,11 @@ export function useCanvasPointerInteractions({
         } else {
           onConnect(nodeId, targetId, side, targetSide);
         }
+      } else if (!reconnect) {
+        openContextMenu(pointerEvent, {
+          sourceNodeId: nodeId,
+          sourceSide: side,
+        });
       }
 
       store.getState().setConnectionDraft(null);
@@ -274,7 +317,7 @@ export function useCanvasPointerInteractions({
         store.getState().setConnectionDraft(null);
       },
     });
-  }, [onConnect, onReconnect, pointerWorld, store]);
+  }, [onConnect, onReconnect, openContextMenu, pointerWorld, store]);
 
   const handleReconnectStart = useCallback((
     edgeId: string,
@@ -416,28 +459,8 @@ export function useCanvasPointerInteractions({
 
   const handleContextMenu = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
     event.preventDefault();
-    const world = pointerWorld(event.nativeEvent);
-    if (!world) return;
-
-    const bounds = event.currentTarget.getBoundingClientRect();
-    /** 主菜单宽度为 192px，并为阴影保留少量安全边距。 */
-    const menuX = Math.min(
-      event.clientX - bounds.left,
-      Math.max(8, bounds.width - 200),
-    );
-    /** 菜单固定在画布内，避免靠近底部时操作项被裁切。 */
-    const menuY = Math.min(
-      event.clientY - bounds.top,
-      Math.max(8, bounds.height - 260),
-    );
-
-    setContextMenu({
-      x: menuX,
-      y: menuY,
-      world,
-      submenuSide: menuX > bounds.width - 396 ? 'left' : 'right',
-    });
-  }, [pointerWorld]);
+    openContextMenu(event.nativeEvent);
+  }, [openContextMenu]);
 
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
 

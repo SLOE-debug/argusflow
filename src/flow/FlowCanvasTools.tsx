@@ -9,6 +9,7 @@ import type {
   PointerEvent as ReactPointerEvent,
   ReactNode,
 } from 'react';
+import { useState } from 'react';
 
 import { useFlowStore } from './store';
 
@@ -38,6 +39,7 @@ const TOOL_BUTTON_CLASS_NAME = [
 /** 画布右上角的模式和视口工具。 */
 export function FlowCanvasTools({ mode, onModeChange }: FlowCanvasToolsProps) {
   const setViewport = useFlowStore((state) => state.setViewport);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const resetViewport = () => setViewport({ x: 0, y: 42, zoom: 1 });
   /** 工具栏本身不得触发画布框选或平移手势。 */
@@ -73,9 +75,33 @@ export function FlowCanvasTools({ mode, onModeChange }: FlowCanvasToolsProps) {
         <ToolButton label="适应内容" onClick={resetViewport}>
           <Maximize2 />
         </ToolButton>
-        <ToolButton label="画布设置" onClick={() => undefined}>
+        <ToolButton
+          label="画布设置"
+          pressed={settingsOpen}
+          onClick={() => setSettingsOpen((open) => !open)}
+        >
           <SlidersHorizontal />
         </ToolButton>
+      </div>
+      {settingsOpen ? <CanvasShortcutPanel /> : null}
+    </div>
+  );
+}
+
+/** 画布设置入口对应的快捷操作说明面板。 */
+function CanvasShortcutPanel() {
+  return (
+    <div className="absolute top-10 right-0 w-56 rounded-md border border-slate-200 bg-white p-3 text-[11px] text-slate-600 shadow-lg">
+      <h3 className="text-[12px] font-semibold text-slate-800">画布快捷操作</h3>
+      <div className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-2">
+        <kbd className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px]">方向键</kbd>
+        <span>微调选中节点 1px</span>
+        <kbd className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px]">Shift + 方向键</kbd>
+        <span>快速移动 10px</span>
+        <kbd className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px]">空格 + 拖拽</kbd>
+        <span>平移画布</span>
+        <kbd className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px]">滚轮</kbd>
+        <span>缩放画布</span>
       </div>
     </div>
   );

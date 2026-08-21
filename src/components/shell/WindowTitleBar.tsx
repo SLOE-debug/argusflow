@@ -2,17 +2,18 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
   Bell,
   CircleHelp,
-  FileText,
+  House,
   Minus,
   Search,
   Square,
+  Workflow,
   X,
 } from 'lucide-react';
 import { useEffect, useMemo, useState, type MouseEvent } from 'react';
 
 import appIcon from '../../assets/argusflow-icon.png';
 import type { ValidationReport } from '../../features/workflow/contracts';
-import { Input, Select } from '../ui';
+import { Input } from '../ui';
 import { resolveWorkflowStatus } from '../workflow/workflowStatus';
 
 type WindowTitleBarProps = Readonly<{
@@ -24,6 +25,12 @@ type WindowTitleBarProps = Readonly<{
   report: ValidationReport | null;
   /** 最近一次命令错误。 */
   errorMessage: string | null;
+  /** Home 概览是否当前可见。 */
+  homeActive: boolean;
+  /** 进入工作区概览。 */
+  onOpenHome: () => void;
+  /** 进入当前工作流编辑器。 */
+  onOpenWorkflow: () => void;
 }>;
 
 /** 自绘 Windows 标题栏按钮的公共样式。 */
@@ -39,6 +46,9 @@ export function WindowTitleBar({
   running,
   report,
   errorMessage,
+  homeActive,
+  onOpenHome,
+  onOpenWorkflow,
 }: WindowTitleBarProps) {
   /** 浏览器预览没有 Tauri 窗口对象；桌面端和测试替身仍返回真实句柄。 */
   const appWindow = useMemo(() => {
@@ -87,6 +97,8 @@ export function WindowTitleBar({
   /** 主按键拖动标题栏，双击时切换最大化状态。 */
   const handleDragMouseDown = (event: MouseEvent<HTMLDivElement>) => {
     if (event.button !== 0 || !appWindow) return;
+    const target = event.target;
+    if (target instanceof HTMLElement && target.closest('button, input, select')) return;
     if (event.detail === 2) {
       void toggleMaximized();
       return;
@@ -112,26 +124,40 @@ export function WindowTitleBar({
             ArgusFlow Studio
           </strong>
         </div>
-        <Select
-          aria-label="工作区"
-          density="compact"
-          containerClassName="ml-5 w-[138px]"
-          value="默认工作区"
-          options={[{ value: '默认工作区', label: '默认工作区' }]}
-          startAdornment={(
-            <FileText
-              className="size-3 shrink-0 text-slate-600"
-              aria-hidden="true"
-            />
-          )}
-        />
-        <Select
-          aria-label="工作流"
-          density="compact"
-          containerClassName="ml-2.5 w-[140px]"
-          value={workflowName}
-          options={[{ value: workflowName, label: workflowName }]}
-        />
+        <button
+          type="button"
+          aria-label="打开工作区概览"
+          aria-current={homeActive ? 'page' : undefined}
+          className={
+            'ml-5 flex h-[26px] w-[138px] items-center rounded-md border px-2 ' +
+            'text-[12px] leading-none outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ' +
+            (homeActive
+              ? 'border-blue-300 bg-blue-50 text-blue-700'
+              : 'border-slate-200 bg-slate-50 text-slate-700 hover:border-blue-200 hover:bg-white')
+          }
+          onClick={onOpenHome}
+          title="工作区概览"
+        >
+          <House className="size-3 shrink-0" aria-hidden="true" />
+          <span className="ml-1.5 truncate">默认工作区</span>
+        </button>
+        <button
+          type="button"
+          aria-label={`打开工作流 ${workflowName}`}
+          aria-current={homeActive ? undefined : 'page'}
+          className={
+            'ml-2.5 flex h-[26px] w-[140px] items-center rounded-md border px-2 ' +
+            'text-[12px] leading-none outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ' +
+            (homeActive
+              ? 'border-slate-200 bg-slate-50 text-slate-700 hover:border-blue-200 hover:bg-white'
+              : 'border-blue-300 bg-blue-50 text-blue-700')
+          }
+          onClick={onOpenWorkflow}
+          title={`打开 ${workflowName}`}
+        >
+          <Workflow className="size-3 shrink-0" aria-hidden="true" />
+          <span className="ml-1.5 truncate">{workflowName}</span>
+        </button>
         <div className="ml-2.5 flex h-[26px] items-center gap-1.5 text-[11px] text-slate-500">
           <span className={`size-1.5 shrink-0 rounded-full ${status.tone}`} />
           <span className="flex h-full items-center leading-none">

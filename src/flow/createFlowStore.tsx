@@ -106,7 +106,7 @@ export function createFlowStore<TData = unknown, TEdgeData = unknown>(
     setSelectionBox: (selectionBox) => set({ selectionBox }),
     setConnectionDraft: (connectionDraft) => set({ connectionDraft }),
 
-    moveSelected: (delta, record = false) => {
+    moveSelected: (delta, record = false, historyGroup) => {
       if (delta.x === 0 && delta.y === 0) return;
       if (record) {
         get().transact((document) => ({
@@ -116,7 +116,7 @@ export function createFlowStore<TData = unknown, TEdgeData = unknown>(
             get().selectedNodeIds,
             delta,
           ),
-        }));
+        }), historyGroup);
       } else {
         set((state) => ({
           nodes: moveSelectedNodes(

@@ -29,7 +29,7 @@ export function ExecutionLog({ events, report }: ExecutionLogProps) {
   return (
     <section
       className={
-        'grid h-[132px] min-h-0 grid-cols-[minmax(0,1fr)_300px] ' +
+        'grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_300px] ' +
         'border-t border-slate-200'
       }
     >
@@ -40,7 +40,7 @@ export function ExecutionLog({ events, report }: ExecutionLogProps) {
           </h2>
           <span className="text-[11px] text-slate-400">{events.length} events</span>
         </div>
-        <div className="h-[96px] space-y-0.5 overflow-y-auto font-mono text-[10px] leading-4">
+        <div className="space-y-0.5 overflow-y-auto font-mono text-[10px] leading-4">
           {events.length === 0 && (
             <p className="text-slate-400">运行工作流后，事件会显示在这里。</p>
           )}
@@ -67,7 +67,7 @@ export function ExecutionLog({ events, report }: ExecutionLogProps) {
         <h2 className="mb-1 text-[10px] font-semibold text-slate-500">
           校验结果
         </h2>
-        <div className="h-[96px] overflow-y-auto text-[11px] leading-4">
+        <div className="overflow-y-auto text-[11px] leading-4">
           {!report && <p className="text-slate-400">尚未校验</p>}
           {report?.valid && (
             <p className="flex items-center gap-1.5 text-emerald-700">

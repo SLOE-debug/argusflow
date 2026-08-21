@@ -49,6 +49,17 @@ describe('flow store history and clipboard', () => {
     expect(store.getState().past).toHaveLength(0);
   });
 
+  it('does not publish movement or history without matching selected nodes', () => {
+    const nodes = [node('a')];
+    const store = createFlowStore({ nodes, edges: [] });
+    store.getState().selectNodes(['missing']);
+
+    store.getState().moveSelected({ x: 1, y: 0 }, true, 'test-nudge');
+
+    expect(store.getState().nodes).toBe(nodes);
+    expect(store.getState().past).toHaveLength(0);
+  });
+
   it('copies internal edges and skips singleton conflicts', () => {
     vi.stubGlobal('crypto', { randomUUID: () => 'copy' });
     const store = createFlowStore({

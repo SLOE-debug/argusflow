@@ -16,6 +16,13 @@ import { workflowNodeRegistry } from './WorkflowNodeCard';
 type WorkflowCanvasProps = {
   store: StoreApi<FlowState<WorkflowNodeData, WorkflowEdgeData>>;
   onAddNode: (kind: WorkflowNodeData['kind'], position: FlowPoint) => void;
+  /** 新建节点并完成从现有节点开始的连线。 */
+  onAddConnectedNode: (
+    kind: WorkflowNodeData['kind'],
+    position: FlowPoint,
+    sourceNodeId: string,
+    sourceSide: FlowAnchorSide,
+  ) => boolean;
   onConnect: (
     source: string,
     target: string,
@@ -34,6 +41,7 @@ type WorkflowCanvasProps = {
 export function WorkflowCanvas({
   store,
   onAddNode,
+  onAddConnectedNode,
   onConnect,
   onReconnect,
 }: WorkflowCanvasProps) {
@@ -41,11 +49,24 @@ export function WorkflowCanvas({
     if (isWorkflowNodeKind(kind)) onAddNode(kind, position);
   };
 
+  const addConnectedWorkflowNode = (
+    kind: string,
+    position: FlowPoint,
+    sourceNodeId: string,
+    sourceSide: FlowAnchorSide,
+  ) => isWorkflowNodeKind(kind) && onAddConnectedNode(
+    kind,
+    position,
+    sourceNodeId,
+    sourceSide,
+  );
+
   return (
     <FlowProvider store={store}>
       <FlowCanvas
         registry={workflowNodeRegistry}
         onAddNode={addWorkflowNode}
+        onAddConnectedNode={addConnectedWorkflowNode}
         onConnect={onConnect}
         onReconnect={onReconnect}
       />

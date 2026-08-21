@@ -17,6 +17,7 @@ const registry = {
     title: '开始',
     defaultSize: { width: 144, height: 50 },
     singleton: true,
+    canEndConnection: false,
     component: EmptyNode,
   },
   log: {
@@ -49,6 +50,7 @@ describe('FlowContextMenu', () => {
           registry={registry}
           nodes={store.getState().nodes}
           onAddNode={onAddNode}
+          onAddConnectedNode={() => true}
           onClose={onClose}
         />
       </FlowProvider>,
@@ -75,6 +77,7 @@ describe('FlowContextMenu', () => {
           registry={registry}
           nodes={nodes}
           onAddNode={vi.fn()}
+          onAddConnectedNode={() => true}
           onClose={vi.fn()}
         />
       </FlowProvider>,
@@ -88,6 +91,46 @@ describe('FlowContextMenu', () => {
     expect(store.getState().nodes.map((node) => node.position.x)).toEqual([0, 0]);
   });
 
+  it('creates and connects a node directly from a dropped connection', () => {
+    const store = createFlowStore({ nodes: [createNode('source', 'log', 0)] });
+    const onAddConnectedNode = vi.fn(() => true);
+    const onClose = vi.fn();
+
+    render(
+      <FlowProvider store={store}>
+        <FlowContextMenu
+          context={{
+            x: 10,
+            y: 12,
+            world: { x: 200, y: 100 },
+            submenuSide: 'right',
+            pendingConnection: {
+              sourceNodeId: 'source',
+              sourceSide: 'right',
+            },
+          }}
+          registry={registry}
+          nodes={store.getState().nodes}
+          onAddNode={vi.fn()}
+          onAddConnectedNode={onAddConnectedNode}
+          onClose={onClose}
+        />
+      </FlowProvider>,
+    );
+
+    expect(screen.getByRole('menu', { name: '添加并连接节点' })).toBeVisible();
+    expect(screen.getByRole('menuitem', { name: '开始' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('menuitem', { name: '日志' }));
+
+    expect(onAddConnectedNode).toHaveBeenCalledWith(
+      'log',
+      { x: 116, y: 74 },
+      'source',
+      'right',
+    );
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
   it('cycles focus with desktop keys and closes with Escape', () => {
     const store = createFlowStore();
     const onClose = vi.fn();
@@ -99,6 +142,7 @@ describe('FlowContextMenu', () => {
           registry={registry}
           nodes={[]}
           onAddNode={vi.fn()}
+          onAddConnectedNode={() => true}
           onClose={onClose}
         />
       </FlowProvider>,

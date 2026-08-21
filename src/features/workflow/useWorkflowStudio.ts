@@ -185,6 +185,45 @@ export function useWorkflowStudio() {
     setReport(null);
   }, [flowStore]);
 
+  /** 在连线落点新建节点，并把节点与连线作为一次可撤销事务提交。 */
+  const addConnectedNode = useCallback((
+    kind: EditableNodeKind,
+    position: FlowPoint,
+    sourceNodeId: string,
+    sourceSide: FlowAnchorSide,
+  ) => {
+    const state = flowStore.getState();
+    if (
+      (kind === 'start' || kind === 'end')
+      && state.nodes.some((node) => node.kind === kind)
+    ) {
+      return false;
+    }
+
+    const node = createNode(kind, position);
+    const nodes = [...state.nodes, node];
+    if (!canConnect(nodes, state.edges, sourceNodeId, node.id)) return false;
+
+    /** 新节点默认从拖出方向的对侧接收连线。 */
+    const targetSide = oppositeAnchorSide(sourceSide);
+    const edge = createEdge(
+      sourceNodeId,
+      node.id,
+      nodes,
+      state.edges,
+      sourceSide,
+      targetSide,
+    );
+    state.transact((document) => ({
+      ...document,
+      nodes: [...document.nodes, node],
+      edges: [...document.edges, edge],
+    }));
+    flowStore.getState().selectNodes([node.id]);
+    setReport(null);
+    return true;
+  }, [flowStore]);
+
   const connect = useCallback((
     source: string,
     target: string,
@@ -326,10 +365,25 @@ export function useWorkflowStudio() {
     validate,
     run,
     addNode,
+    addConnectedNode,
     connect,
     reconnect,
     updateNode,
     updateEdgeBranch,
     deleteSelection,
   };
+}
+
+/** 新节点使用起点锚点的对侧作为默认入口。 */
+function oppositeAnchorSide(side: FlowAnchorSide): FlowAnchorSide {
+  switch (side) {
+    case 'top':
+      return 'bottom';
+    case 'right':
+      return 'left';
+    case 'bottom':
+      return 'top';
+    case 'left':
+      return 'right';
+  }
 }

@@ -27,7 +27,12 @@ import {
 import { FlowMenuItem, FlowMenuSeparator, FlowMenuSurface } from './FlowMenu';
 import type { AlignMode, DistributeMode } from './selection';
 import { useFlowStore } from './store';
-import type { FlowNode, NodeDefinition, NodeRegistry } from './types';
+import type {
+  FlowAnchorSide,
+  FlowNode,
+  NodeDefinition,
+  NodeRegistry,
+} from './types';
 import type { CanvasContextMenu } from './useCanvasPointerInteractions';
 
 type FlowContextMenuProps = Readonly<{
@@ -39,6 +44,13 @@ type FlowContextMenuProps = Readonly<{
   nodes: ReadonlyArray<FlowNode>;
   /** 在右键位置添加节点。 */
   onAddNode: (kind: string, position: CanvasContextMenu['world']) => void;
+  /** 从连线落点新建节点，并一次完成连线。 */
+  onAddConnectedNode: (
+    kind: string,
+    position: CanvasContextMenu['world'],
+    sourceNodeId: string,
+    sourceSide: FlowAnchorSide,
+  ) => boolean;
   /** 任一菜单操作完成后关闭菜单。 */
   onClose: () => void;
 }>;
@@ -58,6 +70,7 @@ const MENU_IDS = {
   root: 'flow-context-root',
   nodes: 'flow-context-nodes',
   arrange: 'flow-context-arrange',
+  connection: 'flow-context-connection',
 } as const;
 
 /** 右键菜单内业务节点类型对应的图标。 */
@@ -101,9 +114,11 @@ export function FlowContextMenu({
   registry,
   nodes,
   onAddNode,
+  onAddConnectedNode,
   onClose,
 }: FlowContextMenuProps) {
   const [openSubmenu, setOpenSubmenu] = useState<OpenSubmenu>(null);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
   const selectedNodeCount = useFlowStore((state) => state.selectedNodeIds.size);
   const selectedEdgeId = useFlowStore((state) => state.selectedEdgeId);
   const pastCount = useFlowStore((state) => state.past.length);
@@ -130,9 +145,13 @@ export function FlowContextMenu({
 
   useEffect(() => {
     setOpenSubmenu(null);
+    setConnectionError(null);
+    const menuId = context.pendingConnection
+      ? MENU_IDS.connection
+      : MENU_IDS.root;
     queueMicrotask(() => {
       document.querySelector<HTMLButtonElement>(
-        `[data-menu-owner="${MENU_IDS.root}"]:not(:disabled)`,
+        `[data-menu-owner="${menuId}"]:not(:disabled)`,
       )?.focus();
     });
   }, [context]);
@@ -146,6 +165,24 @@ export function FlowContextMenu({
     onAddNode(definition.kind, context.world);
     onClose();
   };
+  const addConnectedNode = (definition: NodeDefinition) => {
+    const pendingConnection = context.pendingConnection;
+    if (!pendingConnection) return;
+
+    /** 菜单落点对准新节点中心，使拖线位置与布局结果一致。 */
+    const position = {
+      x: Math.round(context.world.x - definition.defaultSize.width / 2),
+      y: Math.round(context.world.y - definition.defaultSize.height / 2),
+    };
+    const added = onAddConnectedNode(
+      definition.kind,
+      position,
+      pendingConnection.sourceNodeId,
+      pendingConnection.sourceSide,
+    );
+    if (added) onClose();
+    else setConnectionError('当前节点不能再创建新的出线。');
+  };
   const runArrangeAction = (action: ArrangeAction) => {
     if (action.kind === 'align') align(action.mode);
     else distribute(action.mode);
@@ -158,6 +195,34 @@ export function FlowContextMenu({
     setOpenSubmenu(null);
     queueMicrotask(() => expandedTrigger?.focus());
   };
+
+  if (context.pendingConnection) {
+    return (
+      <FlowMenuSurface
+        menuId={MENU_IDS.connection}
+        ariaLabel="添加并连接节点"
+        className="absolute"
+        style={{ left: context.x, top: context.y }}
+        onBack={onClose}
+      >
+        <NodeMenuItems
+          menuId={MENU_IDS.connection}
+          registry={registry}
+          nodes={nodes}
+          requireConnectionTarget
+          onAdd={addConnectedNode}
+        />
+        {connectionError ? (
+          <p
+            role="status"
+            className="mx-1 mt-1 rounded bg-rose-50 px-2 py-1.5 text-[10px] leading-4 text-rose-700"
+          >
+            {connectionError}
+          </p>
+        ) : null}
+      </FlowMenuSurface>
+    );
+  }
 
   return (
     <FlowMenuSurface
@@ -276,27 +341,59 @@ function NodeSubmenu({ className, registry, nodes, onAdd, onBack }: NodeSubmenuP
       className={`absolute bottom-0 ${className}`}
       onBack={onBack}
     >
-      {Object.values(registry).map((definition) => {
-        const Icon = NODE_ICONS[definition.kind] ?? Plus;
-        const iconTone = NODE_ICON_TONES[definition.kind] ?? 'text-blue-700';
-        const disabled = Boolean(
-          definition.singleton && nodes.some((node) => node.kind === definition.kind),
-        );
-
-        return (
-          <FlowMenuItem
-            key={definition.kind}
-            menuId={MENU_IDS.nodes}
-            label={definition.title}
-            icon={Icon}
-            iconTone={iconTone}
-            disabled={disabled}
-            onClick={() => onAdd(definition)}
-          />
-        );
-      })}
+      <NodeMenuItems
+        menuId={MENU_IDS.nodes}
+        registry={registry}
+        nodes={nodes}
+        onAdd={onAdd}
+      />
     </FlowMenuSurface>
   );
+}
+
+type NodeMenuItemsProps = Readonly<{
+  /** 菜单层稳定标识。 */
+  menuId: string;
+  /** 可创建节点注册表。 */
+  registry: Readonly<NodeRegistry>;
+  /** 当前节点用于检测单例冲突。 */
+  nodes: ReadonlyArray<FlowNode>;
+  /** 为 true 时过滤不能接收连线的节点。 */
+  requireConnectionTarget?: boolean;
+  /** 选择可用节点定义。 */
+  onAdd: (definition: NodeDefinition) => void;
+}>;
+
+/** 普通添加菜单与连线落点菜单共用的节点项。 */
+function NodeMenuItems({
+  menuId,
+  registry,
+  nodes,
+  requireConnectionTarget = false,
+  onAdd,
+}: NodeMenuItemsProps) {
+  return Object.values(registry).map((definition) => {
+    const Icon = NODE_ICONS[definition.kind] ?? Plus;
+    const iconTone = NODE_ICON_TONES[definition.kind] ?? 'text-blue-700';
+    const singletonConflict = Boolean(
+      definition.singleton && nodes.some((node) => node.kind === definition.kind),
+    );
+    const disabled = singletonConflict || (
+      requireConnectionTarget && definition.canEndConnection === false
+    );
+
+    return (
+      <FlowMenuItem
+        key={definition.kind}
+        menuId={menuId}
+        label={definition.title}
+        icon={Icon}
+        iconTone={iconTone}
+        disabled={disabled}
+        onClick={() => onAdd(definition)}
+      />
+    );
+  });
 }
 
 type ArrangeSubmenuProps = Readonly<{

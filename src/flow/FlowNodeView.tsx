@@ -106,7 +106,10 @@ export const FlowNodeView = memo(function FlowNodeView({
         selected={selected}
       />
       {selected ? <NodeSelectionOutline /> : null}
-      {hovered && toolMode === 'select' && !panActive ? (
+      {hovered
+      && toolMode === 'select'
+      && !panActive
+      && definition.canStartConnection !== false ? (
         <NodeAnchors
           node={node}
           onConnectionStart={onConnectionStart}

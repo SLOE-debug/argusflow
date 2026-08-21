@@ -112,8 +112,12 @@ export type FlowState<TData = unknown, TEdgeData = unknown> = {
   setSelectionBox: (box: SelectionBox | null) => void;
   /** 更新连线手势。 */
   setConnectionDraft: (draft: ConnectionDraft | null) => void;
-  /** 移动所有选中节点，并可选择是否记录历史。 */
-  moveSelected: (delta: FlowPoint, record?: boolean) => void;
+  /** 移动所有选中节点，并可选择是否记录或合并历史。 */
+  moveSelected: (
+    delta: FlowPoint,
+    record?: boolean,
+    historyGroup?: string,
+  ) => void;
   /** 对齐选中节点。 */
   align: (mode: AlignMode) => void;
   /** 均匀分布选中节点。 */

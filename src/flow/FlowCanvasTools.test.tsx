@@ -33,4 +33,21 @@ describe('FlowCanvasTools', () => {
       'true',
     );
   });
+
+  it('shows canvas shortcut guidance from the settings control', () => {
+    const store = createFlowStore();
+    render(
+      <FlowProvider store={store}>
+        <FlowCanvasTools
+          mode="select"
+          onModeChange={vi.fn()}
+        />
+      </FlowProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '画布设置' }));
+
+    expect(screen.getByRole('heading', { name: '画布快捷操作' })).toBeVisible();
+    expect(screen.getByText('微调选中节点 1px')).toBeVisible();
+  });
 });

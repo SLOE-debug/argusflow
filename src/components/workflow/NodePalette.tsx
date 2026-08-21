@@ -1,7 +1,6 @@
 import {
   AlarmClock,
   Bell,
-  Boxes,
   ChevronRight,
   Clock3,
   Combine,
@@ -10,15 +9,12 @@ import {
   FileText,
   Filter,
   GitBranch,
-  Layers3,
   MessageSquare,
   MousePointer2,
   PanelLeft,
-  Pin,
   Repeat2,
   Search,
   Send,
-  Settings,
   Shuffle,
   SlidersHorizontal,
   Square,
@@ -43,10 +39,18 @@ import type {
   WorkflowNodeData,
 } from '../../features/workflow/workflowModel';
 import { Input } from '../ui';
+import {
+  findPaletteModule,
+  PaletteModulePlaceholder,
+  PaletteNavigation,
+  type PaletteModule,
+} from './PaletteNavigation';
 
 type NodePaletteProps = Readonly<{
   /** 画布 Store；节点库仅订阅两个单例节点是否存在。 */
   store: StoreApi<FlowState<WorkflowNodeData, WorkflowEdgeData>>;
+  /** 恢复左侧面板的默认宽度。 */
+  onResetWidth: () => void;
 }>;
 
 type PaletteGroup = 'input' | 'control' | 'data' | 'output';
@@ -100,7 +104,7 @@ const PALETTE_ITEMS = [
 ] as const satisfies ReadonlyArray<PaletteItem>;
 
 /** 可搜索的高密度分组节点库。 */
-export function NodePalette({ store }: NodePaletteProps) {
+export function NodePalette({ store, onResetWidth }: NodePaletteProps) {
   const startExists = useStore(
     store,
     (state) => state.nodes.some((node) => node.kind === 'start'),
@@ -110,6 +114,9 @@ export function NodePalette({ store }: NodePaletteProps) {
     (state) => state.nodes.some((node) => node.kind === 'end'),
   );
   const [query, setQuery] = useState('');
+  const [activeModule, setActiveModule] = useState<PaletteModule>('nodes');
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [onlyAvailable, setOnlyAvailable] = useState(false);
   /** 用户主动收起的节点分组；搜索不会隐式改变折叠偏好。 */
   const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<PaletteGroup>>(
     () => new Set(),
@@ -118,10 +125,12 @@ export function NodePalette({ store }: NodePaletteProps) {
   const visibleGroups = useMemo(() => PALETTE_GROUPS.flatMap((group) => {
     /** 当前分组中符合搜索词的条目。 */
     const items = PALETTE_ITEMS.filter((item) => (
-      item.group === group.id && item.title.toLocaleLowerCase().includes(normalizedQuery)
+      item.group === group.id
+      && item.title.toLocaleLowerCase().includes(normalizedQuery)
+      && (!onlyAvailable || isPaletteItemAvailable(item, startExists, endExists))
     ));
     return items.length > 0 ? [{ ...group, items }] : [];
-  }), [normalizedQuery]);
+  }), [endExists, normalizedQuery, onlyAvailable, startExists]);
   /** 切换单个分组时复制集合，保持 React 状态不可变。 */
   const toggleGroup = (groupId: PaletteGroup) => {
     setCollapsedGroups((current) => {
@@ -133,85 +142,175 @@ export function NodePalette({ store }: NodePaletteProps) {
   };
 
   return (
-    <aside className="z-10 flex min-h-0 min-w-0 flex-col border-r border-slate-200 bg-white">
+    <aside className="relative z-10 flex h-full min-h-0 min-w-0 flex-col border-r border-slate-200 bg-white">
       <header className="flex h-[34px] shrink-0 items-center border-b border-slate-100 px-2.5">
-        <h2 className="text-[12px] leading-none font-semibold text-slate-800">节点库</h2>
-        <button
-          type="button"
-          aria-label="固定节点库"
-          className="ml-auto flex size-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800"
-        >
-          <Pin className="size-3.5" aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          aria-label="节点库筛选"
-          className="ml-0.5 flex size-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800"
-        >
-          <SlidersHorizontal className="size-3.5" aria-hidden="true" />
-        </button>
-      </header>
-      <Input
-        aria-label="搜索节点"
-        density="compact"
-        containerClassName="mx-2.5 mt-2 shrink-0"
-        placeholder="搜索节点"
-        value={query}
-        onChange={(event) => setQuery(event.target.value)}
-        startAdornment={(
-          <Search
-            className="size-3 shrink-0"
-            aria-hidden="true"
-          />
-        )}
-      />
-      <div className="mt-2 min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-        {visibleGroups.map((group) => (
-          <section key={group.id} className="mb-2 border-b border-slate-100 pb-2 last:mb-0 last:border-b-0">
+        <h2 className="truncate text-[12px] leading-none font-semibold text-slate-800">
+          {findPaletteModule(activeModule).label}
+        </h2>
+        {activeModule === 'nodes' ? (
+          <>
             <button
               type="button"
-              aria-expanded={!collapsedGroups.has(group.id)}
-              aria-controls={`palette-group-${group.id}`}
-              className="flex h-7 w-full items-center rounded-md px-1 text-[12px] leading-none font-semibold text-slate-600 hover:bg-slate-50 hover:text-slate-800"
-              onClick={() => toggleGroup(group.id)}
+              aria-label="恢复节点库默认宽度"
+              className="ml-auto flex size-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+              onClick={onResetWidth}
+              title="恢复默认宽度"
             >
-              <ChevronRight
-                className={
-                  'mr-1 size-2.5 transition-transform ' +
-                  (collapsedGroups.has(group.id) ? '' : 'rotate-90')
-                }
+              <PanelLeft className="size-3.5" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              aria-label="节点库筛选"
+              aria-expanded={filterOpen}
+              className={`ml-0.5 flex size-7 items-center justify-center rounded-md hover:bg-slate-100 hover:text-slate-800 ${filterOpen || onlyAvailable ? 'bg-blue-50 text-blue-600' : 'text-slate-500'}`}
+              onClick={() => setFilterOpen((open) => !open)}
+            >
+              <SlidersHorizontal className="size-3.5" aria-hidden="true" />
+            </button>
+          </>
+        ) : null}
+      </header>
+      {activeModule === 'nodes' && filterOpen ? (
+        <PaletteFilterPanel
+          onlyAvailable={onlyAvailable}
+          onOnlyAvailableChange={setOnlyAvailable}
+          onExpandAll={() => setCollapsedGroups(new Set())}
+          onCollapseAll={() => setCollapsedGroups(new Set(
+            PALETTE_GROUPS.map((group) => group.id),
+          ))}
+        />
+      ) : null}
+      {activeModule === 'nodes' ? (
+        <>
+          <Input
+            aria-label="搜索节点"
+            density="compact"
+            containerClassName="mx-2.5 mt-2 shrink-0"
+            placeholder="搜索节点"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            startAdornment={(
+              <Search
+                className="size-3 shrink-0"
                 aria-hidden="true"
               />
-              {group.label}
-              <span className="ml-auto text-[10px] font-normal text-slate-400">
-                {group.items.length}
-              </span>
-            </button>
-            {!collapsedGroups.has(group.id) ? (
-              <div
-                id={`palette-group-${group.id}`}
-                className="mt-1 grid grid-cols-2 gap-1.5 px-0.5"
+            )}
+          />
+          <div className="mt-2 min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+            {visibleGroups.map((group) => (
+              <section
+                key={group.id}
+                className="mb-2 border-b border-slate-100 pb-2 last:mb-0 last:border-b-0"
               >
-                {group.items.map((item) => {
-                  const isSingleton = item.kind === 'start' || item.kind === 'end';
-                  const exists = isSingleton && (
-                    item.kind === 'start' ? startExists : endExists
-                  );
-                  return (
+                <button
+                  type="button"
+                  aria-expanded={!collapsedGroups.has(group.id)}
+                  aria-controls={`palette-group-${group.id}`}
+                  className="flex h-7 w-full items-center rounded-md px-1 text-[12px] leading-none font-semibold text-slate-600 hover:bg-slate-50 hover:text-slate-800"
+                  onClick={() => toggleGroup(group.id)}
+                >
+                  <ChevronRight
+                    className={
+                      'mr-1 size-2.5 transition-transform ' +
+                      (collapsedGroups.has(group.id) ? '' : 'rotate-90')
+                    }
+                    aria-hidden="true"
+                  />
+                  {group.label}
+                  <span className="ml-auto text-[10px] font-normal text-slate-400">
+                    {group.items.length}
+                  </span>
+                </button>
+                {!collapsedGroups.has(group.id) ? (
+                  <div
+                    id={`palette-group-${group.id}`}
+                    className="mt-1 grid grid-cols-2 gap-1.5 px-0.5"
+                  >
+                    {group.items.map((item) => (
                     <PaletteItemButton
                       key={item.title}
                       item={item}
-                      disabled={item.kind === null || exists}
+                      disabled={!isPaletteItemAvailable(item, startExists, endExists)}
                     />
-                  );
-                })}
-              </div>
-            ) : null}
-          </section>
-        ))}
-      </div>
-      <PaletteNavigation />
+                    ))}
+                  </div>
+                ) : null}
+              </section>
+            ))}
+          </div>
+        </>
+      ) : (
+        <PaletteModulePlaceholder moduleId={activeModule} />
+      )}
+      <PaletteNavigation
+        activeModule={activeModule}
+        onModuleChange={(module) => {
+          setActiveModule(module);
+          setFilterOpen(false);
+        }}
+      />
     </aside>
+  );
+}
+
+/** 判断节点条目是否已有实现且不与单例节点冲突。 */
+function isPaletteItemAvailable(
+  item: PaletteItem,
+  startExists: boolean,
+  endExists: boolean,
+): boolean {
+  if (!item.kind) return false;
+  if (item.kind === 'start') return !startExists;
+  if (item.kind === 'end') return !endExists;
+  return true;
+}
+
+type PaletteFilterPanelProps = Readonly<{
+  /** 是否只显示已可用节点。 */
+  onlyAvailable: boolean;
+  /** 更新可用节点筛选。 */
+  onOnlyAvailableChange: (checked: boolean) => void;
+  /** 展开所有节点分组。 */
+  onExpandAll: () => void;
+  /** 收起所有节点分组。 */
+  onCollapseAll: () => void;
+}>;
+
+/** 节点库头部筛选按钮对应的轻量功能面板。 */
+function PaletteFilterPanel({
+  onlyAvailable,
+  onOnlyAvailableChange,
+  onExpandAll,
+  onCollapseAll,
+}: PaletteFilterPanelProps) {
+  return (
+    <div className="absolute top-[32px] right-2 z-40 w-44 rounded-md border border-slate-200 bg-white p-2 shadow-lg">
+      <label className="flex h-7 items-center gap-2 rounded px-1 text-[11px] text-slate-700 hover:bg-slate-50">
+        <input
+          type="checkbox"
+          checked={onlyAvailable}
+          onChange={(event) => onOnlyAvailableChange(event.target.checked)}
+          className="size-3.5 accent-blue-600"
+        />
+        仅显示可用节点
+      </label>
+      <div className="mt-1 grid grid-cols-2 gap-1 border-t border-slate-100 pt-2">
+        <button
+          type="button"
+          className="h-7 rounded bg-slate-50 text-[10px] text-slate-600 hover:bg-slate-100"
+          onClick={onExpandAll}
+        >
+          全部展开
+        </button>
+        <button
+          type="button"
+          className="h-7 rounded bg-slate-50 text-[10px] text-slate-600 hover:bg-slate-100"
+          onClick={onCollapseAll}
+        >
+          全部收起
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -246,29 +345,5 @@ function PaletteItemButton({ item, disabled }: PaletteItemButtonProps) {
       </span>
       <span className="ml-2 flex-1 truncate">{item.title}</span>
     </button>
-  );
-}
-
-/** 节点库底部的五项模块导航。 */
-function PaletteNavigation() {
-  const navigation = [Layers3, PanelLeft, Boxes, Workflow, Settings] as const;
-  return (
-    <nav aria-label="工作台模块" className="flex h-10 shrink-0 items-center justify-around border-t border-slate-200 bg-white">
-      {navigation.map((Icon, index) => (
-        <button
-          key={Icon.displayName ?? index}
-          type="button"
-          aria-label={`工作台模块 ${index + 1}`}
-          className={
-            'relative flex h-10 flex-1 items-center justify-center ' +
-            (index === 0
-              ? 'text-blue-600 after:absolute after:bottom-0 after:h-0.5 after:w-6 after:bg-blue-600'
-              : 'text-slate-500 hover:text-slate-800')
-          }
-        >
-          <Icon className="size-3.5" aria-hidden="true" />
-        </button>
-      ))}
-    </nav>
   );
 }

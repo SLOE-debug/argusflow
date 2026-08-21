@@ -23,7 +23,7 @@ type InspectorSectionProps = Readonly<{
 /** 右侧属性面板中的统一分段容器。 */
 export function InspectorSection({ title, children, last = false }: InspectorSectionProps) {
   return (
-    <section className={`px-4 py-3 ${last ? '' : 'border-b border-slate-200'}`}>
+    <section className={`px-3 py-3 ${last ? '' : 'border-b border-slate-200'}`}>
       <h3 className="mb-3 text-[13px] font-semibold text-slate-800">{title}</h3>
       <div className="flex flex-col gap-2.5">{children}</div>
     </section>
@@ -37,10 +37,10 @@ type InspectorFieldProps = Readonly<{
   children: ReactNode;
 }>;
 
-/** 固定 106px 标签列的属性字段布局。 */
+/** 适配收窄属性面板的紧凑标签列。 */
 export function InspectorField({ label, children }: InspectorFieldProps) {
   return (
-    <label className="grid grid-cols-[106px_minmax(0,1fr)] items-start text-[12px] text-slate-600">
+    <label className="grid grid-cols-[80px_minmax(0,1fr)] items-start gap-2 text-[12px] text-slate-600">
       <span className="pt-2">{label}</span>
       <span className="min-w-0">{children}</span>
     </label>

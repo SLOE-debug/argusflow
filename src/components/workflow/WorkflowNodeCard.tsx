@@ -72,11 +72,17 @@ const STATUS_TONES: Readonly<Record<NodeRunState, string>> = {
 
 /** ArgusFlow 节点注册表，由通用 Flow 内核按 kind 分派。 */
 export const workflowNodeRegistry = {
-  start: createDefinition('start', '开始', WORKFLOW_NODE_SIZES.start, true),
+  start: {
+    ...createDefinition('start', '开始', WORKFLOW_NODE_SIZES.start, true),
+    canEndConnection: false,
+  },
   log: createDefinition('log', '日志', WORKFLOW_NODE_SIZES.log),
   delay: createDefinition('delay', '等待', WORKFLOW_NODE_SIZES.delay),
   condition: createDefinition('condition', '条件', WORKFLOW_NODE_SIZES.condition),
-  end: createDefinition('end', '结束', WORKFLOW_NODE_SIZES.end, true),
+  end: {
+    ...createDefinition('end', '结束', WORKFLOW_NODE_SIZES.end, true),
+    canStartConnection: false,
+  },
 } satisfies WorkflowNodeRegistry;
 
 /** 构造带统一业务渲染器的节点定义。 */
