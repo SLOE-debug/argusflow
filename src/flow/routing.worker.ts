@@ -3,7 +3,11 @@
 import { createRoutingIndex, routeEdge } from './routing';
 import type { FlowEdge, FlowNode, RoutedEdge } from './types';
 
-type RouteRequest = { revision: number; nodes: FlowNode[]; edges: FlowEdge[] };
+type RouteRequest = Readonly<{
+  revision: number;
+  nodes: ReadonlyArray<FlowNode>;
+  edges: ReadonlyArray<FlowEdge>;
+}>;
 type RouteResponse = { revision: number; routes: RoutedEdge[] };
 
 /** Worker 内批量计算精确路径，避免 A* 阻塞画布指针事件。 */

@@ -3,9 +3,10 @@ import type { PointerEvent as ReactPointerEvent } from 'react';
 import { anchorPoint, isRectVisible, rectFromPoints } from './geometry';
 import { FlowEdges } from './FlowEdges';
 import { FlowNodeView } from './FlowNodeView';
+import { findFlowNode } from './nodeLookup';
 import type { CanvasToolMode } from './FlowCanvasTools';
 import type { AlignmentGuide } from './snapping';
-import type { ConnectionDraft, SelectionBox } from './store';
+import { useFlowStore, type ConnectionDraft, type SelectionBox } from './store';
 import type {
   FlowAnchorSide,
   FlowNode,
@@ -16,9 +17,7 @@ import type {
 import type { CanvasSize } from './useCanvasSize';
 
 type FlowCanvasLayersProps = Readonly<{
-  connectionDraft: ConnectionDraft | null;
   guides: ReadonlyArray<AlignmentGuide>;
-  nodes: ReadonlyArray<FlowNode>;
   onConnectionStart: (
     nodeId: string,
     side: FlowAnchorSide,
@@ -33,11 +32,11 @@ type FlowCanvasLayersProps = Readonly<{
     point: FlowPoint,
     event: ReactPointerEvent,
   ) => void;
+  /** 空格或平移工具是否正在覆盖节点交互。 */
+  panActive: boolean;
   registry: Readonly<NodeRegistry>;
-  selectionBox: SelectionBox | null;
   size: CanvasSize;
   toolMode: CanvasToolMode;
-  viewport: ViewportTransform;
 }>;
 
 /** 框选覆盖层样式。 */
@@ -59,18 +58,19 @@ const ALIGNMENT_GUIDE_CLASS_NAME = [
 
 /** 装配画布网格、连线和随世界坐标变换的节点交互图层。 */
 export function FlowCanvasLayers({
-  connectionDraft,
   guides,
-  nodes,
   onConnectionStart,
   onDragStart,
   onReconnectStart,
+  panActive,
   registry,
-  selectionBox,
   size,
   toolMode,
-  viewport,
 }: FlowCanvasLayersProps) {
+  const nodes = useFlowStore((state) => state.nodes);
+  const viewport = useFlowStore((state) => state.viewport);
+  const selectionBox = useFlowStore((state) => state.selectionBox);
+  const connectionDraft = useFlowStore((state) => state.connectionDraft);
   const worldTransform = `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`;
   const visibleNodes = nodes.filter((node) => isRectVisible(
     { ...node.position, ...node.size },
@@ -85,26 +85,23 @@ export function FlowCanvasLayers({
       <FlowEdges
         height={size.height}
         onReconnectStart={onReconnectStart}
+        panActive={panActive}
         width={size.width}
       />
       <div
-        className="absolute inset-0 z-10 origin-top-left"
+        className="pointer-events-none absolute inset-0 z-10 origin-top-left"
         style={{ transform: worldTransform }}
       >
         {visibleNodes.map((node) => (
-          <div
+          <FlowNodeView
             key={node.id}
-            className="pointer-events-none absolute inset-0"
-            data-flow-node-id={node.id}
-          >
-            <FlowNodeView
-              nodeId={node.id}
-              onConnectionStart={onConnectionStart}
-              onDragStart={onDragStart}
-              registry={registry}
-              toolMode={toolMode}
-            />
-          </div>
+            nodeId={node.id}
+            onConnectionStart={onConnectionStart}
+            onDragStart={onDragStart}
+            panActive={panActive}
+            registry={registry}
+            toolMode={toolMode}
+          />
         ))}
         <AlignmentGuides guides={guides} />
         <SelectionOverlay selectionBox={selectionBox} />
@@ -189,7 +186,7 @@ function ConnectionDraftPath({
 }: ConnectionDraftPathProps) {
   if (!connectionDraft) return null;
 
-  const sourceNode = nodes.find((node) => node.id === connectionDraft.nodeId);
+  const sourceNode = findFlowNode(nodes, connectionDraft.nodeId);
   const sourcePoint = sourceNode
     ? anchorPoint(
         { ...sourceNode.position, ...sourceNode.size },

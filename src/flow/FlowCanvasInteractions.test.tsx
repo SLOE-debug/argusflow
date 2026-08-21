@@ -1,0 +1,194 @@
+import { fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { FlowCanvas } from './FlowCanvas';
+import { createFlowStore, FlowProvider } from './store';
+import type { FlowNode, FlowNodeRendererProps, NodeRegistry } from './types';
+
+/** 测试节点只显示 ID，交互由通用节点外壳负责。 */
+function TestNode({ node }: FlowNodeRendererProps) {
+  return <span>{node.id}</span>;
+}
+
+const registry = {
+  test: {
+    kind: 'test',
+    title: '测试',
+    defaultSize: { width: 80, height: 50 },
+    component: TestNode,
+  },
+} satisfies NodeRegistry;
+
+/** 创建用于手势和连线命中的固定尺寸节点。 */
+const createNode = (id: string, x: number): FlowNode => ({
+  id,
+  kind: 'test',
+  position: { x, y: 20 },
+  size: { width: 80, height: 50 },
+  data: null,
+});
+
+describe('FlowCanvas interactions', () => {
+  beforeEach(() => {
+    let frameId = 0;
+    vi.stubGlobal('requestAnimationFrame', vi.fn(() => ++frameId));
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+    vi.stubGlobal('ResizeObserver', class {
+      public constructor(private readonly callback: ResizeObserverCallback) {}
+
+      public observe(): void {
+        this.callback([{
+          contentRect: { width: 800, height: 600 },
+        } as ResizeObserverEntry], this as unknown as ResizeObserver);
+      }
+
+      public disconnect(): void {}
+      public unobserve(): void {}
+    });
+    vi.stubGlobal('Worker', class {
+      public postMessage(): void {}
+      public addEventListener(): void {}
+      public removeEventListener(): void {}
+      public terminate(): void {}
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('prevents browser text selection when box selection starts', () => {
+    const store = createFlowStore({ nodes: [createNode('a', 20)], edges: [] });
+    const removeAllRanges = vi.fn();
+    vi.spyOn(window, 'getSelection').mockReturnValue({
+      removeAllRanges,
+    } as unknown as Selection);
+    const { container } = render(
+      <FlowProvider store={store}>
+        <FlowCanvas
+          registry={registry}
+          onAddNode={vi.fn()}
+          onConnect={() => true}
+          onReconnect={() => true}
+        />
+      </FlowProvider>,
+    );
+    const canvas = container.querySelector('.touch-none');
+    expect(canvas).toHaveClass('select-none');
+
+    const eventWasNotCancelled = fireEvent.pointerDown(canvas!, {
+      button: 0,
+      clientX: 300,
+      clientY: 200,
+    });
+
+    expect(eventWasNotCancelled).toBe(false);
+    expect(removeAllRanges).toHaveBeenCalledOnce();
+  });
+
+  it('pans from a selected node while Space is pressed', () => {
+    const nodes = [createNode('a', 20), createNode('b', 160)];
+    const store = createFlowStore({ nodes, edges: [] });
+    store.getState().selectNodes(['a', 'b']);
+    const { container } = render(
+      <FlowProvider store={store}>
+        <FlowCanvas
+          registry={registry}
+          onAddNode={vi.fn()}
+          onConnect={() => true}
+          onReconnect={() => true}
+        />
+      </FlowProvider>,
+    );
+    fireEvent.keyDown(window, { code: 'Space', key: ' ' });
+    const selectedNode = container.querySelector('[data-flow-node-id="a"]');
+    expect(selectedNode).not.toBeNull();
+
+    fireEvent.pointerDown(selectedNode!, {
+      button: 0,
+      clientX: 40,
+      clientY: 80,
+    });
+    fireEvent.pointerMove(window, { clientX: 70, clientY: 100 });
+    fireEvent.pointerMove(window, { clientX: 90, clientY: 120 });
+    fireEvent.pointerUp(window, { clientX: 90, clientY: 120 });
+
+    expect(store.getState().viewport).toEqual({ x: 50, y: 82, zoom: 1 });
+    expect(store.getState().nodes).toBe(nodes);
+    expect(store.getState().selectedNodeIds).toEqual(new Set(['a', 'b']));
+    expect(store.getState().past).toHaveLength(0);
+    fireEvent.keyUp(window, { code: 'Space', key: ' ' });
+  });
+
+  it('lets the transparent edge path receive hover and selection events', () => {
+    const nodes = [createNode('a', 0), createNode('b', 120)];
+    const store = createFlowStore({
+      nodes,
+      edges: [{
+        id: 'edge',
+        source: { nodeId: 'a', side: 'right' },
+        target: { nodeId: 'b', side: 'left' },
+        data: null,
+      }],
+    });
+    const { container } = render(
+      <FlowProvider store={store}>
+        <FlowCanvas
+          registry={registry}
+          onAddNode={vi.fn()}
+          onConnect={() => true}
+          onReconnect={() => true}
+        />
+      </FlowProvider>,
+    );
+    const hitPath = container.querySelector('[data-flow-edge-hit="edge"]');
+    const visiblePath = container.querySelector('#path-edge');
+    const nodeWorld = container.querySelector('.z-10.origin-top-left');
+    expect(hitPath).toHaveClass('[pointer-events:stroke]');
+    expect(nodeWorld).toHaveClass('pointer-events-none');
+
+    fireEvent.pointerEnter(hitPath!);
+    expect(visiblePath).toHaveAttribute('stroke', '#7c3aed');
+    fireEvent.pointerDown(hitPath!, { button: 0 });
+    expect(store.getState().selectedEdgeId).toBe('edge');
+    fireEvent.pointerLeave(hitPath!);
+    expect(visiblePath).toHaveAttribute('stroke', '#0f766e');
+  });
+
+  it('pans from an edge without selecting it when the pan tool is active', () => {
+    const nodes = [createNode('a', 0), createNode('b', 120)];
+    const store = createFlowStore({
+      nodes,
+      edges: [{
+        id: 'edge',
+        source: { nodeId: 'a', side: 'right' },
+        target: { nodeId: 'b', side: 'left' },
+        data: null,
+      }],
+    });
+    const { container } = render(
+      <FlowProvider store={store}>
+        <FlowCanvas
+          registry={registry}
+          onAddNode={vi.fn()}
+          onConnect={() => true}
+          onReconnect={() => true}
+        />
+      </FlowProvider>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '平移' }));
+    const hitPath = container.querySelector('[data-flow-edge-hit="edge"]');
+
+    fireEvent.pointerDown(hitPath!, {
+      button: 0,
+      clientX: 100,
+      clientY: 80,
+    });
+    fireEvent.pointerMove(window, { clientX: 130, clientY: 100 });
+    fireEvent.pointerUp(window, { clientX: 130, clientY: 100 });
+
+    expect(store.getState().viewport).toEqual({ x: 30, y: 62, zoom: 1 });
+    expect(store.getState().selectedEdgeId).toBeNull();
+  });
+});

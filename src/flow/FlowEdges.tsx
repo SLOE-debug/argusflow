@@ -1,6 +1,7 @@
-import type { PointerEvent as ReactPointerEvent } from 'react';
+import { memo, type PointerEvent as ReactPointerEvent } from 'react';
 
 import { anchorPoint, isRectVisible } from './geometry';
+import { getFlowNodeLookup } from './nodeLookup';
 import { useFlowStore } from './store';
 import type {
   FlowAnchorSide,
@@ -15,6 +16,8 @@ import { useEdgeRoutes } from './useEdgeRoutes';
 type FlowEdgesProps = Readonly<{
   width: number;
   height: number;
+  /** 平移手势是否覆盖边选择和重连。 */
+  panActive: boolean;
   onReconnectStart: (
     edgeId: string,
     endpoint: 'source' | 'target',
@@ -33,7 +36,12 @@ type VisibleRoute = Readonly<{
 const ACTIVE_PARTICLES = [0, 1, 2, 3] as const;
 
 /** 渲染正交避障连线、透明命中区、分支标签和运行粒子。 */
-export function FlowEdges({ width, height, onReconnectStart }: FlowEdgesProps) {
+export const FlowEdges = memo(function FlowEdges({
+  width,
+  height,
+  onReconnectStart,
+  panActive,
+}: FlowEdgesProps) {
   const nodes = useFlowStore((state) => state.nodes);
   const edges = useFlowStore((state) => state.edges);
   const viewport = useFlowStore((state) => state.viewport);
@@ -44,6 +52,7 @@ export function FlowEdges({ width, height, onReconnectStart }: FlowEdgesProps) {
   const setHoveredEdge = useFlowStore((state) => state.setHoveredEdge);
   const routedEdges = useEdgeRoutes(nodes, edges);
   const edgeById = new Map(edges.map((edge) => [edge.id, edge]));
+  const nodesById = getFlowNodeLookup(nodes);
   const visibleRoutes = routedEdges.flatMap((route): VisibleRoute[] => {
     const edge = edgeById.get(route.edgeId);
     return edge && isRectVisible(route.bounds, viewport, width, height)
@@ -53,7 +62,7 @@ export function FlowEdges({ width, height, onReconnectStart }: FlowEdgesProps) {
 
   return (
     <svg
-      className="pointer-events-none absolute inset-0 z-[1] overflow-visible"
+      className="pointer-events-none absolute inset-0 z-[1] select-none overflow-visible"
       height={height}
       width={width}
     >
@@ -64,20 +73,21 @@ export function FlowEdges({ width, height, onReconnectStart }: FlowEdgesProps) {
             key={edge.id}
             active={Boolean(activeEdgeIds[edge.id])}
             edge={edge}
-            hovered={edge.id === hoveredEdgeId}
-            nodes={nodes}
+            hovered={!panActive && edge.id === hoveredEdgeId}
+            nodesById={nodesById}
             onHover={setHoveredEdge}
             onReconnectStart={onReconnectStart}
             onSelect={selectEdge}
+            panActive={panActive}
             route={route}
             selected={edge.id === selectedEdgeId}
-            viewport={viewport}
+            zoom={viewport.zoom}
           />
         ))}
       </g>
     </svg>
   );
-}
+});
 
 /** 定义所有连线共用的 SVG 箭头。 */
 function EdgeMarkerDefinition() {
@@ -106,30 +116,32 @@ type FlowEdgePathProps = Readonly<{
   active: boolean;
   edge: FlowEdge;
   hovered: boolean;
-  nodes: ReadonlyArray<FlowNode>;
+  nodesById: ReadonlyMap<string, FlowNode>;
   onHover: (edgeId: string | null) => void;
   onReconnectStart: FlowEdgesProps['onReconnectStart'];
   onSelect: (edgeId: string | null) => void;
+  panActive: boolean;
   route: RoutedEdge;
   selected: boolean;
-  viewport: ViewportTransform;
+  zoom: ViewportTransform['zoom'];
 }>;
 
 /** 渲染单条边及其命中区、标签、粒子和重连锚点。 */
-function FlowEdgePath({
+const FlowEdgePath = memo(function FlowEdgePath({
   active,
   edge,
   hovered,
-  nodes,
+  nodesById,
   onHover,
   onReconnectStart,
   onSelect,
+  panActive,
   route,
   selected,
-  viewport,
+  zoom,
 }: FlowEdgePathProps) {
-  const sourceNode = nodes.find((node) => node.id === edge.source.nodeId);
-  const targetNode = nodes.find((node) => node.id === edge.target.nodeId);
+  const sourceNode = nodesById.get(edge.source.nodeId);
+  const targetNode = nodesById.get(edge.target.nodeId);
   if (!sourceNode || !targetNode) return null;
 
   const sourcePoint = anchorPoint(
@@ -152,20 +164,24 @@ function FlowEdgePath({
   const strokeWidth = hovered || selected ? 2.2 : 1.7;
   const strokeDasharray = hovered ? '6 4' : undefined;
   const selectCurrentEdge = (event: ReactPointerEvent<SVGGElement>) => {
+    if (panActive) return;
     event.stopPropagation();
     onSelect(edge.id);
   };
-  const hoverCurrentEdge = () => onHover(edge.id);
+  const hoverCurrentEdge = () => {
+    if (!panActive) onHover(edge.id);
+  };
   const clearHoveredEdge = () => onHover(null);
 
   return (
     <g
-      className="[pointer-events:stroke]"
       onPointerDown={selectCurrentEdge}
       onPointerEnter={hoverCurrentEdge}
       onPointerLeave={clearHoveredEdge}
     >
       <path
+        className="[pointer-events:stroke]"
+        data-flow-edge-hit={edge.id}
         d={route.path}
         fill="none"
         stroke="transparent"
@@ -173,6 +189,7 @@ function FlowEdgePath({
         vectorEffect="non-scaling-stroke"
       />
       <path
+        className="pointer-events-none"
         id={`path-${edge.id}`}
         d={route.path}
         fill="none"
@@ -198,7 +215,7 @@ function FlowEdgePath({
       {active ? (
         <ActiveEdgeParticles path={route.path} />
       ) : null}
-      {hovered || selected ? (
+      {(hovered || selected) && !panActive ? (
         <ReconnectAnchors
           edgeId={edge.id}
           onReconnectStart={onReconnectStart}
@@ -206,12 +223,12 @@ function FlowEdgePath({
           sourceSide={route.sourceSide}
           targetPoint={targetPoint}
           targetSide={route.targetSide}
-          zoom={viewport.zoom}
+          zoom={zoom}
         />
       ) : null}
     </g>
   );
-}
+});
 
 /** 从未知的业务边数据中安全读取可显示的分支文本。 */
 function readBranchLabel(data: unknown): string | null {
@@ -235,6 +252,7 @@ function EdgeBranchLabel({
 
   return (
     <text
+      className="pointer-events-none select-none"
       fill={label === '满足条件' ? '#16a34a' : '#ef4444'}
       fontSize="11"
       fontWeight="600"

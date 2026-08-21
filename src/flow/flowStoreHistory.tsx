@@ -1,4 +1,4 @@
-import { cloneDocumentSnapshot } from './flowStoreDocument';
+import { captureDocumentSnapshot } from './flowStoreDocument';
 import type {
   FlowDocumentSnapshot,
   FlowState,
@@ -32,8 +32,16 @@ export function applyDocumentTransaction<TData, TEdgeData>(
   ) => FlowDocumentSnapshot<TData, TEdgeData>,
   historyGroupKey?: string,
 ): HistoryState<TData, TEdgeData> {
-  const currentSnapshot = cloneDocumentSnapshot(state);
+  const currentSnapshot = captureDocumentSnapshot(state);
   const nextSnapshot = mutate(currentSnapshot);
+  /** reducer 返回同一组文档引用时，不创建空历史，也不发布 Store 更新。 */
+  if (
+    nextSnapshot.metadata === currentSnapshot.metadata
+    && nextSnapshot.nodes === currentSnapshot.nodes
+    && nextSnapshot.edges === currentSnapshot.edges
+  ) {
+    return state;
+  }
   const now = Date.now();
   /** 同一分组在短窗口内只保留首次编辑前的历史快照。 */
   const mergeWithCurrentGroup = Boolean(
@@ -66,7 +74,7 @@ export function undoDocument<TData, TEdgeData>(
   return {
     ...previous,
     past: state.past.slice(0, -1),
-    future: [cloneDocumentSnapshot(state), ...state.future],
+    future: [captureDocumentSnapshot(state), ...state.future],
     selectedNodeIds: new Set(),
     selectedEdgeId: null,
     historyGroup: null,
@@ -82,7 +90,7 @@ export function redoDocument<TData, TEdgeData>(
 
   return {
     ...next,
-    past: [...state.past, cloneDocumentSnapshot(state)],
+    past: [...state.past, captureDocumentSnapshot(state)],
     future: state.future.slice(1),
     selectedNodeIds: new Set(),
     selectedEdgeId: null,

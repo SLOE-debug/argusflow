@@ -8,7 +8,7 @@ import { screenToWorld } from './geometry';
 import { useCanvasKeyboard } from './useCanvasKeyboard';
 import { useCanvasPointerInteractions } from './useCanvasPointerInteractions';
 import { useCanvasSize } from './useCanvasSize';
-import { useFlowStore } from './store';
+import { useFlowStoreApi } from './store';
 import type { FlowAnchorSide, FlowPoint, NodeRegistry } from './types';
 
 type FlowCanvasProps = Readonly<{
@@ -39,11 +39,8 @@ export function FlowCanvas({
   onReconnect,
 }: FlowCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const store = useFlowStoreApi();
   const [toolMode, setToolMode] = useState<CanvasToolMode>('select');
-  const nodes = useFlowStore((state) => state.nodes);
-  const viewport = useFlowStore((state) => state.viewport);
-  const selectionBox = useFlowStore((state) => state.selectionBox);
-  const connectionDraft = useFlowStore((state) => state.connectionDraft);
   const canvasSize = useCanvasSize(containerRef);
   const spacePressed = useCanvasKeyboard(registry);
   const interactions = useCanvasPointerInteractions({
@@ -54,7 +51,9 @@ export function FlowCanvas({
     spacePressed,
     toolMode,
   });
-  const cursorClassName = spacePressed || toolMode === 'pan'
+  /** 空格与平移工具都必须覆盖节点自身的拖拽手势。 */
+  const panActive = spacePressed || toolMode === 'pan';
+  const cursorClassName = panActive
     ? 'cursor-grab'
     : 'cursor-crosshair';
   /** 仅允许画布注册的节点拖放数据触发浏览器 Drop。 */
@@ -74,7 +73,7 @@ export function FlowCanvas({
     const dropPoint = screenToWorld({
       x: event.clientX - bounds.left,
       y: event.clientY - bounds.top,
-    }, viewport);
+    }, store.getState().viewport);
     /** 拖放位置对应节点中心，避免新节点整体偏向指针右下方。 */
     const position = {
       x: Math.round(dropPoint.x - definition.defaultSize.width / 2),
@@ -86,7 +85,7 @@ export function FlowCanvas({
   return (
     <div
       ref={containerRef}
-      className={`absolute inset-0 touch-none overflow-hidden bg-white ${cursorClassName}`}
+      className={`absolute inset-0 touch-none select-none overflow-hidden bg-white ${cursorClassName}`}
       onContextMenu={interactions.handleContextMenu}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
@@ -94,17 +93,14 @@ export function FlowCanvas({
       onWheel={interactions.handleWheel}
     >
       <FlowCanvasLayers
-        connectionDraft={connectionDraft}
         guides={interactions.guides}
-        nodes={nodes}
         onConnectionStart={interactions.handleConnectionStart}
         onDragStart={interactions.handleNodeDragStart}
         onReconnectStart={interactions.handleReconnectStart}
+        panActive={panActive}
         registry={registry}
-        selectionBox={selectionBox}
         size={canvasSize}
         toolMode={toolMode}
-        viewport={viewport}
       />
       <FlowCanvasTools
         mode={toolMode}
@@ -113,7 +109,7 @@ export function FlowCanvas({
       {interactions.contextMenu ? (
         <FlowContextMenu
           context={interactions.contextMenu}
-          nodes={nodes}
+          nodes={store.getState().nodes}
           onAddNode={onAddNode}
           onClose={interactions.closeContextMenu}
           registry={registry}

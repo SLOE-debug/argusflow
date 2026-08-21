@@ -4,28 +4,35 @@ export type AlignMode = 'left' | 'center-x' | 'right' | 'top' | 'center-y' | 'bo
 export type DistributeMode = 'horizontal' | 'vertical';
 
 /** 返回对齐后的节点副本，未选中节点保持引用不变。 */
-export function alignNodes<T>(nodes: FlowNode<T>[], selectedIds: Set<string>, mode: AlignMode): FlowNode<T>[] {
+export function alignNodes<T>(nodes: ReadonlyArray<FlowNode<T>>, selectedIds: ReadonlySet<string>, mode: AlignMode): ReadonlyArray<FlowNode<T>> {
   const selected = nodes.filter((node) => selectedIds.has(node.id));
   if (selected.length < 2) return nodes;
   const values = selected.map((node) => alignmentValue(node, mode));
   const target = mode === 'left' || mode === 'top' ? Math.min(...values) : mode === 'right' || mode === 'bottom' ? Math.max(...values) : values.reduce((sum, value) => sum + value, 0) / values.length;
-  return nodes.map((node) => selectedIds.has(node.id) ? moveToAlignment(node, mode, target) : node);
+  const aligned = nodes.map((node) => selectedIds.has(node.id) ? moveToAlignment(node, mode, target) : node);
+  return aligned.every((node, index) => node === nodes[index]) ? nodes : aligned;
 }
 
 /** 在首尾节点之间等距分布节点中心。 */
-export function distributeNodes<T>(nodes: FlowNode<T>[], selectedIds: Set<string>, mode: DistributeMode): FlowNode<T>[] {
+export function distributeNodes<T>(nodes: ReadonlyArray<FlowNode<T>>, selectedIds: ReadonlySet<string>, mode: DistributeMode): ReadonlyArray<FlowNode<T>> {
   const selected = nodes.filter((node) => selectedIds.has(node.id)).sort((a, b) => center(a, mode) - center(b, mode));
   if (selected.length < 3) return nodes;
   const start = center(selected[0], mode);
   const step = (center(selected.at(-1)!, mode) - start) / (selected.length - 1);
   const targets = new Map(selected.map((node, index) => [node.id, start + step * index]));
-  return nodes.map((node) => {
+  const distributed = nodes.map((node) => {
     const target = targets.get(node.id);
     if (target === undefined) return node;
-    return mode === 'horizontal'
-      ? { ...node, position: { ...node.position, x: target - node.size.width / 2 } }
-      : { ...node, position: { ...node.position, y: target - node.size.height / 2 } };
+    const nextPosition = mode === 'horizontal'
+      ? { ...node.position, x: target - node.size.width / 2 }
+      : { ...node.position, y: target - node.size.height / 2 };
+    return nextPosition.x === node.position.x && nextPosition.y === node.position.y
+      ? node
+      : { ...node, position: nextPosition };
   });
+  return distributed.every((node, index) => node === nodes[index])
+    ? nodes
+    : distributed;
 }
 
 function alignmentValue(node: FlowNode, mode: AlignMode): number {
@@ -44,7 +51,9 @@ function moveToAlignment<T>(node: FlowNode<T>, mode: AlignMode, target: number):
   else if (mode === 'bottom') position.y = target - node.size.height;
   else if (mode === 'center-x') position.x = target - node.size.width / 2;
   else position.y = target - node.size.height / 2;
-  return { ...node, position };
+  return position.x === node.position.x && position.y === node.position.y
+    ? node
+    : { ...node, position };
 }
 
 function center(node: FlowNode, mode: DistributeMode): number {

@@ -11,14 +11,14 @@ export type PastedSubgraph<TData, TEdgeData> = Readonly<{
   edges: FlowEdge<TEdgeData>[];
 }>;
 
-/** 深拷贝当前文档字段，隔离后续编辑对历史的影响。 */
-export function cloneDocumentSnapshot<TData, TEdgeData>(
+/** 捕获当前不可变文档引用；后续编辑通过结构共享保持快照隔离。 */
+export function captureDocumentSnapshot<TData, TEdgeData>(
   state: Pick<FlowState<TData, TEdgeData>, 'metadata' | 'nodes' | 'edges'>,
 ): FlowDocumentSnapshot<TData, TEdgeData> {
   return {
-    metadata: structuredClone(state.metadata),
-    nodes: structuredClone(state.nodes),
-    edges: structuredClone(state.edges),
+    metadata: state.metadata,
+    nodes: state.nodes,
+    edges: state.edges,
   };
 }
 
@@ -44,7 +44,8 @@ export function moveSelectedNodes<TData>(
   nodes: ReadonlyArray<FlowNode<TData>>,
   selectedNodeIds: ReadonlySet<string>,
   delta: FlowPoint,
-): FlowNode<TData>[] {
+): ReadonlyArray<FlowNode<TData>> {
+  if (delta.x === 0 && delta.y === 0) return nodes;
   return nodes.map((node) => (
     selectedNodeIds.has(node.id)
       ? {

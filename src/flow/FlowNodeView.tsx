@@ -2,6 +2,7 @@ import { memo, type PointerEvent as ReactPointerEvent } from 'react';
 
 import { anchorPoint } from './geometry';
 import type { CanvasToolMode } from './FlowCanvasTools';
+import { findFlowNode } from './nodeLookup';
 import { useFlowStore } from './store';
 import type { FlowAnchorSide, FlowNode, FlowPoint, NodeRegistry } from './types';
 
@@ -37,6 +38,8 @@ type FlowNodeViewProps = Readonly<{
   nodeId: string;
   registry: Readonly<NodeRegistry>;
   toolMode: CanvasToolMode;
+  /** 平移手势是否覆盖节点选择和拖动。 */
+  panActive: boolean;
   onDragStart: (nodeId: string, event: ReactPointerEvent) => void;
   onConnectionStart: (
     nodeId: string,
@@ -51,12 +54,11 @@ export const FlowNodeView = memo(function FlowNodeView({
   nodeId,
   registry,
   toolMode,
+  panActive,
   onDragStart,
   onConnectionStart,
 }: FlowNodeViewProps) {
-  const node = useFlowStore((state) => state.nodes.find(
-    (candidate) => candidate.id === nodeId,
-  ));
+  const node = useFlowStore((state) => findFlowNode(state.nodes, nodeId));
   const selected = useFlowStore((state) => state.selectedNodeIds.has(nodeId));
   const hovered = useFlowStore((state) => state.hoveredNodeId === nodeId);
   const selectNodes = useFlowStore((state) => state.selectNodes);
@@ -71,7 +73,7 @@ export const FlowNodeView = memo(function FlowNodeView({
   const handlePointerEnter = () => setHoveredNode(node.id);
   const handlePointerLeave = () => setHoveredNode(null);
   const handlePointerDown = (event: ReactPointerEvent) => {
-    if (toolMode === 'pan') return;
+    if (panActive) return;
 
     const target = event.target;
     if (target instanceof HTMLElement && target.closest('[data-flow-anchor]')) return;
@@ -88,7 +90,8 @@ export const FlowNodeView = memo(function FlowNodeView({
 
   return (
     <div
-      className={`pointer-events-auto absolute select-none ${toolMode === 'pan' ? 'cursor-grab' : 'cursor-move'}`}
+      className={`pointer-events-auto absolute select-none ${panActive ? 'cursor-grab' : 'cursor-move'}`}
+      data-flow-node-id={node.id}
       style={{
         height: node.size.height,
         transform: `translate(${node.position.x}px, ${node.position.y}px)`,
@@ -103,7 +106,7 @@ export const FlowNodeView = memo(function FlowNodeView({
         selected={selected}
       />
       {selected ? <NodeSelectionOutline /> : null}
-      {hovered && toolMode === 'select' ? (
+      {hovered && toolMode === 'select' && !panActive ? (
         <NodeAnchors
           node={node}
           onConnectionStart={onConnectionStart}

@@ -72,7 +72,7 @@ export default function App() {
       <div className={`grid min-h-0 ${mainColumns}`}>
         {libraryOpen && (
           <NodePalette
-            nodes={studio.nodes}
+            store={studio.flowStore}
           />
         )}
         <WorkflowWorkspace
@@ -92,12 +92,10 @@ export default function App() {
         />
         {inspectorOpen && (
           <NodeInspector
+            store={studio.flowStore}
             workflowName={studio.workflowName}
             variablesDraft={studio.variablesDraft}
             variablesError={studio.variablesError}
-            node={studio.selectedNode}
-            edge={studio.selectedEdge}
-            selectedCount={studio.selectedNodeIds.size}
             onNameChange={studio.setWorkflowName}
             onVariablesChange={studio.updateVariables}
             onUpdateNode={studio.updateNode}

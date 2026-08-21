@@ -1,7 +1,11 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import { FLOW_NODE_KIND_DRAG_TYPE } from '../../flow';
+import { createFlowStore, FLOW_NODE_KIND_DRAG_TYPE } from '../../flow';
+import type {
+  WorkflowEdgeData,
+  WorkflowNodeData,
+} from '../../features/workflow/workflowModel';
 import { NodePalette } from './NodePalette';
 
 describe('NodePalette', () => {
@@ -9,7 +13,8 @@ describe('NodePalette', () => {
     const setData = vi.fn();
     const dataTransfer = { effectAllowed: 'none', setData };
 
-    render(<NodePalette nodes={[]} />);
+    const store = createFlowStore<WorkflowNodeData, WorkflowEdgeData>();
+    render(<NodePalette store={store} />);
 
     const triggerNode = screen.getByRole('button', { name: '手动触发' });
     expect(triggerNode).toHaveAttribute('draggable', 'true');
@@ -21,7 +26,8 @@ describe('NodePalette', () => {
   });
 
   it('collapses and expands node groups', () => {
-    render(<NodePalette nodes={[]} />);
+    const store = createFlowStore<WorkflowNodeData, WorkflowEdgeData>();
+    render(<NodePalette store={store} />);
 
     const inputGroup = screen.getByRole('button', { name: /输入/ });
     fireEvent.click(inputGroup);
@@ -33,4 +39,3 @@ describe('NodePalette', () => {
     expect(inputGroup).toHaveAttribute('aria-expanded', 'true');
   });
 });
-

@@ -41,13 +41,19 @@ export function createFlowStore<TData = unknown, TEdgeData = unknown>(
     clipboard: null,
     historyGroup: null,
 
-    setViewport: (viewport) => set({ viewport }),
+    setViewport: (viewport) => set((state) => (
+      state.viewport.x === viewport.x
+      && state.viewport.y === viewport.y
+      && state.viewport.zoom === viewport.zoom
+        ? state
+        : { viewport }
+    )),
 
     setNodes: (nodes, record = true) => {
       if (record) {
         get().transact((document) => ({ ...document, nodes }));
       } else {
-        set({ nodes });
+        set((state) => state.nodes === nodes ? state : { nodes });
       }
     },
 
@@ -55,7 +61,7 @@ export function createFlowStore<TData = unknown, TEdgeData = unknown>(
       if (record) {
         get().transact((document) => ({ ...document, edges }));
       } else {
-        set({ edges });
+        set((state) => state.edges === edges ? state : { edges });
       }
     },
 
@@ -101,6 +107,7 @@ export function createFlowStore<TData = unknown, TEdgeData = unknown>(
     setConnectionDraft: (connectionDraft) => set({ connectionDraft }),
 
     moveSelected: (delta, record = false) => {
+      if (delta.x === 0 && delta.y === 0) return;
       if (record) {
         get().transact((document) => ({
           ...document,

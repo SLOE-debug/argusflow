@@ -173,7 +173,7 @@ export function createNode(kind: EditableNodeKind, position: FlowPoint = { x: 20
 }
 
 /** 新增边并根据 Condition 已占分支自动分配 true/false。 */
-export function createEdge(source: string, target: string, nodes: WorkflowCanvasNode[], edges: WorkflowCanvasEdge[], sourceSide?: WorkflowCanvasEdge['source']['side'], targetSide?: WorkflowCanvasEdge['target']['side']): WorkflowCanvasEdge {
+export function createEdge(source: string, target: string, nodes: ReadonlyArray<WorkflowCanvasNode>, edges: ReadonlyArray<WorkflowCanvasEdge>, sourceSide?: WorkflowCanvasEdge['source']['side'], targetSide?: WorkflowCanvasEdge['target']['side']): WorkflowCanvasEdge {
   const sourceNode = nodes.find((node) => node.id === source);
   let branch: ConditionBranch | null = null;
   if (sourceNode?.kind === 'condition') {
@@ -184,7 +184,7 @@ export function createEdge(source: string, target: string, nodes: WorkflowCanvas
 }
 
 /** 将画布状态转换为后端 schema v2 契约。 */
-export function toWorkflowDefinition(workflowId: string, name: string, variables: JsonObject, nodes: WorkflowCanvasNode[], edges: WorkflowCanvasEdge[]): WorkflowDefinition {
+export function toWorkflowDefinition(workflowId: string, name: string, variables: JsonObject, nodes: ReadonlyArray<WorkflowCanvasNode>, edges: ReadonlyArray<WorkflowCanvasEdge>): WorkflowDefinition {
   return {
     schema_version: 2,
     id: workflowId,
@@ -196,7 +196,7 @@ export function toWorkflowDefinition(workflowId: string, name: string, variables
 }
 
 /** 根据后端事件更新对应节点状态。 */
-export function applyExecutionEventToNodes(nodes: WorkflowCanvasNode[], event: ExecutionEvent): WorkflowCanvasNode[] {
+export function applyExecutionEventToNodes(nodes: ReadonlyArray<WorkflowCanvasNode>, event: ExecutionEvent): WorkflowCanvasNode[] {
   if (event.kind === 'workflow_started') return nodes.map((node) => ({ ...node, data: { ...node.data, runState: 'idle', invalid: false } }));
   const runState = event.kind === 'node_started' ? 'running' : event.kind === 'node_succeeded' ? 'success' : event.kind === 'node_failed' ? 'error' : null;
   if (!event.node_id || !runState) return nodes;
@@ -204,7 +204,7 @@ export function applyExecutionEventToNodes(nodes: WorkflowCanvasNode[], event: E
 }
 
 /** 检查新增或重连后的有向图约束。 */
-export function canConnect(nodes: WorkflowCanvasNode[], edges: WorkflowCanvasEdge[], source: string, target: string, ignoredEdgeId?: string): boolean {
+export function canConnect(nodes: ReadonlyArray<WorkflowCanvasNode>, edges: ReadonlyArray<WorkflowCanvasEdge>, source: string, target: string, ignoredEdgeId?: string): boolean {
   if (source === target || edges.some((edge) => edge.id !== ignoredEdgeId && edge.source.nodeId === source && edge.target.nodeId === target)) return false;
   const sourceNode = nodes.find((node) => node.id === source);
   const targetNode = nodes.find((node) => node.id === target);

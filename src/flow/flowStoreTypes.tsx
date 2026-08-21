@@ -8,20 +8,20 @@ import type {
 } from './types';
 
 /** 可进入历史记录的 Flow 文档快照。 */
-export type FlowDocumentSnapshot<TData, TEdgeData> = {
+export type FlowDocumentSnapshot<TData, TEdgeData> = Readonly<{
   /** 由业务层保存的工作流名称、变量等文档字段。 */
-  metadata: Record<string, unknown>;
+  metadata: Readonly<Record<string, unknown>>;
   /** 快照中的节点集合。 */
-  nodes: FlowNode<TData>[];
+  nodes: ReadonlyArray<FlowNode<TData>>;
   /** 快照中的连线集合。 */
-  edges: FlowEdge<TEdgeData>[];
-};
+  edges: ReadonlyArray<FlowEdge<TEdgeData>>;
+}>;
 
 /** Flow 内部剪贴板保存的完整选中子图。 */
-export type FlowClipboard<TData, TEdgeData> = Pick<
+export type FlowClipboard<TData, TEdgeData> = Readonly<Pick<
   FlowDocumentSnapshot<TData, TEdgeData>,
   'nodes' | 'edges'
->;
+>>;
 
 /** 框选覆盖层的世界坐标。 */
 export type SelectionBox = Readonly<{
@@ -47,11 +47,11 @@ export type HistoryGroup = Readonly<{
 /** 通用 Flow 文档、视口、选择、交互、历史和运行状态。 */
 export type FlowState<TData = unknown, TEdgeData = unknown> = {
   /** 随节点和边一起进入撤销历史的业务文档字段。 */
-  metadata: Record<string, unknown>;
+  metadata: Readonly<Record<string, unknown>>;
   /** 当前文档节点。 */
-  nodes: FlowNode<TData>[];
+  nodes: ReadonlyArray<FlowNode<TData>>;
   /** 当前文档连线。 */
-  edges: FlowEdge<TEdgeData>[];
+  edges: ReadonlyArray<FlowEdge<TEdgeData>>;
   /** 当前画布平移和缩放。 */
   viewport: ViewportTransform;
   /** 当前选中的节点 ID。 */
@@ -69,9 +69,9 @@ export type FlowState<TData = unknown, TEdgeData = unknown> = {
   /** 运行态连线 ID 到过期时间戳的映射。 */
   activeEdgeIds: Record<string, number>;
   /** 可撤销的文档快照。 */
-  past: FlowDocumentSnapshot<TData, TEdgeData>[];
+  past: ReadonlyArray<FlowDocumentSnapshot<TData, TEdgeData>>;
   /** 可重做的文档快照。 */
-  future: FlowDocumentSnapshot<TData, TEdgeData>[];
+  future: ReadonlyArray<FlowDocumentSnapshot<TData, TEdgeData>>;
   /** 最近一次复制或粘贴形成的子图。 */
   clipboard: FlowClipboard<TData, TEdgeData> | null;
   /** 文本连续编辑合并使用的历史分组及到期时间。 */
@@ -79,9 +79,9 @@ export type FlowState<TData = unknown, TEdgeData = unknown> = {
   /** 替换当前视口。 */
   setViewport: (viewport: ViewportTransform) => void;
   /** 替换节点集合，并可选择是否记录历史。 */
-  setNodes: (nodes: FlowNode<TData>[], record?: boolean) => void;
+  setNodes: (nodes: ReadonlyArray<FlowNode<TData>>, record?: boolean) => void;
   /** 替换连线集合，并可选择是否记录历史。 */
-  setEdges: (edges: FlowEdge<TEdgeData>[], record?: boolean) => void;
+  setEdges: (edges: ReadonlyArray<FlowEdge<TEdgeData>>, record?: boolean) => void;
   /** 合并业务文档字段。 */
   setMetadata: (
     metadata: Record<string, unknown>,

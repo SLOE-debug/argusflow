@@ -1,5 +1,7 @@
 import {
   useCallback,
+  useEffect,
+  useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
@@ -9,6 +11,11 @@ import {
 
 import { rectFromPoints, rectsIntersect, screenToWorld, zoomAt } from './geometry';
 import type { CanvasToolMode } from './FlowCanvasTools';
+import { findFlowNode } from './nodeLookup';
+import {
+  bindPointerGesture,
+  createAnimationFrameCoalescer,
+} from './pointerGesture';
 import { snapNode, type AlignmentGuide } from './snapping';
 import { useFlowStoreApi } from './store';
 import type { FlowAnchorSide, FlowPoint } from './types';
@@ -83,21 +90,6 @@ function isFlowAnchorSide(value: string | undefined): value is FlowAnchorSide {
   return value !== undefined && FLOW_ANCHOR_SIDES.has(value);
 }
 
-/** 绑定一组仅在当前拖拽手势期间存在的全局指针监听。 */
-function bindPointerGesture(
-  move: (event: PointerEvent) => void,
-  finish: (event: PointerEvent) => void,
-): void {
-  const handlePointerUp = (event: PointerEvent) => {
-    window.removeEventListener('pointermove', move);
-    window.removeEventListener('pointerup', handlePointerUp);
-    finish(event);
-  };
-
-  window.addEventListener('pointermove', move);
-  window.addEventListener('pointerup', handlePointerUp);
-}
-
 /** 管理节点拖拽、连线、框选、平移、缩放和右键菜单定位。 */
 export function useCanvasPointerInteractions({
   containerRef,
@@ -110,6 +102,12 @@ export function useCanvasPointerInteractions({
   const store = useFlowStoreApi();
   const [guides, setGuides] = useState<ReadonlyArray<AlignmentGuide>>([]);
   const [contextMenu, setContextMenu] = useState<CanvasContextMenu | null>(null);
+  /** 同一动画帧内累计的滚轮垂直增量。 */
+  const wheelDelta = useRef(0);
+  /** 最后一次滚轮事件相对画布左上角的坐标。 */
+  const wheelPoint = useRef<FlowPoint | null>(null);
+  /** 等待应用滚轮缩放的动画帧 ID。 */
+  const wheelFrame = useRef<number | null>(null);
 
   const pointerWorld = useCallback((pointer: Pick<PointerEvent, 'clientX' | 'clientY'>) => {
     const element = containerRef.current;
@@ -137,16 +135,19 @@ export function useCanvasPointerInteractions({
     }
 
     /** 拖拽全程直接更新节点，结束时再把起始快照压入一次历史。 */
-    const initialNodes = structuredClone(store.getState().nodes);
-    const initialMetadata = structuredClone(store.getState().metadata);
-    const initialDraggedNode = initialNodes.find((node) => node.id === nodeId);
+    const initialDocument = store.getState();
+    const initialNodes = initialDocument.nodes;
+    const initialMetadata = initialDocument.metadata;
+    const initialEdges = initialDocument.edges;
+    const initialDraggedNode = findFlowNode(initialNodes, nodeId);
     if (!initialDraggedNode) return;
 
-    const move = (pointerEvent: PointerEvent) => {
+    /** 按当前帧最后一个指针位置更新节点与吸附线。 */
+    const applyDragFrame = (pointerEvent: PointerEvent) => {
       const currentPoint = pointerWorld(pointerEvent);
       if (!currentPoint) return;
 
-      const currentDraggedNode = store.getState().nodes.find((node) => node.id === nodeId);
+      const currentDraggedNode = findFlowNode(store.getState().nodes, nodeId);
       if (!currentDraggedNode) return;
       /** 始终从按下时的位置计算总位移，使指针越过吸附阈值后能立即脱离。 */
       const rawPosition = {
@@ -164,9 +165,10 @@ export function useCanvasPointerInteractions({
         return;
       }
 
-      const movingNode = currentState.nodes.find(
-        (node) => currentState.selectedNodeIds.has(node.id),
-      );
+      const movingNodeId = currentState.selectedNodeIds.values().next().value;
+      const movingNode = movingNodeId
+        ? findFlowNode(currentState.nodes, movingNodeId)
+        : undefined;
       if (!movingNode) return;
 
       /** 屏幕上的 3px 吸附容差需要按当前倍率换算为世界坐标。 */
@@ -185,24 +187,36 @@ export function useCanvasPointerInteractions({
       });
       setGuides(snapResult.guides);
     };
+    const dragFrames = createAnimationFrameCoalescer(applyDragFrame);
 
-    const finish = () => {
+    const finish = (pointerEvent: PointerEvent) => {
+      dragFrames.flush(pointerEvent);
       setGuides([]);
-      store.setState((currentState) => ({
-        future: [],
-        historyGroup: null,
-        past: [
-          ...currentState.past.slice(-99),
-          {
-            edges: structuredClone(currentState.edges),
-            metadata: initialMetadata,
-            nodes: initialNodes,
-          },
-        ],
-      }));
+      store.setState((currentState) => currentState.nodes === initialNodes
+        ? currentState
+        : {
+            future: [],
+            historyGroup: null,
+            past: [
+              ...currentState.past.slice(-99),
+              {
+                edges: initialEdges,
+                metadata: initialMetadata,
+                nodes: initialNodes,
+              },
+            ],
+          });
     };
 
-    bindPointerGesture(move, finish);
+    bindPointerGesture({
+      move: dragFrames.schedule,
+      finish,
+      cancel: () => {
+        dragFrames.cancel();
+        setGuides([]);
+        store.getState().setNodes(initialNodes, false);
+      },
+    });
   }, [pointerWorld, store]);
 
   const handleConnectionStart = useCallback((
@@ -216,7 +230,8 @@ export function useCanvasPointerInteractions({
     event.preventDefault();
     store.getState().setConnectionDraft({ nodeId, side, point, ...reconnect });
 
-    const move = (pointerEvent: PointerEvent) => {
+    /** 让临时连线端点每帧跟随最后一个指针位置。 */
+    const applyConnectionFrame = (pointerEvent: PointerEvent) => {
       const currentPoint = pointerWorld(pointerEvent);
       if (!currentPoint) return;
       store.getState().setConnectionDraft({
@@ -226,8 +241,10 @@ export function useCanvasPointerInteractions({
         ...reconnect,
       });
     };
+    const connectionFrames = createAnimationFrameCoalescer(applyConnectionFrame);
 
     const finish = (pointerEvent: PointerEvent) => {
+      connectionFrames.flush(pointerEvent);
       const hitElement = document.elementFromPoint(
         pointerEvent.clientX,
         pointerEvent.clientY,
@@ -249,7 +266,14 @@ export function useCanvasPointerInteractions({
       store.getState().setConnectionDraft(null);
     };
 
-    bindPointerGesture(move, finish);
+    bindPointerGesture({
+      move: connectionFrames.schedule,
+      finish,
+      cancel: () => {
+        connectionFrames.cancel();
+        store.getState().setConnectionDraft(null);
+      },
+    });
   }, [onConnect, onReconnect, pointerWorld, store]);
 
   const handleReconnectStart = useCallback((
@@ -275,27 +299,32 @@ export function useCanvasPointerInteractions({
     setContextMenu(null);
     if (event.button !== 0) return;
 
+    /** 框选和平移属于画布手势，禁止浏览器同时创建 SVG/文字原生选区。 */
+    event.preventDefault();
+    window.getSelection()?.removeAllRanges();
+
     if (spacePressed || toolMode === 'pan') {
-      let previousPoint: FlowPoint = {
+      /** 手势起点的屏幕坐标，用于稳定计算总平移量。 */
+      const startPoint: FlowPoint = {
         x: event.clientX,
         y: event.clientY,
       };
-
-      const move = (pointerEvent: PointerEvent) => {
-        const currentPoint = {
-          x: pointerEvent.clientX,
-          y: pointerEvent.clientY,
-        };
-        const state = store.getState();
-        state.setViewport({
-          ...state.viewport,
-          x: state.viewport.x + currentPoint.x - previousPoint.x,
-          y: state.viewport.y + currentPoint.y - previousPoint.y,
+      /** 手势开始时的视口，避免合帧后累计误差。 */
+      const initialViewport = store.getState().viewport;
+      const applyPanFrame = (pointerEvent: PointerEvent) => {
+        store.getState().setViewport({
+          ...initialViewport,
+          x: initialViewport.x + pointerEvent.clientX - startPoint.x,
+          y: initialViewport.y + pointerEvent.clientY - startPoint.y,
         });
-        previousPoint = currentPoint;
       };
+      const panFrames = createAnimationFrameCoalescer(applyPanFrame);
 
-      bindPointerGesture(move, () => undefined);
+      bindPointerGesture({
+        move: panFrames.schedule,
+        finish: panFrames.flush,
+        cancel: panFrames.cancel,
+      });
       return;
     }
 
@@ -307,13 +336,16 @@ export function useCanvasPointerInteractions({
       end: startPoint,
     });
 
-    const move = (pointerEvent: PointerEvent) => {
+    /** 更新本帧最后一个指针位置对应的框选覆盖层。 */
+    const applySelectionFrame = (pointerEvent: PointerEvent) => {
       const endPoint = pointerWorld(pointerEvent);
       if (!endPoint) return;
       store.getState().setSelectionBox({ start: startPoint, end: endPoint });
     };
+    const selectionFrames = createAnimationFrameCoalescer(applySelectionFrame);
 
     const finish = (pointerEvent: PointerEvent) => {
+      selectionFrames.flush(pointerEvent);
       const endPoint = pointerWorld(pointerEvent);
       if (!endPoint) {
         store.getState().setSelectionBox(null);
@@ -337,28 +369,50 @@ export function useCanvasPointerInteractions({
       store.getState().setSelectionBox(null);
     };
 
-    bindPointerGesture(move, finish);
+    bindPointerGesture({
+      move: selectionFrames.schedule,
+      finish,
+      cancel: () => {
+        selectionFrames.cancel();
+        store.getState().setSelectionBox(null);
+      },
+    });
   }, [pointerWorld, spacePressed, store, toolMode]);
 
   const handleWheel = useCallback((event: ReactWheelEvent<HTMLDivElement>) => {
     event.preventDefault();
     const bounds = event.currentTarget.getBoundingClientRect();
-    const viewport = store.getState().viewport;
-    /** 只限制放大上限；Number.MIN_VALUE 仅防止浮点下溢为零。 */
-    const nextZoom = Math.min(
-      maxZoom,
-      Math.max(Number.MIN_VALUE, viewport.zoom * Math.exp(-event.deltaY * 0.0015)),
-    );
+    wheelDelta.current += event.deltaY;
+    wheelPoint.current = {
+      x: event.clientX - bounds.left,
+      y: event.clientY - bounds.top,
+    };
+    wheelFrame.current ??= requestAnimationFrame(() => {
+      const viewport = store.getState().viewport;
+      const screenPoint = wheelPoint.current;
+      /** 当前帧累计的滚轮增量会在读取后立即清零。 */
+      const deltaY = wheelDelta.current;
+      wheelFrame.current = null;
+      wheelDelta.current = 0;
+      wheelPoint.current = null;
+      if (!screenPoint) return;
 
-    store.getState().setViewport(zoomAt(
-      viewport,
-      {
-        x: event.clientX - bounds.left,
-        y: event.clientY - bounds.top,
-      },
-      nextZoom,
-    ));
+      /** 只限制放大上限；Number.MIN_VALUE 仅防止浮点下溢为零。 */
+      const nextZoom = Math.min(
+        maxZoom,
+        Math.max(Number.MIN_VALUE, viewport.zoom * Math.exp(-deltaY * 0.0015)),
+      );
+      store.getState().setViewport(zoomAt(
+        viewport,
+        screenPoint,
+        nextZoom,
+      ));
+    });
   }, [maxZoom, store]);
+
+  useEffect(() => () => {
+    if (wheelFrame.current !== null) cancelAnimationFrame(wheelFrame.current);
+  }, []);
 
   const handleContextMenu = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
     event.preventDefault();

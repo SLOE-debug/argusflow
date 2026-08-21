@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react';
+import { useStore, type StoreApi } from 'zustand';
 
+import type { FlowState } from '../../flow';
 import type {
   WorkflowCanvasEdge,
   WorkflowCanvasNode,
+  WorkflowEdgeData,
   WorkflowNodeData,
 } from '../../features/workflow/workflowModel';
 import {
@@ -13,18 +16,14 @@ import {
 import { WorkflowInspectorFields } from './WorkflowInspectorFields';
 
 type NodeInspectorProps = Readonly<{
+  /** 属性面板按选择状态订阅的工作流 Store。 */
+  store: StoreApi<FlowState<WorkflowNodeData, WorkflowEdgeData>>;
   /** 当前工作流名称。 */
   workflowName: string;
   /** JSON 变量草稿。 */
   variablesDraft: string;
   /** JSON 变量错误。 */
   variablesError: string | null;
-  /** 当前唯一选中的节点。 */
-  node: WorkflowCanvasNode | null;
-  /** 当前选中的边。 */
-  edge: WorkflowCanvasEdge | null;
-  /** 当前选中的节点数量。 */
-  selectedCount: number;
   /** 修改工作流名称。 */
   onNameChange: (name: string) => void;
   /** 修改 JSON 变量。 */
@@ -42,14 +41,26 @@ type InspectorTab = 'workflow' | 'selection';
 /** 工作流和当前选择共用的右侧属性检查器。 */
 export function NodeInspector(props: NodeInspectorProps) {
   const [activeTab, setActiveTab] = useState<InspectorTab>('selection');
+  const selectedCount = useStore(
+    props.store,
+    (state) => state.selectedNodeIds.size,
+  );
+  const node = useStore(props.store, (state): WorkflowCanvasNode | null => {
+    if (state.selectedNodeIds.size !== 1) return null;
+    const selectedNodeId = state.selectedNodeIds.values().next().value;
+    return state.nodes.find((candidate) => candidate.id === selectedNodeId) ?? null;
+  });
+  const edge = useStore(props.store, (state): WorkflowCanvasEdge | null => (
+    state.edges.find((candidate) => candidate.id === state.selectedEdgeId) ?? null
+  ));
 
   useEffect(() => {
-    if (props.node || props.edge || props.selectedCount > 1) setActiveTab('selection');
-  }, [props.edge, props.node, props.selectedCount]);
+    if (node || edge || selectedCount > 1) setActiveTab('selection');
+  }, [edge, node, selectedCount]);
 
   /** 没有选择时，节点属性页回退到工作流设置以避免空面板。 */
   const showWorkflow = activeTab === 'workflow' || (
-    !props.node && !props.edge && props.selectedCount <= 1
+    !node && !edge && selectedCount <= 1
   );
 
   return (
@@ -76,19 +87,19 @@ export function NodeInspector(props: NodeInspectorProps) {
             onVariablesChange={props.onVariablesChange}
           />
         ) : null}
-        {!showWorkflow && props.selectedCount > 1 ? (
-          <MultipleSelection count={props.selectedCount} />
+        {!showWorkflow && selectedCount > 1 ? (
+          <MultipleSelection count={selectedCount} />
         ) : null}
-        {!showWorkflow && props.node ? (
+        {!showWorkflow && node ? (
           <NodeInspectorFields
-            node={props.node}
+            node={node}
             onUpdate={props.onUpdateNode}
             onDelete={props.onDelete}
           />
         ) : null}
-        {!showWorkflow && props.edge ? (
+        {!showWorkflow && edge ? (
           <EdgeInspectorFields
-            edge={props.edge}
+            edge={edge}
             onBranchChange={props.onUpdateEdgeBranch}
             onDelete={props.onDelete}
           />

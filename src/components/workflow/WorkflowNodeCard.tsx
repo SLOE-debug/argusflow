@@ -95,26 +95,37 @@ function createDefinition(
   };
 }
 
-/** 根据节点类型渲染带左侧强调色条的紧凑业务卡片。 */
-export function WorkflowNodeCard({ node }: FlowNodeRendererProps<WorkflowNodeData>) {
+/** 根据节点类型渲染带左侧强调色条和完整选中状态的紧凑业务卡片。 */
+export function WorkflowNodeCard({
+  node,
+  selected,
+}: FlowNodeRendererProps<WorkflowNodeData>) {
   const data = node.data;
   const detail = resolveNodeDetail(data);
   const status = data.runState ?? 'idle';
   const tone = NODE_TONES[data.kind];
   const invalidTone = data.invalid ? 'ring-2 ring-rose-200' : '';
+  /** 选中态覆盖卡片表面、边框和阴影，但保留节点类型强调色。 */
+  const selectedSurfaceTone = selected
+    ? 'border-blue-400 bg-blue-50 shadow-[0_4px_14px_rgba(37,99,235,0.14)]'
+    : 'border-slate-200 bg-white shadow-[0_3px_10px_rgba(15,23,42,0.08)]';
+  /** 选中卡片使用更明确的蓝色文字层级。 */
+  const selectedTextTone = selected ? 'text-blue-950' : 'text-slate-800';
+  const selectedDetailTone = selected ? 'text-blue-600' : 'text-slate-400';
   const Icon = NODE_ICONS[data.kind];
 
   return (
     <div
-      className={`relative flex h-full w-full items-center gap-2 overflow-hidden rounded-lg border border-slate-200 bg-white pr-2.5 pl-3 shadow-[0_3px_10px_rgba(15,23,42,0.08)] ${invalidTone}`}
+      className={`relative flex h-full w-full items-center gap-2 overflow-hidden rounded-lg border pr-2.5 pl-3 ${selectedSurfaceTone} ${invalidTone}`}
+      data-selected={selected ? 'true' : 'false'}
     >
       <span className={`absolute inset-y-0 left-0 w-1 ${tone.accent}`} aria-hidden="true" />
       <span className={`flex size-6 shrink-0 items-center justify-center rounded-md ${tone.icon}`}>
         <Icon className="size-3.5 stroke-[1.9]" aria-hidden="true" />
       </span>
-      <div className="flex min-w-0 flex-1 flex-col justify-center text-slate-800">
+      <div className={`flex min-w-0 flex-1 flex-col justify-center ${selectedTextTone}`}>
         <strong className="truncate text-[12px] leading-4 font-semibold">{data.label}</strong>
-        <span className="truncate text-[10px] leading-[14px] text-slate-400">{detail}</span>
+        <span className={`truncate text-[10px] leading-[14px] ${selectedDetailTone}`}>{detail}</span>
       </div>
       {status !== 'idle' ? (
         <span className={`size-1.5 shrink-0 rounded-full ${STATUS_TONES[status]}`} />

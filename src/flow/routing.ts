@@ -1,4 +1,5 @@
 import { anchorPoint, pointsBounds, rectsIntersect } from './geometry';
+import { getFlowNodeLookup } from './nodeLookup';
 import { SpatialHash } from './spatialIndex';
 import type { FlowAnchorSide, FlowEdge, FlowNode, FlowPoint, FlowRect, RoutedEdge } from './types';
 
@@ -9,7 +10,7 @@ const MAX_EXPANSIONS = 8_000;
 export type RoutingObstacle = { id: string; rect: FlowRect };
 
 /** 为批量路由构建一次节点空间索引。 */
-export function createRoutingIndex(nodes: FlowNode[]): SpatialHash<RoutingObstacle> {
+export function createRoutingIndex(nodes: ReadonlyArray<FlowNode>): SpatialHash<RoutingObstacle> {
   const index = new SpatialHash<RoutingObstacle>();
   for (const node of nodes) {
     const obstacle = { id: node.id, rect: nodeObstacle(node) };
@@ -24,9 +25,10 @@ export function nodeObstacle(node: FlowNode): FlowRect {
 }
 
 /** 为一条边选择锚点并生成避障圆角正交路径。 */
-export function routeEdge(edge: FlowEdge, nodes: FlowNode[], previous?: RoutedEdge, sharedIndex?: SpatialHash<RoutingObstacle>): RoutedEdge | null {
-  const source = nodes.find((node) => node.id === edge.source.nodeId);
-  const target = nodes.find((node) => node.id === edge.target.nodeId);
+export function routeEdge(edge: FlowEdge, nodes: ReadonlyArray<FlowNode>, previous?: RoutedEdge, sharedIndex?: SpatialHash<RoutingObstacle>): RoutedEdge | null {
+  const nodesById = getFlowNodeLookup(nodes);
+  const source = nodesById.get(edge.source.nodeId);
+  const target = nodesById.get(edge.target.nodeId);
   if (!source || !target) return null;
   const sourceRect = { ...source.position, ...source.size };
   const targetRect = { ...target.position, ...target.size };
@@ -50,6 +52,46 @@ export function routeEdge(edge: FlowEdge, nodes: FlowNode[], previous?: RoutedEd
     return { edgeId: edge.id, points, sourceSide, targetSide, path: roundedPath(points), bounds: pointsBounds(points) };
   }
   return { edgeId: edge.id, points: best.points, sourceSide: best.sourceSide, targetSide: best.targetSide, path: roundedPath(best.points), bounds: pointsBounds(best.points) };
+}
+
+/**
+ * 生成不执行网格搜索的实时预览路径。
+ *
+ * 已有路径会优先随端点平移或调整首尾正交段；没有缓存时立即选择一条
+ * 最短正交折线，确保拖动、排列和撤销期间连线始终贴住节点锚点。
+ */
+export function previewEdgeRoute(
+  edge: FlowEdge,
+  nodes: ReadonlyArray<FlowNode>,
+  previous?: RoutedEdge,
+): RoutedEdge | null {
+  const nodesById = getFlowNodeLookup(nodes);
+  const source = nodesById.get(edge.source.nodeId);
+  const target = nodesById.get(edge.target.nodeId);
+  if (!source || !target) return null;
+
+  const sourceRect = { ...source.position, ...source.size };
+  const targetRect = { ...target.position, ...target.size };
+  /** 预览优先保留精确路由已经选定的锚点边。 */
+  const sourceSide = edge.source.side ?? previous?.sourceSide ?? 'right';
+  const targetSide = edge.target.side ?? previous?.targetSide ?? 'left';
+  const start = anchorPoint(sourceRect, sourceSide);
+  const end = anchorPoint(targetRect, targetSide);
+  const canFollowPrevious = previous
+    && previous.sourceSide === sourceSide
+    && previous.targetSide === targetSide;
+  const points = canFollowPrevious && previous
+    ? followRouteEndpoints(previous.points, start, end)
+    : shortestOrthogonalPreview(start, end);
+
+  return {
+    edgeId: edge.id,
+    points,
+    sourceSide,
+    targetSide,
+    path: roundedPath(points),
+    bounds: pointsBounds(points),
+  };
 }
 
 /** 把正交折线转换为包含二次曲线圆角的 SVG path。 */
@@ -106,6 +148,56 @@ function orthogonalCandidates(start: FlowPoint, end: FlowPoint): FlowPoint[][] {
   ];
 }
 
+/** 让已有折线随两个新锚点实时移动，并保持每一段水平或垂直。 */
+function followRouteEndpoints(
+  previousPoints: ReadonlyArray<FlowPoint>,
+  start: FlowPoint,
+  end: FlowPoint,
+): FlowPoint[] {
+  if (previousPoints.length < 2) return shortestOrthogonalPreview(start, end);
+
+  const previousStart = previousPoints[0];
+  const previousEnd = previousPoints.at(-1)!;
+  const sourceDelta = {
+    x: start.x - previousStart.x,
+    y: start.y - previousStart.y,
+  };
+  const targetDelta = {
+    x: end.x - previousEnd.x,
+    y: end.y - previousEnd.y,
+  };
+  if (sourceDelta.x === targetDelta.x && sourceDelta.y === targetDelta.y) {
+    return previousPoints.map((point) => ({
+      x: point.x + sourceDelta.x,
+      y: point.y + sourceDelta.y,
+    }));
+  }
+  if (previousPoints.length === 2) return shortestOrthogonalPreview(start, end);
+
+  /** 复制折点后只修改首尾及相邻折点，不触碰中间避障形状。 */
+  const points = previousPoints.map((point) => ({ ...point }));
+  points[0] = start;
+  points[points.length - 1] = end;
+  const previousSecond = previousPoints[1];
+  if (previousStart.x === previousSecond.x) points[1].x = start.x;
+  else points[1].y = start.y;
+
+  const penultimateIndex = points.length - 2;
+  const previousPenultimate = previousPoints[penultimateIndex];
+  if (previousPenultimate.x === previousEnd.x) points[penultimateIndex].x = end.x;
+  else points[penultimateIndex].y = end.y;
+  return simplifyPoints(points);
+}
+
+/** 在不检查障碍物的前提下选择最短正交预览路径。 */
+function shortestOrthogonalPreview(start: FlowPoint, end: FlowPoint): FlowPoint[] {
+  return orthogonalCandidates(start, end)
+    .map(simplifyPoints)
+    .reduce((best, candidate) => (
+      pathLength(candidate) < pathLength(best) ? candidate : best
+    ));
+}
+
 function clearPath(points: FlowPoint[], obstacles: SpatialHash<RoutingObstacle>, excluded: Set<string>): boolean {
   for (let index = 1; index < points.length; index += 1) {
     const a = points[index - 1];
@@ -119,14 +211,25 @@ function clearPath(points: FlowPoint[], obstacles: SpatialHash<RoutingObstacle>,
 function findGridPath(start: FlowPoint, end: FlowPoint, obstacles: SpatialHash<RoutingObstacle>, excluded: Set<string>): FlowPoint[] {
   const origin = snap(start);
   const goal = snap(end);
-  const open = new Map<string, GridNode>([[key(origin), { point: origin, g: 0, f: heuristic(origin, goal), direction: null }]]);
+  /** 最小堆替代每轮线性扫描，避免开放集合产生二次复杂度。 */
+  const open = new GridNodeMinHeap();
+  const originNode = {
+    point: origin,
+    g: 0,
+    f: heuristic(origin, goal),
+    direction: null,
+  } satisfies GridNode;
+  open.push(originNode);
+  /** 每个网格点当前已知的最低代价，用于丢弃堆中的过期节点。 */
+  const bestCosts = new Map<string, number>([[key(origin), 0]]);
   const closed = new Set<string>();
   const parent = new Map<string, string>();
   let expansions = 0;
   while (open.size > 0 && expansions < MAX_EXPANSIONS) {
-    const current = [...open.values()].reduce((best, node) => node.f < best.f ? node : best);
+    const current = open.pop();
+    if (!current) break;
     const currentKey = key(current.point);
-    open.delete(currentKey);
+    if (closed.has(currentKey) || current.g !== bestCosts.get(currentKey)) continue;
     if (currentKey === key(goal)) return simplifyPoints([start, ...reconstruct(parent, currentKey), end]);
     closed.add(currentKey);
     expansions += 1;
@@ -137,9 +240,10 @@ function findGridPath(start: FlowPoint, end: FlowPoint, obstacles: SpatialHash<R
       if (closed.has(pointKey) || [...obstacles.query(pointRect)].some((obstacle) => !excluded.has(obstacle.id) && pointInside(point, obstacle.rect))) continue;
       const turnCost = current.direction && current.direction !== direction ? 18 : 0;
       const g = current.g + GRID_SIZE + turnCost;
-      const existing = open.get(pointKey);
-      if (!existing || g < existing.g) {
-        open.set(pointKey, { point, g, f: g + heuristic(point, goal), direction });
+      const existingCost = bestCosts.get(pointKey);
+      if (existingCost === undefined || g < existingCost) {
+        bestCosts.set(pointKey, g);
+        open.push({ point, g, f: g + heuristic(point, goal), direction });
         parent.set(pointKey, currentKey);
       }
     }
@@ -148,6 +252,60 @@ function findGridPath(start: FlowPoint, end: FlowPoint, obstacles: SpatialHash<R
 }
 
 type GridNode = { point: FlowPoint; g: number; f: number; direction: string | null };
+
+/** A* 开放集合使用的路由专用最小堆。 */
+class GridNodeMinHeap {
+  /** 按 f 值维持最小堆顺序的节点。 */
+  private readonly nodes: GridNode[] = [];
+
+  /** 当前堆内节点数量。 */
+  public get size(): number {
+    return this.nodes.length;
+  }
+
+  /** 插入新候选并向上恢复堆序。 */
+  public push(node: GridNode): void {
+    this.nodes.push(node);
+    let index = this.nodes.length - 1;
+    while (index > 0) {
+      const parentIndex = Math.floor((index - 1) / 2);
+      if (this.nodes[parentIndex].f <= this.nodes[index].f) break;
+      [this.nodes[parentIndex], this.nodes[index]] = [
+        this.nodes[index],
+        this.nodes[parentIndex],
+      ];
+      index = parentIndex;
+    }
+  }
+
+  /** 取出最低 f 值候选并向下恢复堆序。 */
+  public pop(): GridNode | undefined {
+    const first = this.nodes[0];
+    const last = this.nodes.pop();
+    if (!first || !last || this.nodes.length === 0) return first;
+
+    this.nodes[0] = last;
+    let index = 0;
+    while (true) {
+      const left = index * 2 + 1;
+      const right = left + 1;
+      let smallest = index;
+      if (left < this.nodes.length && this.nodes[left].f < this.nodes[smallest].f) {
+        smallest = left;
+      }
+      if (right < this.nodes.length && this.nodes[right].f < this.nodes[smallest].f) {
+        smallest = right;
+      }
+      if (smallest === index) break;
+      [this.nodes[smallest], this.nodes[index]] = [
+        this.nodes[index],
+        this.nodes[smallest],
+      ];
+      index = smallest;
+    }
+    return first;
+  }
+}
 const DIRECTIONS: [string, FlowPoint][] = [['r', { x: GRID_SIZE, y: 0 }], ['d', { x: 0, y: GRID_SIZE }], ['l', { x: -GRID_SIZE, y: 0 }], ['u', { x: 0, y: -GRID_SIZE }]];
 const snap = (point: FlowPoint): FlowPoint => ({ x: Math.round(point.x / GRID_SIZE) * GRID_SIZE, y: Math.round(point.y / GRID_SIZE) * GRID_SIZE });
 const key = (point: FlowPoint): string => `${point.x},${point.y}`;

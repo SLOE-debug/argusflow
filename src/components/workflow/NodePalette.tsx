@@ -31,17 +31,22 @@ import {
   useState,
   type DragEvent as ReactDragEvent,
 } from 'react';
+import { useStore, type StoreApi } from 'zustand';
 
-import { FLOW_NODE_KIND_DRAG_TYPE } from '../../flow';
+import {
+  FLOW_NODE_KIND_DRAG_TYPE,
+  type FlowState,
+} from '../../flow';
 import type {
   EditableNodeKind,
-  WorkflowCanvasNode,
+  WorkflowEdgeData,
+  WorkflowNodeData,
 } from '../../features/workflow/workflowModel';
 import { Input } from '../ui';
 
 type NodePaletteProps = Readonly<{
-  /** 当前画布节点，用于判断单例节点是否已经存在。 */
-  nodes: ReadonlyArray<WorkflowCanvasNode>;
+  /** 画布 Store；节点库仅订阅两个单例节点是否存在。 */
+  store: StoreApi<FlowState<WorkflowNodeData, WorkflowEdgeData>>;
 }>;
 
 type PaletteGroup = 'input' | 'control' | 'data' | 'output';
@@ -95,7 +100,15 @@ const PALETTE_ITEMS = [
 ] as const satisfies ReadonlyArray<PaletteItem>;
 
 /** 可搜索的高密度分组节点库。 */
-export function NodePalette({ nodes }: NodePaletteProps) {
+export function NodePalette({ store }: NodePaletteProps) {
+  const startExists = useStore(
+    store,
+    (state) => state.nodes.some((node) => node.kind === 'start'),
+  );
+  const endExists = useStore(
+    store,
+    (state) => state.nodes.some((node) => node.kind === 'end'),
+  );
   const [query, setQuery] = useState('');
   /** 用户主动收起的节点分组；搜索不会隐式改变折叠偏好。 */
   const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<PaletteGroup>>(
@@ -181,7 +194,9 @@ export function NodePalette({ nodes }: NodePaletteProps) {
               >
                 {group.items.map((item) => {
                   const isSingleton = item.kind === 'start' || item.kind === 'end';
-                  const exists = isSingleton && nodes.some((node) => node.kind === item.kind);
+                  const exists = isSingleton && (
+                    item.kind === 'start' ? startExists : endExists
+                  );
                   return (
                     <PaletteItemButton
                       key={item.title}

@@ -1,16 +1,28 @@
 import { listen } from '@tauri-apps/api/event';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useStore } from 'zustand';
 
 import { createFlowStore } from '../../flow/store';
 import type { FlowAnchorSide, FlowPoint } from '../../flow/types';
 import type { ExecutionEvent, JsonObject, ValidationReport } from './contracts';
 import {
-  DEFAULT_EDGES, DEFAULT_NODES, DEFAULT_SELECTED_NODE_ID, applyExecutionEventToNodes, canConnect, createEdge,
-  createNode, toWorkflowDefinition, type EditableNodeKind, type WorkflowCanvasEdge,
-  type WorkflowCanvasNode, type WorkflowEdgeData, type WorkflowNodeData,
+  DEFAULT_EDGES,
+  DEFAULT_NODES,
+  DEFAULT_SELECTED_NODE_ID,
+  applyExecutionEventToNodes,
+  canConnect,
+  createEdge,
+  createNode,
+  toWorkflowDefinition,
+  type EditableNodeKind,
+  type WorkflowEdgeData,
+  type WorkflowNodeData,
 } from './workflowModel';
-import { normalizeCommandError, runWorkflow, validateWorkflow } from './workflowApi';
+import {
+  normalizeCommandError,
+  runWorkflow,
+  validateWorkflow,
+} from './workflowApi';
 
 const WORKFLOW_EVENT_NAME = 'argusflow://workflow-event';
 
@@ -30,12 +42,14 @@ export function useWorkflowStudio() {
     store.getState().selectNodes([DEFAULT_SELECTED_NODE_ID]);
     return store;
   }, []);
-  const nodes = useStore(flowStore, (state) => state.nodes) as WorkflowCanvasNode[];
-  const edges = useStore(flowStore, (state) => state.edges) as WorkflowCanvasEdge[];
-  const selectedNodeIds = useStore(flowStore, (state) => state.selectedNodeIds);
-  const selectedEdgeId = useStore(flowStore, (state) => state.selectedEdgeId);
-  const workflowName = useStore(flowStore, (state) => state.metadata.workflowName as string);
-  const variables = useStore(flowStore, (state) => state.metadata.variables as JsonObject);
+  const workflowName = useStore(
+    flowStore,
+    (state) => state.metadata.workflowName as string,
+  );
+  const variables = useStore(
+    flowStore,
+    (state) => state.metadata.variables as JsonObject,
+  );
   const [variablesDraft, setVariablesDraft] = useState(
     JSON.stringify({ enabled: true, batchSize: 100 }, null, 2),
   );
@@ -45,11 +59,20 @@ export function useWorkflowStudio() {
   const [running, setRunning] = useState(false);
   const [runId, setRunId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const setWorkflowName = (name: string) => flowStore.getState().setMetadata({ workflowName: name }, true, 'workflow-name');
+
+  const setWorkflowName = useCallback((name: string) => {
+    flowStore.getState().setMetadata(
+      { workflowName: name },
+      true,
+      'workflow-name',
+    );
+  }, [flowStore]);
 
   useEffect(() => {
     try {
-      if (JSON.stringify(JSON.parse(variablesDraft)) !== JSON.stringify(variables)) setVariablesDraft(JSON.stringify(variables, null, 2));
+      if (JSON.stringify(JSON.parse(variablesDraft)) !== JSON.stringify(variables)) {
+        setVariablesDraft(JSON.stringify(variables, null, 2));
+      }
     } catch {
       // 非法草稿必须保留给用户修正，不能被历史状态覆盖。
     }
@@ -57,105 +80,256 @@ export function useWorkflowStudio() {
 
   useEffect(() => {
     // 普通浏览器开发预览没有 Tauri IPC；只在桌面 WebView 中注册事件桥接。
-    if (!(window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__) return;
+    if (!(window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__) {
+      return;
+    }
     let disposed = false;
     let unlisten: (() => void) | undefined;
     void listen<ExecutionEvent>(WORKFLOW_EVENT_NAME, ({ payload }) => {
       setEvents((current) => [...current, payload]);
-      flowStore.setState((state) => ({ nodes: applyExecutionEventToNodes(state.nodes as WorkflowCanvasNode[], payload) }));
-      if (payload.kind === 'edge_traversed' && payload.edge_id) flowStore.getState().activateEdge(payload.edge_id);
-      if (payload.kind === 'workflow_completed' || payload.kind === 'workflow_failed') setRunning(false);
-    }).then((stopListening) => disposed ? stopListening() : unlisten = stopListening);
-    return () => { disposed = true; unlisten?.(); };
+      const state = flowStore.getState();
+      state.setNodes(applyExecutionEventToNodes(state.nodes, payload), false);
+      if (payload.kind === 'edge_traversed' && payload.edge_id) {
+        state.activateEdge(payload.edge_id);
+      }
+      if (
+        payload.kind === 'workflow_completed'
+        || payload.kind === 'workflow_failed'
+      ) {
+        setRunning(false);
+      }
+    }).then((stopListening) => {
+      if (disposed) stopListening();
+      else unlisten = stopListening;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
   }, [flowStore]);
 
-  const selectedNode = selectedNodeIds.size === 1 ? nodes.find((node) => selectedNodeIds.has(node.id)) ?? null : null;
-  const selectedEdge = edges.find((edge) => edge.id === selectedEdgeId) ?? null;
-  const currentWorkflow = () => toWorkflowDefinition(workflowId, workflowName, variables, flowStore.getState().nodes as WorkflowCanvasNode[], flowStore.getState().edges as WorkflowCanvasEdge[]);
+  /** 从 Store 当前快照构造后端工作流，避免动作闭包订阅整图。 */
+  const currentWorkflow = useCallback(() => {
+    const state = flowStore.getState();
+    return toWorkflowDefinition(
+      workflowId,
+      state.metadata.workflowName as string,
+      state.metadata.variables as JsonObject,
+      state.nodes,
+      state.edges,
+    );
+  }, [flowStore, workflowId]);
 
-  const validate = async () => {
+  const validate = useCallback(async () => {
     setErrorMessage(null);
-    if (variablesError) { setErrorMessage(variablesError); return null; }
+    if (variablesError) {
+      setErrorMessage(variablesError);
+      return null;
+    }
     try {
       const nextReport = await validateWorkflow(currentWorkflow());
       setReport(nextReport);
-      const invalidIds = new Set(nextReport.issues.flatMap((issue) => issue.node_id ? [issue.node_id] : []));
-      flowStore.setState((state) => ({ nodes: state.nodes.map((node) => ({ ...node, data: { ...(node.data as WorkflowNodeData), invalid: invalidIds.has(node.id) } })) }));
+      /** 校验问题关联的节点 ID，用于一次性更新卡片错误状态。 */
+      const invalidIds = new Set(nextReport.issues.flatMap((issue) => (
+        issue.node_id ? [issue.node_id] : []
+      )));
+      const state = flowStore.getState();
+      state.setNodes(state.nodes.map((node) => ({
+        ...node,
+        data: { ...node.data, invalid: invalidIds.has(node.id) },
+      })), false);
       return nextReport;
-    } catch (error) { setErrorMessage(normalizeCommandError(error).message); return null; }
-  };
+    } catch (error) {
+      setErrorMessage(normalizeCommandError(error).message);
+      return null;
+    }
+  }, [currentWorkflow, flowStore, variablesError]);
 
-  const run = async () => {
-    setEvents([]); setRunId(null); setErrorMessage(null);
-    flowStore.setState((state) => ({ nodes: state.nodes.map((node) => ({ ...node, data: { ...(node.data as WorkflowNodeData), runState: 'idle', invalid: false } })) }));
+  const run = useCallback(async () => {
+    setEvents([]);
+    setRunId(null);
+    setErrorMessage(null);
+    const state = flowStore.getState();
+    state.setNodes(state.nodes.map((node) => ({
+      ...node,
+      data: { ...node.data, runState: 'idle', invalid: false },
+    })), false);
     const nextReport = await validate();
     if (!nextReport?.valid) return;
-    setRunning(true);
-    try { const started = await runWorkflow(currentWorkflow()); setRunId(started.run_id); }
-    catch (error) { const commandError = normalizeCommandError(error); setErrorMessage(commandError.message); setRunning(false); }
-  };
 
-  const addNode = (kind: EditableNodeKind, position: FlowPoint) => {
-    if ((kind === 'start' || kind === 'end') && nodes.some((node) => node.kind === kind)) return;
+    setRunning(true);
+    try {
+      const started = await runWorkflow(currentWorkflow());
+      setRunId(started.run_id);
+    } catch (error) {
+      const commandError = normalizeCommandError(error);
+      setErrorMessage(commandError.message);
+      setRunning(false);
+    }
+  }, [currentWorkflow, flowStore, validate]);
+
+  const addNode = useCallback((kind: EditableNodeKind, position: FlowPoint) => {
+    const state = flowStore.getState();
+    if (
+      (kind === 'start' || kind === 'end')
+      && state.nodes.some((node) => node.kind === kind)
+    ) {
+      return;
+    }
     const node = createNode(kind, position);
-    flowStore.getState().transact((state) => ({ ...state, nodes: [...state.nodes, node] }));
+    state.transact((document) => ({
+      ...document,
+      nodes: [...document.nodes, node],
+    }));
     flowStore.getState().selectNodes([node.id]);
     setReport(null);
-  };
+  }, [flowStore]);
 
-  const connect = (source: string, target: string, sourceSide?: FlowAnchorSide, targetSide?: FlowAnchorSide) => {
+  const connect = useCallback((
+    source: string,
+    target: string,
+    sourceSide?: FlowAnchorSide,
+    targetSide?: FlowAnchorSide,
+  ) => {
     const state = flowStore.getState();
-    if (!canConnect(state.nodes as WorkflowCanvasNode[], state.edges as WorkflowCanvasEdge[], source, target)) return false;
-    const edge = createEdge(source, target, state.nodes as WorkflowCanvasNode[], state.edges as WorkflowCanvasEdge[], sourceSide, targetSide);
-    state.transact((snapshot) => ({ ...snapshot, edges: [...snapshot.edges, edge] }));
+    if (!canConnect(state.nodes, state.edges, source, target)) return false;
+    const edge = createEdge(
+      source,
+      target,
+      state.nodes,
+      state.edges,
+      sourceSide,
+      targetSide,
+    );
+    state.transact((document) => ({
+      ...document,
+      edges: [...document.edges, edge],
+    }));
     setReport(null);
     return true;
-  };
+  }, [flowStore]);
 
-  const reconnect = (edgeId: string, endpoint: 'source' | 'target', nodeId: string, side?: FlowAnchorSide) => {
-    const edge = edges.find((candidate) => candidate.id === edgeId);
+  const reconnect = useCallback((
+    edgeId: string,
+    endpoint: 'source' | 'target',
+    nodeId: string,
+    side?: FlowAnchorSide,
+  ) => {
+    const state = flowStore.getState();
+    const edge = state.edges.find((candidate) => candidate.id === edgeId);
     if (!edge) return false;
     const source = endpoint === 'source' ? nodeId : edge.source.nodeId;
     const target = endpoint === 'target' ? nodeId : edge.target.nodeId;
-    if (!canConnect(nodes, edges, source, target, edgeId)) return false;
-    const newSourceNode = nodes.find((node) => node.id === source);
-    const usedBranches = new Set(edges.filter((candidate) => candidate.id !== edgeId && candidate.source.nodeId === source).map((candidate) => candidate.data.branch));
-    const branch = newSourceNode?.kind === 'condition'
-      ? edge.source.nodeId === source && edge.data.branch && !usedBranches.has(edge.data.branch)
+    if (!canConnect(state.nodes, state.edges, source, target, edgeId)) {
+      return false;
+    }
+    const sourceNode = state.nodes.find((node) => node.id === source);
+    /** 当前源节点其他连线已经占用的条件分支。 */
+    const usedBranches = new Set(state.edges
+      .filter((candidate) => (
+        candidate.id !== edgeId && candidate.source.nodeId === source
+      ))
+      .map((candidate) => candidate.data.branch));
+    const branch = sourceNode?.kind === 'condition'
+      ? edge.source.nodeId === source
+        && edge.data.branch
+        && !usedBranches.has(edge.data.branch)
         ? edge.data.branch
         : usedBranches.has('true') ? 'false' : 'true'
       : null;
-    flowStore.getState().transact((state) => ({ ...state, edges: state.edges.map((candidate) => candidate.id === edgeId ? { ...candidate, [endpoint]: { nodeId, side }, data: { branch } } : candidate) }));
+    state.transact((document) => ({
+      ...document,
+      edges: document.edges.map((candidate) => candidate.id === edgeId
+        ? {
+            ...candidate,
+            [endpoint]: { nodeId, side },
+            data: { branch },
+          }
+        : candidate),
+    }));
     return true;
-  };
+  }, [flowStore]);
 
-  const updateNode = (data: Partial<WorkflowNodeData>) => {
-    if (!selectedNode) return;
-    flowStore.getState().transact((state) => ({ ...state, nodes: state.nodes.map((node) => node.id === selectedNode.id ? { ...node, data: { ...(node.data as WorkflowNodeData), ...data } } : node) }), `node-fields:${selectedNode.id}`);
+  const updateNode = useCallback((data: Partial<WorkflowNodeData>) => {
+    const state = flowStore.getState();
+    if (state.selectedNodeIds.size !== 1) return;
+    const selectedNodeId = state.selectedNodeIds.values().next().value;
+    if (!selectedNodeId) return;
+    state.transact((document) => ({
+      ...document,
+      nodes: document.nodes.map((node) => node.id === selectedNodeId
+        ? { ...node, data: { ...node.data, ...data } }
+        : node),
+    }), `node-fields:${selectedNodeId}`);
     setReport(null);
-  };
+  }, [flowStore]);
 
-  const updateEdgeBranch = (branch: 'true' | 'false') => {
+  const updateEdgeBranch = useCallback((branch: 'true' | 'false') => {
+    const state = flowStore.getState();
+    const selectedEdge = state.edges.find(
+      (edge) => edge.id === state.selectedEdgeId,
+    );
     if (!selectedEdge) return;
-    flowStore.getState().transact((state) => {
-      const conflict = state.edges.find((edge) => edge.id !== selectedEdge.id && edge.source.nodeId === selectedEdge.source.nodeId && (edge.data as WorkflowEdgeData).branch === branch);
-      return { ...state, edges: state.edges.map((edge) => edge.id === selectedEdge.id ? { ...edge, data: { branch } } : edge.id === conflict?.id ? { ...edge, data: { branch: selectedEdge.data.branch } } : edge) };
+    state.transact((document) => {
+      const conflict = document.edges.find((edge) => (
+        edge.id !== selectedEdge.id
+        && edge.source.nodeId === selectedEdge.source.nodeId
+        && edge.data.branch === branch
+      ));
+      return {
+        ...document,
+        edges: document.edges.map((edge) => edge.id === selectedEdge.id
+          ? { ...edge, data: { branch } }
+          : edge.id === conflict?.id
+            ? { ...edge, data: { branch: selectedEdge.data.branch } }
+            : edge),
+      };
     });
-  };
+  }, [flowStore]);
 
-  const updateVariables = (draft: string) => {
+  const updateVariables = useCallback((draft: string) => {
     setVariablesDraft(draft);
     try {
       const parsed: unknown = JSON.parse(draft);
-      if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') throw new Error('变量根值必须是 JSON 对象');
-      flowStore.getState().setMetadata({ variables: parsed as JsonObject }, true, 'workflow-variables'); setVariablesError(null);
-    } catch (error) { setVariablesError(error instanceof Error ? error.message : 'JSON 格式无效'); }
-  };
+      if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
+        throw new Error('变量根值必须是 JSON 对象');
+      }
+      flowStore.getState().setMetadata(
+        { variables: parsed as JsonObject },
+        true,
+        'workflow-variables',
+      );
+      setVariablesError(null);
+    } catch (error) {
+      setVariablesError(
+        error instanceof Error ? error.message : 'JSON 格式无效',
+      );
+    }
+  }, [flowStore]);
+
+  const deleteSelection = useCallback(() => {
+    flowStore.getState().deleteSelection();
+  }, [flowStore]);
 
   return {
-    flowStore, workflowName, setWorkflowName, variablesDraft, variablesError, updateVariables,
-    nodes, edges, selectedNode, selectedNodeIds, selectedEdge, selectedEdgeId, report, events,
-    running, runId, errorMessage, validate, run, addNode, connect, reconnect, updateNode,
-    updateEdgeBranch, deleteSelection: () => flowStore.getState().deleteSelection(),
+    flowStore,
+    workflowName,
+    setWorkflowName,
+    variablesDraft,
+    variablesError,
+    updateVariables,
+    report,
+    events,
+    running,
+    runId,
+    errorMessage,
+    validate,
+    run,
+    addNode,
+    connect,
+    reconnect,
+    updateNode,
+    updateEdgeBranch,
+    deleteSelection,
   };
 }

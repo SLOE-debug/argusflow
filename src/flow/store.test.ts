@@ -16,6 +16,39 @@ describe('flow store history and clipboard', () => {
     expect(store.getState().nodes).toHaveLength(2);
   });
 
+  it('shares immutable history and preserves unchanged node references', () => {
+    const nodes = [
+      node('a'),
+      { ...node('b'), position: { x: 100, y: 50 } },
+      { ...node('c'), position: { x: 200, y: 100 } },
+    ];
+    const store = createFlowStore({ nodes, edges: [] });
+    store.getState().selectNodes(['a', 'b']);
+
+    store.getState().align('left');
+
+    const alignedNodes = store.getState().nodes;
+    expect(store.getState().past[0].nodes).toBe(nodes);
+    expect(alignedNodes[0]).toBe(nodes[0]);
+    expect(alignedNodes[1]).not.toBe(nodes[1]);
+    expect(alignedNodes[2]).toBe(nodes[2]);
+
+    store.getState().undo();
+    expect(store.getState().nodes).toBe(nodes);
+    expect(store.getState().selectedNodeIds.size).toBe(0);
+  });
+
+  it('does not publish history for an alignment that changes nothing', () => {
+    const nodes = [node('a'), node('b')];
+    const store = createFlowStore({ nodes, edges: [] });
+    store.getState().selectNodes(['a', 'b']);
+
+    store.getState().align('left');
+
+    expect(store.getState().nodes).toBe(nodes);
+    expect(store.getState().past).toHaveLength(0);
+  });
+
   it('copies internal edges and skips singleton conflicts', () => {
     vi.stubGlobal('crypto', { randomUUID: () => 'copy' });
     const store = createFlowStore({
