@@ -23,11 +23,11 @@ export type WorkflowCanvasEdge = FlowEdge<WorkflowEdgeData>;
 
 /** 工作流节点在高密度桌面画布中的统一尺寸。 */
 export const WORKFLOW_NODE_SIZES = {
-  start: { width: 118, height: 56 },
-  log: { width: 142, height: 56 },
-  delay: { width: 136, height: 56 },
-  condition: { width: 132, height: 56 },
-  end: { width: 122, height: 56 },
+  start: { width: 118, height: 52 },
+  log: { width: 142, height: 52 },
+  delay: { width: 136, height: 52 },
+  condition: { width: 132, height: 52 },
+  end: { width: 122, height: 52 },
 } as const satisfies Readonly<
   Record<EditableNodeKind, Readonly<{ width: number; height: number }>>
 >;
@@ -163,7 +163,10 @@ export function createNode(kind: EditableNodeKind, position: FlowPoint = { x: 20
   return {
     id: `${kind}-${crypto.randomUUID()}`,
     kind,
-    position,
+    position: {
+      x: Math.round(position.x),
+      y: Math.round(position.y),
+    },
     size: { ...defaults.size },
     data: { kind, label: defaults.label, runState: 'idle', ...defaults.extras },
   };

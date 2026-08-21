@@ -8,6 +8,7 @@ import {
 } from 'react';
 
 import { rectFromPoints, rectsIntersect, screenToWorld, zoomAt } from './geometry';
+import type { CanvasToolMode } from './FlowCanvasTools';
 import { snapNode, type AlignmentGuide } from './snapping';
 import { useFlowStoreApi } from './store';
 import type { FlowAnchorSide, FlowPoint } from './types';
@@ -35,6 +36,7 @@ type UseCanvasPointerInteractionsOptions = Readonly<{
     side?: FlowAnchorSide,
   ) => boolean;
   spacePressed: boolean;
+  toolMode: CanvasToolMode;
 }>;
 
 /** 画布右键菜单的屏幕位置、世界坐标和二级菜单方向。 */
@@ -103,6 +105,7 @@ export function useCanvasPointerInteractions({
   onConnect,
   onReconnect,
   spacePressed,
+  toolMode,
 }: UseCanvasPointerInteractionsOptions): CanvasPointerInteractions {
   const store = useFlowStoreApi();
   const [guides, setGuides] = useState<ReadonlyArray<AlignmentGuide>>([]);
@@ -136,17 +139,24 @@ export function useCanvasPointerInteractions({
     /** 拖拽全程直接更新节点，结束时再把起始快照压入一次历史。 */
     const initialNodes = structuredClone(store.getState().nodes);
     const initialMetadata = structuredClone(store.getState().metadata);
-    let previousPoint = dragStart;
+    const initialDraggedNode = initialNodes.find((node) => node.id === nodeId);
+    if (!initialDraggedNode) return;
 
     const move = (pointerEvent: PointerEvent) => {
       const currentPoint = pointerWorld(pointerEvent);
       if (!currentPoint) return;
 
+      const currentDraggedNode = store.getState().nodes.find((node) => node.id === nodeId);
+      if (!currentDraggedNode) return;
+      /** 始终从按下时的位置计算总位移，使指针越过吸附阈值后能立即脱离。 */
+      const rawPosition = {
+        x: Math.round(initialDraggedNode.position.x + currentPoint.x - dragStart.x),
+        y: Math.round(initialDraggedNode.position.y + currentPoint.y - dragStart.y),
+      };
       store.getState().moveSelected({
-        x: currentPoint.x - previousPoint.x,
-        y: currentPoint.y - previousPoint.y,
+        x: rawPosition.x - currentDraggedNode.position.x,
+        y: rawPosition.y - currentDraggedNode.position.y,
       });
-      previousPoint = currentPoint;
 
       const currentState = store.getState();
       if (pointerEvent.altKey || currentState.selectedNodeIds.size !== 1) {
@@ -159,15 +169,19 @@ export function useCanvasPointerInteractions({
       );
       if (!movingNode) return;
 
-      /** 屏幕上的 6px 吸附容差需要按当前倍率换算为世界坐标。 */
+      /** 屏幕上的 3px 吸附容差需要按当前倍率换算为世界坐标。 */
       const snapResult = snapNode(
         movingNode,
         currentState.nodes.filter((node) => node.id !== movingNode.id),
-        6 / currentState.viewport.zoom,
+        3 / currentState.viewport.zoom,
       );
+      const snappedPosition = {
+        x: Math.round(snapResult.position.x),
+        y: Math.round(snapResult.position.y),
+      };
       currentState.moveSelected({
-        x: snapResult.position.x - movingNode.position.x,
-        y: snapResult.position.y - movingNode.position.y,
+        x: snappedPosition.x - movingNode.position.x,
+        y: snappedPosition.y - movingNode.position.y,
       });
       setGuides(snapResult.guides);
     };
@@ -261,7 +275,7 @@ export function useCanvasPointerInteractions({
     setContextMenu(null);
     if (event.button !== 0) return;
 
-    if (spacePressed) {
+    if (spacePressed || toolMode === 'pan') {
       let previousPoint: FlowPoint = {
         x: event.clientX,
         y: event.clientY,
@@ -324,7 +338,7 @@ export function useCanvasPointerInteractions({
     };
 
     bindPointerGesture(move, finish);
-  }, [pointerWorld, spacePressed, store]);
+  }, [pointerWorld, spacePressed, store, toolMode]);
 
   const handleWheel = useCallback((event: ReactWheelEvent<HTMLDivElement>) => {
     event.preventDefault();

@@ -72,4 +72,43 @@ describe('EditorCommandBar', () => {
     expect(screen.getByRole('button', { name: '校验' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '运行中…' })).toBeDisabled();
   });
+
+  it('matches title controls with compact action sizing', () => {
+    const store = createFlowStore<WorkflowNodeData, WorkflowEdgeData>();
+
+    render(
+      <EditorCommandBar
+        store={store}
+        running={false}
+        libraryOpen={true}
+        inspectorOpen={true}
+        consoleOpen={false}
+        onValidate={vi.fn()}
+        onRun={vi.fn()}
+        onToggleLibrary={vi.fn()}
+        onToggleInspector={vi.fn()}
+        onToggleConsole={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: '校验' })).toHaveClass(
+      'h-[26px]',
+      'text-[12px]',
+    );
+    expect(screen.getByRole('button', { name: '运行' })).toHaveClass(
+      'h-[26px]',
+      'text-[12px]',
+    );
+    expect(screen.getByRole('button', { name: '发布' })).toHaveClass(
+      'h-[26px]',
+      'text-[12px]',
+    );
+    expect(screen.getByRole('navigation', { name: '编辑命令' })).toHaveClass(
+      'grid',
+      'grid-cols-[1fr_auto_1fr]',
+    );
+    expect(screen.getByRole('button', { name: '撤销' }).parentElement).toHaveClass(
+      'col-start-2',
+    );
+  });
 });

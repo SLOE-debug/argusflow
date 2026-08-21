@@ -3,6 +3,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react';
 import { anchorPoint, isRectVisible, rectFromPoints } from './geometry';
 import { FlowEdges } from './FlowEdges';
 import { FlowNodeView } from './FlowNodeView';
+import type { CanvasToolMode } from './FlowCanvasTools';
 import type { AlignmentGuide } from './snapping';
 import type { ConnectionDraft, SelectionBox } from './store';
 import type {
@@ -35,6 +36,7 @@ type FlowCanvasLayersProps = Readonly<{
   registry: Readonly<NodeRegistry>;
   selectionBox: SelectionBox | null;
   size: CanvasSize;
+  toolMode: CanvasToolMode;
   viewport: ViewportTransform;
 }>;
 
@@ -52,8 +54,7 @@ const CANVAS_GRID_CLASS_NAME = [
 
 /** 节点吸附参考线的基础样式。 */
 const ALIGNMENT_GUIDE_CLASS_NAME = [
-  'pointer-events-none absolute z-[100]',
-  'bg-blue-500/80',
+  'pointer-events-none absolute z-20',
 ].join(' ');
 
 /** 装配画布网格、连线和随世界坐标变换的节点交互图层。 */
@@ -67,6 +68,7 @@ export function FlowCanvasLayers({
   registry,
   selectionBox,
   size,
+  toolMode,
   viewport,
 }: FlowCanvasLayersProps) {
   const worldTransform = `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`;
@@ -86,7 +88,7 @@ export function FlowCanvasLayers({
         width={size.width}
       />
       <div
-        className="absolute inset-0 origin-top-left"
+        className="absolute inset-0 z-10 origin-top-left"
         style={{ transform: worldTransform }}
       >
         {visibleNodes.map((node) => (
@@ -100,6 +102,7 @@ export function FlowCanvasLayers({
               onConnectionStart={onConnectionStart}
               onDragStart={onDragStart}
               registry={registry}
+              toolMode={toolMode}
             />
           </div>
         ))}
@@ -127,24 +130,29 @@ function CanvasGrid({ viewport }: Readonly<{ viewport: ViewportTransform }>) {
   );
 }
 
-/** 绘制节点吸附时跨越可视区域的水平或垂直参考线。 */
+/** 绘制 WinForms 式动态吸附线，仅保留节点间的紫色线段。 */
 function AlignmentGuides({
   guides,
 }: Readonly<{ guides: ReadonlyArray<AlignmentGuide> }>) {
   return guides.map((guide, index) => {
-    const orientationClassName = guide.axis === 'x'
-      ? '-top-[10000px] h-[20000px] w-px'
-      : '-left-[10000px] h-px w-[20000px]';
-    const positionStyle = guide.axis === 'x'
-      ? { left: guide.value }
-      : { top: guide.value };
+    const x2 = guide.axis === 'x' ? guide.value : guide.end;
+    const y2 = guide.axis === 'x' ? guide.end : guide.value;
 
     return (
-      <div
-        key={`${guide.axis}-${guide.value}-${index}`}
-        className={`${ALIGNMENT_GUIDE_CLASS_NAME} ${orientationClassName}`}
-        style={positionStyle}
-      />
+      <svg
+        key={`${guide.axis}-${guide.value}-${guide.kind}-${index}`}
+        className={`${ALIGNMENT_GUIDE_CLASS_NAME} top-0 left-0 size-px overflow-visible`}
+      >
+        <line
+          x1={guide.axis === 'x' ? guide.value : guide.start}
+          x2={x2}
+          y1={guide.axis === 'x' ? guide.start : guide.value}
+          y2={y2}
+          stroke="#a855f7"
+          strokeWidth="1.5"
+          vectorEffect="non-scaling-stroke"
+        />
+      </svg>
     );
   });
 }
@@ -194,7 +202,7 @@ function ConnectionDraftPath({
   ].join(' ');
 
   return (
-    <svg className="pointer-events-none absolute top-0 left-0 size-px overflow-visible">
+    <svg className="pointer-events-none absolute top-0 left-0 z-20 size-px overflow-visible">
       <path
         d={path}
         fill="none"

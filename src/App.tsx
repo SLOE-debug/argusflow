@@ -49,7 +49,7 @@ export default function App() {
   return (
     <main
       data-theme="daylight"
-      className="grid h-full w-full grid-rows-[56px_52px_minmax(0,1fr)_40px] bg-slate-50 text-slate-800"
+      className="grid h-full w-full grid-rows-[40px_40px_minmax(0,1fr)_40px] bg-slate-50 text-slate-800"
     >
       <WindowTitleBar
         workflowName={studio.workflowName}
@@ -73,7 +73,6 @@ export default function App() {
         {libraryOpen && (
           <NodePalette
             nodes={studio.nodes}
-            onAdd={studio.addNode}
           />
         )}
         <WorkflowWorkspace

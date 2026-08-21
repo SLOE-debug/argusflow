@@ -85,4 +85,19 @@ describe('WindowTitleBar', () => {
 
     expect(await screen.findByRole('button', { name: '还原窗口' })).toBeEnabled();
   });
+
+  it('centers the saved status with flex layout', () => {
+    render(
+      <WindowTitleBar
+        workflowName="测试流程"
+        running={false}
+        report={null}
+        errorMessage={null}
+      />,
+    );
+
+    const statusText = screen.getByText(/已保存/);
+    expect(statusText.parentElement).toHaveClass('flex', 'h-[26px]', 'items-center');
+    expect(statusText.previousElementSibling).not.toHaveClass('translate-y-px');
+  });
 });

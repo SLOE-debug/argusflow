@@ -30,23 +30,31 @@ export function WorkflowWorkspace({
 }: WorkflowWorkspaceProps) {
   /** 展开时严格保留参考图中的 304px 任务区域。 */
   const rows = open
-    ? 'grid-rows-[40px_minmax(250px,1fr)_304px]'
-    : 'grid-rows-[40px_minmax(0,1fr)_38px]';
+    ? 'grid-rows-[34px_minmax(250px,1fr)_304px]'
+    : 'grid-rows-[34px_minmax(0,1fr)_38px]';
 
   return (
     <section className={`grid min-h-0 min-w-0 overflow-hidden ${rows}`}>
-      <header className="flex h-10 items-end border-b border-slate-200 bg-slate-50">
+      <header className="flex h-[34px] items-center border-b border-slate-200 bg-slate-50">
         <div
           className={
-            'flex h-10 min-w-[150px] items-center gap-3 border-r border-t-2 ' +
-            'border-r-slate-200 border-t-blue-600 bg-white px-4 text-[13px]'
+            'flex h-[34px] min-w-[140px] items-center gap-2.5 border-r border-t-2 ' +
+            'border-r-slate-200 border-t-blue-600 bg-white px-3 text-[12px] leading-none'
           }
         >
-          <span className="font-semibold text-blue-600">{workflowName}</span>
-          <X
-            className="ml-auto size-3.5 text-slate-500"
-            aria-hidden="true"
-          />
+          <span className="flex h-full items-center font-semibold text-blue-600">
+            {workflowName}
+          </span>
+          <button
+            type="button"
+            aria-label="关闭工作流页签"
+            className="ml-auto flex size-6 items-center justify-center rounded text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+          >
+            <X
+              className="size-3"
+              aria-hidden="true"
+            />
+          </button>
         </div>
       </header>
       <div className="relative min-h-0 min-w-0 overflow-hidden border-b border-slate-200">

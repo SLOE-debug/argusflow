@@ -38,7 +38,7 @@ export function WorkflowCanvas({
   onReconnect,
 }: WorkflowCanvasProps) {
   const addWorkflowNode = (kind: string, position: FlowPoint) => {
-    onAddNode(kind as WorkflowNodeData['kind'], position);
+    if (isWorkflowNodeKind(kind)) onAddNode(kind, position);
   };
 
   return (
@@ -51,4 +51,9 @@ export function WorkflowCanvas({
       />
     </FlowProvider>
   );
+}
+
+/** 检查通用画布传入的注册键是否属于工作流领域节点。 */
+function isWorkflowNodeKind(kind: string): kind is WorkflowNodeData['kind'] {
+  return Object.hasOwn(workflowNodeRegistry, kind);
 }

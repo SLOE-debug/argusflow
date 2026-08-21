@@ -134,7 +134,7 @@ export function NodeInspectorFields({ node, onUpdate, onDelete }: NodeInspectorF
         <InspectorField label="节点位置">
           <input
             className={`${INSPECTOR_CONTROL_CLASS_NAME} h-8 tabular-nums`}
-            value={`${node.position.x}, ${node.position.y}`}
+            value={`${Math.round(node.position.x)}, ${Math.round(node.position.y)}`}
             readOnly
           />
         </InspectorField>

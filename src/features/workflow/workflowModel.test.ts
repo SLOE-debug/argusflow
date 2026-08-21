@@ -39,6 +39,15 @@ describe('workflow model', () => {
     vi.unstubAllGlobals();
   });
 
+  it('rounds node positions to integer world coordinates', () => {
+    vi.stubGlobal('crypto', { randomUUID: () => 'generated-id' });
+
+    const node = createNode('log', { x: 32.593, y: 111.6 });
+
+    expect(node.position).toEqual({ x: 33, y: 112 });
+    vi.unstubAllGlobals();
+  });
+
   it('assigns true and false branches and rejects a third condition edge', () => {
     let counter = 0;
     vi.stubGlobal('crypto', { randomUUID: () => String(++counter) });

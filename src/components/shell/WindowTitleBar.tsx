@@ -1,7 +1,6 @@
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
   Bell,
-  ChevronDown,
   CircleHelp,
   FileText,
   Minus,
@@ -13,6 +12,7 @@ import { useEffect, useMemo, useState, type MouseEvent } from 'react';
 
 import appIcon from '../../assets/argusflow-icon.png';
 import type { ValidationReport } from '../../features/workflow/contracts';
+import { Input, Select } from '../ui';
 import { resolveWorkflowStatus } from '../workflow/workflowStatus';
 
 type WindowTitleBarProps = Readonly<{
@@ -28,9 +28,9 @@ type WindowTitleBarProps = Readonly<{
 
 /** 自绘 Windows 标题栏按钮的公共样式。 */
 const WINDOW_BUTTON_CLASS_NAME = [
-  'flex h-14 w-14 items-center justify-center border-0 bg-transparent',
-  'text-slate-600 outline-none hover:bg-slate-100 focus-visible:ring-2',
-  'focus-visible:ring-inset focus-visible:ring-blue-500 [&>svg]:size-4',
+  'flex h-10 w-11 items-center justify-center border-0 bg-transparent',
+  'text-slate-600 outline-none focus-visible:ring-2',
+  'focus-visible:ring-inset focus-visible:ring-blue-500 [&>svg]:size-[13px]',
 ].join(' ');
 
 /** Windows 标题栏及参考图中的工作区、搜索和服务状态控件。 */
@@ -95,65 +95,82 @@ export function WindowTitleBar({
   };
 
   return (
-    <header className="z-30 flex h-14 select-none items-center border-b border-slate-200 bg-white">
+    <header className="z-30 flex h-10 select-none items-center border-b border-slate-200 bg-white">
       <div
-        className="flex min-w-0 flex-1 items-center self-stretch pl-5"
+        className="flex min-w-0 flex-1 items-center self-stretch pl-3.5"
         onMouseDown={handleDragMouseDown}
       >
         <div className="flex shrink-0 items-center">
-          <span className="flex size-7 items-center justify-center overflow-hidden rounded-[5px] bg-slate-900 shadow-sm">
+          <span className="flex size-[22px] items-center justify-center overflow-hidden">
             <img
-              className="size-5 object-contain"
+              className="size-[22px] object-contain"
               src={appIcon}
               alt=""
             />
           </span>
-          <strong className="ml-2.5 text-[16px] font-semibold tracking-[-0.01em] text-slate-900">
+          <strong className="ml-1.5 text-[13px] font-semibold tracking-[-0.01em] text-slate-900">
             ArgusFlow Studio
           </strong>
         </div>
-        <TitleSelect
-          className="ml-8 w-[158px]"
-          icon={FileText}
-          label="默认工作区"
+        <Select
+          aria-label="工作区"
+          density="compact"
+          containerClassName="ml-5 w-[138px]"
+          value="默认工作区"
+          options={[{ value: '默认工作区', label: '默认工作区' }]}
+          startAdornment={(
+            <FileText
+              className="size-3 shrink-0 text-slate-600"
+              aria-hidden="true"
+            />
+          )}
         />
-        <TitleSelect
-          className="ml-4 w-[160px]"
-          label={workflowName}
+        <Select
+          aria-label="工作流"
+          density="compact"
+          containerClassName="ml-2.5 w-[140px]"
+          value={workflowName}
+          options={[{ value: workflowName, label: workflowName }]}
         />
-        <div className="ml-4 flex items-center gap-2 text-[12px] text-slate-500">
-          <span className={`size-2 rounded-full ${status.tone}`} />
-          <span>{running ? '运行中' : '已保存'}&nbsp; 10:32:45</span>
+        <div className="ml-2.5 flex h-[26px] items-center gap-1.5 text-[11px] text-slate-500">
+          <span className={`size-1.5 shrink-0 rounded-full ${status.tone}`} />
+          <span className="flex h-full items-center leading-none">
+            {running ? '运行中' : '已保存'}&nbsp; 10:32:45
+          </span>
         </div>
       </div>
-      <div className="flex h-14 shrink-0 items-center gap-4">
-        <label className="flex h-9 w-[164px] items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-slate-400 focus-within:border-blue-400 focus-within:bg-white">
-          <Search className="size-4 shrink-0" aria-hidden="true" />
-          <input
-            aria-label="搜索"
-            placeholder="搜索（⌘K）"
-            className="min-w-0 flex-1 border-0 bg-transparent pl-2 text-[12px] text-slate-700 outline-none placeholder:text-slate-400"
-          />
-        </label>
+      <div className="flex h-10 shrink-0 items-center gap-2.5">
+        <Input
+          aria-label="搜索"
+          density="compact"
+          containerClassName="w-[144px]"
+          placeholder="搜索（⌘K）"
+          startAdornment={(
+            <Search
+              className="size-3 shrink-0"
+              aria-hidden="true"
+            />
+          )}
+        />
         <button
           type="button"
-          className="flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-[12px] text-slate-700"
+          className="flex h-[26px] items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 text-[12px] leading-none text-slate-700"
         >
-          <span className="size-2 rounded-full bg-emerald-600" />
+          <span className="size-1.5 rounded-full bg-emerald-600" />
           服务在线
         </button>
         <button type="button" aria-label="通知" className="text-slate-600 hover:text-slate-900">
-          <Bell className="size-5" aria-hidden="true" />
+          <Bell className="size-[15px]" aria-hidden="true" />
         </button>
         <button type="button" aria-label="帮助" className="text-slate-600 hover:text-slate-900">
-          <CircleHelp className="size-[19px]" aria-hidden="true" />
+          <CircleHelp className="size-[15px]" aria-hidden="true" />
         </button>
-        <span className="h-6 w-px bg-slate-200" />
+        <span className="h-4 w-px bg-slate-200" />
       </div>
-      <div className="flex h-14 shrink-0 items-center">
+      <div className="flex h-10 shrink-0 items-center">
         <button
           type="button"
-          className={WINDOW_BUTTON_CLASS_NAME}
+          className={`${WINDOW_BUTTON_CLASS_NAME} hover:bg-slate-100`}
           aria-label="最小化窗口"
           title="最小化"
           onClick={minimize}
@@ -162,7 +179,7 @@ export function WindowTitleBar({
         </button>
         <button
           type="button"
-          className={WINDOW_BUTTON_CLASS_NAME}
+          className={`${WINDOW_BUTTON_CLASS_NAME} hover:bg-slate-100`}
           aria-label={maximized ? '还原窗口' : '最大化窗口'}
           title={maximized ? '还原' : '最大化'}
           onClick={() => void toggleMaximized()}
@@ -187,28 +204,5 @@ export function WindowTitleBar({
         </button>
       </div>
     </header>
-  );
-}
-
-type TitleSelectProps = Readonly<{
-  /** 控件附加尺寸与间距。 */
-  className: string;
-  /** 当前显示值。 */
-  label: string;
-  /** 可选的前置图标。 */
-  icon?: typeof FileText;
-}>;
-
-/** 标题栏中的 36px 下拉选择器。 */
-function TitleSelect({ className, label, icon: Icon }: TitleSelectProps) {
-  return (
-    <button
-      type="button"
-      className={`flex h-9 items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-[13px] text-slate-800 ${className}`}
-    >
-      {Icon ? <Icon className="mr-2 size-4 text-slate-600" aria-hidden="true" /> : null}
-      <span className="min-w-0 flex-1 truncate text-left font-medium">{label}</span>
-      <ChevronDown className="ml-2 size-3.5 shrink-0 text-slate-500" aria-hidden="true" />
-    </button>
   );
 }

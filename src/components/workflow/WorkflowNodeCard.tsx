@@ -35,29 +35,29 @@ const NODE_ICONS: Readonly<Record<WorkflowNodeKind, LucideIcon>> = {
   end: Square,
 };
 
-/** 节点类型对应的边框、图标底色和阴影。 */
+/** 节点类型对应的强调色条和图标底色。 */
 const NODE_TONES: Readonly<Record<
   WorkflowNodeKind,
-  Readonly<{ card: string; icon: string }>
+  Readonly<{ accent: string; icon: string }>
 >> = {
   start: {
-    card: 'border-emerald-500 shadow-[0_4px_14px_rgba(16,185,129,.10)]',
+    accent: 'bg-emerald-500',
     icon: 'bg-emerald-50 text-emerald-600',
   },
   log: {
-    card: 'border-blue-500 shadow-[0_4px_14px_rgba(59,130,246,.10)]',
+    accent: 'bg-blue-500',
     icon: 'bg-blue-50 text-blue-600',
   },
   delay: {
-    card: 'border-amber-500 shadow-[0_4px_14px_rgba(245,158,11,.10)]',
+    accent: 'bg-amber-500',
     icon: 'bg-amber-50 text-amber-600',
   },
   condition: {
-    card: 'border-violet-500 shadow-[0_4px_14px_rgba(139,92,246,.10)]',
+    accent: 'bg-violet-500',
     icon: 'bg-violet-50 text-violet-600',
   },
   end: {
-    card: 'border-rose-500 shadow-[0_4px_14px_rgba(244,63,94,.10)]',
+    accent: 'bg-rose-500',
     icon: 'bg-rose-50 text-rose-600',
   },
 };
@@ -95,7 +95,7 @@ function createDefinition(
   };
 }
 
-/** 根据节点类型渲染与参考图一致的白底彩框业务卡片。 */
+/** 根据节点类型渲染带左侧强调色条的紧凑业务卡片。 */
 export function WorkflowNodeCard({ node }: FlowNodeRendererProps<WorkflowNodeData>) {
   const data = node.data;
   const detail = resolveNodeDetail(data);
@@ -106,14 +106,15 @@ export function WorkflowNodeCard({ node }: FlowNodeRendererProps<WorkflowNodeDat
 
   return (
     <div
-      className={`flex h-full w-full items-center gap-2 rounded-[7px] border bg-white px-2.5 ${tone.card} ${invalidTone}`}
+      className={`relative flex h-full w-full items-center gap-2 overflow-hidden rounded-lg border border-slate-200 bg-white pr-2.5 pl-3 shadow-[0_3px_10px_rgba(15,23,42,0.08)] ${invalidTone}`}
     >
-      <span className={`flex size-7 shrink-0 items-center justify-center rounded-full ${tone.icon}`}>
-        <Icon className="size-[18px] stroke-[1.8]" aria-hidden="true" />
+      <span className={`absolute inset-y-0 left-0 w-1 ${tone.accent}`} aria-hidden="true" />
+      <span className={`flex size-6 shrink-0 items-center justify-center rounded-md ${tone.icon}`}>
+        <Icon className="size-3.5 stroke-[1.9]" aria-hidden="true" />
       </span>
       <div className="flex min-w-0 flex-1 flex-col justify-center text-slate-800">
-        <strong className="truncate text-[12px] leading-[18px] font-semibold">{data.label}</strong>
-        <span className="truncate text-[10px] leading-[15px] text-slate-500">{detail}</span>
+        <strong className="truncate text-[12px] leading-4 font-semibold">{data.label}</strong>
+        <span className="truncate text-[10px] leading-[14px] text-slate-400">{detail}</span>
       </div>
       {status !== 'idle' ? (
         <span className={`size-1.5 shrink-0 rounded-full ${STATUS_TONES[status]}`} />

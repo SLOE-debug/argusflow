@@ -1,6 +1,7 @@
 import { memo, type PointerEvent as ReactPointerEvent } from 'react';
 
 import { anchorPoint } from './geometry';
+import type { CanvasToolMode } from './FlowCanvasTools';
 import { useFlowStore } from './store';
 import type { FlowAnchorSide, FlowNode, FlowPoint, NodeRegistry } from './types';
 
@@ -25,16 +26,17 @@ const SELECTION_OUTLINE_CLASS_NAME = [
   'border-blue-500 ring-2 ring-blue-500/10',
 ].join(' ');
 
-/** 连线锚点视觉样式；方位类由锚点方向单独补充。 */
+/** 连线锚点视觉样式；空心菱形比实心圆更轻，并保持明确连接语义。 */
 const ANCHOR_CLASS_NAME = [
-  'absolute z-30 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full',
-  'border border-white bg-blue-600 p-0 outline-none',
-  'transition-[width,height,background-color] hover:size-2.5 hover:bg-blue-700',
+  'absolute z-30 size-2 -translate-x-1/2 -translate-y-1/2 rotate-45 rounded-[2px]',
+  'border border-blue-500 bg-white p-0 shadow-sm outline-none',
+  'transition-[transform,background-color] hover:scale-125 hover:bg-blue-50',
 ].join(' ');
 
 type FlowNodeViewProps = Readonly<{
   nodeId: string;
   registry: Readonly<NodeRegistry>;
+  toolMode: CanvasToolMode;
   onDragStart: (nodeId: string, event: ReactPointerEvent) => void;
   onConnectionStart: (
     nodeId: string,
@@ -48,6 +50,7 @@ type FlowNodeViewProps = Readonly<{
 export const FlowNodeView = memo(function FlowNodeView({
   nodeId,
   registry,
+  toolMode,
   onDragStart,
   onConnectionStart,
 }: FlowNodeViewProps) {
@@ -68,6 +71,8 @@ export const FlowNodeView = memo(function FlowNodeView({
   const handlePointerEnter = () => setHoveredNode(node.id);
   const handlePointerLeave = () => setHoveredNode(null);
   const handlePointerDown = (event: ReactPointerEvent) => {
+    if (toolMode === 'pan') return;
+
     const target = event.target;
     if (target instanceof HTMLElement && target.closest('[data-flow-anchor]')) return;
 
@@ -83,7 +88,7 @@ export const FlowNodeView = memo(function FlowNodeView({
 
   return (
     <div
-      className="pointer-events-auto absolute cursor-move select-none"
+      className={`pointer-events-auto absolute select-none ${toolMode === 'pan' ? 'cursor-grab' : 'cursor-move'}`}
       style={{
         height: node.size.height,
         transform: `translate(${node.position.x}px, ${node.position.y}px)`,
@@ -98,7 +103,7 @@ export const FlowNodeView = memo(function FlowNodeView({
         selected={selected}
       />
       {selected ? <NodeSelectionOutline /> : null}
-      {hovered ? (
+      {hovered && toolMode === 'select' ? (
         <NodeAnchors
           node={node}
           onConnectionStart={onConnectionStart}

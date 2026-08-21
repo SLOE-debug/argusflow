@@ -95,11 +95,9 @@ export function useWorkflowStudio() {
     catch (error) { const commandError = normalizeCommandError(error); setErrorMessage(commandError.message); setRunning(false); }
   };
 
-  const addNode = (kind: EditableNodeKind, position?: FlowPoint) => {
+  const addNode = (kind: EditableNodeKind, position: FlowPoint) => {
     if ((kind === 'start' || kind === 'end') && nodes.some((node) => node.kind === kind)) return;
-    /** 面板点击没有鼠标世界坐标，因此以可见起始区为基准交错放置，避免节点完全重叠。 */
-    const initialPosition = position ?? { x: 64 + nodes.length % 3 * 194, y: 82 + Math.floor(nodes.length / 3) * 132 };
-    const node = createNode(kind, initialPosition);
+    const node = createNode(kind, position);
     flowStore.getState().transact((state) => ({ ...state, nodes: [...state.nodes, node] }));
     flowStore.getState().selectNodes([node.id]);
     setReport(null);

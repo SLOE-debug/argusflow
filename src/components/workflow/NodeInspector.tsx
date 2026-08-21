@@ -54,7 +54,7 @@ export function NodeInspector(props: NodeInspectorProps) {
 
   return (
     <aside className="z-10 flex min-h-0 min-w-0 flex-col overflow-hidden border-l border-slate-200 bg-white">
-      <header className="flex h-[42px] shrink-0 border-b border-slate-200 bg-slate-50 px-2">
+      <header className="flex h-[34px] shrink-0 items-center border-b border-slate-200 bg-slate-50 px-2">
         <InspectorTabButton
           active={showWorkflow}
           label="流程设置"
@@ -104,16 +104,16 @@ type InspectorTabButtonProps = Readonly<{
   onClick: () => void;
 }>;
 
-/** 属性面板顶端的 42px 页签。 */
+/** 属性面板顶端的 34px 紧凑页签。 */
 function InspectorTabButton({ active, label, onClick }: InspectorTabButtonProps) {
   return (
     <button
       type="button"
       onClick={onClick}
       className={
-        'relative flex h-[42px] items-center px-3 text-[12px] ' +
+        'relative flex h-[34px] items-center px-2.5 text-[11px] leading-none ' +
         (active
-          ? 'font-semibold text-slate-800 after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:bg-blue-600'
+          ? 'font-semibold text-slate-800 after:absolute after:inset-x-2.5 after:bottom-0 after:h-0.5 after:bg-blue-600'
           : 'text-slate-500 hover:text-slate-800')
       }
     >

@@ -68,9 +68,9 @@ const SINGLETON_NODE_KINDS: ReadonlyArray<WorkflowNodeData['kind']> = [
   'end',
 ];
 
-/** 统一的 32px 桌面命令按钮样式。 */
+/** 统一的 28px 桌面命令按钮样式。 */
 const COMMAND_BUTTON_CLASS_NAME = [
-  'flex size-8 items-center justify-center rounded-[4px] border-0',
+  'flex size-7 items-center justify-center rounded-[4px] border-0',
   'bg-transparent text-slate-600 outline-none hover:bg-slate-100',
   'hover:text-slate-900 focus-visible:ring-2 focus-visible:ring-blue-500',
   'disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent',
@@ -100,79 +100,81 @@ export function EditorCommandBar({
   return (
     <nav
       aria-label="编辑命令"
-      className="z-20 flex h-[52px] items-center gap-1 border-b border-slate-200 bg-white pr-4 pl-[196px]"
+      className="z-20 grid h-10 grid-cols-[1fr_auto_1fr] items-center border-b border-slate-200 bg-white px-3"
     >
-      <CommandIconButton
-        label="撤销"
-        shortcut="Ctrl+Z"
-        icon={Undo2}
-        disabled={pastCount === 0}
-        onClick={() => store.getState().undo()}
-      />
-      <CommandIconButton
-        label="重做"
-        shortcut="Ctrl+Y"
-        icon={Redo2}
-        disabled={futureCount === 0}
-        onClick={() => store.getState().redo()}
-      />
-      <CommandSeparator />
-      <CommandIconButton
-        label="复制"
-        shortcut="Ctrl+C"
-        icon={Copy}
-        disabled={selectedNodeCount === 0}
-        onClick={() => store.getState().copy()}
-      />
-      <CommandIconButton
-        label="粘贴"
-        shortcut="Ctrl+V"
-        icon={ClipboardPaste}
-        disabled={!hasClipboard}
-        onClick={() => store.getState().paste(singletonKinds())}
-      />
-      <CommandIconButton
-        label="创建副本"
-        shortcut="Ctrl+D"
-        icon={CopyPlus}
-        disabled={selectedNodeCount === 0}
-        onClick={() => store.getState().duplicate(singletonKinds())}
-      />
-      <CommandIconButton
-        label="删除"
-        shortcut="Delete"
-        icon={Trash2}
-        disabled={!hasSelection}
-        onClick={() => store.getState().deleteSelection()}
-      />
-      <CommandSeparator />
-      <CommandIconButton
-        label="切换节点库"
-        icon={PanelLeft}
-        pressed={libraryOpen}
-        onClick={onToggleLibrary}
-      />
-      <CommandIconButton
-        label="切换运行面板"
-        icon={PanelBottom}
-        pressed={consoleOpen}
-        onClick={onToggleConsole}
-      />
-      <CommandIconButton
-        label="切换属性栏"
-        icon={PanelRight}
-        pressed={inspectorOpen}
-        onClick={onToggleInspector}
-      />
-      <div className="ml-auto flex items-center gap-2.5">
+      <div className="col-start-2 flex items-center gap-0.5">
+        <CommandIconButton
+          label="撤销"
+          shortcut="Ctrl+Z"
+          icon={Undo2}
+          disabled={pastCount === 0}
+          onClick={() => store.getState().undo()}
+        />
+        <CommandIconButton
+          label="重做"
+          shortcut="Ctrl+Y"
+          icon={Redo2}
+          disabled={futureCount === 0}
+          onClick={() => store.getState().redo()}
+        />
+        <CommandSeparator />
+        <CommandIconButton
+          label="复制"
+          shortcut="Ctrl+C"
+          icon={Copy}
+          disabled={selectedNodeCount === 0}
+          onClick={() => store.getState().copy()}
+        />
+        <CommandIconButton
+          label="粘贴"
+          shortcut="Ctrl+V"
+          icon={ClipboardPaste}
+          disabled={!hasClipboard}
+          onClick={() => store.getState().paste(singletonKinds())}
+        />
+        <CommandIconButton
+          label="创建副本"
+          shortcut="Ctrl+D"
+          icon={CopyPlus}
+          disabled={selectedNodeCount === 0}
+          onClick={() => store.getState().duplicate(singletonKinds())}
+        />
+        <CommandIconButton
+          label="删除"
+          shortcut="Delete"
+          icon={Trash2}
+          disabled={!hasSelection}
+          onClick={() => store.getState().deleteSelection()}
+        />
+        <CommandSeparator />
+        <CommandIconButton
+          label="切换节点库"
+          icon={PanelLeft}
+          pressed={libraryOpen}
+          onClick={onToggleLibrary}
+        />
+        <CommandIconButton
+          label="切换运行面板"
+          icon={PanelBottom}
+          pressed={consoleOpen}
+          onClick={onToggleConsole}
+        />
+        <CommandIconButton
+          label="切换属性栏"
+          icon={PanelRight}
+          pressed={inspectorOpen}
+          onClick={onToggleInspector}
+        />
+      </div>
+      <div className="col-start-3 flex items-center gap-2 justify-self-end">
         <button
           type="button"
-          className="flex h-9 items-center gap-2 rounded-md border border-slate-300 bg-white px-5 text-[13px] font-medium text-slate-700 outline-none hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-40"
+          className="flex h-[26px] items-center gap-1.5 rounded-md border border-slate-300 bg-white px-2.5 text-[12px] leading-none font-medium text-slate-700 outline-none hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-40"
           onClick={onValidate}
           disabled={running}
           aria-label="校验"
         >
-          <ShieldCheck className="size-4" aria-hidden="true" />
+          <ShieldCheck className="size-3" aria-hidden="true" />
           校验
         </button>
         <SplitActionButton
@@ -213,14 +215,14 @@ function CommandIconButton({
       disabled={disabled}
       onClick={onClick}
     >
-      <Icon className="size-4" aria-hidden="true" />
+      <Icon className="size-3.5" aria-hidden="true" />
     </button>
   );
 }
 
 /** 命令分组之间的细分隔线。 */
 function CommandSeparator() {
-  return <span className="mx-2 h-6 w-px bg-slate-200" />;
+  return <span className="mx-1.5 h-5 w-px bg-slate-200" />;
 }
 
 type SplitActionButtonProps = Readonly<{
@@ -242,24 +244,24 @@ function SplitActionButton({
   onClick,
 }: SplitActionButtonProps) {
   return (
-    <div className="flex h-9 overflow-hidden rounded-md bg-blue-600 text-white shadow-sm">
+    <div className="flex h-[26px] overflow-hidden rounded-md bg-blue-600 text-white shadow-sm">
       <button
         type="button"
-        className="flex h-9 items-center gap-2 px-4 text-[13px] font-semibold outline-none hover:bg-blue-700 disabled:cursor-default disabled:opacity-45"
+        className="flex h-[26px] items-center gap-1.5 px-2.5 text-[12px] leading-none font-semibold outline-none hover:bg-blue-700 disabled:cursor-default disabled:opacity-45"
         onClick={onClick}
         disabled={disabled}
         aria-label={label}
       >
-        <Icon className="size-4" aria-hidden="true" />
+        <Icon className="size-3" aria-hidden="true" />
         {label}
       </button>
       <button
         type="button"
         aria-label={`${label}选项`}
         disabled={disabled}
-        className="flex h-9 w-9 items-center justify-center border-l border-blue-500 hover:bg-blue-700 disabled:opacity-45"
+        className="flex h-[26px] w-[26px] items-center justify-center border-l border-blue-500 hover:bg-blue-700 disabled:opacity-45"
       >
-        <ChevronDown className="size-3.5" aria-hidden="true" />
+        <ChevronDown className="size-2.5" aria-hidden="true" />
       </button>
     </div>
   );

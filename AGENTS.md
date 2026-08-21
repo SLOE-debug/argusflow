@@ -25,6 +25,8 @@
 - `src/flow` 只保存与业务无关的画布内核、几何、路由、选择和状态契约，不得 import `features` 或具体工作流组件。
 - `src/features` 保存工作流领域模型、API 和状态编排，不得承载具体页面布局或视觉样式。
 - `src/components` 通过 `flow` 与 `features` 的稳定契约渲染业务界面；组件不得绕过公开状态操作直接修改 Store 内部结构。
+- `Input`、`Select`、`Textarea`、`Checkbox`、`Radio`、`Switch`、`FormField` 等通用表单组件必须放在 `src/components/ui` 下；业务组件不得重复实现同类基础控件或复制其公共样式。
+- `src/components/ui` 只保存与业务无关的强类型 UI 基础组件，不得 import `features`、`flow` 或具体工作流组件；业务差异通过明确的 Props 和组合内容传入。
 - 不同 Feature 之间禁止直接读取内部实现；跨 Feature 通信必须经过类型化契约、门面、事件或注册表。
 
 ## Rust 开发规范

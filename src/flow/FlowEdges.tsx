@@ -64,12 +64,13 @@ export function FlowEdges({ width, height, onReconnectStart }: FlowEdgesProps) {
             key={edge.id}
             active={Boolean(activeEdgeIds[edge.id])}
             edge={edge}
-            interactive={edge.id === selectedEdgeId || edge.id === hoveredEdgeId}
+            hovered={edge.id === hoveredEdgeId}
             nodes={nodes}
             onHover={setHoveredEdge}
             onReconnectStart={onReconnectStart}
             onSelect={selectEdge}
             route={route}
+            selected={edge.id === selectedEdgeId}
             viewport={viewport}
           />
         ))}
@@ -85,6 +86,7 @@ function EdgeMarkerDefinition() {
       <marker
         id="flow-arrow"
         markerHeight="7"
+        markerUnits="userSpaceOnUse"
         markerWidth="7"
         orient="auto-start-reverse"
         refX="9"
@@ -93,7 +95,7 @@ function EdgeMarkerDefinition() {
       >
         <path
           d="M 0 0 L 10 5 L 0 10 z"
-          fill="#7c91aa"
+          fill="context-stroke"
         />
       </marker>
     </defs>
@@ -103,12 +105,13 @@ function EdgeMarkerDefinition() {
 type FlowEdgePathProps = Readonly<{
   active: boolean;
   edge: FlowEdge;
-  interactive: boolean;
+  hovered: boolean;
   nodes: ReadonlyArray<FlowNode>;
   onHover: (edgeId: string | null) => void;
   onReconnectStart: FlowEdgesProps['onReconnectStart'];
   onSelect: (edgeId: string | null) => void;
   route: RoutedEdge;
+  selected: boolean;
   viewport: ViewportTransform;
 }>;
 
@@ -116,12 +119,13 @@ type FlowEdgePathProps = Readonly<{
 function FlowEdgePath({
   active,
   edge,
-  interactive,
+  hovered,
   nodes,
   onHover,
   onReconnectStart,
   onSelect,
   route,
+  selected,
   viewport,
 }: FlowEdgePathProps) {
   const sourceNode = nodes.find((node) => node.id === edge.source.nodeId);
@@ -137,8 +141,16 @@ function FlowEdgePath({
     route.targetSide,
   );
   const branchLabel = readBranchLabel(edge.data);
-  const strokeColor = active || interactive ? '#2563eb' : '#7c91aa';
-  const strokeWidth = interactive ? 2.3 : 1.7;
+  /** 连线使用独立于节点蓝色的紫/青交互色，避免两种对象状态混淆。 */
+  const strokeColor = active
+    ? '#2563eb'
+    : hovered
+      ? '#7c3aed'
+      : selected
+        ? '#0f766e'
+        : '#7c91aa';
+  const strokeWidth = hovered || selected ? 2.2 : 1.7;
+  const strokeDasharray = hovered ? '6 4' : undefined;
   const selectCurrentEdge = (event: ReactPointerEvent<SVGGElement>) => {
     event.stopPropagation();
     onSelect(edge.id);
@@ -166,10 +178,15 @@ function FlowEdgePath({
         fill="none"
         markerEnd="url(#flow-arrow)"
         stroke={strokeColor}
+        strokeDasharray={strokeDasharray}
         strokeWidth={strokeWidth}
-        style={active
-          ? { filter: 'drop-shadow(0 0 4px rgba(59,130,246,.7))' }
-          : undefined}
+        style={
+          active
+            ? { filter: 'drop-shadow(0 0 4px rgba(59,130,246,.7))' }
+            : hovered
+              ? { filter: 'drop-shadow(0 0 3px rgba(124,58,237,.35))' }
+              : undefined
+        }
         vectorEffect="non-scaling-stroke"
       />
       {branchLabel ? (
@@ -181,7 +198,7 @@ function FlowEdgePath({
       {active ? (
         <ActiveEdgeParticles path={route.path} />
       ) : null}
-      {interactive ? (
+      {hovered || selected ? (
         <ReconnectAnchors
           edgeId={edge.id}
           onReconnectStart={onReconnectStart}
@@ -285,11 +302,13 @@ function ReconnectAnchors({
   return (
     <>
       <ReconnectAnchor
+        endpoint="source"
         onPointerDown={reconnectSource}
         point={sourcePoint}
         zoom={zoom}
       />
       <ReconnectAnchor
+        endpoint="target"
         onPointerDown={reconnectTarget}
         point={targetPoint}
         zoom={zoom}
@@ -299,24 +318,36 @@ function ReconnectAnchors({
 }
 
 type ReconnectAnchorProps = Readonly<{
+  endpoint: 'source' | 'target';
   onPointerDown: (event: ReactPointerEvent<SVGCircleElement>) => void;
   point: FlowPoint;
   zoom: number;
 }>;
 
-/** 渲染保持屏幕尺寸不变的单个重连锚点。 */
-function ReconnectAnchor({ onPointerDown, point, zoom }: ReconnectAnchorProps) {
+/** 渲染保持屏幕尺寸不变、可区分源端与目标端的重连锚点。 */
+function ReconnectAnchor({
+  endpoint,
+  onPointerDown,
+  point,
+  zoom,
+}: ReconnectAnchorProps) {
+  const tone = endpoint === 'source'
+    ? { fill: '#ecfdf5', stroke: '#059669' }
+    : { fill: '#fff7ed', stroke: '#ea580c' };
+
   return (
     <circle
       className="pointer-events-auto cursor-crosshair"
       cx={point.x}
       cy={point.y}
-      fill="#fff"
-      r={6 / zoom}
-      stroke="#2563eb"
+      fill={tone.fill}
+      r={5 / zoom}
+      stroke={tone.stroke}
       strokeWidth="2"
       vectorEffect="non-scaling-stroke"
       onPointerDown={onPointerDown}
-    />
+    >
+      <title>{endpoint === 'source' ? '连线起点' : '连线终点'}</title>
+    </circle>
   );
 }
