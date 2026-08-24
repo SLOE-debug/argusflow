@@ -8,5 +8,6 @@ license.workspace = true
 [dependencies]
 argusflow-agent.workspace = true
 argusflow-core.workspace = true
+argusflow-query.workspace = true
 async-trait.workspace = true
 

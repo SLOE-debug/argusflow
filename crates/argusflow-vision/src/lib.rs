@@ -3,8 +3,11 @@
 #[cfg(not(target_os = "windows"))]
 compile_error!("ArgusFlow only supports Windows targets.");
 
-use argusflow_agent::ActionBackend;
-use argusflow_core::{ActionOutcome, AutomationAction, AutomationError, BackendKind, Selector};
+use argusflow_agent::{ActionBackend, ActionCapability};
+use argusflow_core::{
+    ActionOutcome, AutomationAction, AutomationError, BackendKind, TargetLocator,
+};
+use argusflow_query::{QueryBackend, QueryCost, SupportLevel, analyze_query, parse_stored_query};
 use async_trait::async_trait;
 
 #[derive(Debug, Clone, Copy)]
@@ -50,16 +53,24 @@ impl ActionBackend for UnavailableVisionBackend {
         self.kind
     }
 
-    fn supports(&self, action: &AutomationAction) -> bool {
-        matches!(
-            action,
-            AutomationAction::Click {
-                target: Selector::VisualText { .. }
-            } | AutomationAction::SetValue {
-                target: Selector::VisualText { .. },
-                ..
+    fn plan(&self, action: &AutomationAction) -> ActionCapability {
+        match &action.target().locator {
+            TargetLocator::Visual { .. } => ActionCapability {
+                level: SupportLevel::Native,
+                estimated_cost: QueryCost::Medium,
+            },
+            TargetLocator::Query { query } => {
+                let Ok(query) = parse_stored_query(query) else {
+                    return ActionCapability::unsupported();
+                };
+                let capability = analyze_query(&query).capability(QueryBackend::Vision);
+                ActionCapability {
+                    level: capability.level,
+                    estimated_cost: capability.estimated_cost,
+                }
             }
-        )
+            TargetLocator::Coordinate { .. } => ActionCapability::unsupported(),
+        }
     }
 
     async fn execute(&self, _action: &AutomationAction) -> Result<ActionOutcome, AutomationError> {

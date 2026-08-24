@@ -5,9 +5,9 @@
 use std::sync::Arc;
 
 use argusflow_core::{
-    AutomationAction, ConditionBranch, ConditionOperator, ConditionPredicate, ExecutionEvent,
-    ExecutionEventKind, Position, Selector, WorkflowDefinition, WorkflowEdge, WorkflowNode,
-    WorkflowNodeKind,
+    AqlQuery, AutomationAction, AutomationTarget, ConditionBranch, ConditionOperator,
+    ConditionPredicate, ExecutionEvent, ExecutionEventKind, Position, WorkflowDefinition,
+    WorkflowEdge, WorkflowNode, WorkflowNodeKind,
 };
 use serde_json::json;
 use argusflow_runtime::{
@@ -30,6 +30,25 @@ impl ExecutionEventSink for ChannelSink {
 #[test]
 fn valid_linear_workflow_passes_validation() {
     assert!(validate_workflow(&demo_workflow(1)).valid);
+}
+
+#[test]
+fn validation_rejects_invalid_aql_before_execution() {
+    let mut workflow = demo_workflow(1);
+    workflow.nodes[1].kind = WorkflowNodeKind::Action {
+        action: AutomationAction::Click {
+            target: AutomationTarget::query(AqlQuery::v1(r#"button[name="保存"]"#)),
+        },
+    };
+
+    let report = validate_workflow(&workflow);
+    let issue = report
+        .issues
+        .iter()
+        .find(|issue| issue.code == ValidationIssueCode::InvalidAqlQuery)
+        .expect("invalid AQL should produce a node issue");
+    assert_eq!(issue.node_id.as_deref(), Some("log"));
+    assert!(issue.message.contains("AQL 不支持 CSS"));
 }
 
 #[test]
@@ -180,11 +199,7 @@ async fn runtime_emits_a_failure_for_an_unavailable_action_backend() {
     let mut workflow = demo_workflow(1);
     workflow.nodes[1].kind = WorkflowNodeKind::Action {
         action: AutomationAction::Click {
-            target: Selector::Native {
-                name: Some("保存".to_owned()),
-                automation_id: None,
-                control_type: Some("Button".to_owned()),
-            },
+            target: AutomationTarget::query(AqlQuery::v1("button(name = \"保存\")")),
         },
     };
 

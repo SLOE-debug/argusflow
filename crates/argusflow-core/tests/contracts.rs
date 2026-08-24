@@ -3,8 +3,8 @@
 //! 通过 JSON 往返确认编辑器与运行时共享的结构能够无损持久化和恢复。
 
 use argusflow_core::{
-    AutomationAction, Position, Selector, WorkflowDefinition, WorkflowEdge, WorkflowNode,
-    WorkflowNodeKind,
+    AqlQuery, AutomationAction, AutomationTarget, Position, WorkflowDefinition, WorkflowEdge,
+    WorkflowNode, WorkflowNodeKind,
 };
 use uuid::Uuid;
 use serde_json::json;
@@ -28,11 +28,7 @@ fn workflow_contract_round_trips_through_json() {
                 position: Position { x: 240.0, y: 0.0 },
                 kind: WorkflowNodeKind::Action {
                     action: AutomationAction::Click {
-                        target: Selector::Native {
-                            name: Some("保存".to_owned()),
-                            automation_id: None,
-                            control_type: Some("Button".to_owned()),
-                        },
+                        target: AutomationTarget::query(AqlQuery::v1("button(name = \"保存\")")),
                     },
                 },
             },
@@ -62,5 +58,7 @@ fn workflow_contract_round_trips_through_json() {
     let decoded: WorkflowDefinition =
         serde_json::from_str(&json).expect("workflow should deserialize");
 
+    assert!(json.contains("\"language_version\":1"));
+    assert!(json.contains("button(name = \\\"保存\\\")"));
     assert_eq!(decoded, workflow);
 }

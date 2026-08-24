@@ -1,7 +1,16 @@
 //! Windows UI Automation 后端。
 
-use argusflow_agent::ActionBackend;
-use argusflow_core::{ActionOutcome, AutomationAction, AutomationError, BackendKind, Selector};
+mod compiler;
+mod plan;
+
+pub use compiler::{UiaQueryCompileError, compile_uia_query};
+pub use plan::{UiaMatcherPlan, UiaPlanExpr, UiaQueryPlan};
+
+use argusflow_agent::{ActionBackend, ActionCapability};
+use argusflow_core::{
+    ActionOutcome, AutomationAction, AutomationError, BackendKind, TargetLocator,
+};
+use argusflow_query::{QueryBackend, analyze_query, parse_stored_query};
 use async_trait::async_trait;
 
 #[derive(Debug, Default)]
@@ -14,16 +23,18 @@ impl ActionBackend for UiaBackend {
         BackendKind::WindowsUia
     }
 
-    fn supports(&self, action: &AutomationAction) -> bool {
-        matches!(
-            action,
-            AutomationAction::Click {
-                target: Selector::Native { .. }
-            } | AutomationAction::SetValue {
-                target: Selector::Native { .. },
-                ..
-            }
-        )
+    fn plan(&self, action: &AutomationAction) -> ActionCapability {
+        let TargetLocator::Query { query } = &action.target().locator else {
+            return ActionCapability::unsupported();
+        };
+        let Ok(query) = parse_stored_query(query) else {
+            return ActionCapability::unsupported();
+        };
+        let capability = analyze_query(&query).capability(QueryBackend::WindowsUia);
+        ActionCapability {
+            level: capability.level,
+            estimated_cost: capability.estimated_cost,
+        }
     }
 
     async fn execute(&self, _action: &AutomationAction) -> Result<ActionOutcome, AutomationError> {

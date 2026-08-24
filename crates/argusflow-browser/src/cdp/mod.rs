@@ -1,0 +1,7 @@
+//! AQL 到 Chromium DOM/Accessibility 查询计划的编译边界。
+
+mod compiler;
+mod plan;
+
+pub use compiler::{CdpQueryCompileError, compile_cdp_query};
+pub use plan::{CdpCandidateSource, CdpMatcherPlan, CdpPlanExpr, CdpQueryPlan};

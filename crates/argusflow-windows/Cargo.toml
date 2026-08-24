@@ -8,7 +8,9 @@ license.workspace = true
 [dependencies]
 argusflow-agent.workspace = true
 argusflow-core.workspace = true
+argusflow-query.workspace = true
 async-trait.workspace = true
+thiserror.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows = { workspace = true, features = [

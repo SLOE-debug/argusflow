@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::AqlQuery;
+
 /// 可由自动化后端执行的用户操作。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -7,49 +9,105 @@ pub enum AutomationAction {
     /// 点击指定目标。
     Click {
         /// 要定位并点击的目标。
-        target: Selector,
+        target: AutomationTarget,
     },
     /// 将文本写入指定目标。
     SetValue {
         /// 要定位并写入的目标。
-        target: Selector,
+        target: AutomationTarget,
         /// 要设置的文本值。
         value: String,
     },
 }
 
-/// 用于定位自动化目标的策略。
+impl AutomationAction {
+    /// 返回动作使用的只读目标契约。
+    pub const fn target(&self) -> &AutomationTarget {
+        match self {
+            Self::Click { target } | Self::SetValue { target, .. } => target,
+        }
+    }
+}
+
+/// 动作目标及其独立于查询语义的后端执行偏好。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AutomationTarget {
+    /// 描述目标位置的跨后端定位契约。
+    pub locator: TargetLocator,
+    /// 查询规划器选择后端时使用的提示；不会改变 AQL 本身的语义。
+    pub backend_preference: BackendPreference,
+}
+
+impl AutomationTarget {
+    /// 创建由 AQL 描述、默认自动选择后端的目标。
+    pub fn query(query: AqlQuery) -> Self {
+        Self {
+            locator: TargetLocator::Query { query },
+            backend_preference: BackendPreference::Auto,
+        }
+    }
+
+    /// 创建由屏幕物理像素坐标描述的目标。
+    pub const fn coordinate(x: i32, y: i32) -> Self {
+        Self {
+            locator: TargetLocator::Coordinate {
+                point: ScreenPoint { x, y },
+            },
+            backend_preference: BackendPreference::Auto,
+        }
+    }
+}
+
+/// 用于定位自动化目标的强类型策略。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
-pub enum Selector {
-    /// 通过 Windows UI Automation 属性定位原生控件。
-    Native {
-        /// 原生控件的可见名称；为空时不参与匹配。
-        name: Option<String>,
-        /// 原生控件的自动化 ID；为空时不参与匹配。
-        automation_id: Option<String>,
-        /// 原生控件类型（例如 Button）；为空时不限制类型。
-        control_type: Option<String>,
+pub enum TargetLocator {
+    /// 通过平台无关 AQL 查询定位语义元素。
+    Query {
+        /// 持久化的 AQL 源码与独立语言版本。
+        query: AqlQuery,
     },
-    /// 通过 CSS 选择器定位浏览器 DOM 元素。
-    Browser {
-        /// 浏览器 DOM 查询使用的 CSS 选择器。
-        css: String,
+    /// 通过 OCR 或视觉模型描述目标。
+    Visual {
+        /// 视觉后端使用的查询条件。
+        query: VisualQuery,
     },
-    /// 通过 OCR 或视觉模型匹配屏幕文字。
-    VisualText {
-        /// 视觉/OCR 后端需要匹配的文字。
-        text: String,
-        /// 是否要求文字完全相等，而不是允许部分匹配。
-        exact: bool,
-    },
-    /// 直接使用屏幕像素坐标定位目标。
+    /// 直接使用屏幕物理像素坐标定位目标。
     Coordinate {
-        /// 屏幕坐标的水平分量，单位为像素。
-        x: i32,
-        /// 屏幕坐标的垂直分量，单位为像素。
-        y: i32,
+        /// 目标屏幕点。
+        point: ScreenPoint,
     },
+}
+
+/// 视觉/OCR 后端使用的显式目标描述。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VisualQuery {
+    /// 需要识别的屏幕文字。
+    pub text: String,
+    /// 是否要求识别文字完全相等。
+    pub exact: bool,
+}
+
+/// Windows 虚拟屏幕中的物理像素点。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScreenPoint {
+    /// 水平坐标，单位为物理像素。
+    pub x: i32,
+    /// 垂直坐标，单位为物理像素。
+    pub y: i32,
+}
+
+/// 用户对语义查询执行后端的显式偏好。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BackendPreference {
+    /// 根据查询能力和运行上下文自动选择后端。
+    #[default]
+    Auto,
+    /// 强制使用 Windows UI Automation。
+    WindowsUia,
+    /// 强制使用 Chrome DevTools Protocol。
+    BrowserCdp,
 }
 
 /// 执行动作时可选的后端类型。

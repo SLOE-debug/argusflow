@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use argusflow_core::{ConditionBranch, WorkflowDefinition, WorkflowNodeKind};
+use argusflow_core::{ConditionBranch, TargetLocator, WorkflowDefinition, WorkflowNodeKind};
+use argusflow_query::parse_stored_query;
 use serde::{Deserialize, Serialize};
 
 /// 工作流结构校验的汇总结果。
@@ -67,6 +68,8 @@ pub enum ValidationIssueCode {
     EmptyLogMessage,
     /// Delay 时长越界。
     InvalidDelay,
+    /// Action 节点携带的 AQL 无法解析或通过语义检查。
+    InvalidAqlQuery,
 }
 
 /// 校验 schema v2 条件 DAG、节点参数和分支契约。
@@ -150,7 +153,24 @@ pub fn validate_workflow(workflow: &WorkflowDefinition) -> ValidationReport {
                     ));
                 }
             }
-            WorkflowNodeKind::Action { .. } => {}
+            WorkflowNodeKind::Action { action } => {
+                if let TargetLocator::Query { query } = &action.target().locator
+                    && let Err(error) = parse_stored_query(query)
+                {
+                    // 同时保留稳定问题码和精确 AQL 行列，供编辑器定位到节点后展示源码诊断。
+                    let help = error
+                        .help
+                        .as_deref()
+                        .map(|help| format!("；建议：{help}"))
+                        .unwrap_or_default();
+                    issues.push(issue(
+                        ValidationIssueCode::InvalidAqlQuery,
+                        format!("AQL 查询无效：{error}{help}"),
+                        Some(node.id.clone()),
+                        None,
+                    ));
+                }
+            }
         }
     }
     if start_ids.len() != 1 {

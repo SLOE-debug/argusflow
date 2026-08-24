@@ -3,6 +3,7 @@ members = [
     "crates/argusflow-agent",
     "crates/argusflow-browser",
     "crates/argusflow-core",
+    "crates/argusflow-query",
     "crates/argusflow-runtime",
     "crates/argusflow-vision",
     "crates/argusflow-windows",
@@ -24,12 +25,14 @@ platform-policy = "windows-only"
 argusflow-agent = { path = "crates/argusflow-agent" }
 argusflow-browser = { path = "crates/argusflow-browser" }
 argusflow-core = { path = "crates/argusflow-core" }
+argusflow-query = { path = "crates/argusflow-query" }
 argusflow-runtime = { path = "crates/argusflow-runtime" }
 argusflow-vision = { path = "crates/argusflow-vision" }
 argusflow-windows = { path = "crates/argusflow-windows" }
 async-trait = "0.1.89"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.145"
+regex = "1.12.2"
 thiserror = "2.0.20"
 tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "sync", "time", "test-util"] }
 uuid = { version = "1.24.1", features = ["serde", "v4"] }

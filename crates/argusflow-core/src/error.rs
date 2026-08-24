@@ -7,6 +7,20 @@ use crate::BackendKind;
 #[derive(Debug, Clone, PartialEq, Eq, Error, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AutomationError {
+    /// 目标查询执行完成但没有任何元素满足条件。
+    #[error("target was not found for query: {query}")]
+    TargetNotFound {
+        /// 规范化后的查询，便于执行日志与 Inspector 复现。
+        query: String,
+    },
+    /// 查询返回多个元素且没有使用 first/nth 明确选择。
+    #[error("query matched {matches} targets and requires an explicit selection: {query}")]
+    AmbiguousTarget {
+        /// 规范化后的查询。
+        query: String,
+        /// 后端解析到的候选数量。
+        matches: usize,
+    },
     /// 候选后端支持当前动作，但其实现或运行环境暂不可用。
     #[error("backend {backend:?} is unavailable: {message}")]
     BackendUnavailable {

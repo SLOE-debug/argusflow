@@ -9,12 +9,21 @@ mod automation;
 mod condition;
 mod error;
 mod execution;
+mod query;
 mod workflow;
 
-pub use automation::{ActionOutcome, AutomationAction, BackendKind, Selector};
+pub use automation::{
+    ActionOutcome, AutomationAction, AutomationTarget, BackendKind, BackendPreference, ScreenPoint,
+    TargetLocator, VisualQuery,
+};
 pub use condition::{ConditionEvaluationError, ConditionOperator, ConditionPredicate};
 pub use error::AutomationError;
 pub use execution::{ExecutionEvent, ExecutionEventKind, RunStarted};
+pub use query::{
+    AqlQuery, DomAttribute, ElementMatcher, ElementRole, MatchOperator, PredicateValue,
+    PropertyPredicate, QueryExpr, QueryLanguageVersion, RegexLiteral, SelectorAttribute, UiQuery,
+    UiaAttribute,
+};
 pub use workflow::{
     ConditionBranch, Position, WorkflowDefinition, WorkflowEdge, WorkflowNode, WorkflowNodeKind,
 };

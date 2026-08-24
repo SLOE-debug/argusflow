@@ -47,14 +47,28 @@ export type WorkflowNodeKind =
   | { type: 'end' };
 
 export type AutomationAction =
-  | { type: 'click'; target: Selector }
-  | { type: 'set_value'; target: Selector; value: string };
+  | { type: 'click'; target: AutomationTarget }
+  | { type: 'set_value'; target: AutomationTarget; value: string };
 
-export type Selector =
-  | { type: 'native'; name: string | null; automation_id: string | null; control_type: string | null }
-  | { type: 'browser'; css: string }
-  | { type: 'visual_text'; text: string; exact: boolean }
-  | { type: 'coordinate'; x: number; y: number };
+/** AQL 语义与执行后端选择分离的动作目标。 */
+export type AutomationTarget = {
+  /** 跨平台定位契约。 */
+  locator: TargetLocator;
+  /** `auto` 默认根据查询能力规划，另外两项用于显式强制后端。 */
+  backend_preference: 'auto' | 'windows_uia' | 'browser_cdp';
+};
+
+/** 与 workflow schema 独立演进的持久化 AQL 源码。 */
+export type AqlQuery = {
+  language_version: 1;
+  source: string;
+};
+
+/** AQL、显式视觉查询或物理坐标组成的目标判别联合。 */
+export type TargetLocator =
+  | { type: 'query'; query: AqlQuery }
+  | { type: 'visual'; query: { text: string; exact: boolean } }
+  | { type: 'coordinate'; point: { x: number; y: number } };
 
 export type ConditionBranch = 'true' | 'false';
 
@@ -90,7 +104,8 @@ export type ValidationIssueCode =
   | 'unreachable_node'
   | 'no_path_to_end'
   | 'empty_log_message'
-  | 'invalid_delay';
+  | 'invalid_delay'
+  | 'invalid_aql_query';
 
 export type ValidationIssue = {
   code: ValidationIssueCode;

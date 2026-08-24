@@ -1,6 +1,6 @@
 # ArgusFlow 功能清单
 
-> 长期维护的项目功能与路线图。最后更新：2026-08-21。
+> 长期维护的项目功能与路线图。最后更新：2026-08-25。
 >
 > ArgusFlow 严格限定为 64 位 Windows，目标为 `x86_64-pc-windows-msvc`；不规划 Linux、macOS 或移动端支持。
 
@@ -31,7 +31,7 @@
 - [x] `CORE-001` `P0` 定义 schema v2 `WorkflowDefinition`、JSON 变量、节点、分支连线和画布位置。
 - [x] `CORE-002` `P0` 定义 Start、Log、Delay、Action、End 节点契约。
 - [x] `CORE-003` `P0` 定义 Click 与 SetValue 自动化动作契约。
-- [x] `CORE-004` `P0` 定义 Native、Browser、VisualText、Coordinate 选择器。
+- [x] `CORE-004` `P0` 定义 AQL Query、Visual、Coordinate 目标定位与独立后端偏好契约。
 - [x] `CORE-005` `P0` 定义 backend 类型、动作结果和结构化自动化错误。
 - [x] `CORE-006` `P0` 定义运行 ID、事件序号、节点状态和工作流状态事件。
 - [ ] `CORE-007` `P1` 增加窗口、进程和应用范围的目标约束。
@@ -40,6 +40,21 @@
 - [x] `CORE-010` `P2` 增加结构化 JSON 条件、True/False 分支与只读变量契约。
 - [ ] `CORE-012` `P2` 增加循环、变量写入和受控表达式契约。
 - [ ] `CORE-011` `P2` 建立 Rust/TypeScript 契约自动生成，消除手工镜像。
+
+### AQL 统一 UI 查询语言
+
+- [x] `AQL-001` `P0` 在 `argusflow-core` 定义版本化 AQL 源码、强类型 AST、角色、属性、谓词、关系和显式选择契约。
+- [x] `AQL-002` `P0` 建立独立 `argusflow-query` crate，实现 v1 lexer/parser、正则校验及带源码范围和修复建议的诊断。
+- [x] `AQL-003` `P0` 实现 predicate 规范排序、去重、`any` 扁平化、canonical cache key 与稳定多行 formatter。
+- [x] `AQL-004` `P0` 实现 portable/backend-specific 分析、Native/Hybrid/Emulated/Unsupported 能力、成本与静态警告。
+- [x] `AQL-005` `P0` 实现 UIA 逻辑编译器，拆分 ControlType/属性 pushdown、CacheRequest 属性与 residual filter。
+- [x] `AQL-006` `P0` 实现 CDP 逻辑编译器，区分原生 CSS fast path、DOM/AX 候选源、属性投影与 residual filter。
+- [x] `AQL-007` `P0` 将 ActionRouter 升级为 capability/cost planner，并支持与查询语义分离的显式后端偏好。
+- [x] `AQL-008` `P0` 在工作流执行前解析并校验 AQL，向节点返回精确诊断，覆盖语言、分析器和后端计划核心测试。
+- [ ] `AQL-009` `P1` 将 UIA 逻辑计划接入真实 `IUIAutomationCondition`、CacheRequest、TreeScope 和多结果消歧执行。
+- [ ] `AQL-010` `P1` 将 CDP 逻辑计划接入 DOM/Accessibility 协议、节点关联、导航失效处理和多结果消歧执行。
+- [ ] `AQL-011` `P1` 在 Action 节点提供 AQL editor、实时诊断、formatter、explain、portability 与 capability 展示。
+- [ ] `AQL-012` `P2` 扩展 Vision 查询编译、`nearest`、`has` 和空间关系，不引入 CSS 兼容语义。
 
 ### 工作流运行时
 
@@ -96,7 +111,7 @@
 - [x] `UIA-001` `P0` 建立 `UiaBackend`、模块边界和未接入错误骨架。
 - [ ] `UIA-002` `P0` 初始化 COM apartment 与 `IUIAutomation` 生命周期。
 - [ ] `UIA-003` `P0` 实现桌面、窗口和元素查找。
-- [ ] `UIA-004` `P0` 将 Native selector 转换为 UIA condition。
+- [ ] `UIA-004` `P0` 将 AQL UIA 计划的 pushdown 条件转换为真实 `IUIAutomationCondition`。
 - [ ] `UIA-005` `P0` 实现 Name、AutomationId、ControlType 等常用属性匹配。
 - [ ] `UIA-006` `P0` 实现 CacheRequest 批量属性和 pattern 预取。
 - [ ] `UIA-007` `P0` 实现 Invoke、Value、SelectionItem、Toggle 和 ExpandCollapse pattern。
@@ -156,9 +171,9 @@
 
 ## M4 Agent 编排与恢复
 
-- [x] `AGENT-001` `P0` 固定 UIA → CDP →视觉缓存 → OCR tiny → OCR medium → GUI grounding → SendInput 路由顺序。
+- [x] `AGENT-001` `P0` 装配 UIA、CDP、视觉、OCR、grounding 与 SendInput 后端，并保留同级计划的稳定兜底次序。
 - [x] `AGENT-002` `P0` 建立统一 `ActionBackend` 接口和未接入 backend 跳过逻辑。
-- [ ] `AGENT-003` `P0` 根据 selector、应用类型和缓存状态选择可用 backend。
+- [ ] `AGENT-003` `P0` 将活动应用、CDP session、窗口与缓存状态注入 capability planner，完成 context-aware backend routing。
 - [ ] `AGENT-004` `P1` 为每次动作记录尝试路径、耗时、结果和失败原因。
 - [ ] `AGENT-005` `P1` 实现动作后置验证和错误恢复策略。
 - [ ] `AGENT-006` `P1` 实现缓存元素失效后的重新 grounding。

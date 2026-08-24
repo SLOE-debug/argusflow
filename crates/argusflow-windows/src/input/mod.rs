@@ -1,7 +1,10 @@
 //! Windows 输入事件注入后端。
 
-use argusflow_agent::ActionBackend;
-use argusflow_core::{ActionOutcome, AutomationAction, AutomationError, BackendKind, Selector};
+use argusflow_agent::{ActionBackend, ActionCapability};
+use argusflow_core::{
+    ActionOutcome, AutomationAction, AutomationError, BackendKind, TargetLocator,
+};
+use argusflow_query::{QueryCost, SupportLevel};
 use async_trait::async_trait;
 
 #[derive(Debug, Default)]
@@ -14,16 +17,15 @@ impl ActionBackend for SendInputBackend {
         BackendKind::SendInput
     }
 
-    fn supports(&self, action: &AutomationAction) -> bool {
-        matches!(
-            action,
-            AutomationAction::Click {
-                target: Selector::Coordinate { .. }
-            } | AutomationAction::SetValue {
-                target: Selector::Coordinate { .. },
-                ..
+    fn plan(&self, action: &AutomationAction) -> ActionCapability {
+        if matches!(&action.target().locator, TargetLocator::Coordinate { .. }) {
+            ActionCapability {
+                level: SupportLevel::Native,
+                estimated_cost: QueryCost::Low,
             }
-        )
+        } else {
+            ActionCapability::unsupported()
+        }
     }
 
     async fn execute(&self, _action: &AutomationAction) -> Result<ActionOutcome, AutomationError> {

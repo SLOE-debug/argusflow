@@ -52,8 +52,10 @@ name = "argusflow-agent"
 version = "0.1.0"
 dependencies = [
  "argusflow-core",
+ "argusflow-query",
  "argusflow-runtime",
  "async-trait",
+ "tokio",
 ]
 
 [[package]]
@@ -62,7 +64,9 @@ version = "0.1.0"
 dependencies = [
  "argusflow-agent",
  "argusflow-core",
+ "argusflow-query",
  "async-trait",
+ "thiserror 2.0.20",
 ]
 
 [[package]]
@@ -91,10 +95,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "argusflow-query"
+version = "0.1.0"
+dependencies = [
+ "argusflow-core",
+ "regex",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "argusflow-runtime"
 version = "0.1.0"
 dependencies = [
  "argusflow-core",
+ "argusflow-query",
  "async-trait",
  "serde",
  "serde_json",
@@ -109,6 +125,7 @@ version = "0.1.0"
 dependencies = [
  "argusflow-agent",
  "argusflow-core",
+ "argusflow-query",
  "async-trait",
 ]
 
@@ -118,7 +135,9 @@ version = "0.1.0"
 dependencies = [
  "argusflow-agent",
  "argusflow-core",
+ "argusflow-query",
  "async-trait",
+ "thiserror 2.0.20",
  "windows 0.62.2",
 ]
 
