@@ -65,9 +65,12 @@ impl ActionRouter {
         let mut explains = self
             .collect(action, context)
             .into_iter()
-            .map(|result| match result {
-                Ok(candidate) => candidate.explain().clone(),
-                Err(rejection) => rejected_explain(rejection),
+            .flat_map(|result| match result {
+                Ok(candidates) => candidates
+                    .into_iter()
+                    .map(|candidate| candidate.explain().clone())
+                    .collect(),
+                Err(rejection) => vec![rejected_explain(rejection)],
             })
             .collect::<Vec<_>>();
         explains.sort_by_key(explain_rank);
@@ -103,6 +106,7 @@ impl ActionRouter {
             .collect(action, context)
             .into_iter()
             .filter_map(Result::ok)
+            .flatten()
             .filter(|candidate| {
                 candidate.explain().support.is_supported()
                     && candidate.explain().availability.is_ready()
@@ -120,7 +124,7 @@ impl ActionRouter {
         &self,
         action: &AutomationAction,
         context: &ExecutionContext,
-    ) -> Vec<Result<PreparedCandidate, PlanRejection>> {
+    ) -> Vec<Result<Vec<PreparedCandidate>, PlanRejection>> {
         self.backends
             .iter()
             .filter(|backend| preference_allows(action.target().backend_preference, backend.kind()))
@@ -166,13 +170,13 @@ const fn preference_allows(preference: BackendPreference, backend: BackendKind) 
     }
 }
 
-/// 返回真实候选的完整 Planner 排序键；`any` 分支优先级高于后端能力评分。
-fn candidate_rank(candidate: &PreparedCandidate) -> (usize, u8, u8, u8, usize) {
+/// 返回真实候选的完整 Planner 排序键；完整分支路径优先于后端能力评分。
+fn candidate_rank(
+    candidate: &PreparedCandidate,
+) -> (argusflow_query::BranchPath, u8, u8, u8, usize) {
     let explain = candidate.explain();
     (
-        explain
-            .earliest_supported_branch_index
-            .unwrap_or(usize::MAX),
+        explain.branch_path.clone().unwrap_or_default(),
         explain.support.rank(),
         explain.context_fitness.rank(),
         explain.cost.rank(),
@@ -180,12 +184,17 @@ fn candidate_rank(candidate: &PreparedCandidate) -> (usize, u8, u8, u8, usize) {
     )
 }
 
-/// Explain 沿用分支优先级、语义支持、availability、上下文、成本和 tie-break 的顺序。
-fn explain_rank(explain: &PlanExplain) -> (usize, u8, u8, u8, u8, usize) {
+/// Explain 沿用完整分支路径、语义支持、availability、上下文、成本和 tie-break 顺序。
+fn explain_rank(
+    explain: &PlanExplain,
+) -> ((bool, argusflow_query::BranchPath), u8, u8, u8, u8, usize) {
+    let branch_rank = explain
+        .branch_path
+        .clone()
+        .map(|path| (false, path))
+        .unwrap_or_else(|| (true, argusflow_query::BranchPath::default()));
     (
-        explain
-            .earliest_supported_branch_index
-            .unwrap_or(usize::MAX),
+        branch_rank,
         explain.support.rank(),
         explain.availability.rank(),
         explain.context_fitness.rank(),
@@ -198,7 +207,7 @@ fn explain_rank(explain: &PlanExplain) -> (usize, u8, u8, u8, u8, usize) {
 fn rejected_explain(rejection: PlanRejection) -> PlanExplain {
     PlanExplain {
         backend: rejection.backend(),
-        earliest_supported_branch_index: None,
+        branch_path: None,
         support: SupportLevel::Unsupported,
         cost: QueryCost::High,
         availability: RuntimeAvailability::Unavailable,

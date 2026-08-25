@@ -14,8 +14,8 @@ use windows::Win32::{
     },
     UI::{
         Accessibility::{
-            IUIAutomation, IUIAutomationElement, IUIAutomationElementArray, TreeScope,
-            TreeScope_Children, TreeScope_Descendants, TreeScope_Subtree,
+            IUIAutomation, IUIAutomationCacheRequest, IUIAutomationCondition, IUIAutomationElement,
+            IUIAutomationTreeWalker, TreeScope_Element,
         },
         WindowsAndMessaging::{GetWindowThreadProcessId, IsWindow},
     },
@@ -124,7 +124,7 @@ impl<'automation> UiaExecutor<'automation> {
         Ok(root)
     }
 
-    /// 递归执行 Match、关系、Any 与显式选择语义。
+    /// 递归执行 Match、关系与显式选择语义。
     fn execute_expression(
         &self,
         root: &IUIAutomationElement,
@@ -143,9 +143,6 @@ impl<'automation> UiaExecutor<'automation> {
                 let parents = self.execute_expression(root, scope, parent, budget)?;
                 self.execute_within(parents, SearchScope::Children, target, budget)
             }
-            UiaPlanExpr::Any(branches) => execute_any(branches, |branch| {
-                self.execute_expression(root, scope, branch, budget)
-            }),
             UiaPlanExpr::First(query) => {
                 let results = self.execute_expression(root, scope, query, budget)?;
                 Ok(results.into_iter().take(1).collect())
@@ -157,7 +154,7 @@ impl<'automation> UiaExecutor<'automation> {
         }
     }
 
-    /// 对每个关系父节点使用 UIA 自带的严格 Children/Descendants scope。
+    /// 对每个关系父节点使用有界 RawView TreeWalker 保持严格 Children/Descendants scope。
     fn execute_within(
         &self,
         roots: Vec<ResolvedElement>,
@@ -175,7 +172,7 @@ impl<'automation> UiaExecutor<'automation> {
         Ok(combined)
     }
 
-    /// 使用原生 condition + FindAllBuildCache + 本地 residual 执行 matcher。
+    /// 使用有界 RawView 遍历、单元素原生 condition 与本地 residual 执行 matcher。
     fn execute_match(
         &self,
         root: &IUIAutomationElement,
@@ -186,56 +183,100 @@ impl<'automation> UiaExecutor<'automation> {
         budget.check_deadline()?;
         let condition = build_match_condition(self.automation, matcher)?;
         let cache = build_cache_request(self.automation, &matcher.cache)?;
-        // SAFETY: root、condition 与 cache 均在同一 apartment 创建，scope 来自封闭枚举。
-        let elements = unsafe { root.FindAllBuildCache(scope.native(), &condition, &cache) }
-            .map_err(|source| UiaError::from_native(UiaOperation::FindAll, source))?;
-        budget.check_deadline()?;
-        self.collect_matches(elements, &matcher.residual, budget)
-    }
-
-    /// 保持 provider encounter order，过滤 residual 并绑定 runtime id。
-    fn collect_matches(
-        &self,
-        elements: IUIAutomationElementArray,
-        residual: &[super::native::UiaResidualPredicate],
-        budget: &mut UiaBudgetTracker,
-    ) -> Result<Vec<ResolvedElement>, UiaError> {
-        // SAFETY: element array 没有离开创建它的 UIA worker apartment。
-        let length = unsafe { elements.Length() }
-            .map_err(|source| UiaError::from_native(UiaOperation::FindAll, source))?;
-        let candidate_count = usize::try_from(length)
-            .map_err(|_| UiaError::InvalidCandidateCount { count: length })?;
-        budget.observe_candidates(candidate_count)?;
+        // SAFETY: automation client 及 walker 都留在当前 UIA worker apartment。
+        let walker = unsafe { self.automation.RawViewWalker() }
+            .map_err(|source| UiaError::from_native(UiaOperation::NavigateTree, source))?;
         let mut matches = Vec::new();
-        for index in 0..length {
-            budget.check_deadline()?;
-            // SAFETY: index 来自同一 array 返回的半开区间，array 仍在当前 apartment。
-            let element = unsafe { elements.GetElement(index) }
-                .map_err(|source| UiaError::from_native(UiaOperation::FindAll, source))?;
-            if matches_residual(&element, residual)? {
-                let resolved = ResolvedElement {
-                    runtime_id: runtime_id(&element)?,
-                    element,
-                };
+        if matches!(scope, SearchScope::Subtree) {
+            budget.observe_traversal_nodes(1)?;
+            if let Some(element) =
+                self.match_element(root, &condition, &cache, &matcher.residual, budget)?
+            {
+                append_unique(&mut matches, [element]);
+            }
+        }
+        let children = self.direct_children(root, &walker, budget)?;
+        if matches!(scope, SearchScope::Children) {
+            for child in children {
+                if let Some(element) =
+                    self.match_element(&child, &condition, &cache, &matcher.residual, budget)?
+                {
+                    append_unique(&mut matches, [element]);
+                }
+            }
+            return Ok(matches);
+        }
+
+        let mut pending = children;
+        pending.reverse();
+        while let Some(element) = pending.pop() {
+            if let Some(resolved) =
+                self.match_element(&element, &condition, &cache, &matcher.residual, budget)?
+            {
                 append_unique(&mut matches, [resolved]);
             }
+            let mut children = self.direct_children(&element, &walker, budget)?;
+            children.reverse();
+            pending.extend(children);
         }
         Ok(matches)
     }
-}
 
-/// 懒执行 `any` 分支并原样返回首个非空集合，保留该分支内部的歧义语义。
-fn execute_any<TBranch, TResult, TError>(
-    branches: &[TBranch],
-    mut execute: impl FnMut(&TBranch) -> Result<Vec<TResult>, TError>,
-) -> Result<Vec<TResult>, TError> {
-    for branch in branches {
-        let results = execute(branch)?;
-        if !results.is_empty() {
-            return Ok(results);
+    /// 只在当前元素上执行原生 condition，避免一次性物化完整 subtree 数组。
+    fn match_element(
+        &self,
+        element: &IUIAutomationElement,
+        condition: &IUIAutomationCondition,
+        cache: &IUIAutomationCacheRequest,
+        residual: &[super::native::UiaResidualPredicate],
+        budget: &mut UiaBudgetTracker,
+    ) -> Result<Option<ResolvedElement>, UiaError> {
+        budget.check_deadline()?;
+        // SAFETY: Element scope 不会遍历后代；element、condition 与 cache 同属当前 apartment。
+        let elements = unsafe { element.FindAllBuildCache(TreeScope_Element, condition, cache) }
+            .map_err(|source| UiaError::from_native(UiaOperation::FindAll, source))?;
+        budget.check_deadline()?;
+        // SAFETY: element array 没有离开创建它的 UIA worker apartment。
+        let length = unsafe { elements.Length() }
+            .map_err(|source| UiaError::from_native(UiaOperation::FindAll, source))?;
+        if !(0..=1).contains(&length) {
+            return Err(UiaError::InvalidCandidateCount { count: length });
         }
+        if length == 0 {
+            return Ok(None);
+        }
+        // SAFETY: 已确认数组恰有一个元素，索引 0 有效且 array 留在当前 apartment。
+        let element = unsafe { elements.GetElement(0) }
+            .map_err(|source| UiaError::from_native(UiaOperation::FindAll, source))?;
+        if !matches_residual(&element, residual)? {
+            return Ok(None);
+        }
+        Ok(Some(ResolvedElement {
+            runtime_id: runtime_id(&element)?,
+            element,
+        }))
     }
-    Ok(Vec::new())
+
+    /// 按 RawView sibling 顺序枚举直接子元素，并在取得每个节点时执行硬预算检查。
+    fn direct_children(
+        &self,
+        root: &IUIAutomationElement,
+        walker: &IUIAutomationTreeWalker,
+        budget: &mut UiaBudgetTracker,
+    ) -> Result<Vec<IUIAutomationElement>, UiaError> {
+        budget.check_deadline()?;
+        // SAFETY: root 与 walker 同属当前 worker apartment；空结果由 windows-rs 表示为空错误。
+        let mut current = optional_element(unsafe { walker.GetFirstChildElement(root) })?;
+        let mut children = Vec::new();
+        while let Some(element) = current {
+            budget.observe_traversal_nodes(1)?;
+            budget.check_deadline()?;
+            // SAFETY: element 来自同一 walker；调用只导航到同层后继节点。
+            current = optional_element(unsafe { walker.GetNextSiblingElement(&element) })?;
+            children.push(element);
+        }
+        Ok(children)
+    }
 }
 
 /// 当前表达式相对于根元素使用的原生 TreeScope。
@@ -249,14 +290,14 @@ enum SearchScope {
     Children,
 }
 
-impl SearchScope {
-    /// 返回 Windows UIA 的原生 scope 常量。
-    const fn native(self) -> TreeScope {
-        match self {
-            Self::Subtree => TreeScope_Subtree,
-            Self::Descendants => TreeScope_Descendants,
-            Self::Children => TreeScope_Children,
-        }
+/// 把 UIA TreeWalker 的 S_OK + null 结束标记与真正 provider 错误分开。
+fn optional_element(
+    result: windows::core::Result<IUIAutomationElement>,
+) -> Result<Option<IUIAutomationElement>, UiaError> {
+    match result {
+        Ok(element) => Ok(Some(element)),
+        Err(source) if source.code().0 == 0 => Ok(None),
+        Err(source) => Err(UiaError::from_native(UiaOperation::NavigateTree, source)),
     }
 }
 
@@ -362,9 +403,7 @@ impl Drop for SafeArrayGuard {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::Cell;
-
-    use super::{contains_runtime_id, execute_any};
+    use super::contains_runtime_id;
 
     /// 验证与 COM 元素无关的 runtime id 顺序去重规则。
     #[test]
@@ -373,31 +412,5 @@ mod tests {
 
         assert!(contains_runtime_id(ids.iter().map(Vec::as_slice), &[1, 2]));
         assert!(!contains_runtime_id(ids.iter().map(Vec::as_slice), &[1, 3]));
-    }
-
-    /// `any` 不执行首个非空结果之后的分支，也不把首分支多结果偷偷收窄成一个。
-    #[test]
-    fn any_stops_at_the_first_non_empty_branch_and_preserves_ambiguity() {
-        let executions = Cell::new(0_usize);
-        let branches = [vec![1, 2], vec![3]];
-
-        let results = execute_any(&branches, |branch| {
-            executions.set(executions.get() + 1);
-            Ok::<_, ()>(branch.clone())
-        })
-        .expect("pure any branch evaluation should succeed");
-
-        assert_eq!(results, vec![1, 2]);
-        assert_eq!(executions.get(), 1);
-    }
-
-    /// 空分支按声明顺序推进，全部为空时保持 TargetNotFound 所需的空集合。
-    #[test]
-    fn any_advances_past_empty_branches() {
-        let branches = [Vec::<i32>::new(), vec![7]];
-        let results = execute_any(&branches, |branch| Ok::<_, ()>(branch.clone()))
-            .expect("pure any branch evaluation should succeed");
-
-        assert_eq!(results, vec![7]);
     }
 }

@@ -1,4 +1,4 @@
-//! 单次 UIA 请求的 deadline、候选总量与关系根总量预算。
+//! 单次 UIA 请求的 deadline、provider 遍历节点与关系根总量预算。
 
 use std::time::{Duration, Instant};
 
@@ -9,21 +9,25 @@ use super::error::{UiaBudgetResource, UiaError};
 pub(crate) struct UiaExecutionBudget {
     /// 包含排队时间的请求截止时刻。
     deadline: Instant,
-    /// 单次请求允许从 provider 数组读取的最大候选总数。
-    max_candidates: usize,
+    /// 单次请求允许通过有界 TreeWalker 访问的最大 provider 节点数。
+    max_traversal_nodes: usize,
     /// 关系查询允许展开的最大父级/祖先根总数。
     max_relation_roots: usize,
 }
 
 impl UiaExecutionBudget {
     /// 从 runtime 的显式稳定配置创建一次请求预算。
-    pub(crate) fn new(timeout: Duration, max_candidates: usize, max_relation_roots: usize) -> Self {
+    pub(crate) fn new(
+        timeout: Duration,
+        max_traversal_nodes: usize,
+        max_relation_roots: usize,
+    ) -> Self {
         debug_assert!(!timeout.is_zero());
-        debug_assert!(max_candidates > 0);
+        debug_assert!(max_traversal_nodes > 0);
         debug_assert!(max_relation_roots > 0);
         Self {
             deadline: Instant::now() + timeout,
-            max_candidates,
+            max_traversal_nodes,
             max_relation_roots,
         }
     }
@@ -33,8 +37,8 @@ impl UiaExecutionBudget {
 pub(crate) struct UiaBudgetTracker {
     /// 不随递归查询变化的请求限制。
     budget: UiaExecutionBudget,
-    /// 所有 FindAllBuildCache 返回数组的累计候选数。
-    candidates: usize,
+    /// 所有有界 TreeWalker 扫描累计访问的 provider 节点数。
+    traversal_nodes: usize,
     /// 所有 Child/Descendant 展开的累计关系根数。
     relation_roots: usize,
 }
@@ -44,7 +48,7 @@ impl UiaBudgetTracker {
     pub(crate) const fn new(budget: UiaExecutionBudget) -> Self {
         Self {
             budget,
-            candidates: 0,
+            traversal_nodes: 0,
             relation_roots: 0,
         }
     }
@@ -58,14 +62,14 @@ impl UiaBudgetTracker {
         }
     }
 
-    /// 累计 provider 返回的候选数并拒绝继续读取超预算数组。
-    pub(crate) fn observe_candidates(&mut self, count: usize) -> Result<(), UiaError> {
-        self.candidates = self.candidates.saturating_add(count);
-        if self.candidates > self.budget.max_candidates {
+    /// 在继续导航前累计 provider 节点，形成真正的遍历硬上限。
+    pub(crate) fn observe_traversal_nodes(&mut self, count: usize) -> Result<(), UiaError> {
+        self.traversal_nodes = self.traversal_nodes.saturating_add(count);
+        if self.traversal_nodes > self.budget.max_traversal_nodes {
             Err(UiaError::BudgetExceeded {
-                resource: UiaBudgetResource::Candidates,
-                limit: self.budget.max_candidates,
-                observed: self.candidates,
+                resource: UiaBudgetResource::TraversalNodes,
+                limit: self.budget.max_traversal_nodes,
+                observed: self.traversal_nodes,
             })
         } else {
             Ok(())
@@ -94,19 +98,19 @@ mod tests {
     use super::{UiaBudgetTracker, UiaExecutionBudget};
     use crate::uia::error::{UiaBudgetResource, UiaError};
 
-    /// 候选限制按完整请求累计，而不是只检查单个 FindAll 数组。
+    /// provider 遍历限制按完整请求累计，并在继续导航前生效。
     #[test]
-    fn candidate_budget_accumulates_across_queries() {
+    fn traversal_budget_accumulates_across_queries() {
         let mut tracker =
             UiaBudgetTracker::new(UiaExecutionBudget::new(Duration::from_secs(1), 3, 2));
 
         tracker
-            .observe_candidates(2)
-            .expect("first candidate batch should fit");
+            .observe_traversal_nodes(2)
+            .expect("first traversal batch should fit");
         assert!(matches!(
-            tracker.observe_candidates(2),
+            tracker.observe_traversal_nodes(2),
             Err(UiaError::BudgetExceeded {
-                resource: UiaBudgetResource::Candidates,
+                resource: UiaBudgetResource::TraversalNodes,
                 limit: 3,
                 observed: 4,
             })

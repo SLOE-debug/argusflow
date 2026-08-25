@@ -1,118 +1,367 @@
-我按最新 `main` 审了一轮。当前最新提交是 **`b858ff4a8703dedc857441d7d0159302175cf31f` — `feat: 增加应用唤醒与 UIA 应用内查询`**，它是在真实 UIA 接入提交 `9aa9cf4...` 之后继续扩了 ApplicationQuery、窗口唤醒和 Notepad++ 生命周期。
+我重新按当前 `main` 审了一轮。最新提交已经变成：
 
-结论先说：**UIA 的大方向没有重大错误**。专用 MTA COM worker、COM 对象不跨 Tokio 线程、HWND/PID 复验、native condition、CacheRequest、InvokePattern / ValuePattern 这些设计都是对的，而且微软官方也明确建议 UIA client 把查找和 pattern 调用放在独立 MTA 线程。([Microsoft Learn][1])
+**`bbd1a465adbad62ad7234ab572b28ec9a64a243f` — `fix: 修正 UIA 查询规划与执行边界`**。这个提交专门修了上一轮发现的 Any、动作能力、timeout/budget、HRESULT、前台激活和 E2E 等问题。
 
-但是这一轮确实发现了 **2 个我认为必须按 P0 处理的问题，以及至少 4 个 P1 架构问题**。其中第一个还是原方案本身写错了。
+结论是：**上一轮的大部分问题已经修得比较扎实，但当时仍发现了 2 个 P0 查询规划问题。** 下文保留完整审计依据；截至 2026-08-26，本轮已修复除“任意 EXE + args 信任模型”之外的全部条目。该安全项按当前产品决策明确不改，不应被误标为已经解决。
 
-### P0-1：`any(...)` 的语义现在是错的，而且方案和实现一起错了
+## P0-1：`any(...)` 跨 backend 仍然会违反全局 branch 顺序
 
-这是目前最明确的逻辑 bug。
-
-当前 AQL 核心契约已经写得很清楚：
-
-> `Any` 是“多个可替代查询”，并且“**顺序代表回退优先级**”。
-
-但我之前给出的 UIA 方案里写成了：
-
-```text
-for branch:
-    execute branch
-    append results
-    dedupe
-
-不要在第一个非空 branch 停止
-```
-
-也就是说把 `any` 当成了 **union/or result set**。
-
-最新 executor 也照这个逻辑实现了：遍历全部 branch，然后 `append_unique` 合并所有结果。
-
-这不是一个文字问题，会真实改变行为。比如：
-
-```text
-any(
-    button(name = "Save"),
-    button(name = "保存")
-)
-```
-
-如果两个都存在，按照当前领域契约应该：
-
-```text
-branch 1 有结果
-→ 使用 branch 1
-→ 不再尝试 branch 2
-```
-
-现在却会：
-
-```text
-Save + 保存
-→ 两个候选
-→ AmbiguousTarget
-```
-
-更严重的是跨 backend：
-
-```text
-any(
-    button(dom.test_id = "save"),
-    button(uia.automation_id = "save")
-)
-```
-
-如果第一个 branch 是 CDP、第二个是 UIA，branch 优先级本应让 CDP 优先。但目前 UIA compiler 会丢掉不支持的 DOM branch，而 Router 仍可能因为 UIA tie-break 先选 UIA，于是直接执行第二个 branch。
-
-所以这个问题不能只把 executor 改成“first non-empty”就结束。
-
-**正确修法应该是：**
-
-```text
-Any branch priority
-        ↓
-Backend compiler
-        ↓
-Candidate 携带 earliest_supported_branch_index
-        ↓
-Router ranking
-        ↓
-先比较 Any branch priority
-再比较 capability/context/cost/backend tie-break
-```
-
-同时 UIA executor 内部：
+这次修复引入了：
 
 ```rust
-for branch in branches {
-    let result = execute(branch)?;
-    if !result.is_empty() {
-        return Ok(result);
-    }
-}
-return Ok(vec![]);
+earliest_supported_branch_index: usize
 ```
 
-注意如果第一个非空 branch 自己匹配了 3 个元素，仍然应该最终得到 `AmbiguousTarget`；不能因为 fallback 语义偷偷取第一个元素。
+Router 也确实把它放到了 support/context/cost 之前排序。
 
-**这一项必须改方案正文第 22 节。**
+UIA executor 也从之前的 union 改成了正确的：
+
+```text
+依次执行 branch
+首个非空立即返回
+```
+
+这部分单 backend 语义已经正确。
+
+但是问题在于：**一个 backend candidate 仍然可以同时携带多个不连续的原始 `any` branch。**
+
+例如：
+
+```text
+any(
+    button(uia.automation_id = "A"),  // branch 0
+    button(dom.test_id = "B"),        // branch 1
+    button(uia.automation_id = "C")   // branch 2
+)
+```
+
+UIA compiler 会得到：
+
+```text
+UIA plan:
+    branch 0
+    branch 2
+
+earliest_supported_branch_index = 0
+```
+
+因为 `compile_any()` 是把当前 backend 能编译的 branch 全部留下，然后丢掉不能编译的 branch。
+
+CDP compiler 则得到：
+
+```text
+CDP plan:
+    branch 1
+
+earliest_supported_branch_index = 1
+```
+
+它也是相同的实现模式。
+
+Router 因为：
+
+```text
+UIA earliest = 0
+CDP earliest = 1
+```
+
+所以先执行 UIA。
+
+但 UIA executor 内部会：
+
+```text
+尝试 branch 0
+    ↓ empty
+尝试 branch 2
+    ↓ found
+返回 branch 2
+```
+
+它**根本没有机会回到 Router 让 CDP 的 branch 1 先执行**。
+
+结果实际顺序变成：
+
+```text
+0 → 2
+```
+
+正确语义应该是：
+
+```text
+0 → 1 → 2
+```
+
+这是确定性的语义 bug，不是性能问题。
+
+这次新增的 router 测试没覆盖这个情况。测试 backend 每个 candidate 只有一个：
+
+```rust
+earliest_supported_branch_index
+```
+
+并没有模拟：
+
+```text
+同一个 backend 同时持有 branch 0 + branch 2
+```
+
+所以测试会绿，但真实 backend 仍然错。
+
+### 更深的问题：一个 `usize` 不足以表达 AQL fallback algebra
+
+尤其是嵌套：
+
+```text
+window(...)
+>>
+any(
+    button(...),
+    any(
+        ...
+    )
+)
+```
+
+甚至：
+
+```text
+any(...) >> any(...)
+```
+
+当前 compiler 在 binary relation 里直接用：
+
+```rust
+max(
+    left.earliest_supported_branch_index,
+    right.earliest_supported_branch_index
+)
+```
+
+来合并。
+
+这实际上没有严格的查询代数含义。
+
+一个 scalar：
+
+```text
+earliest_supported_branch_index: usize
+```
+
+只能解决最简单的“每个 backend 恰好只支持一个 top-level branch”。
+
+### 推荐修法
+
+不要继续给这个 scalar 打补丁。
+
+应该把 `any` 真正提升到 Planner alternative：
+
+```text
+AQL
+
+any(
+  branch 0,
+  branch 1,
+  branch 2
+)
+
+        ↓
+
+Planner alternatives
+
+BranchPath [0]
+    ├─ UIA candidate
+    ├─ CDP candidate
+    └─ Vision candidate
+
+BranchPath [1]
+    ├─ UIA candidate
+    ├─ CDP candidate
+    └─ Vision candidate
+
+BranchPath [2]
+    ...
+```
+
+排序规则：
+
+```text
+BranchPath
+    ↓
+SupportLevel
+    ↓
+ContextFitness
+    ↓
+Cost
+    ↓
+backend tie-break
+```
+
+对于嵌套 any：
+
+```rust
+pub struct BranchPath(Vec<usize>);
+```
+
+按 lexicographic ordering 即可。
+
+关键原则是：
+
+> **一个 PreparedCandidate 应对应一个明确 fallback alternative，而不是一个 backend 自己偷偷持有多个跨 backend 排序的 fallback branch。**
 
 ---
 
-### P0-2：最新 `ApplicationQuery` 实际上新增了“执行任意本地 EXE”的高权限能力，原方案完全没覆盖信任边界
+## P0-2：动作能力是在“整个 UIA any plan”上联合验证，导致可执行的前序 branch 被后序 unsupported branch 一起杀掉
 
-最新 core 现在允许工作流保存：
+这次新增的 `action_compiler.rs` 方向是对的：查询支持和动作支持现在真正联合计算了。
+
+例如：
+
+```text
+checkbox()
++
+Click
+```
+
+现在不会错误显示：
+
+```text
+Native Invoke
+```
+
+而是直接 Unsupported，这比上一版好很多。对应测试也有了。
+
+但现在实现是：
+
+```rust
+collect_target_roles(&query.expression)
+```
+
+把**所有可能 branch 的最终角色全部收集起来**，然后：
+
+```rust
+try_fold(...)
+```
+
+只要任何一个 role 是 Unsupported：
+
+```rust
+Err(UiaActionCompileError::UnsupportedTargetRole)
+```
+
+于是整个 UIA backend candidate 被拒绝。
+
+例如：
+
+```text
+any(
+    button(name = "Save"),       // UIA Click 完全支持
+    checkbox(name = "Remember")  // 当前 UIA Click 不支持
+)
+```
+
+语义应该是：
+
+```text
+先找 Button
+
+找到
+→ UIA Invoke
+→ 成功
+
+Button 没找到
+→ 才进入 checkbox fallback
+```
+
+当前实现却在 prepare 阶段看到：
+
+```text
+Button       Invoke = Native
+CheckBox     Invoke = Unsupported
+```
+
+然后：
+
+```text
+整个 UiaBackend = Unsupported
+```
+
+于是即使界面上明明存在 `Save` Button，UIA 也完全没有资格执行 branch 0。
+
+这又是一个直接功能 bug。
+
+它和 P0-1 实际上是同一个架构问题的另一个表现：
+
+> **Action capability 必须是 branch-specific，而不能是 backend-plan-global。**
+
+如果采用前面说的：
+
+```text
+BranchAlternative
+```
+
+模型，这个问题自然消失：
+
+```text
+branch 0
+    UIA query = supported
+    UIA Click = Invoke Native
+    → candidate exists
+
+branch 1
+    UIA query = supported
+    UIA Click = unsupported
+    → UIA candidate absent
+```
+
+而不是：
+
+```text
+UIA backend contains branch 0 + branch 1
+↓
+一个不支持
+↓
+整个 backend 被杀死
+```
+
+所以我会建议 **P0-1/P0-2 一起修，不要分别打补丁。**
+
+---
+
+## Security：`ApplicationQuery` 的本地进程启动信任边界仍然没有解决
+
+这一项上一轮指出过，这次提交主要做的是**能力边界披露**，不是安全模型修复。
+
+值得肯定的是，现在类型注释已经明确：
+
+```text
+direct-process Windows 桌面应用
+不保证 bootstrapper / singleton handoff
+UIA 不要求 foreground
+```
+
+这解决了“能力过度承诺”的问题。
+
+foreground 也改成：
+
+```text
+Restore = required
+SetForegroundWindow = best effort
+```
+
+这个修复是正确的。
+
+但信任边界没有变化。
+
+持久化 workflow 仍然可以携带：
 
 ```rust
 ApplicationTarget {
     executable_path: String,
     arguments: Vec<String>,
-    ...
 }
 ```
 
-而且是一个正式的持久化 `TargetLocator::ApplicationQuery`。
-
-Windows 实现直接：
+Windows runtime 仍然直接：
 
 ```rust
 Command::new(&executable_path)
@@ -120,519 +369,364 @@ Command::new(&executable_path)
     .spawn()
 ```
 
-也就是说，不经过 shell **并不能消除执行能力**；一个 workflow 完全可以配置一个系统 EXE 和任意参数。
-
-同时 Tauri 的：
-
-```rust
-run_workflow(workflow: WorkflowDefinition)
-```
-
-会直接接收 renderer 给出的完整工作流并进入 runtime。
-
-所以这项能力意味着：
+validator 只检查：
 
 ```text
-Workflow
-    ↓
+absolute path
+title 非空
+timeout 范围
+```
+
+并没有：
+
+```text
+trusted application
+user approval
+workflow origin
+allowed executable binding
+```
+
+之类的权限判断。
+
+与此同时，Tauri privileged command 接受 renderer 直接传来的完整：
+
+```rust
+WorkflowDefinition
+```
+
+然后进入 WorkflowEngine。
+
+因此安全边界仍然是：
+
+```text
+renderer / persisted workflow
+       ↓
+WorkflowDefinition
+       ↓
 ApplicationTarget
-    ↓
-任意绝对 EXE + arguments
-    ↓
-用户权限下的本地进程启动
-```
-
-如果 ArgusFlow 将来支持：
-
-```text
-导入 workflow
-分享 workflow
-云同步 workflow
-模板市场
-外部文件打开
-```
-
-那么 workflow 本身就已经接近“可执行内容”，不能再只按普通 JSON 配置看待。
-
-即便目前只有用户自己手工编辑，这也应该在架构里作为 **privileged capability** 明确披露。否则以后加 workflow import 时很容易漏掉。
-
-我建议不要让可分享 workflow 直接成为：
-
-```text
-C:\xxx\foo.exe + arguments
-```
-
-更稳的模型是：
-
-```text
-Workflow
-    ApplicationRef("notepad-plus-plus")
-             ↓
-Local Application Binding
-    用户机器上批准：
-    notepad-plus-plus
-        → C:\Program Files\Notepad++\notepad++.exe
-```
-
-并且：
-
-```text
-首次导入/首次运行未知 ApplicationRef
-→ 明确用户确认
-
-修改 executable/arguments
-→ 重新确认
-
-信任判断必须在 Rust/Tauri privileged boundary
-→ 不能只靠 React UI
-```
-
-是否进一步限制 PowerShell/cmd/mshta/rundll32 等属于产品安全策略，但**至少要先有“工作流应用启动权限”这层模型**。
-
-这部分是最新提交引入的，所以不是原 UIA 实现写坏，而是**方案已经过期，需要新增一个完整章节**。
-
----
-
-### P1-1：UIA worker 虽然线程模型正确，但缺少执行预算和 timeout 策略
-
-现在：
-
-```rust
-response_receiver.await
-```
-
-没有 ArgusFlow 自己的 deadline。
-
-UIA worker 又是单线程串行：
-
-```text
-request 1
-request 2
-request 3
-...
-```
-
-只要一个 provider 调用长期卡住，后面的所有 UIA 请求都会排队。并且 `Drop` 会：
-
-```rust
-worker.join()
-```
-
-无上限等待。
-
-这里其实不需要自己从零发明 timeout。Windows UIA 已经提供 `IUIAutomation2`：
-
-* Connection timeout 默认约 **2 秒**
-* Transaction timeout 默认约 **20 秒**
-* 两个值都可以配置。([Microsoft Learn][2])
-
-UIA 也正式定义了：
-
-```text
-UIA_E_TIMEOUT
-UIA_E_NOTSUPPORTED
-UIA_E_ELEMENTNOTAVAILABLE
-...
-```
-
-这些应该进入错误分类。([Microsoft Learn][3])
-
-所以我建议 `UiaRuntime` 初始化时直接拿：
-
-```rust
-IUIAutomation2
-```
-
-并显式配置：
-
-```text
-connection_timeout
-transaction_timeout
-```
-
-不要依赖系统默认值。
-
-同时再增加 ArgusFlow 层：
-
-```rust
-UiaExecutionBudget {
-    deadline,
-    max_candidates,
-    max_relation_roots,
-}
-```
-
-否则：
-
-```text
-textbox()
-text()
-pane()
-```
-
-在某些复杂应用里可能构造非常大的 `FindAllBuildCache` 数组。
-
-微软官方也明确警告过 UIA 大范围 descendants 查询可能遍历数千元素；当前是 HWND subtree，比 desktop root 安全很多，但仍然需要 budget。([Microsoft Learn][4])
-
----
-
-### P1-2：现在的 `SupportLevel::Native` 只证明“能找到”，没有真正证明“这个 Action 能执行”
-
-原方案其实已经意识到一半问题：
-
-> query compiler 只能证明元素可查，最终实例是否有 InvokePattern / ValuePattern 要运行时检查。
-
-但当前实现还是：
-
-```rust
-AutomationAction::Click
-    -> UiaActionPlan::Invoke
-
-AutomationAction::SetValue
-    -> UiaActionPlan::SetValue
-```
-
-无条件映射。
-
-而：
-
-```rust
-PlanExplain.support
-```
-
-仍直接取：
-
-```rust
-query_plan.capability.level
-```
-
-也就是说：
-
-```text
-checkbox(name="Enable")
-Click
-```
-
-完全可能 Explain：
-
-```text
-WindowsUia
-Native
-Ready
-Action: InvokePattern
-```
-
-然后执行时：
-
-```text
-RequiredPatternUnavailable
-```
-
-因为 Checkbox 正常语义一般是 Toggle，而不是 Invoke。
-
-类似的还有：
-
-```text
-Radio        → SelectionItem
-ListItem     → SelectionItem
-ComboBox     → ExpandCollapse
-某些 MenuItem → Invoke 或 ExpandCollapse
-```
-
-所以长期不能维持：
-
-```text
-Click == InvokePattern
-```
-
-作为所有 UIA control 的语义。
-
-这里建议增加：
-
-```rust
-pub enum UiaActionSupport {
-    Native,
-    RequiresRuntimePatternCheck,
-    Unsupported,
-}
-```
-
-以及：
-
-```rust
-pub struct UiaPreparedPlan {
-    query: UiaQueryPlan,
-    action: UiaActionPlan,
-    capability: UiaCapabilitySummary,
-}
-```
-
-最终 `PlanExplain.support` 应该是：
-
-```text
-query capability
+       ↓
+任意绝对 EXE
 +
-action capability
+任意 arguments
+       ↓
+Command::spawn
 ```
 
-共同产生。
+我不会把它描述成当前已经可远程利用的漏洞——目前没看到 workflow marketplace / 网络导入这种不可信入口。
 
-如果暂时不准备支持 Toggle / SelectionItem / ExpandCollapse，那么 P0 最安全的办法反而是**明确限制 Click 可接受的 target role**，不要对 checkbox/radio 等错误报告 Native。
+但它是一个**必须在以下任何功能上线前关闭的高风险架构债务**：
+
+```text
+workflow 导入
+workflow 分享
+模板下载
+插件
+远程同步
+第三方 workflow
+任何 Web/Markdown 内容生成 workflow
+```
+
+更合理的最终模型依然是：
+
+```text
+workflow:
+    ApplicationRef("notepad-plus-plus")
+
+local trusted bindings:
+    "notepad-plus-plus"
+        →
+    C:\Program Files\Notepad++\notepad++.exe
+```
+
+而不是让可分享 workflow 自带 EXE path。
+
+我会把它定成：
+
+**现在：P1 / security boundary disclosure**
+
+**一旦引入不可信 workflow 来源：立即升级为 P0。**
 
 ---
 
-### P1-3：`AutomationError` 的 fallback 分类现在太粗，会在未来掩盖 UIA 实现 bug
+## P1：新的 candidate budget 其实不是“硬查询预算”
 
-当前代码大致把：
+这次新增：
 
-```text
-GetPattern / Invoke / SetValue
-→ BackendFailed
+```rust
+max_candidates = 10_000
+max_relation_roots = 256
 ```
 
-其他大多数 UIA native error：
+整体方向很好。
 
-```text
-CreateCondition
-BuildCache
-FindAll
-ReadProperty
-ElementFromHandle
-...
-→ BackendUnavailable
+但观察执行顺序：
+
+```rust
+let elements =
+    root.FindAllBuildCache(...)?;
+
+let length = elements.Length()?;
+
+budget.observe_candidates(length)?;
 ```
 
-而项目的 PreparedPlan 有个非常重要的规则：
+也就是说 provider 已经完成：
 
 ```text
-只有 BackendUnavailable 才允许 fallback
+搜索整个 scope
+构造完整 ElementArray
+跨进程返回完整数组
 ```
 
-所以将来 Vision/OCR/SendInput 真正可用后，如果：
+之后才检查：
 
 ```text
-UIA CreateCondition 因为代码 bug 返回 E_INVALIDARG
+是不是超过 10,000
 ```
 
-当前分类有可能变成：
+所以：
 
 ```text
-UIA BackendUnavailable
+max_candidates
+```
+
+当前真正限制的是：
+
+> ArgusFlow 后续读取多少已返回 candidate。
+
+它**不能阻止 provider 为 100,000 / 1,000,000 个结果做完整 FindAll 和数组物化**。
+
+因此不能把它当做：
+
+```text
+UIA provider traversal hard limit
+```
+
+它只是：
+
+```text
+post-materialization processing limit
+```
+
+好消息是这次同时配置了：
+
+```text
+IUIAutomation2 ConnectionTimeout
+IUIAutomation2 TransactionTimeout
+ArgusFlow execution timeout
+```
+
+所以最危险的永久 hang 已经显著改善。
+
+但如果后续要真正防超大树，还是需要：
+
+```text
+TreeWalker / incremental traversal
+或
+有界 candidate enumeration
+```
+
+而不是 `FindAllBuildCache + length check`。
+
+---
+
+## P1：一次 execution timeout 会永久熔断当前 UIA runtime
+
+当前 timeout 后：
+
+```rust
+health.mark_failed(...)
+sender.send(Shutdown)
+```
+
+之后：
+
+```rust
+health.is_ready() == false
+```
+
+整个 `UiaRuntime` 不会再接收请求。
+
+而且没有 restart/recovery generation。
+
+所以一次偶发的：
+
+```text
+provider 卡顿 > 25s
+```
+
+会变成：
+
+```text
+UIA unavailable
+直到 ArgusFlow 重启
+```
+
+这个选择在安全性上比“继续使用一个可能卡死的 COM worker”要好，所以它不是设计错误。
+
+但产品上应该至少明确：
+
+```text
+UIA runtime tripped
+Restart accessibility runtime
+```
+
+最终可以做：
+
+```text
+Generation 1 worker
+    ↓ timeout
+quarantine old worker
+
+等旧 worker 已退出
     ↓
-偷偷 fallback Vision/其它 backend
-    ↓
-动作反而执行了
+允许创建 Generation 2
 ```
 
-这会把确定性的实现 bug 隐藏掉。
+不要在旧 worker 仍卡住时无限创建新 worker，否则会变成 thread leak factory。
 
-应该根据 **HRESULT + operation** 分类，而不能主要根据“发生在哪个阶段”。
-
-例如：
-
-```text
-UIA_E_TIMEOUT
-RPC/provider unavailable
-window 已消失
-→ BackendUnavailable
-
-UIA_E_NOTSUPPORTED
-UIA_E_INVALIDOPERATION
-E_INVALIDARG
-property type mismatch
-compiler/native IR 不一致
-→ BackendFailed
-
-UIA_E_ELEMENTNOTAVAILABLE
-→ stale/retry policy
-
-0 candidates
-→ TargetNotFound
-
->1 candidates
-→ AmbiguousTarget
-```
-
-这一项建议在其它 fallback backend 真正接入前修，否则以后非常难查错。
+我把它列 P1 resilience，而不是 P0。
 
 ---
 
-### P1-4：`ApplicationTarget` 当前宣称得比真实能力宽
+## P1：`ApplicationQuery + BrowserCdp` 是合法序列化状态，但必然不可执行
 
-目前公共类型叫：
+当前：
 
-```text
-ApplicationTarget
+```rust
+TargetLocator::ApplicationQuery
 ```
 
-看起来是通用 Windows 应用定位。
+是 core 的公开 locator。
 
-但当前启动后查窗口有三个实际限制。
+但 CDP Backend 明确只接受：
 
-第一，workflow 必须持久化**绝对 EXE 路径**。
-
-这意味着：
-
-```text
-我的机器:
-C:\Program Files\Notepad++\notepad++.exe
-
-另一台机器:
-D:\Portable\Notepad++\notepad++.exe
+```rust
+TargetLocator::Query { query }
 ```
 
-同一个 workflow 就不能直接复用。
+其它 locator 都 Unsupported。
 
-所以它和 AQL 追求的 portable intent 有点冲突。最好把：
-
-```text
-Application identity
-```
-
-和：
-
-```text
-本机 executable binding
-```
-
-拆开。
-
-第二，启动应用后只接受：
-
-```text
-window PID == Command::spawn() 得到的 PID
-```
-
-这对 Notepad++ `-multiInst` 很稳定，但很多 Windows 应用存在：
-
-```text
-bootstrapper.exe
-      ↓
-真实 app.exe
-
-或者
-
-新进程启动
-      ↓
-把请求交给已有 singleton process
-      ↓
-新进程退出
-```
-
-这种情况下现在会一直等不到窗口。
-
-所以如果暂时只服务 Notepad++/普通 direct-process Win32 app，应该在方案里明确写：
-
-> P0 ApplicationTarget 只保证 direct-process desktop applications。
-
-否则公共契约表达得太强。
-
-第三，代码把 `SetForegroundWindow` 成功当成硬条件；Windows 如果拒绝把窗口切到前台，整个 ApplicationQuery 就 `BackendFailed`。
-
-但 UIA 本身很多情况下**不要求窗口成为 foreground**就可以查询、Invoke、SetValue。
-
-所以建议分成：
-
-```text
-EnsureRunning
-EnsureRestored
-BestEffortForeground
-```
-
-UIA 只要求前两个。
-
-真正需要 physical input 的 SendInput backend 才要求：
-
-```text
-ForegroundRequired
-```
-
-不然 UIA 会被 Windows foreground-lock 机制无意义地拖累。
-
----
-
-### P1-5：真实 E2E 有了，但“产品完整路径”仍然没真正闭环
-
-这一块实现已经比方案预期好很多。
-
-现在有一个真实 Notepad++ UIA E2E，覆盖：
-
-```text
-Window
-Search
-Find
-SetValue
-AmbiguousTarget
-TargetNotFound
-Regex residual/cache
-Close
-```
-
-而且明确断言 `ActionOutcome.backend == WindowsUia`，这很好。
-
-另外最新提交又有：
+Rust validator 又没有检查：
 
 ```text
 ApplicationQuery
-→ 启动 Notepad++
-→ UIA Invoke
++
+BackendPreference::BrowserCdp
 ```
 
-测试。
+这个组合。
 
-但这里还有两个验证缺口：
-
-1. 两组真实测试全部是 `#[ignore]`，不会进入普通 test。
-2. `application_query_launches_notepadpp_before_uia_invoke` 只验证 ActionOutcome 成功，没有像 Find dialog E2E 那样验证**可观察 UI 状态真的改变**。
-
-而我查最新 commit 时 GitHub combined status 目前也是空的，没有看到对应 Windows UIA CI gate。
-
-所以发布前最好至少做到：
+所以以下对象可以成功序列化、成功进入 workflow：
 
 ```text
-普通 CI:
-    compiler/unit/router/runtime tests
-
-Interactive Windows runner:
-    Notepad++ real UIA E2E
-
-至少一条:
-    WorkflowDefinition
-      ↓
-    WorkflowEngine
-      ↓
-    ApplicationQuery
-      ↓
-    启动真实 Notepad++
-      ↓
-    UIA action
-      ↓
-    可观察 UI 状态断言
+locator = application_query(...)
+backend_preference = browser_cdp
 ```
 
-最好是自托管交互式 Windows VM，避免 GUI/UIA 测试依赖普通无桌面 CI 环境。
+最后运行时才：
+
+```text
+NoBackendAvailable
+```
+
+按照项目自己的强类型原则，这类非法组合最好在 validation 阶段直接拒绝。
+
+P1 即可。
 
 ---
 
-### 还有两个次一级问题
+## P1：Windows executable path 的“大小写不敏感比较”只处理 ASCII
 
-一个是 regex residual 目前会对**每一个 candidate 重新 `RegexBuilder::build()`**，能改成 query/request 级预编译；另一个是 `FindAllBuildCache` 没有 candidate 数量预算。这两个还不至于推翻设计，但建议和 timeout/budget 一起收掉。
+`WindowService` 现在：
 
-综合下来，我会把审计状态定成：
+```rust
+left.to_string_lossy()
+    .eq_ignore_ascii_case(...)
+```
 
-| 级别     | 问题                                               | 是否需要改方案         |
-| ------ | ------------------------------------------------ | --------------- |
-| **P0** | `any()` fallback 语义被写成 union                     | **必须，原方案本身错误**  |
-| **P0** | ApplicationQuery 任意 EXE/args 的信任模型缺失             | **必须，最新提交新增边界** |
-| **P1** | UIA timeout / execution budget 缺失                | 必须补             |
-| **P1** | Query Support ≠ Action Support                   | 必须补             |
-| **P1** | HRESULT/fallback 分类太粗                            | 必须补             |
-| **P1** | ApplicationTarget 过度承诺、绝对路径/child PID/foreground | 必须补             |
-| **P1** | 真机 E2E 没进入持续验证                                   | 实施流程需补          |
+却注释为 Windows path case-insensitive comparison。
 
-所以现在**不建议继续往 Scintilla、更多 Pattern 或 OCR fallback 扩功能**。先把 `Any` 语义和 ApplicationQuery 信任边界两个 P0 定下来，再补 UIA timeout/action capability/error taxonomy。否则后面 backend 一多，返工会明显变大。
+例如非 ASCII 安装路径：
 
-[1]: https://learn.microsoft.com/en-us/windows/win32/winauto/uiauto-threading?utm_source=chatgpt.com "Understanding Threading Issues - Win32 apps | Microsoft Learn"
-[2]: https://learn.microsoft.com/en-us/windows/win32/api/uiautomationclient/nf-uiautomationclient-iuiautomation2-get_connectiontimeout?utm_source=chatgpt.com "IUIAutomation2::get_ConnectionTimeout (uiautomationclient.h) - Win32 apps | Microsoft Learn"
-[3]: https://learn.microsoft.com/en-us/windows/win32/winauto/uiauto-error-codes?utm_source=chatgpt.com "Error Codes (UIAutomationCoreApi.h) - Win32 apps | Microsoft Learn"
-[4]: https://learn.microsoft.com/en-us/windows/win32/api/uiautomationclient/nf-uiautomationclient-iuiautomationelement-findall?utm_source=chatgpt.com "IUIAutomationElement::FindAll (uiautomationclient.h) - Win32 apps | Microsoft Learn"
+```text
+C:\工具\Notepad++\...
+```
+
+或者包含某些 Unicode case pair 的路径，行为并不等同 Windows 路径比较。
+
+后果一般不是安全漏洞，而是：
+
+```text
+已有窗口无法识别
+→ 又启动一个进程
+→ duplicate application
+```
+
+建议以后用：
+
+```text
+Windows file identity
+```
+
+而不是字符串比较。
+
+最稳妥的是：
+
+```text
+打开目标 executable
+→ File ID / volume identity
+```
+
+与进程 image file identity 比较。
+
+这一项优先级低于前面的几个。
+
+---
+
+## 已经修好的部分
+
+上一轮这些问题我这次可以基本划掉：
+
+* UIA `Any` 已提升为全局 `BranchPath` alternatives，不再由单个 backend 内部合并执行。
+* query + action capability 已经开始联合计算，Checkbox Click 不再虚报 Native。
+* UIA provider Connection/Transaction timeout 已显式配置。
+* ArgusFlow request deadline 和资源 budget 已增加。
+* Regex 已从 candidate 热路径移到 compiler/prepared plan 预编译。
+* HRESULT 已经按 transient provider failure / implementation failure 分类，不再把 `E_INVALIDARG` 当 unavailable fallback。
+* `SetForegroundWindow` 已经变成 best-effort。
+* ApplicationSpec 已明确 direct-process contract。
+* 已新增真正从 `WorkflowEngine → Application resource → Notepad++ → InvokePattern → 可观察 UI 状态` 的完整 E2E。
+* 已新增普通 Windows CI 和 self-hosted interactive Notepad++ UIA workflow 配置。
+
+不过当前 GitHub connector 没返回这个最新 SHA 的实际 status/check run，所以我只能确认 workflow 文件存在，**不能确认最新提交已经在 CI 上成功跑绿**。
+
+## 本轮处理结果
+
+我会把状态定成：
+
+| 级别                          | 问题                                                                 | 处理结果 |
+| --------------------------- | ------------------------------------------------------------------ | --- |
+| **P0**                      | 一个 backend 持有多个不连续 `any` branch，导致跨 backend fallback 乱序            | **已修复**：compiler 展开独立 `BranchPath` candidate，Router 按完整路径字典序排序 |
+| **P0**                      | action compiler 因后序 unsupported branch 拒绝整个 backend，包括可执行前序 branch | **已修复**：query/action capability 按 branch-specific plan 独立计算 |
+| **Security P1 → future P0** | Workflow 可携带任意 EXE + args，Rust 端直接 spawn                           | **按要求不改**：继续作为已知产品边界保留 |
+| **P1**                      | candidate budget 是 FindAll 后置预算，不是真正 provider traversal limit      | **已修复**：RawView TreeWalker 增量遍历，并在导航时执行硬节点预算 |
+| **P1**                      | 单次 timeout 会永久熔断 UIA runtime                                       | **已修复**：引入 generation-aware、有恢复次数上限的 worker 替换 |
+| **P1**                      | 应用资源作用域与 `BrowserCdp` 非法组合没在 validator 拦截                       | **已修复**：新增 `InvalidBackendPreference` 工作流校验 |
+| **P2**                      | executable path 比较仅 ASCII case-insensitive                         | **已修复**：通过卷序列号与文件索引比较真实 file identity |
+
+`earliest_supported_branch_index` 已从公共计划契约移除，当前边界调整为：
+
+```text
+Query Algebra
+    ↓
+Backend Compiler
+    ↓
+Branch-specific executable alternatives
+    ↓
+Global Planner
+    ↓
+PreparedCandidate
+```
+
+该边界使跨 UIA/CDP/Vision 的 fallback、Action capability、Explain 与 `TargetNotFound` 推进规则统一由同一条强类型路径约束。

@@ -25,7 +25,7 @@ impl ActionBackend for SendInputBackend {
         &self,
         action: &AutomationAction,
         _context: &ExecutionContext,
-    ) -> Result<PreparedCandidate, PlanRejection> {
+    ) -> Result<Vec<PreparedCandidate>, PlanRejection> {
         if !matches!(action, AutomationAction::Click { .. }) {
             return Err(PlanRejection::Unsupported {
                 backend: BackendKind::SendInput,
@@ -38,7 +38,7 @@ impl ActionBackend for SendInputBackend {
         };
         let explain = PlanExplain {
             backend: BackendKind::SendInput,
-            earliest_supported_branch_index: Some(0),
+            branch_path: Some(argusflow_query::BranchPath::root()),
             support: SupportLevel::Native,
             cost: QueryCost::Low,
             availability: RuntimeAvailability::NotImplemented,
@@ -50,12 +50,12 @@ impl ActionBackend for SendInputBackend {
             }],
             diagnostics: Vec::new(),
         };
-        Ok(PreparedCandidate::new(
+        Ok(vec![PreparedCandidate::new(
             explain,
             Arc::new(SendInputPreparedExecution {
                 action: action.clone(),
             }),
-        ))
+        )])
     }
 }
 

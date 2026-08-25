@@ -35,7 +35,7 @@ impl ActionBackend for CdpBackend {
         &self,
         action: &AutomationAction,
         context: &ExecutionContext,
-    ) -> Result<PreparedCandidate, PlanRejection> {
+    ) -> Result<Vec<PreparedCandidate>, PlanRejection> {
         let TargetLocator::Query { query } = &action.target().locator else {
             return Err(PlanRejection::Unsupported {
                 backend: BackendKind::BrowserCdp,
@@ -45,27 +45,30 @@ impl ActionBackend for CdpBackend {
             backend: BackendKind::BrowserCdp,
         })?;
         let portability = analyze_query(&parsed).portability().clone();
-        let query_plan = compile_cdp_query(&parsed).map_err(|_| PlanRejection::Unsupported {
+        let query_plans = compile_cdp_query(&parsed).map_err(|_| PlanRejection::Unsupported {
             backend: BackendKind::BrowserCdp,
         })?;
-        let explain = PlanExplain {
-            backend: BackendKind::BrowserCdp,
-            earliest_supported_branch_index: Some(
-                query_plan.capability.earliest_supported_branch_index,
-            ),
-            support: query_plan.capability.level,
-            cost: query_plan.capability.estimated_cost,
-            availability: RuntimeAvailability::NotImplemented,
-            context_fitness: cdp_context_fitness(context),
-            portability,
-            steps: cdp::explain_cdp_plan(&query_plan.expression),
-            diagnostics: query_plan.diagnostics.clone(),
-        };
-        let execution = CdpPreparedExecution {
-            action: action.clone(),
-            query_plan,
-        };
-        Ok(PreparedCandidate::new(explain, Arc::new(execution)))
+        Ok(query_plans
+            .into_iter()
+            .map(|query_plan| {
+                let explain = PlanExplain {
+                    backend: BackendKind::BrowserCdp,
+                    branch_path: Some(query_plan.capability.branch_path.clone()),
+                    support: query_plan.capability.level,
+                    cost: query_plan.capability.estimated_cost,
+                    availability: RuntimeAvailability::NotImplemented,
+                    context_fitness: cdp_context_fitness(context),
+                    portability: portability.clone(),
+                    steps: cdp::explain_cdp_plan(&query_plan.expression),
+                    diagnostics: query_plan.diagnostics.clone(),
+                };
+                let execution = CdpPreparedExecution {
+                    action: action.clone(),
+                    query_plan,
+                };
+                PreparedCandidate::new(explain, Arc::new(execution))
+            })
+            .collect())
     }
 }
 

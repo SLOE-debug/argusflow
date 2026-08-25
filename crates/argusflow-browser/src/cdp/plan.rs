@@ -42,8 +42,6 @@ pub enum CdpPlanExpr {
         /// 子目标计划。
         target: Box<CdpPlanExpr>,
     },
-    /// 按顺序尝试多个候选计划。
-    Any(Vec<CdpPlanExpr>),
     /// 通过结果集合或树遍历排除内部计划。
     Not(Box<CdpPlanExpr>),
     /// 选择第一个结果。

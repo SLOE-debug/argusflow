@@ -61,13 +61,13 @@ impl ActionBackend for UnavailableVisionBackend {
         &self,
         action: &AutomationAction,
         context: &ExecutionContext,
-    ) -> Result<PreparedCandidate, PlanRejection> {
+    ) -> Result<Vec<PreparedCandidate>, PlanRejection> {
         let TargetLocator::Visual { query } = &action.target().locator else {
             return Err(PlanRejection::Unsupported { backend: self.kind });
         };
         let explain = PlanExplain {
             backend: self.kind,
-            earliest_supported_branch_index: Some(0),
+            branch_path: Some(argusflow_query::BranchPath::root()),
             support: SupportLevel::Native,
             cost: QueryCost::Medium,
             availability: RuntimeAvailability::NotImplemented,
@@ -83,13 +83,13 @@ impl ActionBackend for UnavailableVisionBackend {
             }],
             diagnostics: Vec::new(),
         };
-        Ok(PreparedCandidate::new(
+        Ok(vec![PreparedCandidate::new(
             explain,
             Arc::new(VisionPreparedExecution {
                 kind: self.kind,
                 action: action.clone(),
             }),
-        ))
+        )])
     }
 }
 

@@ -1,8 +1,8 @@
 use std::{collections::HashSet, path::Path};
 
 use argusflow_core::{
-    ApplicationSpec, CommandOperation, CommandRunner, TargetLocator, WorkflowDefinition,
-    WorkflowNode, WorkflowNodeKind,
+    ApplicationSpec, BackendPreference, CommandOperation, CommandRunner, TargetLocator,
+    TargetScope, WorkflowDefinition, WorkflowNode, WorkflowNodeKind,
 };
 use argusflow_query::parse_stored_query;
 
@@ -49,20 +49,33 @@ pub(crate) fn validate_node_parameters(
         WorkflowNodeKind::Application { spec } => {
             validate_application_spec(spec, &node.id, issues);
         }
-        WorkflowNodeKind::Ui { operation } => match &operation.target().locator {
-            TargetLocator::Query { query } => validate_aql_query(query, &node.id, issues),
-            TargetLocator::Visual { query } => {
-                if query.text.trim().is_empty() {
-                    issues.push(issue(
-                        ValidationIssueCode::InvalidAqlQuery,
-                        "视觉目标文字不能为空",
-                        Some(node.id.clone()),
-                        None,
-                    ));
-                }
+        WorkflowNodeKind::Ui { operation } => {
+            let target = operation.target();
+            if matches!(&target.scope, TargetScope::Application { .. })
+                && matches!(target.backend_preference, BackendPreference::BrowserCdp)
+            {
+                issues.push(issue(
+                    ValidationIssueCode::InvalidBackendPreference,
+                    "应用资源当前不提供 Browser CDP 能力，不能强制使用 browser_cdp 后端",
+                    Some(node.id.clone()),
+                    None,
+                ));
             }
-            TargetLocator::Coordinate { .. } => {}
-        },
+            match &target.locator {
+                TargetLocator::Query { query } => validate_aql_query(query, &node.id, issues),
+                TargetLocator::Visual { query } => {
+                    if query.text.trim().is_empty() {
+                        issues.push(issue(
+                            ValidationIssueCode::InvalidAqlQuery,
+                            "视觉目标文字不能为空",
+                            Some(node.id.clone()),
+                            None,
+                        ));
+                    }
+                }
+                TargetLocator::Coordinate { .. } => {}
+            }
+        }
         WorkflowNodeKind::Command { operation } => {
             validate_command(operation, workflow, &node.id, issues);
         }

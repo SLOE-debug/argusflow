@@ -46,7 +46,7 @@ impl ActionBackend for UiaBackend {
         &self,
         action: &AutomationAction,
         context: &ExecutionContext,
-    ) -> Result<PreparedCandidate, PlanRejection> {
+    ) -> Result<Vec<PreparedCandidate>, PlanRejection> {
         let (query, window) = match &action.target().locator {
             TargetLocator::Query { query } => (
                 query,
@@ -68,47 +68,55 @@ impl ActionBackend for UiaBackend {
             backend: BackendKind::WindowsUia,
         })?;
         let portability = analyze_query(&parsed).portability().clone();
-        let query_plan = compile_uia_query(&parsed).map_err(|_| PlanRejection::Unsupported {
+        let query_plans = compile_uia_query(&parsed).map_err(|_| PlanRejection::Unsupported {
             backend: BackendKind::WindowsUia,
         })?;
-        let prepared_plan =
-            compile_uia_action(action, query_plan).map_err(|_| PlanRejection::Unsupported {
-                backend: BackendKind::WindowsUia,
-            })?;
         let availability = runtime_availability(self.runtime.health().snapshot(), window);
-        let mut diagnostics = prepared_plan.query.diagnostics.clone();
-        if !availability.is_ready() {
-            diagnostics.push(Diagnostic::global(
-                DiagnosticCode::RuntimeUnavailable,
-                DiagnosticSeverity::Information,
-                Some(QueryBackend::WindowsUia),
+        let query = canonicalize_query(&parsed);
+        let mut candidates = Vec::new();
+        for query_plan in query_plans {
+            let Ok(prepared_plan) = compile_uia_action(action, query_plan) else {
+                continue;
+            };
+            let mut diagnostics = prepared_plan.query.diagnostics.clone();
+            if !availability.is_ready() {
+                diagnostics.push(Diagnostic::global(
+                    DiagnosticCode::RuntimeUnavailable,
+                    DiagnosticSeverity::Information,
+                    Some(QueryBackend::WindowsUia),
+                ));
+            }
+            let mut steps = explain_uia_plan(&prepared_plan.query.expression);
+            steps.push(explain_uia_action(
+                &prepared_plan.action,
+                prepared_plan.action_support,
             ));
+            let explain = PlanExplain {
+                backend: BackendKind::WindowsUia,
+                branch_path: Some(prepared_plan.capability.branch_path.clone()),
+                support: prepared_plan.capability.level,
+                cost: prepared_plan.capability.estimated_cost,
+                availability,
+                context_fitness: uia_context_fitness(context),
+                portability: portability.clone(),
+                steps,
+                diagnostics,
+            };
+            let execution = UiaPreparedExecution {
+                runtime: self.runtime.clone(),
+                window,
+                plan: prepared_plan,
+                query: query.clone(),
+            };
+            candidates.push(PreparedCandidate::new(explain, Arc::new(execution)));
         }
-        let mut steps = explain_uia_plan(&prepared_plan.query.expression);
-        steps.push(explain_uia_action(
-            &prepared_plan.action,
-            prepared_plan.action_support,
-        ));
-        let explain = PlanExplain {
-            backend: BackendKind::WindowsUia,
-            earliest_supported_branch_index: Some(
-                prepared_plan.capability.earliest_supported_branch_index,
-            ),
-            support: prepared_plan.capability.level,
-            cost: prepared_plan.capability.estimated_cost,
-            availability,
-            context_fitness: uia_context_fitness(context),
-            portability,
-            steps,
-            diagnostics,
-        };
-        let execution = UiaPreparedExecution {
-            runtime: self.runtime.clone(),
-            window,
-            plan: prepared_plan,
-            query: canonicalize_query(&parsed),
-        };
-        Ok(PreparedCandidate::new(explain, Arc::new(execution)))
+        if candidates.is_empty() {
+            Err(PlanRejection::Unsupported {
+                backend: BackendKind::WindowsUia,
+            })
+        } else {
+            Ok(candidates)
+        }
     }
 }
 

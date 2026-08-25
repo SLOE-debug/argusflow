@@ -14,7 +14,7 @@ use argusflow_core::{
     ActionOutcome, AqlQuery, AutomationAction, AutomationError, AutomationExecutionScope,
     AutomationTarget, BackendKind, BackendPreference,
 };
-use argusflow_query::{QueryCost, QueryPortability, SupportLevel};
+use argusflow_query::{BranchPath, QueryCost, QueryPortability, SupportLevel};
 use argusflow_runtime::ActionDispatcher;
 use async_trait::async_trait;
 
@@ -24,8 +24,8 @@ struct PlannedBackend {
     kind: BackendKind,
     /// 语义支持等级。
     support: SupportLevel,
-    /// 模拟 backend compiler 支持的最早 `any` 分支。
-    earliest_supported_branch_index: usize,
+    /// 模拟 backend compiler 冻结的完整 `any` 分支路径。
+    branch_path: BranchPath,
     /// 查询成本。
     cost: QueryCost,
     /// 上下文匹配度。
@@ -36,6 +36,14 @@ struct PlannedBackend {
     result: ExecutionResult,
     /// 验证 fallback 是否触发的计数器。
     executions: Arc<AtomicUsize>,
+}
+
+/// 单个 backend 一次返回多条 branch-specific candidate 的测试实现。
+struct AlternativeBackend {
+    /// 后端类别。
+    kind: BackendKind,
+    /// 按 compiler 输出顺序保存的分支路径、结果和执行计数器。
+    alternatives: Vec<(BranchPath, ExecutionResult, Arc<AtomicUsize>)>,
 }
 
 /// 测试 prepared execution 的结果类别。
@@ -55,10 +63,10 @@ impl ActionBackend for PlannedBackend {
         &self,
         _action: &AutomationAction,
         context: &ExecutionContext,
-    ) -> Result<PreparedCandidate, PlanRejection> {
+    ) -> Result<Vec<PreparedCandidate>, PlanRejection> {
         let explain = PlanExplain {
             backend: self.kind,
-            earliest_supported_branch_index: Some(self.earliest_supported_branch_index),
+            branch_path: Some(self.branch_path.clone()),
             support: self.support,
             cost: self.cost,
             availability: RuntimeAvailability::Ready,
@@ -71,14 +79,52 @@ impl ActionBackend for PlannedBackend {
             steps: Vec::new(),
             diagnostics: Vec::new(),
         };
-        Ok(PreparedCandidate::new(
+        Ok(vec![PreparedCandidate::new(
             explain,
             Arc::new(TestExecution {
                 backend: self.kind,
                 result: self.result,
                 executions: self.executions.clone(),
             }),
-        ))
+        )])
+    }
+}
+
+impl ActionBackend for AlternativeBackend {
+    fn kind(&self) -> BackendKind {
+        self.kind
+    }
+
+    fn prepare(
+        &self,
+        _action: &AutomationAction,
+        _context: &ExecutionContext,
+    ) -> Result<Vec<PreparedCandidate>, PlanRejection> {
+        Ok(self
+            .alternatives
+            .iter()
+            .map(|(branch_path, result, executions)| {
+                let explain = PlanExplain {
+                    backend: self.kind,
+                    branch_path: Some(branch_path.clone()),
+                    support: SupportLevel::Native,
+                    cost: QueryCost::Low,
+                    availability: RuntimeAvailability::Ready,
+                    context_fitness: ContextFitness::Good,
+                    portability: QueryPortability::Portable,
+                    steps: Vec::new(),
+                    diagnostics: Vec::new(),
+                };
+                PreparedCandidate::new(
+                    explain,
+                    Arc::new(TestExecution {
+                        backend: self.kind,
+                        result: *result,
+                        executions: executions.clone(),
+                    }),
+                )
+            })
+            .collect())
     }
 }
 
@@ -154,14 +200,14 @@ async fn router_prefers_support_then_context_fitness_then_cost() {
 async fn router_prefers_earlier_any_branch_before_backend_capability() {
     let router = ActionRouter::new(vec![
         Arc::new(PlannedBackend {
-            earliest_supported_branch_index: 1,
+            branch_path: BranchPath::from_indices([1]),
             support: SupportLevel::Native,
             fitness: ContextFitness::Excellent,
             cost: QueryCost::Low,
             ..planned(BackendKind::WindowsUia, ExecutionResult::Success)
         }),
         Arc::new(PlannedBackend {
-            earliest_supported_branch_index: 0,
+            branch_path: BranchPath::from_indices([0]),
             support: SupportLevel::Hybrid,
             fitness: ContextFitness::Poor,
             cost: QueryCost::High,
@@ -183,17 +229,17 @@ async fn target_not_found_only_advances_to_a_later_any_branch() {
     let later_branch_executions = Arc::new(AtomicUsize::new(0));
     let router = ActionRouter::new(vec![
         Arc::new(PlannedBackend {
-            earliest_supported_branch_index: 0,
+            branch_path: BranchPath::from_indices([0]),
             result: ExecutionResult::TargetNotFound,
             ..planned(BackendKind::WindowsUia, ExecutionResult::Success)
         }),
         Arc::new(PlannedBackend {
-            earliest_supported_branch_index: 0,
+            branch_path: BranchPath::from_indices([0]),
             executions: same_branch_executions.clone(),
             ..planned(BackendKind::VisualCache, ExecutionResult::Success)
         }),
         Arc::new(PlannedBackend {
-            earliest_supported_branch_index: 1,
+            branch_path: BranchPath::from_indices([1]),
             executions: later_branch_executions.clone(),
             ..planned(BackendKind::BrowserCdp, ExecutionResult::Success)
         }),
@@ -207,6 +253,40 @@ async fn target_not_found_only_advances_to_a_later_any_branch() {
     assert_eq!(outcome.backend, BackendKind::BrowserCdp);
     assert_eq!(same_branch_executions.load(Ordering::SeqCst), 0);
     assert_eq!(later_branch_executions.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn non_contiguous_backend_alternatives_preserve_global_branch_order() {
+    let branch_two_executions = Arc::new(AtomicUsize::new(0));
+    let router = ActionRouter::new(vec![
+        Arc::new(AlternativeBackend {
+            kind: BackendKind::WindowsUia,
+            alternatives: vec![
+                (
+                    BranchPath::from_indices([0]),
+                    ExecutionResult::TargetNotFound,
+                    Arc::new(AtomicUsize::new(0)),
+                ),
+                (
+                    BranchPath::from_indices([2]),
+                    ExecutionResult::Success,
+                    branch_two_executions.clone(),
+                ),
+            ],
+        }),
+        Arc::new(PlannedBackend {
+            branch_path: BranchPath::from_indices([1]),
+            ..planned(BackendKind::BrowserCdp, ExecutionResult::Success)
+        }),
+    ]);
+
+    let outcome = router
+        .execute(&portable_click(), AutomationExecutionScope::Current)
+        .await
+        .expect("branch one must run before the first backend's branch two");
+
+    assert_eq!(outcome.backend, BackendKind::BrowserCdp);
+    assert_eq!(branch_two_executions.load(Ordering::SeqCst), 0);
 }
 
 #[tokio::test]
@@ -327,7 +407,7 @@ fn planned(kind: BackendKind, result: ExecutionResult) -> PlannedBackend {
     PlannedBackend {
         kind,
         support: SupportLevel::Native,
-        earliest_supported_branch_index: 0,
+        branch_path: BranchPath::root(),
         cost: QueryCost::Low,
         fitness: ContextFitness::Good,
         context_aware: false,
@@ -347,7 +427,7 @@ fn backend(
     Arc::new(PlannedBackend {
         kind,
         support,
-        earliest_supported_branch_index: 0,
+        branch_path: BranchPath::root(),
         cost,
         fitness,
         context_aware: false,

@@ -30,6 +30,8 @@ pub(crate) enum UiaOperation {
     BuildCache,
     /// 在限定 scope 内查询候选。
     FindAll,
+    /// 通过 RawView TreeWalker 有界导航 provider 树。
+    NavigateTree,
     /// 读取 cached property。
     ReadProperty,
     /// 读取用于去重的 runtime id。
@@ -49,8 +51,8 @@ pub(crate) enum UiaOperation {
 /// UIA 请求预算限制的强类型资源类别。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum UiaBudgetResource {
-    /// FindAllBuildCache 返回的累计候选数。
-    Candidates,
+    /// 有界 TreeWalker 已访问的累计 provider 节点数。
+    TraversalNodes,
     /// Child/Descendant 关系展开的累计根元素数。
     RelationRoots,
 }

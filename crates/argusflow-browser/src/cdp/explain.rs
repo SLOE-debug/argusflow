@@ -50,15 +50,6 @@ fn visit(expression: &CdpPlanExpr, steps: &mut Vec<PlanStepExplain>) {
             visit(parent, steps);
             visit(target, steps);
         }
-        CdpPlanExpr::Any(queries) => {
-            steps.push(PlanStepExplain {
-                kind: PlanStepKind::Traversal,
-                summary: format!("{} executable any branch(es)", queries.len()),
-            });
-            for query in queries {
-                visit(query, steps);
-            }
-        }
         CdpPlanExpr::Not(query) => {
             steps.push(PlanStepExplain {
                 kind: PlanStepKind::Traversal,

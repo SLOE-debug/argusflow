@@ -1016,11 +1016,13 @@ transaction timeout = 20s
 
 ```text
 deadline = enqueue time + 25s
-max_candidates = 10_000
+max_traversal_nodes = 10_000
 max_relation_roots = 256
 ```
 
-deadline 必须包含 worker 排队时间，并在每次 provider 调用前后检查。候选数和关系根数按完整请求累计，而不是只检查单个 `FindAllBuildCache`。ArgusFlow 外层异步等待也使用同一总时限；超时后 runtime 标记不可用并停止接收后续请求。
+deadline 必须包含 worker 排队时间，并在每次 provider 调用前后检查。关系根数按完整请求累计。provider 树必须通过 `RawViewWalker` 增量导航，并在取得每个节点时扣减 `max_traversal_nodes`；禁止先用 subtree `FindAllBuildCache` 物化完整数组、再做后置长度检查。原生 condition 只对单个元素使用 `TreeScope_Element` 求值，因此 provider traversal 在继续导航前已经受硬上限约束。
+
+ArgusFlow 外层异步等待使用同一总时限。单次 timeout 不永久熔断 runtime，而是关闭当前请求入口并启动下一代 MTA worker；health 必须绑定 generation，旧 worker 迟到的退出或失败不得覆盖新 worker 状态。恢复次数有稳定上限，耗尽后才进入持久失败状态。
 
 `Drop` 不得对仍可能卡在第三方 provider 的 worker 执行无上限 `join`。已退出线程可以回收；仍运行线程发送 shutdown 后分离，由配置的 provider timeout 约束最终清理。
 
@@ -1057,9 +1059,9 @@ AmbiguousTarget 更可解释
 Notepad++ E2E 更稳定
 ```
 
-## 17.1 `ApplicationQuery` 的 P0 能力边界
+## 17.1 Application resource 的 P0 能力边界
 
-当前 `ApplicationTarget` 只保证 direct-process desktop applications：
+当前 `ApplicationSpec` / `AppSession` 只保证 direct-process desktop applications：
 
 ```text
 absolute executable path
@@ -1079,6 +1081,10 @@ packaged app indirection
 
 绝对 EXE 路径也意味着该契约当前是本机绑定，不应宣称工作流天然跨机器可移植。
 
+工作流携带任意绝对 EXE 与参数的信任模型按当前产品决策暂不调整；该已知边界仍需在未来引入不可信工作流来源前重新评审。
+
+复用既有进程时，EXE 身份必须来自文件句柄的卷序列号与文件索引，不能用 `eq_ignore_ascii_case` 比较路径文本。应用资源当前声明 `browser_cdp = false`，因此 `TargetScope::Application + BackendPreference::BrowserCdp` 必须在工作流 validator 阶段直接拒绝。
+
 应用窗口准备分成三个明确步骤：
 
 ```text
@@ -1087,7 +1093,7 @@ EnsureRestored          required by UIA scope
 BestEffortForeground    failure does not block UIA
 ```
 
-`SetForegroundWindow` 受 Windows foreground-lock 约束，它的失败不能让 ApplicationQuery 变成 `BackendFailed`。只有未来依赖 SendInput 的物理输入计划才声明 `ForegroundRequired`。
+`SetForegroundWindow` 受 Windows foreground-lock 约束，它的失败不能让应用资源获取变成硬失败。只有未来依赖 SendInput 的物理输入计划才声明 `ForegroundRequired`。
 
 ---
 
@@ -1234,16 +1240,18 @@ AmbiguousTarget
 
 不能为了 fallback 语义偷偷取第一个元素；只有显式 `first(...)` / `nth(...)` 可以消除歧义。
 
-跨 backend 时，compiler 删除不支持的 branch 还不够。每个候选必须携带：
+跨 backend 时，compiler 删除不支持的 branch 还不够。`any` 必须在 compiler 阶段展开为独立 Planner alternative，每个候选只携带一条完整路径：
 
 ```text
-earliest_supported_branch_index
+BranchPath([outer_index, nested_index, ...])
 ```
+
+同一 backend 支持原始 branch 0 和 branch 2、但不支持 branch 1 时，必须生成两个候选 `[0]` 与 `[2]`；禁止继续把 0 和 2 合并在同一 backend plan 内。关系表达式两侧存在 `any` 时，对两侧替代方案做笛卡尔积并按查询树顺序连接路径。动作能力也逐替代方案计算，后序不支持的角色不能拒绝可执行的前序分支。
 
 Router 排序固定为：
 
 ```text
-Any branch priority
+BranchPath lexicographic order
     ↓
 SupportLevel
     ↓
@@ -2450,7 +2458,7 @@ cargo test -p argusflow-windows
 ```text
 WorkflowDefinition
   -> WorkflowEngine
-  -> ApplicationQuery
+  -> Application resource
   -> launch Notepad++
   -> WindowsUia action
   -> observable UI state assertion
@@ -3095,7 +3103,8 @@ tests/support/uia_dump.rs
 - [ ] `UiaBackend` 不再是 unit struct，而是绑定真实 `UiaRuntime`
 - [ ] UIA COM client 在专用 worker thread 初始化和使用
 - [ ] `IUIAutomation2` 显式配置 connection/transaction timeout
-- [ ] 请求 deadline、candidate budget、relation root budget 生效
+- [ ] 请求 deadline、硬 traversal node budget、relation root budget 生效
+- [ ] 单次 timeout 触发有上限的 generation recovery，而不是永久熔断 runtime
 - [ ] COM interface 不跨 Tokio worker thread 传播
 - [ ] `RuntimeAvailability::NotImplemented` 从真实 UIA candidate 消失
 - [ ] `AccessibilityContext.ready` 能反映 UIA runtime 状态
@@ -3105,7 +3114,7 @@ tests/support/uia_dump.rs
 - [ ] `Descendant` 使用严格 descendants scope
 - [ ] `Child` 使用 children scope
 - [ ] `Any` 按声明顺序返回第一个非空 branch
-- [ ] Backend candidate 携带并优先比较 earliest supported branch index
+- [ ] Backend compiler 为每个 `BranchPath` 生成独立 candidate 并按字典序全局排序
 - [ ] `First` / `Nth` 正确选择
 - [ ] 未显式选择时多个元素返回 `AmbiguousTarget`
 - [ ] 无元素返回 `TargetNotFound`
@@ -3125,7 +3134,7 @@ tests/support/uia_dump.rs
 - [ ] HRESULT 分类只允许 provider/window/timeout 错误触发 fallback
 - [ ] 普通 Windows CI 持续运行 compiler/unit/router/runtime tests
 - [ ] 交互式 Windows runner 持续运行真实 Notepad++ UIA E2E
-- [ ] WorkflowEngine -> ApplicationQuery -> UIA 有可观察 UI 状态断言
+- [ ] WorkflowEngine -> Application resource -> UIA 有可观察 UI 状态断言
 
 ---
 

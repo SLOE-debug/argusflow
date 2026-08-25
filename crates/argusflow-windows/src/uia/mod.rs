@@ -14,6 +14,7 @@ mod native;
 mod plan;
 mod property;
 mod runtime;
+mod runtime_worker;
 
 pub use action_compiler::{UiaActionCompileError, compile_uia_action};
 pub use backend::UiaBackend;

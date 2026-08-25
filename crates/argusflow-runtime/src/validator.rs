@@ -75,6 +75,8 @@ pub enum ValidationIssueCode {
     InvalidAqlQuery,
     /// 应用节点缺少有效 EXE、窗口标题或策略配置。
     InvalidApplicationSpec,
+    /// UI 节点的后端偏好与目标资源作用域能力不兼容。
+    InvalidBackendPreference,
     /// CommandOperation 的 runner 与字段组合或资源上限无效。
     InvalidCommand,
     /// WorkflowPermissions 没有授权 Command 节点所需能力。

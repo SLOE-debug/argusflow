@@ -3,8 +3,8 @@ use argusflow_core::{
     UiQuery, UiaAttribute,
 };
 use argusflow_query::{
-    BackendQueryCapability, Diagnostic, DiagnosticCode, DiagnosticSeverity, QueryBackend,
-    QueryCost, SupportLevel, normalize_query,
+    BackendQueryCapability, BranchPath, Diagnostic, DiagnosticCode, DiagnosticSeverity,
+    QueryBackend, QueryCost, SupportLevel, normalize_query,
 };
 use thiserror::Error;
 
@@ -29,6 +29,7 @@ pub enum UiaQueryCompileError {
 }
 
 /// 单棵 UIA 表达式及由真实编译结果推导的摘要。
+#[derive(Clone)]
 struct CompiledExpression {
     /// 可直接交给 UIA executor 的逻辑计划。
     expression: UiaPlanExpr,
@@ -36,33 +37,38 @@ struct CompiledExpression {
     support: SupportLevel,
     /// 实际计划的粗粒度成本。
     cost: QueryCost,
-    /// 当前后端在最外层 `any` 中保留的最早原始分支索引。
-    earliest_supported_branch_index: usize,
+    /// 当前替代方案在完整查询 fallback 树中的稳定路径。
+    branch_path: BranchPath,
     /// 与 residual 或树遍历有关的结构化诊断。
     diagnostics: Vec<Diagnostic>,
 }
 
-/// 将查询编译为 UIA pushdown、CacheRequest 和 residual filter 计划。
-pub fn compile_uia_query(query: &UiQuery) -> Result<UiaQueryPlan, UiaQueryCompileError> {
+/// 将查询编译为彼此独立的 UIA fallback 替代方案。
+pub fn compile_uia_query(query: &UiQuery) -> Result<Vec<UiaQueryPlan>, UiaQueryCompileError> {
     let normalized = normalize_query(query);
-    let compiled = compile_expression(&normalized.expression)?;
-    Ok(UiaQueryPlan {
-        expression: compiled.expression,
-        capability: BackendQueryCapability {
-            backend: QueryBackend::WindowsUia,
-            level: compiled.support,
-            estimated_cost: compiled.cost,
-            earliest_supported_branch_index: compiled.earliest_supported_branch_index,
-        },
-        normalized,
-        diagnostics: compiled.diagnostics,
-    })
+    let alternatives = compile_expression(&normalized.expression)?;
+    Ok(alternatives
+        .into_iter()
+        .map(|compiled| UiaQueryPlan {
+            expression: compiled.expression,
+            capability: BackendQueryCapability {
+                backend: QueryBackend::WindowsUia,
+                level: compiled.support,
+                estimated_cost: compiled.cost,
+                branch_path: compiled.branch_path,
+            },
+            normalized: normalized.clone(),
+            diagnostics: compiled.diagnostics,
+        })
+        .collect())
 }
 
-/// 递归保持 Query Algebra，并允许 `any` 只采用当前后端可执行的分支。
-fn compile_expression(expression: &QueryExpr) -> Result<CompiledExpression, UiaQueryCompileError> {
+/// 递归展开 Query Algebra，确保每个结果只对应一个完整 fallback 路径。
+fn compile_expression(
+    expression: &QueryExpr,
+) -> Result<Vec<CompiledExpression>, UiaQueryCompileError> {
     match expression {
-        QueryExpr::Match { matcher } => compile_matcher(matcher),
+        QueryExpr::Match { matcher } => compile_matcher(matcher).map(|compiled| vec![compiled]),
         QueryExpr::Descendant { ancestor, target } => {
             let ancestor = compile_expression(ancestor)?;
             let target = compile_expression(target)?;
@@ -86,27 +92,33 @@ fn compile_expression(expression: &QueryExpr) -> Result<CompiledExpression, UiaQ
         QueryExpr::Any { queries } => compile_any(queries),
         QueryExpr::Not { .. } => Err(UiaQueryCompileError::UnsupportedQuery),
         QueryExpr::First { query } => {
-            let compiled = compile_expression(query)?;
-            Ok(CompiledExpression {
-                expression: UiaPlanExpr::First(Box::new(compiled.expression)),
-                support: compiled.support,
-                cost: compiled.cost,
-                earliest_supported_branch_index: compiled.earliest_supported_branch_index,
-                diagnostics: compiled.diagnostics,
-            })
+            let alternatives = compile_expression(query)?;
+            Ok(alternatives
+                .into_iter()
+                .map(|compiled| CompiledExpression {
+                    expression: UiaPlanExpr::First(Box::new(compiled.expression)),
+                    support: compiled.support,
+                    cost: compiled.cost,
+                    branch_path: compiled.branch_path,
+                    diagnostics: compiled.diagnostics,
+                })
+                .collect())
         }
         QueryExpr::Nth { query, index } => {
-            let compiled = compile_expression(query)?;
-            Ok(CompiledExpression {
-                expression: UiaPlanExpr::Nth {
-                    query: Box::new(compiled.expression),
-                    index: index.get(),
-                },
-                support: max_support(compiled.support, SupportLevel::Hybrid),
-                cost: max_cost(compiled.cost, QueryCost::Medium),
-                earliest_supported_branch_index: compiled.earliest_supported_branch_index,
-                diagnostics: compiled.diagnostics,
-            })
+            let alternatives = compile_expression(query)?;
+            Ok(alternatives
+                .into_iter()
+                .map(|compiled| CompiledExpression {
+                    expression: UiaPlanExpr::Nth {
+                        query: Box::new(compiled.expression),
+                        index: index.get(),
+                    },
+                    support: max_support(compiled.support, SupportLevel::Hybrid),
+                    cost: max_cost(compiled.cost, QueryCost::Medium),
+                    branch_path: compiled.branch_path,
+                    diagnostics: compiled.diagnostics,
+                })
+                .collect())
         }
         QueryExpr::Css { .. } => Err(UiaQueryCompileError::UnsupportedQuery),
     }
@@ -165,7 +177,7 @@ fn compile_matcher(
         } else {
             QueryCost::Low
         },
-        earliest_supported_branch_index: 0,
+        branch_path: BranchPath::root(),
         diagnostics,
     })
 }
@@ -335,64 +347,53 @@ const fn is_string_property(property: UiaProperty) -> bool {
     )
 }
 
-/// 编译 `any` 的每个独立分支，并丢弃当前 backend 无法表达的替代分支。
-fn compile_any(queries: &[QueryExpr]) -> Result<CompiledExpression, UiaQueryCompileError> {
-    let branches = queries
-        .iter()
-        .enumerate()
-        .filter_map(|(index, query)| {
-            compile_expression(query)
-                .ok()
-                .map(|compiled| (index, compiled))
-        })
-        .collect::<Vec<_>>();
-    if branches.is_empty() {
+/// 展开 `any` 的每条可执行分支，并把原始索引前缀写入每个独立替代方案。
+fn compile_any(queries: &[QueryExpr]) -> Result<Vec<CompiledExpression>, UiaQueryCompileError> {
+    let mut alternatives = Vec::new();
+    for (branch_index, query) in queries.iter().enumerate() {
+        let Ok(branch_alternatives) = compile_expression(query) else {
+            continue;
+        };
+        for mut alternative in branch_alternatives {
+            alternative.branch_path.prepend(branch_index);
+            alternatives.push(alternative);
+        }
+    }
+    if alternatives.is_empty() {
         return Err(UiaQueryCompileError::UnsupportedQuery);
     }
-    if branches.len() == 1 {
-        let (index, mut branch) = branches
-            .into_iter()
-            .next()
-            .expect("one compiled branch exists");
-        branch.earliest_supported_branch_index = index;
-        return Ok(branch);
-    }
-
-    let earliest_supported_branch_index = branches
-        .first()
-        .map(|(index, _)| *index)
-        .expect("at least one compiled branch exists");
-    let mut expressions = Vec::new();
-    let mut diagnostics = Vec::new();
-    for (_, branch) in branches {
-        expressions.push(branch.expression);
-        diagnostics.extend(branch.diagnostics);
-    }
-    diagnostics.push(Diagnostic::global(
-        DiagnosticCode::ExpensiveTraversal,
-        DiagnosticSeverity::Information,
-        Some(QueryBackend::WindowsUia),
-    ));
-    Ok(CompiledExpression {
-        expression: UiaPlanExpr::Any(expressions),
-        support: SupportLevel::Emulated,
-        cost: QueryCost::High,
-        earliest_supported_branch_index,
-        diagnostics,
-    })
+    Ok(alternatives)
 }
 
-/// 合并关系表达式两侧的真实能力摘要。
+/// 对关系表达式两侧做笛卡尔积，使每个结果冻结两侧所有 fallback 选择。
 fn combine_binary(
+    left: Vec<CompiledExpression>,
+    right: Vec<CompiledExpression>,
+    build: impl Fn(UiaPlanExpr, UiaPlanExpr) -> UiaPlanExpr,
+) -> Vec<CompiledExpression> {
+    let mut combined = Vec::new();
+    for left_alternative in left {
+        for right_alternative in &right {
+            combined.push(combine_binary_pair(
+                left_alternative.clone(),
+                right_alternative.clone(),
+                &build,
+            ));
+        }
+    }
+    combined
+}
+
+/// 合并一对已经确定分支选择的关系计划和能力摘要。
+fn combine_binary_pair(
     left: CompiledExpression,
     right: CompiledExpression,
-    build: impl FnOnce(UiaPlanExpr, UiaPlanExpr) -> UiaPlanExpr,
+    build: &impl Fn(UiaPlanExpr, UiaPlanExpr) -> UiaPlanExpr,
 ) -> CompiledExpression {
     let support = max_support(left.support, right.support);
     let cost = max_cost(left.cost, right.cost);
-    let earliest_supported_branch_index = left
-        .earliest_supported_branch_index
-        .max(right.earliest_supported_branch_index);
+    let mut branch_path = left.branch_path;
+    branch_path.append(&right.branch_path);
     let diagnostics = left
         .diagnostics
         .into_iter()
@@ -402,7 +403,7 @@ fn combine_binary(
         expression: build(left.expression, right.expression),
         support,
         cost,
-        earliest_supported_branch_index,
+        branch_path,
         diagnostics,
     }
 }

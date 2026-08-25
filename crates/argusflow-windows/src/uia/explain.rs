@@ -82,18 +82,6 @@ fn visit(expression: &UiaPlanExpr, steps: &mut Vec<PlanStepExplain>) {
             visit(parent, steps);
             visit(target, steps);
         }
-        UiaPlanExpr::Any(queries) => {
-            steps.push(PlanStepExplain {
-                kind: PlanStepKind::Traversal,
-                summary: format!(
-                    "{} executable fallback branch(es), stop at first non-empty result",
-                    queries.len()
-                ),
-            });
-            for query in queries {
-                visit(query, steps);
-            }
-        }
         UiaPlanExpr::First(query) => {
             steps.push(PlanStepExplain {
                 kind: PlanStepKind::Selection,

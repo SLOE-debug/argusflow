@@ -16,7 +16,7 @@ mod syntax;
 
 pub use analyze::{QueryAnalysis, analyze_query};
 pub use capability::{
-    BackendQueryCapability, QueryBackend, QueryCost, QueryPortability, SupportLevel,
+    BackendQueryCapability, BranchPath, QueryBackend, QueryCost, QueryPortability, SupportLevel,
 };
 pub use diagnostic::{Diagnostic, DiagnosticCode, DiagnosticParams, DiagnosticSeverity};
 pub use error::{AqlError, AqlErrorKind, SourceSpan};

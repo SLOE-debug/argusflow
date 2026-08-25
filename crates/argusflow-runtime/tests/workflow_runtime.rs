@@ -5,11 +5,11 @@
 use std::sync::Arc;
 
 use argusflow_core::{
-    AcquirePolicy, ActivationPolicy, ApplicationSpec, AqlQuery, AutomationTarget, CleanupPolicy,
-    CommandOperation, CommandRunner, ConditionBranch, ConditionOperator, ConditionPredicate,
-    ExecutionEvent, ExecutionEventKind, Position, ResourceRef, TargetScope, UiOperation, ValueExpr,
-    WindowTitleMatcher, WorkflowDefinition, WorkflowEdge, WorkflowNode, WorkflowNodeKind,
-    WorkflowPermissions,
+    AcquirePolicy, ActivationPolicy, ApplicationSpec, AqlQuery, AutomationTarget,
+    BackendPreference, CleanupPolicy, CommandOperation, CommandRunner, ConditionBranch,
+    ConditionOperator, ConditionPredicate, ExecutionEvent, ExecutionEventKind, Position,
+    ResourceRef, TargetLocator, TargetScope, UiOperation, ValueExpr, WindowTitleMatcher,
+    WorkflowDefinition, WorkflowEdge, WorkflowNode, WorkflowNodeKind, WorkflowPermissions,
 };
 use argusflow_runtime::{
     ExecutionEventSink, RuntimeError, UnavailableActionDispatcher, ValidationIssueCode,
@@ -186,6 +186,53 @@ fn validation_rejects_an_application_resource_that_does_not_dominate_its_consume
     ];
 
     assert_has_issue(&workflow, ValidationIssueCode::ReferenceNotDominating);
+}
+
+#[test]
+fn validation_rejects_browser_cdp_for_a_desktop_application_resource() {
+    let resource = ResourceRef {
+        producer_node_id: "application".to_owned(),
+        output_name: "session".to_owned(),
+    };
+    let target = AutomationTarget {
+        scope: TargetScope::Application { resource },
+        locator: TargetLocator::Query {
+            query: AqlQuery::v1("button(name = \"Save\")"),
+        },
+        backend_preference: BackendPreference::BrowserCdp,
+    };
+    let workflow = WorkflowDefinition {
+        schema_version: 4,
+        id: Uuid::new_v4(),
+        name: "Application backend validation".to_owned(),
+        variables: json!({}),
+        permissions: no_permissions(),
+        nodes: vec![
+            node("start", 0.0, WorkflowNodeKind::Start),
+            node(
+                "application",
+                200.0,
+                WorkflowNodeKind::Application {
+                    spec: test_application_spec(),
+                },
+            ),
+            node(
+                "ui",
+                400.0,
+                WorkflowNodeKind::Ui {
+                    operation: UiOperation::Click { target },
+                },
+            ),
+            node("end", 600.0, WorkflowNodeKind::End),
+        ],
+        edges: vec![
+            edge("start", "application"),
+            edge("application", "ui"),
+            edge("ui", "end"),
+        ],
+    };
+
+    assert_has_issue(&workflow, ValidationIssueCode::InvalidBackendPreference);
 }
 
 #[test]

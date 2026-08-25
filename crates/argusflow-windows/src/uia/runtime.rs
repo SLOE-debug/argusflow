@@ -1,31 +1,19 @@
-//! 专用 MTA COM worker、typed request channel 与只读 runtime health。
+//! 可恢复 UIA worker generation、typed request channel 与只读 runtime health。
 
 use std::{
     fmt,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicU8, Ordering},
-        mpsc::{self, Receiver, Sender},
+        atomic::{AtomicU64, Ordering},
     },
-    thread::{self, JoinHandle},
     time::Duration,
 };
 
 use argusflow_core::{ActionOutcome, AutomationError, BackendKind};
 use tokio::sync::oneshot;
-use windows::Win32::{
-    System::Com::{
-        CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx,
-        CoUninitialize,
-    },
-    UI::Accessibility::{CUIAutomation8, IUIAutomation2},
-};
 
 use super::{
-    budget::UiaExecutionBudget,
-    error::{UiaError, UiaOperation},
-    executor::UiaExecutor,
-    plan::UiaPreparedPlan,
+    budget::UiaExecutionBudget, plan::UiaPreparedPlan, runtime_worker::UiaWorkerGeneration,
 };
 
 /// prepare 阶段冻结、execute 阶段重新校验的窗口身份。
@@ -55,7 +43,7 @@ pub enum UiaRuntimeState {
     Initializing,
     /// worker 已可接收真实 UIA 请求。
     Ready,
-    /// COM apartment、client 或线程创建失败。
+    /// COM apartment、client、线程或受控恢复失败。
     InitializationFailed {
         /// 可用于 Planner/日志诊断的失败原因。
         message: String,
@@ -64,121 +52,140 @@ pub enum UiaRuntimeState {
     Stopped,
 }
 
-/// 可由 Backend 与 ExecutionContextProvider 共享的只读 runtime health。
+/// 可由 Backend 与 ExecutionContextProvider 共享的 generation-aware runtime health。
 #[derive(Debug)]
 pub struct UiaRuntimeHealth {
-    /// 原子状态码使高频 Planner snapshot 无需持有字符串锁。
-    state: AtomicU8,
-    /// 初始化失败或请求 deadline 熔断时保存的最新诊断文本。
-    failure: Mutex<Option<String>>,
+    /// 高位保存 generation，低位保存状态，避免旧 worker 覆盖新 worker 状态。
+    lifecycle: AtomicU64,
+    /// 只保存与当前 generation 关联的失败诊断。
+    failure: Mutex<Option<(u64, String)>>,
 }
 
 impl UiaRuntimeHealth {
     /// 返回当前 worker 状态的不可变快照。
     pub fn snapshot(&self) -> UiaRuntimeState {
-        match self.state.load(Ordering::Acquire) {
+        let lifecycle = self.lifecycle.load(Ordering::Acquire);
+        let generation = lifecycle_generation(lifecycle);
+        match lifecycle_state(lifecycle) {
             HEALTH_READY => UiaRuntimeState::Ready,
             HEALTH_FAILED => UiaRuntimeState::InitializationFailed {
                 message: self
                     .failure
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner())
-                    .clone()
-                    .unwrap_or_else(|| "UI Automation initialization failed".to_owned()),
+                    .as_ref()
+                    .filter(|(failed_generation, _)| *failed_generation == generation)
+                    .map(|(_, message)| message.clone())
+                    .unwrap_or_else(|| "UI Automation runtime failed".to_owned()),
             },
             HEALTH_STOPPED => UiaRuntimeState::Stopped,
             _ => UiaRuntimeState::Initializing,
         }
     }
 
-    /// 判断 runtime 是否可进入 Ready candidate。
+    /// 判断当前 generation 是否可进入 Ready candidate。
     pub fn is_ready(&self) -> bool {
-        self.state.load(Ordering::Acquire) == HEALTH_READY
+        lifecycle_state(self.lifecycle.load(Ordering::Acquire)) == HEALTH_READY
     }
 
-    /// 仅允许仍处于初始化状态的 worker 标记成功，避免启动 deadline 后恢复 Ready。
-    fn mark_ready(&self) -> bool {
-        self.state
+    /// 判断指定 worker generation 仍是当前 Ready 实例。
+    pub(super) fn is_ready_generation(&self, generation: u64) -> bool {
+        self.lifecycle.load(Ordering::Acquire) == encode_lifecycle(generation, HEALTH_READY)
+    }
+
+    /// 在启动或恢复前原子切换到新的初始化 generation。
+    pub(super) fn begin_generation(&self, generation: u64) {
+        self.lifecycle.store(
+            encode_lifecycle(generation, HEALTH_INITIALIZING),
+            Ordering::Release,
+        );
+        *self
+            .failure
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+    }
+
+    /// 仅允许当前仍在初始化的 generation 标记成功。
+    pub(super) fn mark_ready(&self, generation: u64) -> bool {
+        self.lifecycle
             .compare_exchange(
-                HEALTH_INITIALIZING,
-                HEALTH_READY,
+                encode_lifecycle(generation, HEALTH_INITIALIZING),
+                encode_lifecycle(generation, HEALTH_READY),
                 Ordering::AcqRel,
                 Ordering::Acquire,
             )
             .is_ok()
     }
 
-    /// 保存稳定失败原因并标记初始化失败。
-    fn mark_failed(&self, message: String) {
-        *self
-            .failure
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(message);
-        self.state.store(HEALTH_FAILED, Ordering::Release);
+    /// 保存当前 generation 的稳定失败原因；过期 worker 的写入会被忽略。
+    pub(super) fn mark_failed(&self, generation: u64, message: String) {
+        if self.update_generation_state(generation, HEALTH_FAILED) {
+            *self
+                .failure
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some((generation, message));
+        }
     }
 
-    /// 标记已经成功启动过的 worker 停止。
-    fn mark_stopped(&self) {
-        self.state.store(HEALTH_STOPPED, Ordering::Release);
+    /// 标记当前 generation 已退出；过期 worker 不得覆盖恢复后的状态。
+    pub(super) fn mark_stopped(&self, generation: u64) {
+        let _ = self.lifecycle.compare_exchange(
+            encode_lifecycle(generation, HEALTH_READY),
+            encode_lifecycle(generation, HEALTH_STOPPED),
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        );
+    }
+
+    /// 在 generation 仍匹配时替换低位状态码。
+    fn update_generation_state(&self, generation: u64, state: u8) -> bool {
+        let mut current = self.lifecycle.load(Ordering::Acquire);
+        loop {
+            if lifecycle_generation(current) != generation {
+                return false;
+            }
+            match self.lifecycle.compare_exchange_weak(
+                current,
+                encode_lifecycle(generation, state),
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => return true,
+                Err(actual) => current = actual,
+            }
+        }
     }
 }
 
 impl Default for UiaRuntimeHealth {
     fn default() -> Self {
         Self {
-            state: AtomicU8::new(HEALTH_INITIALIZING),
+            lifecycle: AtomicU64::new(encode_lifecycle(0, HEALTH_INITIALIZING)),
             failure: Mutex::new(None),
         }
     }
 }
 
-/// 应用生命周期持有的唯一 UIA worker handle。
+/// 应用生命周期持有并在 deadline 后受控替换的 UIA worker generation。
 pub struct UiaRuntime {
-    /// 只发送 ArgusFlow 自有 Send 数据的标准线程 channel。
-    sender: Sender<UiaWorkerMessage>,
+    /// 当前唯一可接收新请求的 worker generation。
+    worker: Mutex<UiaWorkerGeneration>,
     /// Backend 与 context provider 共享的 health。
     health: Arc<UiaRuntimeHealth>,
-    /// worker handle；只对已经退出的线程执行 join，避免第三方 provider 卡住 Drop。
-    worker: Mutex<Option<JoinHandle<()>>>,
-    /// provider timeout 与 ArgusFlow 请求资源限制。
+    /// provider timeout、请求资源限制与恢复上限。
     config: UiaRuntimeConfig,
 }
 
 impl UiaRuntime {
-    /// 启动名为 `argusflow-uia` 的专用 MTA worker。
+    /// 启动第一代名为 `argusflow-uia-0` 的专用 MTA worker。
     pub fn start() -> Self {
         let config = UiaRuntimeConfig::default();
-        let (sender, receiver) = mpsc::channel();
-        let (initialized_sender, initialized_receiver) = mpsc::sync_channel(0);
         let health = Arc::new(UiaRuntimeHealth::default());
-        let worker_health = health.clone();
-        let worker = thread::Builder::new()
-            .name("argusflow-uia".to_owned())
-            .spawn(move || worker_main(receiver, worker_health, initialized_sender, config));
-
-        let worker = match worker {
-            Ok(worker) => {
-                if initialized_receiver
-                    .recv_timeout(config.connection_timeout)
-                    .is_err()
-                    && matches!(health.snapshot(), UiaRuntimeState::Initializing)
-                {
-                    health.mark_failed(
-                        "UI Automation worker did not initialize within the connection timeout"
-                            .to_owned(),
-                    );
-                }
-                Some(worker)
-            }
-            Err(error) => {
-                health.mark_failed(format!("failed to spawn UI Automation worker: {error}"));
-                None
-            }
-        };
+        health.begin_generation(0);
+        let worker = UiaWorkerGeneration::start(0, health.clone(), config);
         Self {
-            sender,
-            health,
             worker: Mutex::new(worker),
+            health,
             config,
         }
     }
@@ -188,51 +195,76 @@ impl UiaRuntime {
         self.health.clone()
     }
 
-    /// 异步提交请求，COM 同步调用始终留在专用 OS 线程。
+    /// 异步提交请求；单次 timeout 会触发有上限的新 generation 恢复。
     pub(crate) async fn execute(
         &self,
         request: UiaExecuteRequest,
     ) -> Result<ActionOutcome, AutomationError> {
         if !self.health.is_ready() {
-            return Err(AutomationError::BackendUnavailable {
-                backend: BackendKind::WindowsUia,
-                message: runtime_state_message(self.health.snapshot()),
-            });
+            return Err(unavailable(runtime_state_message(self.health.snapshot())));
         }
         let (response_sender, response_receiver) = oneshot::channel();
         let budget = UiaExecutionBudget::new(
             self.config.execution_timeout,
-            self.config.max_candidates,
+            self.config.max_traversal_nodes,
             self.config.max_relation_roots,
         );
-        self.sender
-            .send(UiaWorkerMessage::Execute {
-                request,
-                budget,
-                response: response_sender,
-            })
-            .map_err(|_| AutomationError::BackendUnavailable {
-                backend: BackendKind::WindowsUia,
-                message: "UI Automation worker request channel is closed".to_owned(),
-            })?;
+        let generation = {
+            let worker = self
+                .worker
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let generation = worker.generation();
+            if !self.health.is_ready_generation(generation) {
+                return Err(unavailable(runtime_state_message(self.health.snapshot())));
+            }
+            if worker.send(request, budget, response_sender).is_err() {
+                drop(worker);
+                self.recover_worker(generation);
+                return Err(unavailable(
+                    "UI Automation worker request channel is closed".to_owned(),
+                ));
+            }
+            generation
+        };
+
         match tokio::time::timeout(self.config.execution_timeout, response_receiver).await {
             Ok(Ok(result)) => result,
-            Ok(Err(_)) => Err(AutomationError::BackendUnavailable {
-                backend: BackendKind::WindowsUia,
-                message: "UI Automation worker stopped before returning a result".to_owned(),
-            }),
+            Ok(Err(_)) => {
+                self.recover_worker(generation);
+                Err(unavailable(
+                    "UI Automation worker stopped before returning a result".to_owned(),
+                ))
+            }
             Err(_) => {
-                self.health.mark_failed(
+                self.recover_worker(generation);
+                Err(unavailable(
                     "UI Automation request exceeded the ArgusFlow execution deadline".to_owned(),
-                );
-                let _ = self.sender.send(UiaWorkerMessage::Shutdown);
-                Err(AutomationError::BackendUnavailable {
-                    backend: BackendKind::WindowsUia,
-                    message: "UI Automation request exceeded the ArgusFlow execution deadline"
-                        .to_owned(),
-                })
+                ))
             }
         }
+    }
+
+    /// 只允许触发故障的当前 generation 启动下一代，避免并发 timeout 重复恢复。
+    fn recover_worker(&self, expected_generation: u64) {
+        let mut worker = self
+            .worker
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if worker.generation() != expected_generation {
+            return;
+        }
+        worker.shutdown();
+        if expected_generation >= self.config.max_recovery_attempts {
+            self.health.mark_failed(
+                expected_generation,
+                "UI Automation runtime exhausted its recovery limit".to_owned(),
+            );
+            return;
+        }
+        let next_generation = expected_generation + 1;
+        self.health.begin_generation(next_generation);
+        *worker = UiaWorkerGeneration::start(next_generation, self.health.clone(), self.config);
     }
 }
 
@@ -247,172 +279,28 @@ impl fmt::Debug for UiaRuntime {
 
 impl Drop for UiaRuntime {
     fn drop(&mut self) {
-        let _ = self.sender.send(UiaWorkerMessage::Shutdown);
-        if let Some(worker) = self
-            .worker
+        self.worker
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .take()
-        {
-            // 不对可能仍卡在第三方 provider 的线程执行无上限 join；已退出线程仍完成回收。
-            if worker.is_finished() {
-                let _ = worker.join();
-            }
-        }
+            .shutdown();
     }
 }
 
-/// worker 可处理的封闭消息集合。
-enum UiaWorkerMessage {
-    /// 执行冻结请求并通过 oneshot 返回公共结果。
-    Execute {
-        /// 不含 COM interface 的请求。
-        request: UiaExecuteRequest,
-        /// 包含 channel 排队时间的请求预算。
-        budget: UiaExecutionBudget,
-        /// 唯一响应 channel。
-        response: oneshot::Sender<Result<ActionOutcome, AutomationError>>,
-    },
-    /// 在创建 apartment 的同一线程退出。
-    Shutdown,
-}
-
-/// 初始化 apartment/client，并同步处理全部 UIA 请求。
-fn worker_main(
-    receiver: Receiver<UiaWorkerMessage>,
-    health: Arc<UiaRuntimeHealth>,
-    initialized: mpsc::SyncSender<()>,
-    config: UiaRuntimeConfig,
-) {
-    let apartment = match ComApartment::initialize() {
-        Ok(apartment) => apartment,
-        Err(error) => {
-            health.mark_failed(format!("CoInitializeEx failed: {error}"));
-            let _ = initialized.send(());
-            return;
-        }
-    };
-    // SAFETY: COM 已在当前 worker 初始化；client 创建后不离开这个线程。
-    let automation: IUIAutomation2 =
-        match unsafe { CoCreateInstance(&CUIAutomation8, None, CLSCTX_INPROC_SERVER) } {
-            Ok(automation) => automation,
-            Err(error) => {
-                health.mark_failed(format!("CUIAutomation8 creation failed: {error}"));
-                let _ = initialized.send(());
-                return;
-            }
-        };
-    if let Err(error) = configure_provider_timeouts(&automation, config) {
-        health.mark_failed(error.to_string());
-        let _ = initialized.send(());
-        return;
-    }
-    if !health.mark_ready() {
-        let _ = initialized.send(());
-        return;
-    }
-    let _ = initialized.send(());
-    let _health_guard = WorkerHealthGuard(health.clone());
-    let executor = UiaExecutor::new(&automation);
-    while let Ok(message) = receiver.recv() {
-        match message {
-            UiaWorkerMessage::Execute {
-                request,
-                budget,
-                response,
-            } => {
-                let result = if health.is_ready() {
-                    executor.execute(request, budget)
-                } else {
-                    Err(AutomationError::BackendUnavailable {
-                        backend: BackendKind::WindowsUia,
-                        message: runtime_state_message(health.snapshot()),
-                    })
-                };
-                let _ = response.send(result);
-            }
-            UiaWorkerMessage::Shutdown => break,
-        }
-    }
-    drop(executor);
-    drop(automation);
-    drop(apartment);
-}
-
-/// 保证初始化成功后的正常退出或 panic 都反映为 Stopped。
-struct WorkerHealthGuard(Arc<UiaRuntimeHealth>);
-
-impl Drop for WorkerHealthGuard {
-    fn drop(&mut self) {
-        self.0.mark_stopped();
-    }
-}
-
-/// 只允许在初始化线程调用 CoUninitialize 的 RAII guard。
-struct ComApartment;
-
-impl ComApartment {
-    /// 初始化多线程 COM apartment。
-    fn initialize() -> windows::core::Result<Self> {
-        // SAFETY: 每个 UIA worker 只调用一次，并由 ComApartment::drop 在同线程配对。
-        unsafe { CoInitializeEx(None, COINIT_MULTITHREADED).ok() }?;
-        Ok(Self)
-    }
-}
-
-impl Drop for ComApartment {
-    fn drop(&mut self) {
-        // SAFETY: guard 只在成功调用 CoInitializeEx 的 worker 线程构造和销毁。
-        unsafe { CoUninitialize() };
-    }
-}
-
-/// 把 health snapshot 转成执行边界的稳定诊断。
-fn runtime_state_message(state: UiaRuntimeState) -> String {
-    match state {
-        UiaRuntimeState::Initializing => "UI Automation worker is still initializing".to_owned(),
-        UiaRuntimeState::Ready => "UI Automation worker is ready".to_owned(),
-        UiaRuntimeState::InitializationFailed { message } => message,
-        UiaRuntimeState::Stopped => "UI Automation worker has stopped".to_owned(),
-    }
-}
-
-/// 显式设置 UIA provider 自带的连接与事务超时，不依赖系统默认值。
-fn configure_provider_timeouts(
-    automation: &IUIAutomation2,
-    config: UiaRuntimeConfig,
-) -> Result<(), UiaError> {
-    let connection_timeout = duration_millis(config.connection_timeout);
-    let transaction_timeout = duration_millis(config.transaction_timeout);
-    // SAFETY: automation client 在当前 MTA worker 创建，配置调用不会离开该 apartment。
-    unsafe { automation.SetConnectionTimeout(connection_timeout) }
-        .map_err(|source| UiaError::from_native(UiaOperation::ConfigureTimeouts, source))?;
-    // SAFETY: automation client 仍由当前 worker 独占，毫秒值已收窄为 API 接受的 u32。
-    unsafe { automation.SetTransactionTimeout(transaction_timeout) }
-        .map_err(|source| UiaError::from_native(UiaOperation::ConfigureTimeouts, source))?;
-    Ok(())
-}
-
-/// 把受控 runtime Duration 转换为 IUIAutomation2 使用的非零毫秒值。
-fn duration_millis(duration: Duration) -> u32 {
-    u32::try_from(duration.as_millis())
-        .unwrap_or(u32::MAX)
-        .max(1)
-}
-
-/// UIA runtime 的稳定 provider timeout 与单次请求资源限制。
+/// UIA runtime 的稳定 provider timeout、请求资源限制与恢复策略。
 #[derive(Debug, Clone, Copy)]
-struct UiaRuntimeConfig {
+pub(super) struct UiaRuntimeConfig {
     /// provider 建立连接的最长时间。
-    connection_timeout: Duration,
+    pub(super) connection_timeout: Duration,
     /// 单个跨进程 UIA 调用的最长事务时间。
-    transaction_timeout: Duration,
+    pub(super) transaction_timeout: Duration,
     /// 包含 worker 排队时间的 ArgusFlow 请求总时限。
-    execution_timeout: Duration,
-    /// 单次请求允许读取的 provider 候选总数。
-    max_candidates: usize,
+    pub(super) execution_timeout: Duration,
+    /// 单次请求允许通过 RawView TreeWalker 访问的 provider 节点总数。
+    pub(super) max_traversal_nodes: usize,
     /// 单次请求允许展开的关系根总数。
-    max_relation_roots: usize,
+    pub(super) max_relation_roots: usize,
+    /// 初始 generation 之后允许创建的新 worker 数量。
+    pub(super) max_recovery_attempts: u64,
 }
 
 impl Default for UiaRuntimeConfig {
@@ -421,17 +309,93 @@ impl Default for UiaRuntimeConfig {
             connection_timeout: Duration::from_secs(2),
             transaction_timeout: Duration::from_secs(20),
             execution_timeout: Duration::from_secs(25),
-            max_candidates: 10_000,
+            max_traversal_nodes: 10_000,
             max_relation_roots: 256,
+            max_recovery_attempts: 3,
         }
     }
 }
 
-/// health 原子状态码。
+/// 把 health snapshot 转成执行边界的稳定诊断。
+fn runtime_state_message(state: UiaRuntimeState) -> String {
+    match state {
+        UiaRuntimeState::Initializing => {
+            "UI Automation worker is initializing or recovering".to_owned()
+        }
+        UiaRuntimeState::Ready => "UI Automation worker is ready".to_owned(),
+        UiaRuntimeState::InitializationFailed { message } => message,
+        UiaRuntimeState::Stopped => "UI Automation worker has stopped".to_owned(),
+    }
+}
+
+/// 创建稳定的公共后端不可用错误。
+fn unavailable(message: String) -> AutomationError {
+    AutomationError::BackendUnavailable {
+        backend: BackendKind::WindowsUia,
+        message,
+    }
+}
+
+/// 把 generation 和状态编码进单个原子值。
+const fn encode_lifecycle(generation: u64, state: u8) -> u64 {
+    (generation << STATE_BITS) | state as u64
+}
+
+/// 从原子 lifecycle 读取 generation。
+const fn lifecycle_generation(lifecycle: u64) -> u64 {
+    lifecycle >> STATE_BITS
+}
+
+/// 从原子 lifecycle 读取状态码。
+const fn lifecycle_state(lifecycle: u64) -> u8 {
+    (lifecycle & STATE_MASK) as u8
+}
+
+/// 低位状态码占用的位数。
+const STATE_BITS: u32 = 8;
+/// 低位状态码掩码。
+const STATE_MASK: u64 = (1 << STATE_BITS) - 1;
+/// 初始化状态码。
 const HEALTH_INITIALIZING: u8 = 0;
-/// health 原子状态码。
+/// Ready 状态码。
 const HEALTH_READY: u8 = 1;
-/// health 原子状态码。
+/// 失败状态码。
 const HEALTH_FAILED: u8 = 2;
-/// health 原子状态码。
+/// 停止状态码。
 const HEALTH_STOPPED: u8 = 3;
+
+#[cfg(test)]
+mod tests {
+    use super::{UiaRuntimeHealth, UiaRuntimeState};
+
+    /// 旧 worker 在恢复后退出时不能把新 generation 从 Ready 改成 Stopped。
+    #[test]
+    fn stale_generation_cannot_overwrite_recovered_health() {
+        let health = UiaRuntimeHealth::default();
+        health.begin_generation(0);
+        assert!(health.mark_ready(0));
+        health.begin_generation(1);
+        assert!(health.mark_ready(1));
+
+        health.mark_stopped(0);
+
+        assert_eq!(health.snapshot(), UiaRuntimeState::Ready);
+    }
+
+    /// 恢复 generation 可以从旧代失败中重新进入 Ready。
+    #[test]
+    fn a_new_generation_recovers_from_a_previous_failure() {
+        let health = UiaRuntimeHealth::default();
+        health.begin_generation(0);
+        health.mark_failed(0, "provider timeout".to_owned());
+        assert!(matches!(
+            health.snapshot(),
+            UiaRuntimeState::InitializationFailed { .. }
+        ));
+
+        health.begin_generation(1);
+        assert!(health.mark_ready(1));
+
+        assert_eq!(health.snapshot(), UiaRuntimeState::Ready);
+    }
+}

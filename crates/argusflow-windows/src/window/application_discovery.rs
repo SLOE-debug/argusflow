@@ -1,11 +1,19 @@
 //! ApplicationSpec 对应的 Win32 顶层窗口和进程身份发现。
 
-use std::path::{Path, PathBuf};
+use std::{
+    os::windows::ffi::OsStrExt,
+    path::{Path, PathBuf},
+};
 
 use argusflow_core::{ApplicationError, ApplicationSpec, WindowIdentity, WindowTitleMatcher};
 use windows::{
     Win32::{
         Foundation::{CloseHandle, HANDLE, HWND, LPARAM},
+        Storage::FileSystem::{
+            BY_HANDLE_FILE_INFORMATION, CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_READ_ATTRIBUTES,
+            FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, GetFileInformationByHandle,
+            OPEN_EXISTING,
+        },
         System::Threading::{
             OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
             QueryFullProcessImageNameW,
@@ -15,7 +23,7 @@ use windows::{
             IsWindowVisible,
         },
     },
-    core::{BOOL, PWSTR},
+    core::{BOOL, PCWSTR, PWSTR},
 };
 
 /// 验证执行契约使用绝对且存在的普通文件路径，避免 shell 和 PATH 猜测。
@@ -113,11 +121,12 @@ unsafe extern "system" fn enum_window(window: HWND, parameter: LPARAM) -> BOOL {
     true.into()
 }
 
-/// 读取进程完整映像路径并按 Windows 路径大小写规则比较。
+/// 读取进程完整映像路径并比较 NTFS/文件系统稳定身份。
 fn process_path_matches(process_id: u32, expected: &Path) -> bool {
     process_executable_path(process_id)
-        .and_then(|path| path.canonicalize().ok())
-        .is_some_and(|actual| path_eq_ignore_case(&actual, expected))
+        .and_then(|actual| file_identity(&actual))
+        .zip(file_identity(expected))
+        .is_some_and(|(actual, expected)| actual == expected)
 }
 
 /// 通过受限查询句柄读取进程映像路径；系统进程或已退出进程返回 None。
@@ -125,7 +134,7 @@ fn process_executable_path(process_id: u32) -> Option<PathBuf> {
     // SAFETY: 只请求映像路径查询权限，不继承句柄；process_id 来自窗口所属进程。
     let handle =
         unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, process_id) }.ok()?;
-    let handle = ProcessHandle(handle);
+    let handle = OwnedHandle(handle);
     let mut buffer = vec![0_u16; 32_768];
     let mut length = u32::try_from(buffer.len()).ok()?;
     // SAFETY: buffer 可写且长度由 length 精确描述，handle 在调用期间保持有效。
@@ -142,12 +151,12 @@ fn process_executable_path(process_id: u32) -> Option<PathBuf> {
     Some(PathBuf::from(String::from_utf16_lossy(&buffer[..length])))
 }
 
-/// 自动关闭 OpenProcess 返回的内核句柄。
-struct ProcessHandle(HANDLE);
+/// 自动关闭 OpenProcess/CreateFileW 返回的内核句柄。
+struct OwnedHandle(HANDLE);
 
-impl Drop for ProcessHandle {
+impl Drop for OwnedHandle {
     fn drop(&mut self) {
-        // SAFETY: 句柄由 OpenProcess 成功创建，且此 RAII 包装拥有唯一关闭责任。
+        // SAFETY: 句柄由 Win32 句柄创建 API 成功返回，且本包装拥有唯一关闭责任。
         let _ = unsafe { CloseHandle(self.0) };
     }
 }
@@ -174,19 +183,48 @@ fn title_matches(matcher: &WindowTitleMatcher, title: &str) -> bool {
     }
 }
 
-/// Windows 路径比较遵循文件系统常见的大小写不敏感规则。
-fn path_eq_ignore_case(left: &Path, right: &Path) -> bool {
-    left.to_string_lossy()
-        .eq_ignore_ascii_case(&right.to_string_lossy())
+/// 不受路径大小写、短路径、符号链接或硬链接文本差异影响的文件身份。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct FileIdentity {
+    /// 文件所在卷序列号。
+    volume_serial_number: u32,
+    /// 卷内稳定文件索引。
+    file_index: u64,
+}
+
+/// 只请求属性读取权限并从文件句柄取得稳定身份；无法打开时拒绝身份匹配。
+fn file_identity(path: &Path) -> Option<FileIdentity> {
+    let mut wide_path = path.as_os_str().encode_wide().collect::<Vec<_>>();
+    wide_path.push(0);
+    // SAFETY: 路径以 NUL 结尾并在同步调用期间有效；只请求属性读取并允许常规共享。
+    let handle = unsafe {
+        CreateFileW(
+            PCWSTR(wide_path.as_ptr()),
+            FILE_READ_ATTRIBUTES.0,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            None,
+            OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL,
+            None,
+        )
+    }
+    .ok()?;
+    let handle = OwnedHandle(handle);
+    let mut information = BY_HANDLE_FILE_INFORMATION::default();
+    // SAFETY: information 是当前栈上有效且独占的输出缓冲区，handle 在调用期间保持打开。
+    unsafe { GetFileInformationByHandle(handle.0, &mut information) }.ok()?;
+    Some(FileIdentity {
+        volume_serial_number: information.dwVolumeSerialNumber,
+        file_index: (u64::from(information.nFileIndexHigh) << 32)
+            | u64::from(information.nFileIndexLow),
+    })
 }
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-
     use argusflow_core::WindowTitleMatcher;
 
-    use super::{path_eq_ignore_case, title_matches};
+    use super::{file_identity, title_matches};
 
     #[test]
     fn window_title_matching_is_case_insensitive() {
@@ -199,10 +237,12 @@ mod tests {
     }
 
     #[test]
-    fn windows_paths_are_compared_without_ascii_case() {
-        assert!(path_eq_ignore_case(
-            Path::new(r"C:\Program Files\Notepad++\notepad++.exe"),
-            Path::new(r"c:\program files\notepad++\NOTEPAD++.EXE"),
-        ));
+    fn executable_identity_is_derived_from_the_open_file() {
+        let executable = std::env::current_exe().expect("test executable path should exist");
+        let canonical = executable
+            .canonicalize()
+            .expect("test executable should canonicalize");
+
+        assert_eq!(file_identity(&executable), file_identity(&canonical));
     }
 }

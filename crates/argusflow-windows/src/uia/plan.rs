@@ -37,8 +37,6 @@ pub enum UiaPlanExpr {
         /// 直接子目标计划。
         target: Box<UiaPlanExpr>,
     },
-    /// 按顺序尝试多个计划分支。
-    Any(Vec<UiaPlanExpr>),
     /// 选择第一个结果。
     First(Box<UiaPlanExpr>),
     /// 选择从一开始计数的第 N 个结果。

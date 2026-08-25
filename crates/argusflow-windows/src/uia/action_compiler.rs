@@ -46,7 +46,7 @@ pub fn compile_uia_action(
                     Ok(combine_action_support(combined, support))
                 }
             })?;
-    let mut capability = query.capability;
+    let mut capability = query.capability.clone();
     capability.level = combine_query_action_support(capability.level, action_support);
 
     Ok(UiaPreparedPlan {
@@ -67,11 +67,6 @@ fn collect_target_roles(expression: &UiaPlanExpr, roles: &mut Vec<UiaRoleConstra
         }
         UiaPlanExpr::Descendant { target, .. } | UiaPlanExpr::Child { target, .. } => {
             collect_target_roles(target, roles);
-        }
-        UiaPlanExpr::Any(branches) => {
-            for branch in branches {
-                collect_target_roles(branch, roles);
-            }
         }
         UiaPlanExpr::First(query) | UiaPlanExpr::Nth { query, .. } => {
             collect_target_roles(query, roles);

@@ -1,7 +1,7 @@
 use std::{fmt, sync::Arc};
 
 use argusflow_core::{ActionOutcome, AutomationError, BackendKind};
-use argusflow_query::{Diagnostic, QueryCost, QueryPortability, SupportLevel};
+use argusflow_query::{BranchPath, Diagnostic, QueryCost, QueryPortability, SupportLevel};
 use async_trait::async_trait;
 use serde::Serialize;
 
@@ -74,8 +74,8 @@ pub struct PlanStepExplain {
 pub struct PlanExplain {
     /// 候选后端。
     pub backend: BackendKind,
-    /// 最外层 `any(...)` 中该候选能够执行的最早原始分支；拒绝候选为 `None`。
-    pub earliest_supported_branch_index: Option<usize>,
+    /// 该候选唯一对应的完整 `any(...)` fallback 路径；拒绝候选为 `None`。
+    pub branch_path: Option<BranchPath>,
     /// Compiler 对完整语义的支持等级。
     pub support: SupportLevel,
     /// Compiler 计划的预计成本。
@@ -202,16 +202,16 @@ impl PreparedPlan {
             .explain()
     }
 
-    /// 依次执行冻结候选；环境不可用允许同分支 fallback，空结果只允许推进到更晚 `any` 分支。
+    /// 依次执行冻结候选；环境不可用允许同路径 fallback，空结果只推进到更晚路径。
     pub async fn execute(self) -> Result<ActionOutcome, AutomationError> {
         let mut fallback_error = None;
-        let mut exhausted_branch = None;
+        let mut exhausted_branch: Option<BranchPath> = None;
         for candidate in self.candidates {
-            let branch_index = candidate
-                .explain()
-                .earliest_supported_branch_index
-                .unwrap_or(0);
-            if exhausted_branch.is_some_and(|exhausted| branch_index <= exhausted) {
+            let branch_path = candidate.explain().branch_path.clone().unwrap_or_default();
+            if exhausted_branch
+                .as_ref()
+                .is_some_and(|exhausted| branch_path.as_slice() <= exhausted.as_slice())
+            {
                 continue;
             }
             match candidate.execute().await {
@@ -220,7 +220,7 @@ impl PreparedPlan {
                     fallback_error = Some(error)
                 }
                 Err(error @ AutomationError::TargetNotFound { .. }) => {
-                    exhausted_branch = Some(branch_index);
+                    exhausted_branch = Some(branch_path);
                     fallback_error = Some(error);
                 }
                 Err(error) => return Err(error),

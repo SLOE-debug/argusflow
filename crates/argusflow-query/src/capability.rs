@@ -1,5 +1,40 @@
 use serde::{Deserialize, Serialize};
 
+/// 一次完整查询替代方案在各层 `any(...)` 中选择的分支序列。
+///
+/// 路径按查询树的稳定深度优先顺序记录，并使用字典序参与全局 Planner 排序。
+/// 空路径表示查询中没有 fallback 分支。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Ord, PartialOrd, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct BranchPath(Vec<usize>);
+
+impl BranchPath {
+    /// 创建不包含 `any(...)` 选择的根替代方案。
+    pub const fn root() -> Self {
+        Self(Vec::new())
+    }
+
+    /// 从外到内、按查询树顺序创建一个显式分支路径。
+    pub fn from_indices(indices: impl IntoIterator<Item = usize>) -> Self {
+        Self(indices.into_iter().collect())
+    }
+
+    /// 在已有嵌套选择前添加当前 `any(...)` 的原始分支索引。
+    pub fn prepend(&mut self, branch_index: usize) {
+        self.0.insert(0, branch_index);
+    }
+
+    /// 按查询树顺序连接关系表达式两侧的完整分支选择。
+    pub fn append(&mut self, suffix: &Self) {
+        self.0.extend_from_slice(&suffix.0);
+    }
+
+    /// 返回供 Explain、测试和只读调用方观察的分支索引序列。
+    pub fn as_slice(&self) -> &[usize] {
+        &self.0
+    }
+}
+
 /// 能够编译 AQL 的后端家族。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -80,7 +115,7 @@ pub enum QueryPortability {
 }
 
 /// 单个后端对已规范化查询的能力判断。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BackendQueryCapability {
     /// 被分析的后端。
     pub backend: QueryBackend,
@@ -88,9 +123,9 @@ pub struct BackendQueryCapability {
     pub level: SupportLevel,
     /// 预计执行成本。
     pub estimated_cost: QueryCost,
-    /// 当前后端在最外层 `any(...)` 中能够保持语义的最早原始分支索引。
+    /// 当前计划唯一对应的完整 fallback 分支路径。
     ///
-    /// 不含 `any` 的查询固定为 0；该值必须先于支持等级和成本参与跨后端路由，
-    /// 避免后端丢弃更早分支后反而抢先执行后续 fallback。
-    pub earliest_supported_branch_index: usize,
+    /// Backend compiler 必须为每条可执行路径分别生成计划，禁止在一个计划内合并
+    /// 不连续分支，否则跨后端执行无法保持全局声明顺序。
+    pub branch_path: BranchPath,
 }

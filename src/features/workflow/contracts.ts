@@ -251,8 +251,8 @@ export type PlanStepKind =
 export type PlanExplain = {
   /** 实际 backend 类别。 */
   backend: BackendKind;
-  /** 最外层 any 中该后端可执行的最早原始分支；拒绝候选为 null。 */
-  earliest_supported_branch_index: number | null;
+  /** 候选唯一对应的完整 any fallback 路径；拒绝候选为 null。 */
+  branch_path: readonly number[] | null;
   /** Compiler 从真实逻辑计划推导的语义支持。 */
   support: QuerySupportLevel;
   /** Compiler 估算成本。 */
