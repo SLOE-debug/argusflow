@@ -39,4 +39,44 @@ describe('useWorkflowStudio connected node creation', () => {
     expect(studio.result.current.flowStore.getState().nodes).toHaveLength(nodeCount);
     expect(studio.result.current.flowStore.getState().edges).toHaveLength(edgeCount);
   });
+
+  it('binds a UI node directly connected from an Application to its session', () => {
+    const studio = renderHook(() => useWorkflowStudio());
+    act(() => studio.result.current.addNode('application', { x: 80, y: 280 }));
+    const applicationId = studio.result.current.flowStore
+      .getState()
+      .selectedNodeIds
+      .values()
+      .next()
+      .value;
+
+    act(() => {
+      studio.result.current.addConnectedNode(
+        'ui',
+        { x: 280, y: 280 },
+        applicationId!,
+        'right',
+      );
+    });
+
+    const selectedId = studio.result.current.flowStore
+      .getState()
+      .selectedNodeIds
+      .values()
+      .next()
+      .value;
+    const uiNode = studio.result.current.flowStore
+      .getState()
+      .nodes
+      .find((node) => node.id === selectedId);
+    expect(uiNode?.data.kind).toBe('ui');
+    if (uiNode?.data.kind !== 'ui') throw new Error('expected UI node');
+    expect(uiNode.data.operation.target.scope).toEqual({
+      type: 'application',
+      resource: {
+        producer_node_id: applicationId,
+        output_name: 'session',
+      },
+    });
+  });
 });

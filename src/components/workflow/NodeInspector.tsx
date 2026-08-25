@@ -8,6 +8,7 @@ import type {
   WorkflowNodeData,
   WorkflowNodeUpdater,
 } from '../../features/workflow/workflowModel';
+import type { WorkflowPermissions } from '../../features/workflow/contracts';
 import {
   EdgeInspectorFields,
   MultipleSelection,
@@ -24,10 +25,14 @@ type NodeInspectorProps = Readonly<{
   variablesDraft: string;
   /** JSON 变量错误。 */
   variablesError: string | null;
+  /** 工作流命令权限。 */
+  permissions: WorkflowPermissions;
   /** 修改工作流名称。 */
   onNameChange: (name: string) => void;
   /** 修改 JSON 变量。 */
   onVariablesChange: (draft: string) => void;
+  /** 修改工作流命令权限。 */
+  onPermissionsChange: (permissions: WorkflowPermissions) => void;
   /** 修改节点字段。 */
   onUpdateNode: (updater: WorkflowNodeUpdater) => void;
   /** 修改条件分支。 */
@@ -73,8 +78,10 @@ export function NodeInspector(props: NodeInspectorProps) {
             workflowName={props.workflowName}
             variablesDraft={props.variablesDraft}
             variablesError={props.variablesError}
+            permissions={props.permissions}
             onNameChange={props.onNameChange}
             onVariablesChange={props.onVariablesChange}
+            onPermissionsChange={props.onPermissionsChange}
           />
         ) : null}
         {selectedCount > 1 ? (

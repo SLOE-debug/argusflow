@@ -22,6 +22,7 @@ describe('ExecutionLog', () => {
         edge_id: null,
         kind: 'log',
         message: 'ArgusFlow 已启动',
+        payload: null,
       },
     ];
 

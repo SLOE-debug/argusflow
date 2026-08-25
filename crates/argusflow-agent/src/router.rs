@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use argusflow_core::{
-    ActionOutcome, AutomationAction, AutomationError, BackendKind, BackendPreference,
+    ActionOutcome, AutomationAction, AutomationError, AutomationExecutionScope, BackendKind,
+    BackendPreference, TargetScope,
 };
 use argusflow_query::{
     Diagnostic, DiagnosticCode, DiagnosticSeverity, QueryCost, QueryPortability, SupportLevel,
@@ -12,7 +13,7 @@ use async_trait::async_trait;
 use crate::{
     ActionBackend, ContextFitness, ExecutionContext, ExecutionContextProvider, PlanExplain,
     PlanRejection, PlanningReport, PreparedCandidate, PreparedPlan, RuntimeAvailability,
-    StaticExecutionContext,
+    StaticExecutionContext, WindowContext,
 };
 
 /// 能力、可用性、上下文和成本相同时使用的稳定兜底顺序。
@@ -82,7 +83,13 @@ impl ActionRouter {
 
     /// 使用宿主提供器的最新上下文生成 Planner Explain。
     pub fn inspect_current(&self, action: &AutomationAction) -> PlanningReport {
-        let context = self.context_provider.snapshot();
+        let mut context = self.context_provider.snapshot();
+        if matches!(&action.target().scope, TargetScope::Application { .. }) {
+            context.foreground_window = None;
+            context.active_process = None;
+            context.browser_session = None;
+            context.visual_cache.ready = false;
+        }
         self.inspect(action, &context)
     }
 
@@ -124,8 +131,28 @@ impl ActionRouter {
 
 #[async_trait]
 impl ActionDispatcher for ActionRouter {
-    async fn execute(&self, action: &AutomationAction) -> Result<ActionOutcome, AutomationError> {
-        let context = self.context_provider.snapshot();
+    async fn execute(
+        &self,
+        action: &AutomationAction,
+        scope: AutomationExecutionScope,
+    ) -> Result<ActionOutcome, AutomationError> {
+        let mut context = self.context_provider.snapshot();
+        if let AutomationExecutionScope::Window {
+            handle,
+            process_id,
+            capabilities,
+        } = scope
+        {
+            context.foreground_window = Some(WindowContext { handle, process_id });
+            context.active_process = None;
+            // 显式桌面 AppSession 不能意外复用与该应用无关的全局浏览器会话。
+            context.browser_session = None;
+            // 当前视觉缓存属于宿主捕获的前台画面，不能冒充显式应用窗口缓存。
+            context.visual_cache.ready = false;
+            if !capabilities.windows_uia {
+                context.accessibility.ready = false;
+            }
+        }
         self.prepare(action, &context)?.execute().await
     }
 }

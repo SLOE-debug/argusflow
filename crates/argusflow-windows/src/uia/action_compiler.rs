@@ -30,6 +30,8 @@ pub fn compile_uia_action(
         AutomationAction::SetValue { value, .. } => UiaActionPlan::SetValue {
             value: value.clone(),
         },
+        AutomationAction::GetText { .. } => UiaActionPlan::GetText,
+        AutomationAction::GetValue { .. } => UiaActionPlan::GetValue,
     };
     let mut roles = Vec::new();
     collect_target_roles(&query.expression, &mut roles);
@@ -94,6 +96,13 @@ const fn role_action_support(role: UiaRoleConstraint, action: &UiaActionPlan) ->
             UiaActionPlan::SetValue { .. },
             UiaRoleConstraint::ControlType(UiaControlType::ComboBox),
         ) => UiaActionSupport::RequiresRuntimePatternCheck,
+        (UiaActionPlan::GetText, _) => UiaActionSupport::Native,
+        (UiaActionPlan::GetValue, UiaRoleConstraint::ControlType(UiaControlType::Edit)) => {
+            UiaActionSupport::Native
+        }
+        (UiaActionPlan::GetValue, UiaRoleConstraint::ControlType(UiaControlType::ComboBox)) => {
+            UiaActionSupport::RequiresRuntimePatternCheck
+        }
         _ => UiaActionSupport::Unsupported,
     }
 }

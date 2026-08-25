@@ -1,10 +1,54 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
-use crate::AqlQuery;
+use crate::{AppCapabilities, AqlQuery, ResourceRef, ValueExpr};
 
-/// 可由自动化后端执行的用户操作。
+/// Workflow 层保存的语义界面操作。
+///
+/// 值表达式和资源作用域由 Runtime 解析；后端只接收解析后的 `AutomationAction`。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
+pub enum UiOperation {
+    /// 点击指定目标。
+    Click {
+        /// 要定位并点击的目标。
+        target: AutomationTarget,
+    },
+    /// 将解析后的文本写入指定目标。
+    SetValue {
+        /// 要定位并写入的目标。
+        target: AutomationTarget,
+        /// 在节点准备阶段解析的文本表达式。
+        value: ValueExpr,
+    },
+    /// 读取元素面向用户的文本。
+    GetText {
+        /// 要定位并读取的目标。
+        target: AutomationTarget,
+    },
+    /// 读取元素值模式公开的值。
+    GetValue {
+        /// 要定位并读取的目标。
+        target: AutomationTarget,
+    },
+}
+
+impl UiOperation {
+    /// 返回操作使用的只读目标契约。
+    pub const fn target(&self) -> &AutomationTarget {
+        match self {
+            Self::Click { target }
+            | Self::SetValue { target, .. }
+            | Self::GetText { target }
+            | Self::GetValue { target } => target,
+        }
+    }
+}
+
+/// 已由 Runtime 解析全部表达式、可直接交给自动化后端的动作。
+#[derive(Debug, Clone, PartialEq)]
 pub enum AutomationAction {
     /// 点击指定目标。
     Click {
@@ -15,8 +59,18 @@ pub enum AutomationAction {
     SetValue {
         /// 要定位并写入的目标。
         target: AutomationTarget,
-        /// 要设置的文本值。
+        /// 已冻结的完整文本值。
         value: String,
+    },
+    /// 读取指定目标面向用户的文本。
+    GetText {
+        /// 要定位并读取的目标。
+        target: AutomationTarget,
+    },
+    /// 读取指定目标的值。
+    GetValue {
+        /// 要定位并读取的目标。
+        target: AutomationTarget,
     },
 }
 
@@ -24,14 +78,19 @@ impl AutomationAction {
     /// 返回动作使用的只读目标契约。
     pub const fn target(&self) -> &AutomationTarget {
         match self {
-            Self::Click { target } | Self::SetValue { target, .. } => target,
+            Self::Click { target }
+            | Self::SetValue { target, .. }
+            | Self::GetText { target }
+            | Self::GetValue { target } => target,
         }
     }
 }
 
-/// 动作目标及其独立于查询语义的后端执行偏好。
+/// 动作目标及其资源作用域、定位语义与后端执行偏好。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AutomationTarget {
+    /// 操作相对于当前上下文或某个应用资源执行。
+    pub scope: TargetScope,
     /// 描述目标位置的跨后端定位契约。
     pub locator: TargetLocator,
     /// 查询规划器选择后端时使用的提示；不会改变 AQL 本身的语义。
@@ -39,23 +98,38 @@ pub struct AutomationTarget {
 }
 
 impl AutomationTarget {
-    /// 创建由 AQL 描述、默认自动选择后端的目标。
+    /// 创建由 AQL 描述、使用当前上下文并自动选择后端的目标。
     pub fn query(query: AqlQuery) -> Self {
         Self {
+            scope: TargetScope::Current,
             locator: TargetLocator::Query { query },
             backend_preference: BackendPreference::Auto,
         }
     }
 
-    /// 创建由屏幕物理像素坐标描述的目标。
+    /// 创建由屏幕物理像素坐标描述的当前上下文目标。
     pub const fn coordinate(x: i32, y: i32) -> Self {
         Self {
+            scope: TargetScope::Current,
             locator: TargetLocator::Coordinate {
                 point: ScreenPoint { x, y },
             },
             backend_preference: BackendPreference::Auto,
         }
     }
+}
+
+/// 语义界面操作使用的逻辑资源作用域。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum TargetScope {
+    /// 使用执行瞬间的全局前台窗口或浏览器上下文。
+    Current,
+    /// 使用 Application 节点产生的逻辑会话。
+    Application {
+        /// 指向应用节点 `session` 资源端口的引用。
+        resource: ResourceRef,
+    },
 }
 
 /// 用于定位自动化目标的强类型策略。
@@ -65,13 +139,6 @@ pub enum TargetLocator {
     /// 通过平台无关 AQL 查询定位语义元素。
     Query {
         /// 持久化的 AQL 源码与独立语言版本。
-        query: AqlQuery,
-    },
-    /// 确保指定 direct-process Windows 桌面应用已运行并恢复后，在其顶层窗口内执行 AQL。
-    ApplicationQuery {
-        /// 用于复用现有进程或显式启动进程的应用契约。
-        application: ApplicationTarget,
-        /// 在已确定应用窗口内部执行的 AQL。
         query: AqlQuery,
     },
     /// 通过 OCR 或视觉模型描述目标。
@@ -84,22 +151,6 @@ pub enum TargetLocator {
         /// 目标屏幕点。
         point: ScreenPoint,
     },
-}
-
-/// UIA 动作执行前需要定位、恢复或启动的 direct-process Windows 桌面应用。
-///
-/// 当前契约要求启动进程自身创建目标顶层窗口，不覆盖 bootstrapper、子进程换壳或把请求
-/// 转交给既有 singleton 进程的应用模型；UIA 查询不要求该窗口成功成为系统前台窗口。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ApplicationTarget {
-    /// 进程身份与启动命令共同使用的绝对 EXE 路径。
-    pub executable_path: String,
-    /// 直接传给 EXE 的参数列表，不经过 shell 解析。
-    pub arguments: Vec<String>,
-    /// 从同一 EXE 的顶层窗口中筛选唯一目标的标题规则。
-    pub window_title: WindowTitleMatcher,
-    /// 启动后等待可交互顶层窗口的最长毫秒数。
-    pub launch_timeout_ms: u64,
 }
 
 /// 顶层应用窗口标题的强类型匹配规则。
@@ -178,11 +229,29 @@ pub enum BackendKind {
     SendInput,
 }
 
-/// 自动化动作成功后的结果摘要。
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// 自动化动作成功后的结构化结果。
+#[derive(Debug, Clone, PartialEq)]
 pub struct ActionOutcome {
     /// 实际处理该动作的后端。
     pub backend: BackendKind,
     /// 面向执行事件消费者的结果说明。
     pub message: String,
+    /// 由读取动作产生的结构化值输出；点击和写入动作返回空映射。
+    pub outputs: BTreeMap<String, Value>,
+}
+
+/// Runtime 解析资源引用后传给 ActionDispatcher 的瞬时执行作用域。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AutomationExecutionScope {
+    /// 沿用宿主捕获的当前执行上下文。
+    Current,
+    /// 在已经获取且验证过的应用顶层窗口内执行。
+    Window {
+        /// 原生 HWND 的无符号不透明表示。
+        handle: u64,
+        /// 窗口所属进程 ID，用于检测句柄复用。
+        process_id: u32,
+        /// 应用资源提供器在获取阶段确认的后端能力事实。
+        capabilities: AppCapabilities,
+    },
 }

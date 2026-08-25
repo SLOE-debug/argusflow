@@ -24,23 +24,27 @@ describe('NodePalette', () => {
     expect(dataTransfer.effectAllowed).toBe('copy');
     expect(setData).toHaveBeenCalledWith(FLOW_NODE_KIND_DRAG_TYPE, 'start');
 
-    const actionNode = screen.getByRole('button', { name: '执行动作' });
+    const actionNode = screen.getByRole('button', { name: '界面操作' });
     fireEvent.dragStart(actionNode, { dataTransfer });
-    expect(setData).toHaveBeenLastCalledWith(FLOW_NODE_KIND_DRAG_TYPE, 'action');
+    expect(setData).toHaveBeenLastCalledWith(FLOW_NODE_KIND_DRAG_TYPE, 'ui');
+
+    const debugNode = screen.getByRole('button', { name: '调试输出' });
+    fireEvent.dragStart(debugNode, { dataTransfer });
+    expect(setData).toHaveBeenLastCalledWith(FLOW_NODE_KIND_DRAG_TYPE, 'debug');
   });
 
   it('collapses and expands node groups', () => {
     const store = createFlowStore<WorkflowNodeData, WorkflowEdgeData>();
     render(<NodePalette store={store} onResetWidth={vi.fn()} />);
 
-    const inputGroup = screen.getByRole('button', { name: /输入/ });
-    fireEvent.click(inputGroup);
+    const triggerGroup = screen.getByRole('button', { name: /触发/ });
+    fireEvent.click(triggerGroup);
     expect(screen.queryByRole('button', { name: '手动触发' })).not.toBeInTheDocument();
-    expect(inputGroup).toHaveAttribute('aria-expanded', 'false');
+    expect(triggerGroup).toHaveAttribute('aria-expanded', 'false');
 
-    fireEvent.click(inputGroup);
+    fireEvent.click(triggerGroup);
     expect(screen.getByRole('button', { name: '手动触发' })).toBeInTheDocument();
-    expect(inputGroup).toHaveAttribute('aria-expanded', 'true');
+    expect(triggerGroup).toHaveAttribute('aria-expanded', 'true');
   });
 
   it('opens functional filters, resets width and shows module placeholders', () => {

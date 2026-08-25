@@ -26,6 +26,8 @@ pub(super) fn explain_uia_action(
             UiaActionPlan::SetValue { .. } => {
                 format!("ValuePattern::SetValue ({pattern_check})")
             }
+            UiaActionPlan::GetText => format!("CurrentName ({pattern_check})"),
+            UiaActionPlan::GetValue => format!("ValuePattern::CurrentValue ({pattern_check})"),
         },
     }
 }

@@ -11,6 +11,7 @@ argusflow-core.workspace = true
 argusflow-query.workspace = true
 async-trait.workspace = true
 regex.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 
@@ -32,6 +33,5 @@ windows = { workspace = true, features = [
 
 [dev-dependencies]
 argusflow-runtime.workspace = true
-serde_json.workspace = true
 uuid.workspace = true
 

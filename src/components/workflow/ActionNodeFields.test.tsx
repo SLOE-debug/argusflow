@@ -1,15 +1,16 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { AutomationAction } from '../../features/workflow/contracts';
+import type { UiOperation } from '../../features/workflow/contracts';
 import { ActionNodeFields } from './ActionNodeFields';
 
 describe('ActionNodeFields', () => {
   it('edits the AQL source through a complete Action contract', () => {
     const onChange = vi.fn();
-    const action: AutomationAction = {
+    const operation: UiOperation = {
       type: 'click',
       target: {
+        scope: { type: 'current' },
         locator: {
           type: 'query',
           query: { language_version: 1, source: 'button(name = "保存")' },
@@ -18,7 +19,7 @@ describe('ActionNodeFields', () => {
       },
     };
 
-    render(<ActionNodeFields action={action} onChange={onChange} />);
+    render(<ActionNodeFields operation={operation} onChange={onChange} />);
 
     expect(screen.getByRole('textbox', { name: 'AQL 查询' })).toHaveValue(
       'button(name = "保存")',
@@ -32,6 +33,7 @@ describe('ActionNodeFields', () => {
     expect(onChange).toHaveBeenCalledWith({
       type: 'click',
       target: {
+        scope: { type: 'current' },
         locator: {
           type: 'query',
           query: { language_version: 1, source: 'button(name = "确定")' },

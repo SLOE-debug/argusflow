@@ -10,6 +10,7 @@ use argusflow_windows::{
     context::WindowsExecutionContextProvider,
     input::SendInputBackend,
     uia::{UiaBackend, UiaRuntime},
+    window::WindowsApplicationSessionProvider,
 };
 
 /// Tauri 应用共享状态，持有唯一的工作流执行引擎实例。
@@ -42,7 +43,10 @@ impl AppState {
         ));
 
         Self {
-            engine: Arc::new(WorkflowEngine::new(router.clone())),
+            engine: Arc::new(WorkflowEngine::with_application_provider(
+                router.clone(),
+                Arc::new(WindowsApplicationSessionProvider),
+            )),
             router,
         }
     }

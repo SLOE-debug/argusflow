@@ -1,7 +1,8 @@
-use argusflow_core::AutomationError;
+use argusflow_core::{ApplicationError, AutomationError, ResourceRef};
 use thiserror::Error;
 use uuid::Uuid;
 
+use crate::CommandError;
 use crate::ValidationReport;
 
 /// 工作流运行时在校验、调度或事件交付阶段返回的错误。
@@ -25,6 +26,30 @@ pub enum RuntimeError {
     /// 校验后本应成立的运行时结构约束意外失效。
     #[error("validated workflow invariant failed: {0}")]
     ExecutionInvariant(String),
+    /// ValueExpr 引用的输入、变量或节点输出尚不可用。
+    #[error("runtime value is unavailable: {description}")]
+    ValueUnavailable {
+        /// 无法解析的数据来源。
+        description: String,
+    },
+    /// 节点参数要求字符串，但表达式解析成了其它 JSON 类型。
+    #[error("runtime value type mismatch: expected {expected}")]
+    ValueTypeMismatch {
+        /// 节点参数所需的稳定类型名称。
+        expected: &'static str,
+    },
+    /// ResourceRef 在当前运行中没有绑定真实资源。
+    #[error("runtime resource is unavailable: {}.{}", reference.producer_node_id, reference.output_name)]
+    ResourceUnavailable {
+        /// 无法解析的逻辑资源引用。
+        reference: ResourceRef,
+    },
+    /// 平台应用会话获取或清理失败。
+    #[error(transparent)]
+    Application(#[from] ApplicationError),
+    /// Command 节点准备或执行失败。
+    #[error(transparent)]
+    Command(#[from] CommandError),
     /// 自动化动作后端返回的结构化错误。
     #[error(transparent)]
     Automation(#[from] AutomationError),

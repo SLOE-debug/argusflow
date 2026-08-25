@@ -73,6 +73,10 @@ pub enum UiaActionPlan {
         /// 要写入的完整文本。
         value: String,
     },
+    /// 读取目标 CurrentName 作为语义文本。
+    GetText,
+    /// 要求目标实例提供 ValuePattern 并读取当前值。
+    GetValue,
 }
 
 /// 查询目标角色对已冻结 UIA 动作策略的静态支持程度。

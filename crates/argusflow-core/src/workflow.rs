@@ -2,7 +2,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::{AutomationAction, ConditionPredicate};
+use crate::{
+    ApplicationSpec, CommandOperation, ConditionPredicate, UiOperation, ValueExpr,
+    WorkflowPermissions,
+};
 
 /// 可序列化的完整工作流定义。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -15,6 +18,8 @@ pub struct WorkflowDefinition {
     pub name: String,
     /// 条件节点读取的只读 JSON 变量；根值必须是对象。
     pub variables: Value,
+    /// 对进程和 shell 等高风险能力的显式授权。
+    pub permissions: WorkflowPermissions,
     /// 按节点定义执行内容及画布位置。
     pub nodes: Vec<WorkflowNode>,
     /// 描述节点之间执行顺序的有向连线。
@@ -53,6 +58,11 @@ pub enum WorkflowNodeKind {
         /// 执行时写入事件流的消息。
         message: String,
     },
+    /// 显式把一个运行时文本值写入调试日志。
+    Debug {
+        /// 在节点执行时解析并展示的文本表达式。
+        value: ValueExpr,
+    },
     /// 在继续执行下一节点前等待指定时长。
     Delay {
         /// 暂停时长，单位为毫秒；运行时校验范围为 1 到 60000。
@@ -63,10 +73,20 @@ pub enum WorkflowNodeKind {
         /// 在只读工作流变量上执行的安全条件。
         predicate: ConditionPredicate,
     },
-    /// 将自动化操作交给匹配的后端执行。
-    Action {
-        /// 要交给自动化后端执行的动作。
-        action: AutomationAction,
+    /// 获取一个可被后续界面节点复用的应用会话资源。
+    Application {
+        /// 应用身份、获取策略和生命周期策略。
+        spec: ApplicationSpec,
+    },
+    /// 将语义界面操作交给 Planner 选择等价后端执行。
+    Ui {
+        /// 包含资源作用域和数据表达式的界面操作。
+        operation: UiOperation,
+    },
+    /// 执行 Direct、PowerShell 或 CMD 命令并产生结构化输出。
+    Command {
+        /// 命令运行方式、输入输出边界和超时。
+        operation: CommandOperation,
     },
     /// 线性执行链的唯一出口节点。
     End,

@@ -1,26 +1,26 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  changeAutomationActionKind,
+  changeUiOperationKind,
   changeBackendPreference,
   changeTargetLocatorKind,
-  createDefaultAutomationAction,
+  createDefaultUiOperation,
 } from './workflowAction';
 
-describe('workflow Action transformations', () => {
+describe('workflow UI operation transformations', () => {
   it('preserves the target when switching from Click to SetValue', () => {
-    const click = createDefaultAutomationAction();
-    const setValue = changeAutomationActionKind(click, 'set_value');
+    const click = createDefaultUiOperation();
+    const setValue = changeUiOperationKind(click, 'set_value');
 
     expect(setValue).toEqual({
       type: 'set_value',
       target: click.target,
-      value: '',
+      value: { type: 'literal', value: '' },
     });
   });
 
   it('returns non-semantic locators to automatic backend planning', () => {
-    const click = createDefaultAutomationAction();
+    const click = createDefaultUiOperation();
     const forcedUia = changeBackendPreference(click, 'windows_uia');
     const visual = changeTargetLocatorKind(forcedUia, 'visual');
 

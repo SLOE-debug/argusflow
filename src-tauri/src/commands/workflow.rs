@@ -76,6 +76,12 @@ pub enum CommandErrorCode {
     ExecutionInvariantFailed,
     /// 自动化后端执行动作失败。
     AutomationFailed,
+    /// 应用资源获取或清理失败。
+    ApplicationFailed,
+    /// 命令节点准备或执行失败。
+    CommandFailed,
+    /// 节点的数据或资源引用在执行期不可用。
+    RuntimeDataFailed,
 }
 
 impl From<RuntimeError> for CommandError {
@@ -99,6 +105,34 @@ impl From<RuntimeError> for CommandError {
             RuntimeError::ExecutionInvariant(message) => Self {
                 code: CommandErrorCode::ExecutionInvariantFailed,
                 message,
+                issues: Vec::new(),
+            },
+            RuntimeError::ValueUnavailable { description } => Self {
+                code: CommandErrorCode::RuntimeDataFailed,
+                message: description,
+                issues: Vec::new(),
+            },
+            RuntimeError::ValueTypeMismatch { expected } => Self {
+                code: CommandErrorCode::RuntimeDataFailed,
+                message: format!("运行时值类型不匹配，需要 {expected}"),
+                issues: Vec::new(),
+            },
+            RuntimeError::ResourceUnavailable { reference } => Self {
+                code: CommandErrorCode::RuntimeDataFailed,
+                message: format!(
+                    "运行时资源不可用：{}.{}",
+                    reference.producer_node_id, reference.output_name,
+                ),
+                issues: Vec::new(),
+            },
+            RuntimeError::Application(error) => Self {
+                code: CommandErrorCode::ApplicationFailed,
+                message: error.to_string(),
+                issues: Vec::new(),
+            },
+            RuntimeError::Command(error) => Self {
+                code: CommandErrorCode::CommandFailed,
+                message: error.to_string(),
                 issues: Vec::new(),
             },
             RuntimeError::Automation(error) => Self {

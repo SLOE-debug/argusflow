@@ -5,6 +5,7 @@ import {
   DEFAULT_EDGES,
   DEFAULT_NODES,
   DEFAULT_WORKFLOW_NAME,
+  DEFAULT_WORKFLOW_PERMISSIONS,
   DEFAULT_WORKFLOW_VARIABLES,
 } from './defaultWorkflowTemplate';
 import {
@@ -17,9 +18,9 @@ import {
 } from './workflowModel';
 
 describe('workflow model', () => {
-  it('maps the empty canvas to the schema v3 Rust contract', () => {
-    const workflow = toWorkflowDefinition('6d7d7a91-4e19-42c9-b1d8-011d4cf94330', 'Demo', { enabled: true }, [], []);
-    expect(workflow.schema_version).toBe(3);
+  it('maps the empty canvas to the schema v4 Rust contract', () => {
+    const workflow = toWorkflowDefinition('6d7d7a91-4e19-42c9-b1d8-011d4cf94330', 'Demo', { enabled: true }, DEFAULT_WORKFLOW_PERMISSIONS, [], []);
+    expect(workflow.schema_version).toBe(4);
     expect(workflow.variables).toEqual({ enabled: true });
     expect(workflow.nodes).toEqual([]);
   });
@@ -34,22 +35,24 @@ describe('workflow model', () => {
     vi.unstubAllGlobals();
   });
 
-  it('serializes an Action node into the backend automation contract', () => {
+  it('serializes a UI node into the semantic operation contract', () => {
     vi.stubGlobal('crypto', { randomUUID: () => 'generated-id' });
-    const action = createNode('action', { x: 20, y: 40 });
+    const action = createNode('ui', { x: 20, y: 40 });
     const workflow = toWorkflowDefinition(
       '6d7d7a91-4e19-42c9-b1d8-011d4cf94330',
       'UI automation',
       {},
+      DEFAULT_WORKFLOW_PERMISSIONS,
       [action],
       [],
     );
 
     expect(workflow.nodes[0]).toMatchObject({
-      type: 'action',
-      action: {
+      type: 'ui',
+      operation: {
         type: 'click',
         target: {
+          scope: { type: 'current' },
           locator: {
             type: 'query',
             query: { language_version: 1 },
@@ -66,24 +69,26 @@ describe('workflow model', () => {
       '6d7d7a91-4e19-42c9-b1d8-011d4cf94330',
       DEFAULT_WORKFLOW_NAME,
       DEFAULT_WORKFLOW_VARIABLES,
+      DEFAULT_WORKFLOW_PERMISSIONS,
       DEFAULT_NODES,
       DEFAULT_EDGES,
     );
 
-    expect(workflow.name).toBe('启动或唤醒 Notepad++ 并打开帮助菜单');
+    expect(workflow.name).toBe('打开或连接 Notepad++ 并读取窗口文本');
     expect(workflow.nodes.some((node) => node.type === 'condition')).toBe(false);
-    expect(workflow.edges).toHaveLength(3);
+    expect(workflow.edges).toHaveLength(4);
     expect(workflow.edges.every((edge) => edge.branch === null)).toBe(true);
     expect(workflow.nodes).toContainEqual(expect.objectContaining({
-      type: 'action',
-      action: expect.objectContaining({
-        type: 'click',
-        target: expect.objectContaining({
-          locator: expect.objectContaining({
-            type: 'application_query',
-          }),
-        }),
-      }),
+      type: 'application',
+      spec: expect.objectContaining({ acquire_policy: 'attach_or_start' }),
+    }));
+    expect(workflow.nodes).toContainEqual(expect.objectContaining({
+      type: 'debug',
+      value: {
+        type: 'node_output',
+        node_id: 'read_notepadpp_title_1',
+        output: 'text',
+      },
     }));
   });
 

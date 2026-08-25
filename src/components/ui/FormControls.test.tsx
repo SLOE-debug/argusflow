@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import { Input, Select, Textarea } from './index';
+import { Checkbox, Input, Select, Textarea } from './index';
 
 describe('form controls', () => {
   it('shares compact text sizing between Input and Select', () => {
@@ -52,6 +52,16 @@ describe('form controls', () => {
     expect(screen.getByRole('textbox', { name: '查询源码' })).toHaveClass(
       'focus:border-blue-400',
       'disabled:cursor-not-allowed',
+    );
+  });
+
+  it('keeps checkbox semantics while applying the shared compact treatment', () => {
+    render(<Checkbox aria-label="允许启动进程" defaultChecked />);
+
+    expect(screen.getByRole('checkbox', { name: '允许启动进程' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: '允许启动进程' })).toHaveClass(
+      'size-3.5',
+      'accent-blue-600',
     );
   });
 });

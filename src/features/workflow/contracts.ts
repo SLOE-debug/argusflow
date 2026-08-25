@@ -2,16 +2,18 @@
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 export type JsonObject = { [key: string]: JsonValue };
 
-/** 与 Rust 后端交换的 schema v3 工作流。 */
+/** 与 Rust 后端交换的 schema v4 工作流。 */
 export type WorkflowDefinition = {
   /** 当前契约固定版本。 */
-  schema_version: 3;
+  schema_version: 4;
   /** 工作流稳定 ID。 */
   id: string;
   /** 面向用户的名称。 */
   name: string;
   /** Condition 读取的只读 JSON 对象。 */
   variables: JsonObject;
+  /** 对进程和 shell 能力的显式授权。 */
+  permissions: WorkflowPermissions;
   /** 可执行节点。 */
   nodes: WorkflowNodeContract[];
   /** 节点间有向连接。 */
@@ -41,25 +43,53 @@ export type ConditionPredicate = {
 export type WorkflowNodeKind =
   | { type: 'start' }
   | { type: 'log'; message: string }
+  | { type: 'debug'; value: ValueExpr }
   | { type: 'delay'; milliseconds: number }
   | { type: 'condition'; predicate: ConditionPredicate }
-  | { type: 'action'; action: AutomationAction }
+  | { type: 'application'; spec: ApplicationSpec }
+  | { type: 'ui'; operation: UiOperation }
+  | { type: 'command'; operation: CommandOperation }
   | { type: 'end' };
 
-export type AutomationAction =
+/** Workflow 层保存的语义界面操作。 */
+export type UiOperation =
   | { type: 'click'; target: AutomationTarget }
-  | { type: 'set_value'; target: AutomationTarget; value: string };
+  | { type: 'set_value'; target: AutomationTarget; value: ValueExpr }
+  | { type: 'get_text'; target: AutomationTarget }
+  | { type: 'get_value'; target: AutomationTarget };
 
-/** Action 节点允许选择的强类型动作类别。 */
-export type AutomationActionKind = AutomationAction['type'];
+/** UI 节点允许选择的强类型操作类别。 */
+export type UiOperationKind = UiOperation['type'];
 
 /** AQL 语义与执行后端选择分离的动作目标。 */
 export type AutomationTarget = {
+  /** 当前上下文或显式应用会话作用域。 */
+  scope: TargetScope;
   /** 跨平台定位契约。 */
   locator: TargetLocator;
   /** `auto` 默认根据查询能力规划，另外两项用于显式强制后端。 */
   backend_preference: BackendPreference;
 };
+
+/** 资源引用与普通 JSON 值引用保持独立。 */
+export type ResourceRef = {
+  producer_node_id: string;
+  output_name: string;
+};
+
+/** UI 操作使用的逻辑资源作用域。 */
+export type TargetScope =
+  | { type: 'current' }
+  | { type: 'application'; resource: ResourceRef };
+
+/** 节点参数的数据来源表达式。 */
+export type ValueExpr =
+  | { type: 'literal'; value: JsonValue }
+  | { type: 'workflow_input'; key: string }
+  | { type: 'node_output'; node_id: string; output: string }
+  | { type: 'variable'; name: string };
+
+export type ValueExprKind = ValueExpr['type'];
 
 /** 查询规划时独立于 AQL 语义的后端偏好。 */
 export type BackendPreference = 'auto' | 'windows_uia' | 'browser_cdp';
@@ -73,24 +103,30 @@ export type AqlQuery = {
 /** AQL、显式视觉查询或物理坐标组成的目标判别联合。 */
 export type TargetLocator =
   | { type: 'query'; query: AqlQuery }
-  | { type: 'application_query'; application: ApplicationTarget; query: AqlQuery }
   | { type: 'visual'; query: { text: string; exact: boolean } }
   | { type: 'coordinate'; point: { x: number; y: number } };
 
-/**
- * UIA 查询前需要复用、恢复或显式启动的 direct-process Windows 桌面应用。
- * 启动进程必须自行创建目标顶层窗口；前台激活仅为 best-effort，不是 UIA 执行前提。
- */
-export type ApplicationTarget = {
+/** 应用资源节点获取 direct-process Windows 桌面应用的契约。 */
+export type ApplicationSpec = {
   /** 用于进程身份匹配和启动的绝对 EXE 路径。 */
   executable_path: string;
   /** 不经过 shell 解析、直接传给 EXE 的参数。 */
   arguments: string[];
   /** 唯一顶层窗口的标题匹配规则。 */
   window_title: WindowTitleMatcher;
+  /** 复用或启动进程的策略。 */
+  acquire_policy: AcquirePolicy;
   /** 启动后等待顶层窗口的最长毫秒数。 */
   launch_timeout_ms: number;
+  /** 工作流结束后的应用清理策略。 */
+  cleanup_policy: CleanupPolicy;
+  /** 获取时的窗口激活要求。 */
+  activation_policy: ActivationPolicy;
 };
+
+export type AcquirePolicy = 'attach_or_start' | 'attach_only' | 'always_start_new';
+export type CleanupPolicy = 'leave_running' | 'close_if_started_by_workflow' | 'always_close';
+export type ActivationPolicy = 'none' | 'best_effort' | 'required';
 
 /** Windows 顶层窗口标题支持精确或包含匹配。 */
 export type WindowTitleMatcher =
@@ -99,6 +135,36 @@ export type WindowTitleMatcher =
 
 /** Action 属性面板允许切换的目标定位类别。 */
 export type TargetLocatorKind = TargetLocator['type'];
+
+/** Command 节点的三种同语义运行器。 */
+export type CommandRunner = 'direct' | 'power_shell' | 'cmd';
+
+export type EnvironmentBinding = {
+  name: string;
+  value: ValueExpr;
+};
+
+/** 独立于 UI Planner 的命令执行契约。 */
+export type CommandOperation = {
+  runner: CommandRunner;
+  program: ValueExpr | null;
+  arguments: ValueExpr[];
+  script: ValueExpr | null;
+  working_directory: ValueExpr | null;
+  environment: EnvironmentBinding[];
+  stdin: ValueExpr | null;
+  timeout_ms: number;
+  accepted_exit_codes: number[];
+  max_stdout_bytes: number;
+  max_stderr_bytes: number;
+};
+
+/** 工作流对命令能力的显式授权。 */
+export type WorkflowPermissions = {
+  process_spawn: boolean;
+  powershell: boolean;
+  cmd: boolean;
+};
 
 /** AQL backend compiler 使用的稳定后端家族。 */
 export type QueryBackend = 'windows_uia' | 'browser_cdp' | 'vision';
@@ -258,7 +324,12 @@ export type ValidationIssueCode =
   | 'empty_log_message'
   | 'invalid_delay'
   | 'invalid_aql_query'
-  | 'invalid_application_target';
+  | 'invalid_application_spec'
+  | 'invalid_command'
+  | 'command_permission_denied'
+  | 'invalid_value_reference'
+  | 'invalid_resource_reference'
+  | 'reference_not_dominating';
 
 export type ValidationIssue = {
   code: ValidationIssueCode;
@@ -274,7 +345,8 @@ export type ValidationReport = {
 export type RunStarted = { run_id: string };
 
 export type ExecutionEventKind =
-  | 'workflow_started' | 'node_started' | 'log' | 'node_succeeded'
+  | 'workflow_started' | 'node_started' | 'log' | 'node_output_produced'
+  | 'resource_acquired' | 'backend_selected' | 'command_exited' | 'node_succeeded'
   | 'edge_traversed' | 'node_failed' | 'workflow_completed' | 'workflow_failed';
 
 export type ExecutionEvent = {
@@ -292,7 +364,15 @@ export type ExecutionEvent = {
   kind: ExecutionEventKind;
   /** 可选运行说明。 */
   message: string | null;
+  /** 不包含业务输出或 OS handle 的结构化载荷。 */
+  payload: ExecutionEventPayload | null;
 };
+
+export type ExecutionEventPayload =
+  | { type: 'node_outputs_produced'; output_names: string[] }
+  | { type: 'resource_acquired'; output_name: string; resource_type: string }
+  | { type: 'backend_selected'; backend: BackendKind }
+  | { type: 'command_exited'; exit_code: number };
 
 /** Rust `CommandErrorCode` 的完整序列化取值。 */
 export const COMMAND_ERROR_CODES = [
@@ -301,6 +381,9 @@ export const COMMAND_ERROR_CODES = [
   'event_delivery_failed',
   'execution_invariant_failed',
   'automation_failed',
+  'application_failed',
+  'command_failed',
+  'runtime_data_failed',
 ] as const;
 
 export type BackendCommandErrorCode = typeof COMMAND_ERROR_CODES[number];

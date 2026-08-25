@@ -73,10 +73,11 @@ impl<'automation> UiaExecutor<'automation> {
                 .check_deadline()
                 .map_err(UiaError::into_automation_error)?;
             match execute_action(&target.element, &request.plan.action) {
-                Ok(message) => {
+                Ok(executed) => {
                     return Ok(ActionOutcome {
                         backend: BackendKind::WindowsUia,
-                        message: message.to_owned(),
+                        message: executed.message.to_owned(),
+                        outputs: executed.outputs,
                     });
                 }
                 Err(error) if attempt == 0 && error.is_element_unavailable() => continue,

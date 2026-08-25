@@ -1,13 +1,13 @@
 //! ActionBackend prepare、availability 与冻结 UIA execution 的装配。
 
-use std::{path::Path, sync::Arc};
+use std::sync::Arc;
 
 use argusflow_agent::{
-    ActionBackend, ContextFitness, ExecutionContext, PlanExplain, PlanRejection, PlanStepExplain,
-    PlanStepKind, PreparedCandidate, PreparedExecution, RuntimeAvailability,
+    ActionBackend, ContextFitness, ExecutionContext, PlanExplain, PlanRejection, PreparedCandidate,
+    PreparedExecution, RuntimeAvailability,
 };
 use argusflow_core::{
-    ActionOutcome, ApplicationTarget, AutomationAction, AutomationError, BackendKind, TargetLocator,
+    ActionOutcome, AutomationAction, AutomationError, BackendKind, TargetLocator,
 };
 use argusflow_query::{
     Diagnostic, DiagnosticCode, DiagnosticSeverity, QueryBackend, analyze_query,
@@ -22,24 +22,18 @@ use super::{
     plan::UiaPreparedPlan,
     runtime::{PreparedWindowTarget, UiaExecuteRequest, UiaRuntime, UiaRuntimeState},
 };
-use crate::window::WindowService;
 
 /// 使用共享 `UiaRuntime` 操作原生 Windows UIA provider 的后端。
 #[derive(Debug)]
 pub struct UiaBackend {
     /// 与 Windows ExecutionContextProvider 共享的唯一 UIA runtime。
     runtime: Arc<UiaRuntime>,
-    /// 在动作执行前解析显式应用作用域的 Win32 服务。
-    windows: Arc<WindowService>,
 }
 
 impl UiaBackend {
     /// 创建绑定应用级 UIA runtime 的后端。
     pub fn new(runtime: Arc<UiaRuntime>) -> Self {
-        Self {
-            runtime,
-            windows: Arc::new(WindowService),
-        }
+        Self { runtime }
     }
 }
 
@@ -53,19 +47,16 @@ impl ActionBackend for UiaBackend {
         action: &AutomationAction,
         context: &ExecutionContext,
     ) -> Result<PreparedCandidate, PlanRejection> {
-        let (query, window_source) = match &action.target().locator {
+        let (query, window) = match &action.target().locator {
             TargetLocator::Query { query } => (
                 query,
-                PreparedWindowSource::Foreground(context.foreground_window.as_ref().map(
-                    |window| PreparedWindowTarget {
+                context
+                    .foreground_window
+                    .as_ref()
+                    .map(|window| PreparedWindowTarget {
                         handle: window.handle,
                         process_id: window.process_id,
-                    },
-                )),
-            ),
-            TargetLocator::ApplicationQuery { application, query } => (
-                query,
-                PreparedWindowSource::Application(application.clone()),
+                    }),
             ),
             TargetLocator::Visual { .. } | TargetLocator::Coordinate { .. } => {
                 return Err(PlanRejection::Unsupported {
@@ -84,7 +75,7 @@ impl ActionBackend for UiaBackend {
             compile_uia_action(action, query_plan).map_err(|_| PlanRejection::Unsupported {
                 backend: BackendKind::WindowsUia,
             })?;
-        let availability = runtime_availability(self.runtime.health().snapshot(), &window_source);
+        let availability = runtime_availability(self.runtime.health().snapshot(), window);
         let mut diagnostics = prepared_plan.query.diagnostics.clone();
         if !availability.is_ready() {
             diagnostics.push(Diagnostic::global(
@@ -94,26 +85,6 @@ impl ActionBackend for UiaBackend {
             ));
         }
         let mut steps = explain_uia_plan(&prepared_plan.query.expression);
-        if let PreparedWindowSource::Application(application) = &window_source {
-            let application_steps = [
-                PlanStepExplain {
-                    kind: PlanStepKind::Scope,
-                    summary: format!(
-                        "EnsureDirectProcessApplication({}, title {:?})",
-                        application.executable_path, application.window_title
-                    ),
-                },
-                PlanStepExplain {
-                    kind: PlanStepKind::Scope,
-                    summary: "EnsureRestored (required)".to_owned(),
-                },
-                PlanStepExplain {
-                    kind: PlanStepKind::Scope,
-                    summary: "BestEffortForeground (not required by UIA)".to_owned(),
-                },
-            ];
-            steps.splice(0..0, application_steps);
-        }
         steps.push(explain_uia_action(
             &prepared_plan.action,
             prepared_plan.action_support,
@@ -126,15 +97,14 @@ impl ActionBackend for UiaBackend {
             support: prepared_plan.capability.level,
             cost: prepared_plan.capability.estimated_cost,
             availability,
-            context_fitness: uia_context_fitness(context, &window_source),
+            context_fitness: uia_context_fitness(context),
             portability,
             steps,
             diagnostics,
         };
         let execution = UiaPreparedExecution {
             runtime: self.runtime.clone(),
-            windows: self.windows.clone(),
-            window_source,
+            window,
             plan: prepared_plan,
             query: canonicalize_query(&parsed),
         };
@@ -147,10 +117,8 @@ impl ActionBackend for UiaBackend {
 struct UiaPreparedExecution {
     /// prepare 与 execute 共享的专用 UIA runtime。
     runtime: Arc<UiaRuntime>,
-    /// 解析应用作用域的 Win32 服务。
-    windows: Arc<WindowService>,
-    /// prepare 时冻结的前台 HWND/PID 或显式应用启动契约。
-    window_source: PreparedWindowSource,
+    /// prepare 时冻结的前台或 AppSession HWND/PID。
+    window: Option<PreparedWindowTarget>,
     /// prepare 时冻结的 UIA 查询、动作与联合能力计划。
     plan: UiaPreparedPlan,
     /// 规范化查询，仅用于错误日志。
@@ -160,7 +128,12 @@ struct UiaPreparedExecution {
 #[async_trait]
 impl PreparedExecution for UiaPreparedExecution {
     async fn execute(&self) -> Result<ActionOutcome, AutomationError> {
-        let window = self.window_source.resolve(&self.windows).await?;
+        let window = self
+            .window
+            .ok_or_else(|| AutomationError::BackendUnavailable {
+                backend: BackendKind::WindowsUia,
+                message: "prepared UIA candidate has no window context".to_owned(),
+            })?;
         self.runtime
             .execute(UiaExecuteRequest {
                 window,
@@ -171,54 +144,13 @@ impl PreparedExecution for UiaPreparedExecution {
     }
 }
 
-/// prepare 阶段冻结的 UIA 根窗口来源。
-#[derive(Debug, Clone)]
-enum PreparedWindowSource {
-    /// 沿用 prepare 瞬间的前台窗口；None 只能出现在不可执行 Explain 中。
-    Foreground(Option<PreparedWindowTarget>),
-    /// 执行时复用、恢复或启动的显式应用。
-    Application(ApplicationTarget),
-}
-
-impl PreparedWindowSource {
-    /// 把冻结窗口或显式应用契约解析成 UIA worker 接受的 HWND/PID。
-    async fn resolve(
-        &self,
-        windows: &WindowService,
-    ) -> Result<PreparedWindowTarget, AutomationError> {
-        match self {
-            Self::Foreground(Some(window)) => Ok(*window),
-            Self::Foreground(None) => Err(AutomationError::BackendUnavailable {
-                backend: BackendKind::WindowsUia,
-                message: "prepared UIA candidate has no foreground window context".to_owned(),
-            }),
-            Self::Application(application) => {
-                let window = windows.resolve_application(application.clone()).await?;
-                Ok(PreparedWindowTarget {
-                    handle: window.handle,
-                    process_id: window.process_id,
-                })
-            }
-        }
-    }
-}
-
 /// 组合 runtime health 与准备阶段窗口上下文。
 fn runtime_availability(
     runtime: UiaRuntimeState,
-    window_source: &PreparedWindowSource,
+    window: Option<PreparedWindowTarget>,
 ) -> RuntimeAvailability {
     match runtime {
-        UiaRuntimeState::Ready
-            if matches!(window_source, PreparedWindowSource::Foreground(Some(_)))
-                || matches!(
-                    window_source,
-                    PreparedWindowSource::Application(application)
-                        if Path::new(&application.executable_path).is_file()
-                ) =>
-        {
-            RuntimeAvailability::Ready
-        }
+        UiaRuntimeState::Ready if window.is_some() => RuntimeAvailability::Ready,
         UiaRuntimeState::Ready => RuntimeAvailability::MissingContext,
         UiaRuntimeState::Initializing
         | UiaRuntimeState::InitializationFailed { .. }
@@ -227,14 +159,8 @@ fn runtime_availability(
 }
 
 /// 评估 UIA 与当前前台窗口及 Accessibility 状态的匹配度。
-const fn uia_context_fitness(
-    context: &ExecutionContext,
-    window_source: &PreparedWindowSource,
-) -> ContextFitness {
-    if context.accessibility.ready && matches!(window_source, PreparedWindowSource::Application(_))
-    {
-        ContextFitness::Excellent
-    } else if context.accessibility.ready && context.foreground_window.is_some() {
+const fn uia_context_fitness(context: &ExecutionContext) -> ContextFitness {
+    if context.accessibility.ready && context.foreground_window.is_some() {
         ContextFitness::Good
     } else if context.foreground_window.is_some() {
         ContextFitness::Neutral

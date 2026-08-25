@@ -4,12 +4,18 @@ import { useStore } from 'zustand';
 
 import { createFlowStore } from '../../flow/store';
 import type { FlowAnchorSide, FlowPoint } from '../../flow/types';
-import type { ExecutionEvent, JsonObject, ValidationReport } from './contracts';
+import type {
+  ExecutionEvent,
+  JsonObject,
+  ValidationReport,
+  WorkflowPermissions,
+} from './contracts';
 import {
   DEFAULT_EDGES,
   DEFAULT_NODES,
   DEFAULT_SELECTED_NODE_ID,
   DEFAULT_WORKFLOW_NAME,
+  DEFAULT_WORKFLOW_PERMISSIONS,
   DEFAULT_WORKFLOW_VARIABLES,
 } from './defaultWorkflowTemplate';
 import {
@@ -41,6 +47,7 @@ export function useWorkflowStudio() {
       metadata: {
         workflowName: DEFAULT_WORKFLOW_NAME,
         variables: DEFAULT_WORKFLOW_VARIABLES,
+        permissions: DEFAULT_WORKFLOW_PERMISSIONS,
       },
       nodes: DEFAULT_NODES,
       edges: DEFAULT_EDGES,
@@ -55,6 +62,10 @@ export function useWorkflowStudio() {
   const variables = useStore(
     flowStore,
     (state) => state.metadata.variables as JsonObject,
+  );
+  const permissions = useStore(
+    flowStore,
+    (state) => state.metadata.permissions as WorkflowPermissions,
   );
   const [variablesDraft, setVariablesDraft] = useState(
     JSON.stringify(DEFAULT_WORKFLOW_VARIABLES, null, 2),
@@ -71,6 +82,14 @@ export function useWorkflowStudio() {
       { workflowName: name },
       true,
       'workflow-name',
+    );
+  }, [flowStore]);
+
+  const updatePermissions = useCallback((permissions: WorkflowPermissions) => {
+    flowStore.getState().setMetadata(
+      { permissions },
+      true,
+      'workflow-permissions',
     );
   }, [flowStore]);
 
@@ -121,6 +140,7 @@ export function useWorkflowStudio() {
       workflowId,
       state.metadata.workflowName as string,
       state.metadata.variables as JsonObject,
+      state.metadata.permissions as WorkflowPermissions,
       state.nodes,
       state.edges,
     );
@@ -206,7 +226,10 @@ export function useWorkflowStudio() {
       return false;
     }
 
-    const node = createNode(kind, position);
+    const createdNode = createNode(kind, position);
+    const sourceNode = state.nodes.find((candidate) => candidate.id === sourceNodeId);
+    /** 直接从 Application 拉出的 UI 节点默认绑定其 session 资源。 */
+    const node = bindApplicationScope(createdNode, sourceNode);
     const nodes = [...state.nodes, node];
     if (!canConnect(nodes, state.edges, sourceNodeId, node.id)) return false;
 
@@ -360,6 +383,8 @@ export function useWorkflowStudio() {
     flowStore,
     workflowName,
     setWorkflowName,
+    permissions,
+    updatePermissions,
     variablesDraft,
     variablesError,
     updateVariables,
@@ -392,4 +417,33 @@ function oppositeAnchorSide(side: FlowAnchorSide): FlowAnchorSide {
     case 'left':
       return 'right';
   }
+}
+
+/** 为直接连接在 Application 后的 UI 节点写入显式逻辑资源引用。 */
+function bindApplicationScope(
+  node: ReturnType<typeof createNode>,
+  source: ReturnType<typeof createNode> | undefined,
+): ReturnType<typeof createNode> {
+  if (node.data.kind !== 'ui' || source?.data.kind !== 'application') {
+    return node;
+  }
+  return {
+    ...node,
+    data: {
+      ...node.data,
+      operation: {
+        ...node.data.operation,
+        target: {
+          ...node.data.operation.target,
+          scope: {
+            type: 'application',
+            resource: {
+              producer_node_id: source.id,
+              output_name: 'session',
+            },
+          },
+        },
+      },
+    },
+  };
 }

@@ -39,7 +39,7 @@ pub fn inspect_aql(state: State<'_, AppState>, target: AutomationTarget) -> AqlI
 /// 从共享 Router 生成检查结果，保持 Tauri adapter 只负责参数装配。
 fn inspect_with_router(state: &AppState, target: AutomationTarget) -> AqlInspection {
     let query = match &target.locator {
-        TargetLocator::Query { query } | TargetLocator::ApplicationQuery { query, .. } => query,
+        TargetLocator::Query { query } => query,
         TargetLocator::Visual { .. } | TargetLocator::Coordinate { .. } => {
             return AqlInspection::Invalid {
                 diagnostics: Vec::new(),

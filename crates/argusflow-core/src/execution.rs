@@ -25,6 +25,36 @@ pub struct ExecutionEvent {
     pub kind: ExecutionEventKind,
     /// 可选的人类可读消息或错误摘要。
     pub message: Option<String>,
+    /// 不包含完整业务数据或 OS handle 的结构化事件载荷。
+    pub payload: Option<ExecutionEventPayload>,
+}
+
+/// 执行事件中可安全展示的结构化详情。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ExecutionEventPayload {
+    /// 节点已经保存一组值输出，仅报告端口名避免泄露业务内容。
+    NodeOutputsProduced {
+        /// 本次产生的稳定输出端口名称。
+        output_names: Vec<String>,
+    },
+    /// 应用节点已经获取逻辑资源，不暴露 PID 或 HWND。
+    ResourceAcquired {
+        /// 资源输出端口名称。
+        output_name: String,
+        /// 稳定的资源类别名称。
+        resource_type: String,
+    },
+    /// Planner 已选择语义动作后端。
+    BackendSelected {
+        /// 实际执行操作的后端。
+        backend: crate::BackendKind,
+    },
+    /// Command 节点已经退出；stdout/stderr 只保存在 NodeOutcome。
+    CommandExited {
+        /// 子进程退出代码。
+        exit_code: i32,
+    },
 }
 
 /// 工作流和节点生命周期中可观察的事件类别。
@@ -37,6 +67,14 @@ pub enum ExecutionEventKind {
     NodeStarted,
     /// 节点产生了日志消息。
     Log,
+    /// 节点产生了一个或多个结构化输出。
+    NodeOutputProduced,
+    /// 资源节点成功获取了运行时资源。
+    ResourceAcquired,
+    /// Planner 已为语义 UI 操作选择实际执行后端。
+    BackendSelected,
+    /// Command 子进程已经以可接受的退出代码结束。
+    CommandExited,
     /// 某个节点执行成功。
     NodeSucceeded,
     /// 运行时已选择并进入一条连线。

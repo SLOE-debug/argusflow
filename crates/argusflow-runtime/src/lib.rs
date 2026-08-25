@@ -6,12 +6,21 @@
 #[cfg(not(target_os = "windows"))]
 compile_error!("ArgusFlow only supports Windows targets.");
 
+mod application;
+mod command;
 mod dispatcher;
 mod engine;
 mod error;
+mod node_executor;
+mod run_context;
+mod validation_nodes;
+mod validation_references;
 mod validator;
 
+pub use application::UnavailableApplicationSessionProvider;
+pub use command::{CommandError, CommandExecutor};
 pub use dispatcher::{ActionDispatcher, UnavailableActionDispatcher};
 pub use engine::{ExecutionEventSink, WorkflowEngine};
 pub use error::RuntimeError;
+pub use run_context::{NodeOutcome, ResourceEntry, ResourceTable, RunContext};
 pub use validator::{ValidationIssue, ValidationIssueCode, ValidationReport, validate_workflow};

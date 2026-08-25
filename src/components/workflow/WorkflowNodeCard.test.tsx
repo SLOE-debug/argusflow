@@ -30,25 +30,26 @@ describe('WorkflowNodeCard', () => {
     expect(screen.getByText('记录结果')).toHaveClass('text-blue-600');
   });
 
-  it('summarizes an AQL SetValue action on the canvas', () => {
+  it('summarizes an AQL SetValue UI operation on the canvas', () => {
     const node: WorkflowCanvasNode = {
-      id: 'action-1',
-      kind: 'action',
+      id: 'ui-1',
+      kind: 'ui',
       position: { x: 0, y: 0 },
       size: { width: 164, height: 52 },
       data: {
-        kind: 'action',
+        kind: 'ui',
         label: '填写记事本',
-        action: {
+        operation: {
           type: 'set_value',
           target: {
+            scope: { type: 'current' },
             locator: {
               type: 'query',
               query: { language_version: 1, source: 'document()' },
             },
             backend_preference: 'windows_uia',
           },
-          value: 'ArgusFlow',
+          value: { type: 'literal', value: 'ArgusFlow' },
         },
       },
     };
@@ -56,5 +57,27 @@ describe('WorkflowNodeCard', () => {
     render(<WorkflowNodeCard node={node} selected={false} />);
 
     expect(screen.getByText('填写 · AQL')).toBeVisible();
+  });
+
+  it('shows the selected upstream output on a debug node', () => {
+    const node: WorkflowCanvasNode = {
+      id: 'debug-1',
+      kind: 'debug',
+      position: { x: 0, y: 0 },
+      size: { width: 156, height: 52 },
+      data: {
+        kind: 'debug',
+        label: '输出窗口标题',
+        value: {
+          type: 'node_output',
+          node_id: 'read-title',
+          output: 'text',
+        },
+      },
+    };
+
+    render(<WorkflowNodeCard node={node} selected={false} />);
+
+    expect(screen.getByText('read-title.text')).toBeVisible();
   });
 });

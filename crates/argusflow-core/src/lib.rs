@@ -2,25 +2,37 @@
 //!
 //! 本 crate 只定义跨编辑器、运行时和自动化后端共享的数据结构，不负责实际执行。
 
+mod application;
 mod automation;
+mod command;
 mod condition;
 mod error;
 mod execution;
 mod query;
+mod resource;
+mod value;
 mod workflow;
 
+pub use application::{AcquirePolicy, ActivationPolicy, ApplicationSpec, CleanupPolicy};
 pub use automation::{
-    ActionOutcome, ApplicationTarget, AutomationAction, AutomationTarget, BackendKind,
-    BackendPreference, ScreenPoint, TargetLocator, VisualQuery, WindowTitleMatcher,
+    ActionOutcome, AutomationAction, AutomationExecutionScope, AutomationTarget, BackendKind,
+    BackendPreference, ScreenPoint, TargetLocator, TargetScope, UiOperation, VisualQuery,
+    WindowTitleMatcher,
 };
+pub use command::{CommandOperation, CommandRunner, EnvironmentBinding, WorkflowPermissions};
 pub use condition::{ConditionEvaluationError, ConditionOperator, ConditionPredicate};
 pub use error::AutomationError;
-pub use execution::{ExecutionEvent, ExecutionEventKind, RunStarted};
+pub use execution::{ExecutionEvent, ExecutionEventKind, ExecutionEventPayload, RunStarted};
 pub use query::{
     AqlQuery, DomAttribute, ElementMatcher, ElementRole, MatchOperator, PredicateValue,
     PropertyPredicate, QueryExpr, QueryLanguageVersion, RegexLiteral, SelectorAttribute, UiQuery,
     UiaAttribute,
 };
+pub use resource::{
+    AppCapabilities, AppSession, ApplicationError, ApplicationSessionProvider, ProcessIdentity,
+    ResourceId, ResourceRef, WindowIdentity,
+};
+pub use value::ValueExpr;
 pub use workflow::{
     ConditionBranch, Position, WorkflowDefinition, WorkflowEdge, WorkflowNode, WorkflowNodeKind,
 };

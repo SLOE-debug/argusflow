@@ -13,6 +13,8 @@ import {
   type WorkflowNodeUpdater,
 } from '../../features/workflow/workflowModel';
 import { ActionNodeFields } from './ActionNodeFields';
+import { ApplicationNodeFields } from './ApplicationNodeFields';
+import { CommandNodeFields } from './CommandNodeFields';
 import {
   INSPECTOR_CONTROL_CLASS_NAME,
   INSPECTOR_HELP_CLASS_NAME,
@@ -20,6 +22,7 @@ import {
   InspectorField,
   InspectorSection,
 } from './InspectorControls';
+import { ValueExprFields } from './ValueExprFields';
 
 type NodeInspectorFieldsProps = Readonly<{
   /** 当前唯一选中的节点。 */
@@ -58,9 +61,12 @@ const OPERATOR_LABELS: Readonly<Record<ConditionOperator, string>> = {
 const NODE_KIND_LABELS: Readonly<Record<WorkflowNodeData['kind'], string>> = {
   start: '开始节点',
   log: '日志节点',
+  debug: '调试输出',
   delay: '延迟节点',
   condition: '条件判断',
-  action: '执行节点',
+  application: '应用资源',
+  ui: '界面操作',
+  command: '命令节点',
   end: '结束节点',
 };
 
@@ -214,6 +220,18 @@ function NodeKindFields({
           />
         </InspectorField>
       );
+    case 'debug':
+      return (
+        <ValueExprFields
+          value={data.value}
+          literalLabel="调试文本"
+          onChange={(value) => {
+            onUpdate((current) => current.kind === 'debug'
+              ? { ...current, value, invalid: false }
+              : current);
+          }}
+        />
+      );
     case 'delay':
       return (
         <InspectorField label="等待毫秒">
@@ -278,12 +296,30 @@ function NodeKindFields({
           ) : null}
         </>
       );
-    case 'action':
+    case 'application':
+      return (
+        <ApplicationNodeFields
+          spec={data.spec}
+          onChange={(spec) => onUpdate((current) => current.kind === 'application'
+            ? { ...current, spec, invalid: false }
+            : current)}
+        />
+      );
+    case 'ui':
       return (
         <ActionNodeFields
-          action={data.action}
-          onChange={(action) => onUpdate((current) => current.kind === 'action'
-            ? { ...current, action, invalid: false }
+          operation={data.operation}
+          onChange={(operation) => onUpdate((current) => current.kind === 'ui'
+            ? { ...current, operation, invalid: false }
+            : current)}
+        />
+      );
+    case 'command':
+      return (
+        <CommandNodeFields
+          operation={data.operation}
+          onChange={(operation) => onUpdate((current) => current.kind === 'command'
+            ? { ...current, operation, invalid: false }
             : current)}
         />
       );

@@ -11,8 +11,8 @@ use argusflow_agent::{
     WindowContext,
 };
 use argusflow_core::{
-    ActionOutcome, AqlQuery, AutomationAction, AutomationError, AutomationTarget, BackendKind,
-    BackendPreference,
+    ActionOutcome, AqlQuery, AutomationAction, AutomationError, AutomationExecutionScope,
+    AutomationTarget, BackendKind, BackendPreference,
 };
 use argusflow_query::{QueryCost, QueryPortability, SupportLevel};
 use argusflow_runtime::ActionDispatcher;
@@ -111,6 +111,7 @@ impl PreparedExecution for TestExecution {
             ExecutionResult::Success => Ok(ActionOutcome {
                 backend: self.backend,
                 message: "prepared backend executed".to_owned(),
+                outputs: Default::default(),
             }),
             ExecutionResult::Unavailable => Err(AutomationError::BackendUnavailable {
                 backend: self.backend,
@@ -143,7 +144,7 @@ async fn router_prefers_support_then_context_fitness_then_cost() {
     ]);
 
     let outcome = router
-        .execute(&portable_click())
+        .execute(&portable_click(), AutomationExecutionScope::Current)
         .await
         .expect("prepared plan should execute");
     assert_eq!(outcome.backend, BackendKind::BrowserCdp);
@@ -169,7 +170,7 @@ async fn router_prefers_earlier_any_branch_before_backend_capability() {
     ]);
 
     let outcome = router
-        .execute(&portable_click())
+        .execute(&portable_click(), AutomationExecutionScope::Current)
         .await
         .expect("the backend preserving the earlier fallback branch should execute");
 
@@ -199,7 +200,7 @@ async fn target_not_found_only_advances_to_a_later_any_branch() {
     ]);
 
     let outcome = router
-        .execute(&portable_click())
+        .execute(&portable_click(), AutomationExecutionScope::Current)
         .await
         .expect("an empty earlier any branch should advance to the next branch");
 
@@ -233,7 +234,7 @@ async fn router_honors_backend_constraint_without_mutating_query() {
     target.backend_preference = BackendPreference::BrowserCdp;
 
     let outcome = router
-        .execute(&action)
+        .execute(&action, AutomationExecutionScope::Current)
         .await
         .expect("forced CDP plan should execute");
     assert_eq!(outcome.backend, BackendKind::BrowserCdp);
@@ -293,7 +294,7 @@ async fn unavailable_plan_can_fallback_but_semantic_failure_cannot() {
         }),
     ]);
     let outcome = unavailable_router
-        .execute(&portable_click())
+        .execute(&portable_click(), AutomationExecutionScope::Current)
         .await
         .expect("environment failure may fallback");
     assert_eq!(outcome.backend, BackendKind::BrowserCdp);
@@ -313,7 +314,9 @@ async fn unavailable_plan_can_fallback_but_semantic_failure_cannot() {
         }),
     ]);
     assert!(matches!(
-        semantic_router.execute(&portable_click()).await,
+        semantic_router
+            .execute(&portable_click(), AutomationExecutionScope::Current)
+            .await,
         Err(AutomationError::TargetNotFound { .. })
     ));
     assert_eq!(fallback_executions.load(Ordering::SeqCst), 0);

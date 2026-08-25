@@ -1,15 +1,21 @@
 import {
+  AppWindow,
+  Bug,
   Clock3,
   FileText,
   GitBranch,
   MousePointerClick,
   PlayCircle,
   Square,
+  Terminal,
   type LucideIcon,
 } from 'lucide-react';
 
 import type { FlowNodeRendererProps, NodeDefinition } from '../../flow';
-import type { TargetLocatorKind } from '../../features/workflow/contracts';
+import type {
+  TargetLocatorKind,
+  ValueExpr,
+} from '../../features/workflow/contracts';
 import {
   WORKFLOW_NODE_SIZES,
   type NodeRunState,
@@ -32,9 +38,12 @@ type WorkflowNodeRegistry = Record<
 const NODE_ICONS: Readonly<Record<WorkflowNodeKind, LucideIcon>> = {
   start: PlayCircle,
   log: FileText,
+  debug: Bug,
   delay: Clock3,
   condition: GitBranch,
-  action: MousePointerClick,
+  application: AppWindow,
+  ui: MousePointerClick,
+  command: Terminal,
   end: Square,
 };
 
@@ -51,6 +60,10 @@ const NODE_TONES: Readonly<Record<
     accent: 'bg-blue-500',
     icon: 'bg-blue-50 text-blue-600',
   },
+  debug: {
+    accent: 'bg-fuchsia-500',
+    icon: 'bg-fuchsia-50 text-fuchsia-700',
+  },
   delay: {
     accent: 'bg-amber-500',
     icon: 'bg-amber-50 text-amber-600',
@@ -59,9 +72,17 @@ const NODE_TONES: Readonly<Record<
     accent: 'bg-violet-500',
     icon: 'bg-violet-50 text-violet-600',
   },
-  action: {
+  application: {
+    accent: 'bg-indigo-500',
+    icon: 'bg-indigo-50 text-indigo-700',
+  },
+  ui: {
     accent: 'bg-cyan-500',
     icon: 'bg-cyan-50 text-cyan-700',
+  },
+  command: {
+    accent: 'bg-slate-600',
+    icon: 'bg-slate-100 text-slate-700',
   },
   end: {
     accent: 'bg-rose-500',
@@ -84,9 +105,12 @@ export const workflowNodeRegistry = {
     canEndConnection: false,
   },
   log: createDefinition('log', '日志', WORKFLOW_NODE_SIZES.log),
+  debug: createDefinition('debug', '调试输出', WORKFLOW_NODE_SIZES.debug),
   delay: createDefinition('delay', '等待', WORKFLOW_NODE_SIZES.delay),
   condition: createDefinition('condition', '条件', WORKFLOW_NODE_SIZES.condition),
-  action: createDefinition('action', '执行动作', WORKFLOW_NODE_SIZES.action),
+  application: createDefinition('application', '应用', WORKFLOW_NODE_SIZES.application),
+  ui: createDefinition('ui', '界面操作', WORKFLOW_NODE_SIZES.ui),
+  command: createDefinition('command', '执行命令', WORKFLOW_NODE_SIZES.command),
   end: {
     ...createDefinition('end', '结束', WORKFLOW_NODE_SIZES.end, true),
     canStartConnection: false,
@@ -153,14 +177,18 @@ function resolveNodeDetail(data: WorkflowNodeData): string {
   switch (data.kind) {
     case 'log':
       return data.message;
+    case 'debug':
+      return valueExprDetail(data.value);
     case 'delay':
       return `等待 ${data.milliseconds / 1000} 秒`;
     case 'condition':
       return `${data.pointer} ${data.operator}`;
-    case 'action':
-      return data.action.type === 'click'
-        ? `点击 · ${locatorLabel(data.action.target.locator.type)}`
-        : `填写 · ${locatorLabel(data.action.target.locator.type)}`;
+    case 'application':
+      return `${data.spec.acquire_policy} · ${data.spec.window_title.value}`;
+    case 'ui':
+      return `${operationLabel(data.operation.type)} · ${locatorLabel(data.operation.target.locator.type)}`;
+    case 'command':
+      return `命令 · ${data.operation.runner}`;
     case 'start':
       return '手动触发';
     case 'end':
@@ -168,16 +196,40 @@ function resolveNodeDetail(data: WorkflowNodeData): string {
   }
 }
 
+/** 将调试值来源压缩为卡片可读文案。 */
+function valueExprDetail(value: ValueExpr): string {
+  switch (value.type) {
+    case 'literal':
+      return typeof value.value === 'string' && value.value.length > 0
+        ? value.value
+        : '固定文本';
+    case 'workflow_input':
+      return `输入 · ${value.key}`;
+    case 'node_output':
+      return `${value.node_id}.${value.output}`;
+    case 'variable':
+      return `变量 · ${value.name}`;
+  }
+}
+
 /** 将目标定位类别压缩为卡片可读文案。 */
 function locatorLabel(locator: TargetLocatorKind): string {
   switch (locator) {
-    case 'application_query':
-      return '应用 AQL';
     case 'query':
       return 'AQL';
     case 'visual':
       return '视觉文字';
     case 'coordinate':
       return '屏幕坐标';
+  }
+}
+
+/** 将 UI 操作判别值转换成卡片短标签。 */
+function operationLabel(operation: 'click' | 'set_value' | 'get_text' | 'get_value'): string {
+  switch (operation) {
+    case 'click': return '点击';
+    case 'set_value': return '填写';
+    case 'get_text': return '读取文本';
+    case 'get_value': return '读取值';
   }
 }

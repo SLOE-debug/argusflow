@@ -1,6 +1,8 @@
 import {
   AlarmClock,
+  AppWindow,
   Bell,
+  Bug,
   ChevronRight,
   Clock3,
   Combine,
@@ -19,6 +21,7 @@ import {
   Shuffle,
   SlidersHorizontal,
   Square,
+  Terminal,
   Webhook,
   Workflow,
   type LucideIcon,
@@ -39,7 +42,7 @@ import type {
   WorkflowEdgeData,
   WorkflowNodeData,
 } from '../../features/workflow/workflowModel';
-import { Input } from '../ui';
+import { Checkbox, Input } from '../ui';
 import {
   findPaletteModule,
   PaletteModulePlaceholder,
@@ -54,7 +57,7 @@ type NodePaletteProps = Readonly<{
   onResetWidth: () => void;
 }>;
 
-type PaletteGroup = 'input' | 'control' | 'data' | 'output';
+type PaletteGroup = 'trigger' | 'control' | 'resource' | 'interface' | 'system' | 'data' | 'output';
 
 type PaletteItem = Readonly<{
   /** 后端已支持的节点类型；null 表示仅展示的后续节点。 */
@@ -69,38 +72,47 @@ type PaletteItem = Readonly<{
 
 /** 参考图左侧节点库的分组顺序与标题。 */
 const PALETTE_GROUPS = [
-  { id: 'input', label: '输入' },
+  { id: 'trigger', label: '触发' },
   { id: 'control', label: '流程控制' },
+  { id: 'resource', label: '应用资源' },
+  { id: 'interface', label: '界面操作' },
+  { id: 'system', label: '系统' },
   { id: 'data', label: '数据处理' },
   { id: 'output', label: '输出' },
 ] as const satisfies ReadonlyArray<Readonly<{ id: PaletteGroup; label: string }>>;
 
 /** 各节点分组的轻量图标色调。 */
 const PALETTE_GROUP_TONES = {
-  input: 'bg-emerald-50 text-emerald-600',
+  trigger: 'bg-emerald-50 text-emerald-600',
   control: 'bg-violet-50 text-violet-600',
+  resource: 'bg-indigo-50 text-indigo-600',
+  interface: 'bg-cyan-50 text-cyan-700',
+  system: 'bg-slate-100 text-slate-700',
   data: 'bg-amber-50 text-amber-600',
   output: 'bg-blue-50 text-blue-600',
 } as const satisfies Readonly<Record<PaletteGroup, string>>;
 
 /** 节点库条目的文案、分组与 Lucide 图标配置。 */
 const PALETTE_ITEMS = [
-  { kind: 'start', title: '手动触发', group: 'input', icon: MousePointer2 },
-  { kind: null, title: '定时触发', group: 'input', icon: AlarmClock },
-  { kind: null, title: 'HTTP 触发', group: 'input', icon: Webhook },
-  { kind: null, title: '消息队列', group: 'input', icon: MessageSquare },
+  { kind: 'start', title: '手动触发', group: 'trigger', icon: MousePointer2 },
+  { kind: null, title: '定时触发', group: 'trigger', icon: AlarmClock },
+  { kind: null, title: 'HTTP 触发', group: 'trigger', icon: Webhook },
+  { kind: null, title: '消息队列', group: 'trigger', icon: MessageSquare },
   { kind: 'condition', title: '条件判断', group: 'control', icon: GitBranch },
   { kind: null, title: '并行处理', group: 'control', icon: Workflow },
   { kind: null, title: '循环处理', group: 'control', icon: Repeat2 },
   { kind: 'delay', title: '延迟等待', group: 'control', icon: Clock3 },
+  { kind: 'application', title: '打开或连接应用', group: 'resource', icon: AppWindow },
+  { kind: 'ui', title: '界面操作', group: 'interface', icon: MousePointerClick },
+  { kind: 'command', title: '执行命令', group: 'system', icon: Terminal },
   { kind: null, title: '脚本转换', group: 'data', icon: FileCode2 },
   { kind: null, title: '数据过滤', group: 'data', icon: Filter },
   { kind: null, title: '数据聚合', group: 'data', icon: Combine },
   { kind: null, title: '字段映射', group: 'data', icon: Shuffle },
   { kind: null, title: '写入数据库', group: 'output', icon: Database },
   { kind: null, title: '发送 HTTP', group: 'output', icon: Send },
-  { kind: 'action', title: '执行动作', group: 'output', icon: MousePointerClick },
   { kind: 'log', title: '写入日志', group: 'output', icon: FileText },
+  { kind: 'debug', title: '调试输出', group: 'output', icon: Bug },
   { kind: null, title: '消息通知', group: 'output', icon: Bell },
   { kind: 'end', title: '结束流程', group: 'output', icon: Square },
 ] as const satisfies ReadonlyArray<PaletteItem>;
@@ -187,7 +199,7 @@ export function NodePalette({ store, onResetWidth }: NodePaletteProps) {
           <Input
             aria-label="搜索节点"
             density="compact"
-            containerClassName="mx-2.5 mt-2 shrink-0"
+            containerClassName="mx-1.5 mt-1.5 shrink-0"
             placeholder="搜索节点"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
@@ -198,22 +210,22 @@ export function NodePalette({ store, onResetWidth }: NodePaletteProps) {
               />
             )}
           />
-          <div className="mt-2 min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+          <div className="mt-1 min-h-0 flex-1 overflow-y-auto px-1.5 pb-1">
             {visibleGroups.map((group) => (
               <section
                 key={group.id}
-                className="mb-2 border-b border-slate-100 pb-2 last:mb-0 last:border-b-0"
+                className="mb-1 border-b border-slate-100 pb-1 last:mb-0 last:border-b-0"
               >
                 <button
                   type="button"
                   aria-expanded={!collapsedGroups.has(group.id)}
                   aria-controls={`palette-group-${group.id}`}
-                  className="flex h-7 w-full items-center rounded-md px-1 text-[12px] leading-none font-semibold text-slate-600 hover:bg-slate-50 hover:text-slate-800"
+                  className="flex h-6 w-full items-center rounded px-0.5 text-[11px] leading-none font-semibold text-slate-600 hover:bg-slate-50 hover:text-slate-800"
                   onClick={() => toggleGroup(group.id)}
                 >
                   <ChevronRight
                     className={
-                      'mr-1 size-2.5 transition-transform ' +
+                      'mr-0.5 size-2.5 transition-transform ' +
                       (collapsedGroups.has(group.id) ? '' : 'rotate-90')
                     }
                     aria-hidden="true"
@@ -226,14 +238,14 @@ export function NodePalette({ store, onResetWidth }: NodePaletteProps) {
                 {!collapsedGroups.has(group.id) ? (
                   <div
                     id={`palette-group-${group.id}`}
-                    className="mt-1 grid grid-cols-2 gap-1.5 px-0.5"
+                    className="mt-0.5 grid grid-cols-1 gap-0.5"
                   >
                     {group.items.map((item) => (
-                    <PaletteItemButton
-                      key={item.title}
-                      item={item}
-                      disabled={!isPaletteItemAvailable(item, startExists, endExists)}
-                    />
+                      <PaletteItemButton
+                        key={item.title}
+                        item={item}
+                        disabled={!isPaletteItemAvailable(item, startExists, endExists)}
+                      />
                     ))}
                   </div>
                 ) : null}
@@ -288,11 +300,9 @@ function PaletteFilterPanel({
   return (
     <div className="absolute top-[32px] right-2 z-40 w-44 rounded-md border border-slate-200 bg-white p-2 shadow-lg">
       <label className="flex h-7 items-center gap-2 rounded px-1 text-[11px] text-slate-700 hover:bg-slate-50">
-        <input
-          type="checkbox"
+        <Checkbox
           checked={onlyAvailable}
           onChange={(event) => onOnlyAvailableChange(event.target.checked)}
-          className="size-3.5 accent-blue-600"
         />
         仅显示可用节点
       </label>
@@ -340,12 +350,12 @@ function PaletteItemButton({ item, disabled }: PaletteItemButtonProps) {
       disabled={disabled}
       draggable={!disabled}
       onDragStart={handleDragStart}
-      className="group flex h-10 w-full cursor-grab items-center rounded-lg border border-slate-200 bg-white px-2 text-left text-[12px] leading-none text-slate-700 shadow-[0_1px_2px_rgba(15,23,42,0.03)] hover:border-blue-300 hover:shadow-[0_3px_8px_rgba(37,99,235,0.08)] active:cursor-grabbing disabled:pointer-events-none disabled:cursor-default disabled:opacity-40"
+      className="group flex h-8 w-full cursor-grab items-center rounded-md border border-slate-200 bg-white px-1.5 text-left text-[12px] leading-none text-slate-700 shadow-[0_1px_2px_rgba(15,23,42,0.03)] hover:border-blue-300 hover:bg-blue-50/30 active:cursor-grabbing disabled:pointer-events-none disabled:cursor-default disabled:opacity-40"
     >
-      <span className={`flex size-5 shrink-0 items-center justify-center rounded-md ${PALETTE_GROUP_TONES[item.group]}`}>
+      <span className={`flex size-[18px] shrink-0 items-center justify-center rounded ${PALETTE_GROUP_TONES[item.group]}`}>
         <Icon className="size-3 stroke-[1.8]" aria-hidden="true" />
       </span>
-      <span className="ml-2 flex-1 truncate">{item.title}</span>
+      <span className="ml-1.5 min-w-0 flex-1 truncate">{item.title}</span>
     </button>
   );
 }

@@ -2,6 +2,7 @@ import { CircleCheck, Copy } from 'lucide-react';
 
 import type {
   ExecutionEvent,
+  ExecutionEventKind,
   ValidationReport,
 } from '../../features/workflow/contracts';
 
@@ -17,12 +18,16 @@ const eventTone = {
   workflow_started: 'text-blue-600',
   node_started: 'text-slate-500',
   log: 'text-teal-700',
+  node_output_produced: 'text-cyan-700',
+  resource_acquired: 'text-indigo-700',
+  backend_selected: 'text-cyan-700',
+  command_exited: 'text-slate-700',
   node_succeeded: 'text-emerald-700',
   edge_traversed: 'text-blue-600',
   node_failed: 'text-rose-700',
   workflow_completed: 'text-emerald-700',
   workflow_failed: 'text-rose-700',
-};
+} satisfies Readonly<Record<ExecutionEventKind, string>>;
 
 /** 展示执行事件流及结构校验问题。 */
 export function ExecutionLog({ events, report }: ExecutionLogProps) {

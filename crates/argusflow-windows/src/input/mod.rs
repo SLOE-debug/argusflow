@@ -26,6 +26,11 @@ impl ActionBackend for SendInputBackend {
         action: &AutomationAction,
         _context: &ExecutionContext,
     ) -> Result<PreparedCandidate, PlanRejection> {
+        if !matches!(action, AutomationAction::Click { .. }) {
+            return Err(PlanRejection::Unsupported {
+                backend: BackendKind::SendInput,
+            });
+        }
         let TargetLocator::Coordinate { point } = &action.target().locator else {
             return Err(PlanRejection::Unsupported {
                 backend: BackendKind::SendInput,
