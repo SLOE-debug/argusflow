@@ -10,6 +10,7 @@ argusflow-core.workspace = true
 argusflow-query.workspace = true
 argusflow-runtime.workspace = true
 async-trait.workspace = true
+serde.workspace = true
 
 [dev-dependencies]
 tokio.workspace = true

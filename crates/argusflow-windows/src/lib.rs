@@ -5,6 +5,8 @@ compile_error!("ArgusFlow only supports Windows targets.");
 
 /// Windows 桌面与窗口画面捕获能力。
 pub mod capture;
+/// Runtime Planner 使用的 Windows 执行上下文快照。
+pub mod context;
 /// Windows 输入事件注入能力。
 pub mod input;
 /// Windows UI Automation 能力。

@@ -2,7 +2,7 @@
 
 ArgusFlow 是一个严格面向 Windows 的 Rust Agent Runtime 与可视化工作流设计器骨架。桌面端使用 Tauri 2，前端使用 React、TypeScript、Tailwind CSS、Zustand 和项目内自研 Flow 引擎。
 
-> ArgusFlow 只支持 `x86_64-pc-windows-msvc`。Cargo 已将该目标设为默认值，所有 Rust crate 在非 Windows 目标上都会直接拒绝编译；项目不提供 Linux、macOS 或移动端兼容层。
+> ArgusFlow 桌面运行时只支持 `x86_64-pc-windows-msvc`。`argusflow-core` 与 `argusflow-query` 保持跨平台，以便同一套 AQL 语言引擎编译到 WebAssembly；其余运行时与后端不提供 Linux、macOS 或移动端兼容层。
 
 当前版本提供：
 
@@ -24,6 +24,8 @@ argusflow/
 │   ├── argusflow-core/
 │   ├── argusflow-runtime/
 │   ├── argusflow-agent/
+│   ├── argusflow-query/
+│   ├── argusflow-query-wasm/
 │   ├── argusflow-windows/
 │   ├── argusflow-browser/
 │   └── argusflow-vision/
@@ -35,6 +37,16 @@ argusflow/
 ## 本地验证
 
 项目要求 64 位 Windows 10/11、Rust 1.91+、Node.js、pnpm、Microsoft C++ Build Tools 和 WebView2。
+
+AQL Editor 使用项目自研的 Rust/WASM 语言服务。首次启动或修改 `argusflow-query` 后，先安装 WASM target 与版本匹配的 `wasm-bindgen-cli`，再生成 Vite 静态资源：
+
+```powershell
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version 0.2.127
+pnpm build:aql-wasm
+```
+
+生成物位于 `public/aql-wasm`，属于本地构建产物，不提交到仓库。
 
 一键启动 Tauri 与 Vite：
 

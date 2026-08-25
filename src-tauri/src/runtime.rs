@@ -6,12 +6,16 @@ use argusflow_agent::{ActionBackend, ActionRouter};
 use argusflow_browser::CdpBackend;
 use argusflow_runtime::WorkflowEngine;
 use argusflow_vision::UnavailableVisionBackend;
-use argusflow_windows::{input::SendInputBackend, uia::UiaBackend};
+use argusflow_windows::{
+    context::WindowsExecutionContextProvider, input::SendInputBackend, uia::UiaBackend,
+};
 
 /// Tauri 应用共享状态，持有唯一的工作流执行引擎实例。
 pub struct AppState {
     /// 接收校验通过的工作流并负责异步调度执行。
     pub engine: Arc<WorkflowEngine>,
+    /// 供 AQL Explain 与 WorkflowEngine 共享的唯一 Planner 实例。
+    pub router: Arc<ActionRouter>,
 }
 
 impl AppState {
@@ -27,10 +31,15 @@ impl AppState {
             Arc::new(UnavailableVisionBackend::gui_grounding()),
             Arc::new(SendInputBackend),
         ];
-        let router = Arc::new(ActionRouter::new(backends));
+        let context_provider = Arc::new(WindowsExecutionContextProvider);
+        let router = Arc::new(ActionRouter::with_context_provider(
+            backends,
+            context_provider,
+        ));
 
         Self {
-            engine: Arc::new(WorkflowEngine::new(router)),
+            engine: Arc::new(WorkflowEngine::new(router.clone())),
+            router,
         }
     }
 }

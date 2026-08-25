@@ -39,3 +39,18 @@ fn compiler_rejects_dom_specific_query() {
         Err(UiaQueryCompileError::UnsupportedQuery)
     );
 }
+
+#[test]
+fn compiler_keeps_supported_branch_of_cross_backend_any() {
+    let query = parse_query(
+        r#"any(
+            button(uia.automation_id = "save"),
+            button(dom.test_id = "save")
+        )"#,
+    )
+    .expect("cross-backend any should parse");
+    let plan = compile_uia_query(&query).expect("UIA branch should keep the any query supported");
+
+    assert_eq!(plan.capability.level, SupportLevel::Native);
+    assert!(matches!(plan.expression, UiaPlanExpr::Match(_)));
+}

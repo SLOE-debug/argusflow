@@ -60,3 +60,18 @@ fn compiler_rejects_uia_specific_query() {
         Err(CdpQueryCompileError::UnsupportedQuery)
     );
 }
+
+#[test]
+fn compiler_keeps_supported_branch_of_cross_backend_any() {
+    let query = parse_query(
+        r#"any(
+            button(uia.automation_id = "save"),
+            button(dom.test_id = "save")
+        )"#,
+    )
+    .expect("cross-backend any should parse");
+    let plan = compile_cdp_query(&query).expect("DOM branch should keep the any query supported");
+
+    assert_eq!(plan.capability.level, SupportLevel::Native);
+    assert!(matches!(plan.expression, CdpPlanExpr::Match(_)));
+}

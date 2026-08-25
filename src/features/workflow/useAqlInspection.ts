@@ -1,23 +1,26 @@
 import { useEffect, useState } from 'react';
 
-import type { AqlInspection, AqlQuery } from './contracts';
+import type { AqlInspection, AqlQuery, BackendPreference } from './contracts';
 import { inspectAql, isDesktopRuntime } from './workflowApi';
 
-/** AQL 实时检查在编辑器中的请求状态。 */
+/** Runtime Planner Explain 在编辑器中的请求状态。 */
 export type AqlInspectionState =
   | { phase: 'loading'; inspection: null; message: null }
   | { phase: 'ready'; inspection: AqlInspection; message: null }
   | { phase: 'unavailable'; inspection: null; message: string };
 
-/** 输入停止短暂间隔后调用 Rust parser，且丢弃过期响应。 */
-export function useAqlInspection(query: AqlQuery): AqlInspectionState {
+/** 输入稳定后调用桌面 Runtime Planner，且丢弃过期响应。 */
+export function useAqlInspection(
+  query: AqlQuery,
+  backendPreference: BackendPreference,
+): AqlInspectionState {
   const [state, setState] = useState<AqlInspectionState>(() => (
     isDesktopRuntime()
       ? { phase: 'loading', inspection: null, message: null }
       : {
           phase: 'unavailable',
           inspection: null,
-          message: '实时 AQL 分析仅在 ArgusFlow 桌面应用中可用。',
+          message: '运行环境评估仅在 ArgusFlow 桌面应用中可用。',
         }
   ));
 
@@ -26,16 +29,16 @@ export function useAqlInspection(query: AqlQuery): AqlInspectionState {
       setState({
         phase: 'unavailable',
         inspection: null,
-        message: '实时 AQL 分析仅在 ArgusFlow 桌面应用中可用。',
+        message: '运行环境评估仅在 ArgusFlow 桌面应用中可用。',
       });
       return;
     }
 
     let active = true;
     setState({ phase: 'loading', inspection: null, message: null });
-    /** 避免每次键入都跨越 IPC，同时保持诊断足够及时。 */
+    /** Runtime planning 依赖系统上下文，稳定输入后再跨越 IPC。 */
     const debounceTimer = window.setTimeout(() => {
-      void inspectAql(query)
+      void inspectAql(query, backendPreference)
         .then((inspection) => {
           if (active) {
             setState({ phase: 'ready', inspection, message: null });
@@ -56,7 +59,7 @@ export function useAqlInspection(query: AqlQuery): AqlInspectionState {
       active = false;
       window.clearTimeout(debounceTimer);
     };
-  }, [query]);
+  }, [backendPreference, query]);
 
   return state;
 }

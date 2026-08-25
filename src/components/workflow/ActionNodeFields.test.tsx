@@ -23,7 +23,7 @@ describe('ActionNodeFields', () => {
     expect(screen.getByRole('textbox', { name: 'AQL 查询' })).toHaveValue(
       'button(name = "保存")',
     );
-    expect(screen.getByText('实时 AQL 分析仅在 ArgusFlow 桌面应用中可用。')).toBeVisible();
+    expect(screen.getByText('运行环境评估仅在 ArgusFlow 桌面应用中可用。')).toBeVisible();
 
     fireEvent.change(screen.getByRole('textbox', { name: 'AQL 查询' }), {
       target: { value: 'button(name = "确定")' },

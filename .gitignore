@@ -6,6 +6,7 @@
 /coverage/
 /logs/
 /src-tauri/gen/schemas/
+/public/aql-wasm/
 
 # 本地配置与环境变量
 *.local

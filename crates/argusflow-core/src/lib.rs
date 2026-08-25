@@ -2,9 +2,6 @@
 //!
 //! 本 crate 只定义跨编辑器、运行时和自动化后端共享的数据结构，不负责实际执行。
 
-#[cfg(not(target_os = "windows"))]
-compile_error!("ArgusFlow only supports Windows targets.");
-
 mod automation;
 mod condition;
 mod error;

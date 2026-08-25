@@ -27,18 +27,18 @@ type ActionNodeFieldsProps = Readonly<{
 
 /** Action、定位方式和后端偏好的强类型选项。 */
 const ACTION_KIND_OPTIONS = [
-  { value: 'click', label: '点击元素' },
-  { value: 'set_value', label: '填写文本' },
+  { value: 'click', label: '点击' },
+  { value: 'set_value', label: '输入文字' },
 ] as const;
 
 const LOCATOR_KIND_OPTIONS = [
-  { value: 'query', label: 'AQL 语义查询' },
-  { value: 'visual', label: '视觉文字' },
-  { value: 'coordinate', label: '屏幕坐标' },
+  { value: 'query', label: '智能查找（AQL）' },
+  { value: 'visual', label: '按画面文字查找' },
+  { value: 'coordinate', label: '按屏幕位置' },
 ] as const;
 
 const BACKEND_OPTIONS = [
-  { value: 'auto', label: '自动规划' },
+  { value: 'auto', label: '自动选择（推荐）' },
   { value: 'windows_uia', label: 'Windows UIA' },
   { value: 'browser_cdp', label: 'Browser CDP' },
 ] as const;
@@ -52,7 +52,7 @@ const VISUAL_MATCH_OPTIONS = [
 export function ActionNodeFields({ action, onChange }: ActionNodeFieldsProps) {
   return (
     <div className="flex flex-col gap-2.5">
-      <InspectorField label="执行动作">
+      <InspectorField label="操作">
         <Select<AutomationActionKind>
           value={action.type}
           options={ACTION_KIND_OPTIONS}
@@ -61,16 +61,16 @@ export function ActionNodeFields({ action, onChange }: ActionNodeFieldsProps) {
         />
       </InspectorField>
       {action.type === 'set_value' ? (
-        <InspectorField label="填写内容">
+        <InspectorField label="输入内容">
           <Textarea
-            aria-label="填写内容"
+            aria-label="输入内容"
             className="h-[76px] resize-y border-slate-300 bg-white leading-[18px]"
             value={action.value}
             onChange={(event) => onChange(changeSetValueText(action, event.target.value))}
           />
         </InspectorField>
       ) : null}
-      <InspectorField label="定位方式">
+      <InspectorField label="查找目标">
         <Select<TargetLocatorKind>
           value={action.target.locator.type}
           options={LOCATOR_KIND_OPTIONS}
@@ -80,16 +80,23 @@ export function ActionNodeFields({ action, onChange }: ActionNodeFieldsProps) {
       </InspectorField>
       {action.target.locator.type === 'query' ? (
         <>
-          <InspectorField label="后端偏好">
-            <Select<BackendPreference>
-              value={action.target.backend_preference}
-              options={BACKEND_OPTIONS}
-              containerClassName="border-slate-300 bg-white"
-              onValueChange={(preference) => (
-                onChange(changeBackendPreference(action, preference))
-              )}
-            />
-          </InspectorField>
+          <details className="rounded-md border border-slate-200 bg-slate-50/70 px-2.5 py-2">
+            <summary className="cursor-pointer select-none text-[10px] font-medium text-slate-600">
+              高级设置
+            </summary>
+            <div className="mt-2">
+              <InspectorField label="执行方式约束">
+                <Select<BackendPreference>
+                  value={action.target.backend_preference}
+                  options={BACKEND_OPTIONS}
+                  containerClassName="border-slate-300 bg-white"
+                  onValueChange={(preference) => (
+                    onChange(changeBackendPreference(action, preference))
+                  )}
+                />
+              </InspectorField>
+            </div>
+          </details>
           <AqlEditor
             query={action.target.locator.query}
             backendPreference={action.target.backend_preference}

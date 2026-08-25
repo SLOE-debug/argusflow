@@ -1,86 +1,168 @@
-//! ActionRouter 的 capability/cost 排序与显式后端偏好测试。
+//! PreparedPlan 排序、ExecutionContext、显式约束与严格 fallback 测试。
 
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 
-use argusflow_agent::{ActionBackend, ActionCapability, ActionRouter};
+use argusflow_agent::{
+    ActionBackend, ActionRouter, BrowserSessionContext, ContextFitness, ExecutionContext,
+    PlanExplain, PlanRejection, PreparedCandidate, PreparedExecution, RuntimeAvailability,
+    WindowContext,
+};
 use argusflow_core::{
     ActionOutcome, AqlQuery, AutomationAction, AutomationError, AutomationTarget, BackendKind,
     BackendPreference,
 };
-use argusflow_query::{QueryCost, SupportLevel};
+use argusflow_query::{QueryCost, QueryPortability, SupportLevel};
 use argusflow_runtime::ActionDispatcher;
 use async_trait::async_trait;
 
-/// 返回固定计划和成功结果的路由测试后端。
+/// 返回固定真实候选的路由测试后端。
 struct PlannedBackend {
     /// 后端类别。
     kind: BackendKind,
-    /// 路由时返回的能力。
-    capability: ActionCapability,
+    /// 语义支持等级。
+    support: SupportLevel,
+    /// 查询成本。
+    cost: QueryCost,
+    /// 上下文匹配度。
+    fitness: ContextFitness,
+    /// 是否根据传入 ExecutionContext 动态计算匹配度。
+    context_aware: bool,
+    /// 执行结果类别。
+    result: ExecutionResult,
+    /// 验证 fallback 是否触发的计数器。
+    executions: Arc<AtomicUsize>,
 }
 
-#[async_trait]
+/// 测试 prepared execution 的结果类别。
+#[derive(Clone, Copy)]
+enum ExecutionResult {
+    Success,
+    Unavailable,
+    TargetNotFound,
+}
+
 impl ActionBackend for PlannedBackend {
     fn kind(&self) -> BackendKind {
         self.kind
     }
 
-    fn plan(&self, _action: &AutomationAction) -> ActionCapability {
-        self.capability
-    }
-
-    async fn execute(&self, _action: &AutomationAction) -> Result<ActionOutcome, AutomationError> {
-        Ok(ActionOutcome {
+    fn prepare(
+        &self,
+        _action: &AutomationAction,
+        context: &ExecutionContext,
+    ) -> Result<PreparedCandidate, PlanRejection> {
+        let explain = PlanExplain {
             backend: self.kind,
-            message: "planned backend executed".to_owned(),
+            support: self.support,
+            cost: self.cost,
+            availability: RuntimeAvailability::Ready,
+            context_fitness: if self.context_aware {
+                context_fitness(self.kind, context)
+            } else {
+                self.fitness
+            },
+            portability: QueryPortability::Portable,
+            steps: Vec::new(),
+            diagnostics: Vec::new(),
+        };
+        Ok(PreparedCandidate::new(
+            explain,
+            Arc::new(TestExecution {
+                backend: self.kind,
+                result: self.result,
+                executions: self.executions.clone(),
+            }),
+        ))
+    }
+}
+
+/// 已准备且不再接收原始动作的测试执行计划。
+#[derive(Debug)]
+struct TestExecution {
+    /// 结果中的后端类别。
+    backend: BackendKind,
+    /// 执行结果类别。
+    result: ExecutionResult,
+    /// 执行次数。
+    executions: Arc<AtomicUsize>,
+}
+
+impl std::fmt::Debug for ExecutionResult {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::Success => "Success",
+            Self::Unavailable => "Unavailable",
+            Self::TargetNotFound => "TargetNotFound",
         })
     }
 }
 
+#[async_trait]
+impl PreparedExecution for TestExecution {
+    async fn execute(&self) -> Result<ActionOutcome, AutomationError> {
+        self.executions.fetch_add(1, Ordering::SeqCst);
+        match self.result {
+            ExecutionResult::Success => Ok(ActionOutcome {
+                backend: self.backend,
+                message: "prepared backend executed".to_owned(),
+            }),
+            ExecutionResult::Unavailable => Err(AutomationError::BackendUnavailable {
+                backend: self.backend,
+                message: "test environment unavailable".to_owned(),
+            }),
+            ExecutionResult::TargetNotFound => Err(AutomationError::TargetNotFound {
+                query: "button()".to_owned(),
+            }),
+        }
+    }
+}
+
 #[tokio::test]
-async fn router_prefers_better_support_level_over_static_backend_order() {
+async fn router_prefers_support_then_context_fitness_then_cost() {
     let router = ActionRouter::new(vec![
-        Arc::new(PlannedBackend {
-            kind: BackendKind::WindowsUia,
-            capability: ActionCapability {
-                level: SupportLevel::Hybrid,
-                estimated_cost: QueryCost::Medium,
-            },
-        }),
-        Arc::new(PlannedBackend {
-            kind: BackendKind::BrowserCdp,
-            capability: ActionCapability {
-                level: SupportLevel::Native,
-                estimated_cost: QueryCost::Low,
-            },
-        }),
+        backend(
+            BackendKind::WindowsUia,
+            SupportLevel::Hybrid,
+            QueryCost::Low,
+            ContextFitness::Excellent,
+            ExecutionResult::Success,
+        ),
+        backend(
+            BackendKind::BrowserCdp,
+            SupportLevel::Native,
+            QueryCost::Medium,
+            ContextFitness::Poor,
+            ExecutionResult::Success,
+        ),
     ]);
 
     let outcome = router
         .execute(&portable_click())
         .await
-        .expect("a planned backend should execute");
-
+        .expect("prepared plan should execute");
     assert_eq!(outcome.backend, BackendKind::BrowserCdp);
 }
 
 #[tokio::test]
-async fn router_honors_backend_preference_without_mutating_query() {
+async fn router_honors_backend_constraint_without_mutating_query() {
     let router = ActionRouter::new(vec![
-        Arc::new(PlannedBackend {
-            kind: BackendKind::WindowsUia,
-            capability: ActionCapability {
-                level: SupportLevel::Native,
-                estimated_cost: QueryCost::Low,
-            },
-        }),
-        Arc::new(PlannedBackend {
-            kind: BackendKind::BrowserCdp,
-            capability: ActionCapability {
-                level: SupportLevel::Hybrid,
-                estimated_cost: QueryCost::Medium,
-            },
-        }),
+        backend(
+            BackendKind::WindowsUia,
+            SupportLevel::Native,
+            QueryCost::Low,
+            ContextFitness::Good,
+            ExecutionResult::Success,
+        ),
+        backend(
+            BackendKind::BrowserCdp,
+            SupportLevel::Hybrid,
+            QueryCost::Medium,
+            ContextFitness::Good,
+            ExecutionResult::Success,
+        ),
     ]);
     let mut action = portable_click();
     let AutomationAction::Click { target } = &mut action else {
@@ -91,9 +173,136 @@ async fn router_honors_backend_preference_without_mutating_query() {
     let outcome = router
         .execute(&action)
         .await
-        .expect("forced CDP backend should execute");
-
+        .expect("forced CDP plan should execute");
     assert_eq!(outcome.backend, BackendKind::BrowserCdp);
+    assert_eq!(action.target().locator, portable_click().target().locator);
+}
+
+#[test]
+fn planner_prefers_attached_browser_session_for_equal_semantic_plans() {
+    let router = ActionRouter::new(vec![
+        Arc::new(PlannedBackend {
+            context_aware: true,
+            ..planned(BackendKind::WindowsUia, ExecutionResult::Success)
+        }),
+        Arc::new(PlannedBackend {
+            context_aware: true,
+            ..planned(BackendKind::BrowserCdp, ExecutionResult::Success)
+        }),
+    ]);
+    let context = ExecutionContext {
+        foreground_window: Some(WindowContext {
+            handle: 1,
+            process_id: 10,
+        }),
+        browser_session: Some(BrowserSessionContext {
+            target_id: "page-1".to_owned(),
+            attached: true,
+        }),
+        ..ExecutionContext::default()
+    };
+
+    let report = router.inspect(&portable_click(), &context);
+    assert_eq!(report.selected_backend, Some(BackendKind::BrowserCdp));
+
+    let desktop_context = ExecutionContext {
+        foreground_window: context.foreground_window,
+        ..ExecutionContext::default()
+    };
+    let desktop_report = router.inspect(&portable_click(), &desktop_context);
+    assert_eq!(
+        desktop_report.selected_backend,
+        Some(BackendKind::WindowsUia)
+    );
+}
+
+#[tokio::test]
+async fn unavailable_plan_can_fallback_but_semantic_failure_cannot() {
+    let first_executions = Arc::new(AtomicUsize::new(0));
+    let fallback_executions = Arc::new(AtomicUsize::new(0));
+    let unavailable_router = ActionRouter::new(vec![
+        Arc::new(PlannedBackend {
+            executions: first_executions.clone(),
+            ..planned(BackendKind::WindowsUia, ExecutionResult::Unavailable)
+        }),
+        Arc::new(PlannedBackend {
+            executions: fallback_executions.clone(),
+            ..planned(BackendKind::BrowserCdp, ExecutionResult::Success)
+        }),
+    ]);
+    let outcome = unavailable_router
+        .execute(&portable_click())
+        .await
+        .expect("environment failure may fallback");
+    assert_eq!(outcome.backend, BackendKind::BrowserCdp);
+    assert_eq!(first_executions.load(Ordering::SeqCst), 1);
+    assert_eq!(fallback_executions.load(Ordering::SeqCst), 1);
+
+    first_executions.store(0, Ordering::SeqCst);
+    fallback_executions.store(0, Ordering::SeqCst);
+    let semantic_router = ActionRouter::new(vec![
+        Arc::new(PlannedBackend {
+            executions: first_executions.clone(),
+            ..planned(BackendKind::WindowsUia, ExecutionResult::TargetNotFound)
+        }),
+        Arc::new(PlannedBackend {
+            executions: fallback_executions.clone(),
+            ..planned(BackendKind::BrowserCdp, ExecutionResult::Success)
+        }),
+    ]);
+    assert!(matches!(
+        semantic_router.execute(&portable_click()).await,
+        Err(AutomationError::TargetNotFound { .. })
+    ));
+    assert_eq!(fallback_executions.load(Ordering::SeqCst), 0);
+}
+
+/// 创建默认原生、低成本、Ready 的测试后端。
+fn planned(kind: BackendKind, result: ExecutionResult) -> PlannedBackend {
+    PlannedBackend {
+        kind,
+        support: SupportLevel::Native,
+        cost: QueryCost::Low,
+        fitness: ContextFitness::Good,
+        context_aware: false,
+        result,
+        executions: Arc::new(AtomicUsize::new(0)),
+    }
+}
+
+/// 把测试后端包装为 trait object。
+fn backend(
+    kind: BackendKind,
+    support: SupportLevel,
+    cost: QueryCost,
+    fitness: ContextFitness,
+    result: ExecutionResult,
+) -> Arc<dyn ActionBackend> {
+    Arc::new(PlannedBackend {
+        kind,
+        support,
+        cost,
+        fitness,
+        context_aware: false,
+        result,
+        executions: Arc::new(AtomicUsize::new(0)),
+    })
+}
+
+/// 将真实执行上下文映射为测试后端的匹配度。
+fn context_fitness(kind: BackendKind, context: &ExecutionContext) -> ContextFitness {
+    match kind {
+        BackendKind::BrowserCdp
+            if context
+                .browser_session
+                .as_ref()
+                .is_some_and(|session| session.attached) =>
+        {
+            ContextFitness::Excellent
+        }
+        BackendKind::WindowsUia if context.foreground_window.is_some() => ContextFitness::Good,
+        _ => ContextFitness::Poor,
+    }
 }
 
 /// 构造默认自动规划的 portable AQL 点击动作。

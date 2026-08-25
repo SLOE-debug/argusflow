@@ -1,6 +1,6 @@
-use crate::{AqlError, AqlErrorKind};
+use crate::{AqlError, AqlErrorKind, DiagnosticCode, RawToken, RawTokenKind, lex_lossless};
 
-/// 解析器内部使用的带源码范围 token。
+/// HIR parser 内部使用的已解码 token。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Token {
     /// token 的语义类别与已解码字面量。
@@ -11,7 +11,7 @@ pub(crate) struct Token {
     pub(crate) end: usize,
 }
 
-/// AQL v1 的最小词法单元集合。
+/// AQL v1 的语义词法单元集合。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum TokenKind {
     /// 角色、属性、操作符关键字或组合器名称。
@@ -49,86 +49,21 @@ pub(crate) enum TokenKind {
     End,
 }
 
-/// 将完整 AQL 源码转换为 token 序列。
+/// 复用 lossless lexer 的唯一 token 边界，并解码 HIR parser 所需字面量。
 pub(crate) fn lex(source: &str) -> Result<Vec<Token>, AqlError> {
-    let mut lexer = Lexer { source, offset: 0 };
-    let mut tokens = Vec::new();
-
-    while let Some(character) = lexer.peek() {
-        if character.is_whitespace() {
-            lexer.bump();
-            continue;
-        }
-
-        let start = lexer.offset;
-        let kind = match character {
-            '(' => {
-                lexer.bump();
-                TokenKind::LeftParen
-            }
-            ')' => {
-                lexer.bump();
-                TokenKind::RightParen
-            }
-            ',' => {
-                lexer.bump();
-                TokenKind::Comma
-            }
-            '=' => {
-                lexer.bump();
-                TokenKind::Equal
-            }
-            '!' => lex_not_equal(&mut lexer, start)?,
-            '>' => lex_relation(&mut lexer),
-            '"' => TokenKind::String(lex_string(&mut lexer, start)?),
-            '/' => lex_regex(&mut lexer, start)?,
-            '[' => {
-                return Err(AqlError::at(
-                    source,
-                    start,
-                    start + 1,
-                    AqlErrorKind::CssSyntax,
-                    "AQL 不支持 CSS 风格的属性选择器",
-                    Some(
-                        "请使用 button(name = \"保存\")；原生 CSS 请写成 css(\"button[name='保存']\")"
-                            .to_owned(),
-                    ),
-                ));
-            }
-            '~' if lexer.remaining().starts_with("~=") => {
-                lexer.bump();
-                lexer.bump();
-                return Err(AqlError::at(
-                    source,
-                    start,
-                    lexer.offset,
-                    AqlErrorKind::UnknownOperator,
-                    "未知运算符 '~='；AQL 不使用 CSS 属性运算符",
-                    Some("请使用 name matches /保存/ 或 name contains \"保存\"".to_owned()),
-                ));
-            }
-            value if value.is_ascii_digit() => lex_integer(&mut lexer, start)?,
-            value if is_identifier_start(value) => lex_identifier(&mut lexer),
-            _ => {
-                lexer.bump();
-                return Err(AqlError::at(
-                    source,
-                    start,
-                    lexer.offset,
-                    AqlErrorKind::InvalidToken,
-                    format!("AQL 中不允许字符 '{character}'"),
-                    None,
-                ));
-            }
-        };
-
-        tokens.push(Token {
-            kind,
-            start,
-            end: lexer.offset,
-        });
+    let (raw_tokens, diagnostics) = lex_lossless(source);
+    if let Some(diagnostic) = diagnostics.first() {
+        let raw_token = raw_tokens
+            .iter()
+            .find(|token| diagnostic.range == Some(token.range));
+        return Err(error_from_diagnostic(source, diagnostic.code, raw_token));
     }
 
+    let mut tokens = raw_tokens
+        .iter()
+        .filter(|token| token.kind != RawTokenKind::Whitespace)
+        .map(|token| lower_token(source, token))
+        .collect::<Result<Vec<_>, _>>()?;
     tokens.push(Token {
         kind: TokenKind::End,
         start: source.len(),
@@ -137,192 +72,139 @@ pub(crate) fn lex(source: &str) -> Result<Vec<Token>, AqlError> {
     Ok(tokens)
 }
 
-/// 维护 UTF-8 字节偏移的源码游标。
-struct Lexer<'source> {
-    /// 完整 AQL 输入。
-    source: &'source str,
-    /// 下一个字符的 UTF-8 字节偏移。
-    offset: usize,
-}
-
-impl Lexer<'_> {
-    /// 查看但不消费下一个字符。
-    fn peek(&self) -> Option<char> {
-        self.remaining().chars().next()
-    }
-
-    /// 消费并返回下一个字符。
-    fn bump(&mut self) -> Option<char> {
-        let character = self.peek()?;
-        self.offset += character.len_utf8();
-        Some(character)
-    }
-
-    /// 返回尚未消费的源码后缀。
-    fn remaining(&self) -> &str {
-        &self.source[self.offset..]
-    }
-}
-
-/// 解析 `!=` 并为孤立的 `!` 提供精确错误。
-fn lex_not_equal(lexer: &mut Lexer<'_>, start: usize) -> Result<TokenKind, AqlError> {
-    lexer.bump();
-    if lexer.peek() == Some('=') {
-        lexer.bump();
-        return Ok(TokenKind::NotEqual);
-    }
-
-    Err(AqlError::at(
-        lexer.source,
-        start,
-        lexer.offset,
-        AqlErrorKind::UnknownOperator,
-        "'!' 不是完整的 AQL 运算符",
-        Some("不等比较请使用 '!='；查询取反请使用 not(...)".to_owned()),
-    ))
-}
-
-/// 区分直接子元素和后代关系。
-fn lex_relation(lexer: &mut Lexer<'_>) -> TokenKind {
-    lexer.bump();
-    if lexer.peek() == Some('>') {
-        lexer.bump();
-        TokenKind::Descendant
-    } else {
-        TokenKind::Child
-    }
-}
-
-/// 使用 JSON 字符串规则解码 AQL 文本字面量。
-fn lex_string(lexer: &mut Lexer<'_>, start: usize) -> Result<String, AqlError> {
-    lexer.bump();
-    let mut escaped = false;
-
-    while let Some(character) = lexer.bump() {
-        if character == '"' && !escaped {
-            let literal = &lexer.source[start..lexer.offset];
-            return serde_json::from_str(literal).map_err(|error| {
+/// 将一个 lossless token 解码为语义 parser token。
+fn lower_token(source: &str, token: &RawToken) -> Result<Token, AqlError> {
+    let kind = match token.kind {
+        RawTokenKind::Identifier => TokenKind::Identifier(token.text.clone()),
+        RawTokenKind::String => {
+            TokenKind::String(serde_json::from_str(&token.text).map_err(|error| {
                 AqlError::at(
-                    lexer.source,
-                    start,
-                    lexer.offset,
+                    source,
+                    token.byte_start,
+                    token.byte_end,
                     AqlErrorKind::InvalidToken,
                     format!("字符串字面量无效：{error}"),
                     Some("AQL 字符串使用 JSON 双引号与转义规则".to_owned()),
                 )
-            });
+            })?)
         }
+        RawTokenKind::Regex => lower_regex(source, token)?,
+        RawTokenKind::Integer => TokenKind::Integer(token.text.parse().map_err(|_| {
+            AqlError::at(
+                source,
+                token.byte_start,
+                token.byte_end,
+                AqlErrorKind::InvalidArgument,
+                "nth 索引超出可表示范围",
+                None,
+            )
+        })?),
+        RawTokenKind::Boolean if token.text == "true" => TokenKind::True,
+        RawTokenKind::Boolean => TokenKind::False,
+        RawTokenKind::LeftParen => TokenKind::LeftParen,
+        RawTokenKind::RightParen => TokenKind::RightParen,
+        RawTokenKind::Comma => TokenKind::Comma,
+        RawTokenKind::Operator => match token.text.as_str() {
+            "=" => TokenKind::Equal,
+            "!=" => TokenKind::NotEqual,
+            ">" => TokenKind::Child,
+            ">>" => TokenKind::Descendant,
+            operator => {
+                return Err(AqlError::at(
+                    source,
+                    token.byte_start,
+                    token.byte_end,
+                    AqlErrorKind::UnknownOperator,
+                    format!("未知 AQL 运算符 '{operator}'"),
+                    None,
+                ));
+            }
+        },
+        RawTokenKind::Error | RawTokenKind::Whitespace => {
+            return Err(error_from_diagnostic(
+                source,
+                DiagnosticCode::InvalidToken,
+                Some(token),
+            ));
+        }
+    };
+    Ok(Token {
+        kind,
+        start: token.byte_start,
+        end: token.byte_end,
+    })
+}
 
+/// 解码 `/pattern/i`，只移除用于转义分隔符的反斜线。
+fn lower_regex(source: &str, token: &RawToken) -> Result<TokenKind, AqlError> {
+    let Some(closing_offset) = find_regex_closing_delimiter(&token.text) else {
+        return Err(error_from_diagnostic(
+            source,
+            DiagnosticCode::InvalidToken,
+            Some(token),
+        ));
+    };
+    let raw_pattern = &token.text[1..closing_offset];
+    let flags = &token.text[closing_offset + 1..];
+    let mut pattern = String::new();
+    let mut characters = raw_pattern.chars().peekable();
+    while let Some(character) = characters.next() {
+        if character == '\\' && characters.peek() == Some(&'/') {
+            pattern.push(characters.next().expect("peek proved escaped slash exists"));
+        } else {
+            pattern.push(character);
+        }
+    }
+    Ok(TokenKind::Regex {
+        pattern,
+        case_insensitive: flags == "i",
+    })
+}
+
+/// 找到未转义的正则结束分隔符。
+fn find_regex_closing_delimiter(literal: &str) -> Option<usize> {
+    let mut escaped = false;
+    for (offset, character) in literal.char_indices().skip(1) {
+        if character == '/' && !escaped {
+            return Some(offset);
+        }
         escaped = character == '\\' && !escaped;
         if character != '\\' {
             escaped = false;
         }
     }
-
-    Err(AqlError::at(
-        lexer.source,
-        start,
-        lexer.offset,
-        AqlErrorKind::InvalidToken,
-        "字符串字面量缺少结束双引号",
-        None,
-    ))
+    None
 }
 
-/// 解析 `/pattern/i`，只接受 v1 规定的可选 `i` 标志。
-fn lex_regex(lexer: &mut Lexer<'_>, start: usize) -> Result<TokenKind, AqlError> {
-    lexer.bump();
-    let mut pattern = String::new();
-    let mut escaped = false;
-
-    while let Some(character) = lexer.bump() {
-        if escaped {
-            if character != '/' {
-                pattern.push('\\');
-            }
-            pattern.push(character);
-            escaped = false;
-            continue;
-        }
-        if character == '\\' {
-            escaped = true;
-            continue;
-        }
-        if character == '/' {
-            let flags_start = lexer.offset;
-            while lexer.peek().is_some_and(|flag| flag.is_ascii_alphabetic()) {
-                lexer.bump();
-            }
-            let flags = &lexer.source[flags_start..lexer.offset];
-            if flags.is_empty() || flags == "i" {
-                return Ok(TokenKind::Regex {
-                    pattern,
-                    case_insensitive: flags == "i",
-                });
-            }
-            return Err(AqlError::at(
-                lexer.source,
-                flags_start,
-                lexer.offset,
-                AqlErrorKind::InvalidRegex,
-                format!("AQL v1 不支持正则标志 '{flags}'"),
-                Some("AQL v1 仅支持可选的 i 标志".to_owned()),
-            ));
-        }
-        pattern.push(character);
-    }
-
-    Err(AqlError::at(
-        lexer.source,
-        start,
-        lexer.offset,
-        AqlErrorKind::InvalidToken,
-        "正则字面量缺少结束 '/'",
-        None,
-    ))
-}
-
-/// 解析 `nth` 索引并拒绝超出当前平台 usize 的值。
-fn lex_integer(lexer: &mut Lexer<'_>, start: usize) -> Result<TokenKind, AqlError> {
-    while lexer.peek().is_some_and(|value| value.is_ascii_digit()) {
-        lexer.bump();
-    }
-    let literal = &lexer.source[start..lexer.offset];
-    literal
-        .parse::<usize>()
-        .map(TokenKind::Integer)
-        .map_err(|_| {
-            AqlError::at(
-                lexer.source,
-                start,
-                lexer.offset,
-                AqlErrorKind::InvalidArgument,
-                "nth 索引超出可表示范围",
-                None,
-            )
-        })
-}
-
-/// 解析 ASCII 标识符和属性 namespace。
-fn lex_identifier(lexer: &mut Lexer<'_>) -> TokenKind {
-    let start = lexer.offset;
-    while lexer.peek().is_some_and(is_identifier_continue) {
-        lexer.bump();
-    }
-    let identifier = &lexer.source[start..lexer.offset];
-    match identifier {
-        "true" => TokenKind::True,
-        "false" => TokenKind::False,
-        _ => TokenKind::Identifier(identifier.to_owned()),
-    }
-}
-
-/// AQL 标识符只允许稳定的 ASCII 语法字符。
-const fn is_identifier_start(character: char) -> bool {
-    character.is_ascii_alphabetic() || character == '_'
-}
-
-/// namespace 属性额外允许 `.`，实际名称由 parser 白名单校验。
-const fn is_identifier_continue(character: char) -> bool {
-    character.is_ascii_alphanumeric() || character == '_' || character == '.'
+/// 将 lossless 诊断映射为保留原 Runtime API 的 fail-fast 错误。
+fn error_from_diagnostic(source: &str, code: DiagnosticCode, token: Option<&RawToken>) -> AqlError {
+    let (start, end, text) = token.map_or((0, 0, ""), |token| {
+        (token.byte_start, token.byte_end, token.text.as_str())
+    });
+    let (kind, message, help) = match code {
+        DiagnosticCode::CssSyntax => (
+            AqlErrorKind::CssSyntax,
+            "AQL 不支持 CSS 风格的属性选择器".to_owned(),
+            Some(
+                "请使用 button(name = \"保存\")；原生 CSS 请写成 css(\"button[name='保存']\")"
+                    .to_owned(),
+            ),
+        ),
+        DiagnosticCode::UnknownOperator => (
+            AqlErrorKind::UnknownOperator,
+            format!("未知或不完整的 AQL 运算符 '{text}'"),
+            Some("不等比较使用 '!='；查询取反使用 not(...)".to_owned()),
+        ),
+        DiagnosticCode::InvalidRegex => (
+            AqlErrorKind::InvalidRegex,
+            "AQL v1 正则标志无效".to_owned(),
+            Some("AQL v1 仅支持可选的 i 标志".to_owned()),
+        ),
+        _ => (
+            AqlErrorKind::InvalidToken,
+            "AQL 包含无法识别或未结束的 token".to_owned(),
+            None,
+        ),
+    };
+    AqlError::at(source, start, end, kind, message, help)
 }

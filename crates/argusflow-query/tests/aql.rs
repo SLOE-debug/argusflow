@@ -5,8 +5,9 @@ use argusflow_core::{
     UiaAttribute,
 };
 use argusflow_query::{
-    AqlErrorKind, QueryBackend, QueryPortability, QueryWarningKind, SupportLevel, analyze_query,
-    canonicalize_query, format_query, parse_query,
+    AqlErrorKind, DiagnosticCode, EditorPosition, QueryBackend, QueryPortability, analyze_query,
+    bracket_pair, byte_range_to_editor_range, canonicalize_query, code_actions, completions,
+    format_query, format_source, hover, parse_document, parse_query,
 };
 
 #[test]
@@ -109,7 +110,21 @@ fn pretty_formatter_emits_stable_aql() {
 
     assert_eq!(
         format_query(&query),
-        "button(\n    enabled = true,\n    name = \"保存\"\n)"
+        "button(\n    name = \"保存\",\n    enabled = true\n)"
+    );
+}
+
+#[test]
+fn source_formatter_preserves_predicate_order_and_duplicates() {
+    let source = r#"button(visible=true,name="保存",name="保存",enabled=true)"#;
+
+    assert_eq!(
+        format_source(source).expect("valid source should format"),
+        "button(\n    visible = true,\n    name = \"保存\",\n    name = \"保存\",\n    enabled = true\n)"
+    );
+    assert_eq!(
+        canonicalize_query(&parse_query(source).expect("valid source should parse")),
+        r#"button(enabled=true,name="保存",visible=true)"#
     );
 }
 
@@ -123,6 +138,10 @@ fn pretty_formatter_round_trips_nested_queries() {
     let reparsed = parse_query(&formatted).expect("formatted AQL should remain valid");
 
     assert_eq!(canonicalize_query(&reparsed), canonicalize_query(&query));
+    assert_eq!(
+        format_source(&formatted).expect("formatted source should remain valid"),
+        formatted
+    );
 }
 
 #[test]
@@ -164,30 +183,20 @@ fn rejects_invalid_regex_and_selection_arguments() {
 }
 
 #[test]
-fn analyzer_marks_portable_regex_as_hybrid_where_residual_filter_is_needed() {
+fn semantic_analysis_does_not_guess_backend_compiler_capability() {
     let query = parse_query(r#"button(name matches /保存|Save/i, enabled = true)"#)
         .expect("portable regex should parse");
     let analysis = analyze_query(&query);
 
     assert_eq!(analysis.portability(), &QueryPortability::Portable);
-    assert_eq!(
-        analysis.capability(QueryBackend::WindowsUia).level,
-        SupportLevel::Hybrid
-    );
-    assert_eq!(
-        analysis.capability(QueryBackend::BrowserCdp).level,
-        SupportLevel::Hybrid
-    );
-    assert!(
-        analysis
-            .warnings()
-            .iter()
-            .any(|warning| { warning.kind == QueryWarningKind::RegexResidualFilter })
-    );
+    assert!(analysis.diagnostics().iter().all(|diagnostic| {
+        diagnostic.code != DiagnosticCode::ResidualFilter
+            && diagnostic.code != DiagnosticCode::UnsupportedBackend
+    }));
 }
 
 #[test]
-fn analyzer_exposes_backend_specific_support_without_silent_fallback() {
+fn semantic_analysis_only_reports_backend_specific_portability() {
     let dom_query =
         parse_query(r#"button(dom.test_id = "save-button")"#).expect("DOM property should parse");
     let analysis = analyze_query(&dom_query);
@@ -198,15 +207,6 @@ fn analyzer_exposes_backend_specific_support_without_silent_fallback() {
             backends: vec![QueryBackend::BrowserCdp]
         }
     );
-    assert_eq!(
-        analysis.capability(QueryBackend::WindowsUia).level,
-        SupportLevel::Unsupported
-    );
-    assert_eq!(
-        analysis.capability(QueryBackend::BrowserCdp).level,
-        SupportLevel::Native
-    );
-
     let QueryExpr::Match { matcher } = &analysis.normalized().expression else {
         panic!("expected normalized matcher");
     };
@@ -224,11 +224,105 @@ fn analyzer_treats_raw_css_as_browser_only_native_query() {
     let analysis = analyze_query(&query);
 
     assert_eq!(
-        analysis.capability(QueryBackend::BrowserCdp).level,
-        SupportLevel::Native
+        analysis.portability(),
+        &QueryPortability::BackendSpecific {
+            backends: vec![QueryBackend::BrowserCdp]
+        }
     );
+}
+
+#[test]
+fn recovery_document_keeps_tokens_and_returns_multiple_diagnostics() {
+    let document = parse_document("button(\n    name = ,\n    enabled = true\n");
+
+    assert!(document.hir.is_none());
+    assert!(
+        document
+            .syntax
+            .tokens
+            .iter()
+            .any(|token| token.text == "button")
+    );
+    assert!(
+        document
+            .syntax
+            .tokens
+            .iter()
+            .any(|token| token.text == "enabled")
+    );
+    assert!(document.diagnostics.len() >= 2);
+    assert!(
+        document
+            .diagnostics
+            .iter()
+            .any(|diagnostic| { diagnostic.code == DiagnosticCode::MissingRightParenthesis })
+    );
+}
+
+#[test]
+fn editor_ranges_use_utf16_columns_for_emoji() {
+    let source = "button(name = \"保存😀\")";
+    let start = source.find('😀').expect("fixture contains emoji");
+    let range = byte_range_to_editor_range(source, start, start + '😀'.len_utf8());
+
     assert_eq!(
-        analysis.capability(QueryBackend::WindowsUia).level,
-        SupportLevel::Unsupported
+        range.start,
+        EditorPosition {
+            line: 0,
+            utf16_column: 17,
+        }
     );
+    assert_eq!(range.end.utf16_column, 19);
+}
+
+#[test]
+fn language_service_matches_nested_brackets_from_lossless_tokens() {
+    let source = "first(button(name = \"保存\"))";
+    let ranges = bracket_pair(
+        source,
+        EditorPosition {
+            line: 0,
+            utf16_column: 5,
+        },
+    )
+    .expect("function left parenthesis should have a matching pair");
+
+    assert_eq!(ranges.len(), 2);
+    assert_eq!(ranges[0].start.utf16_column, 5);
+    assert_eq!(ranges[1].start.utf16_column, 25);
+}
+
+#[test]
+fn language_service_offers_css_attribute_quick_fix() {
+    let actions = code_actions(r#"button[name="保存"]"#);
+
+    assert_eq!(actions.len(), 2);
+    assert_eq!(actions[0].new_text, "(");
+    assert_eq!(actions[1].new_text, ")");
+}
+
+#[test]
+fn language_service_provides_completion_and_hover_from_rust_tokens() {
+    let completion_items = completions(
+        "but",
+        EditorPosition {
+            line: 0,
+            utf16_column: 3,
+        },
+    );
+    assert!(
+        completion_items
+            .iter()
+            .any(|item| { item.label == "button" && item.insert_text == "button()" })
+    );
+
+    let hover = hover(
+        "button()",
+        EditorPosition {
+            line: 0,
+            utf16_column: 2,
+        },
+    )
+    .expect("role token should provide hover");
+    assert_eq!(hover.description_code, "aql.hover.role");
 }

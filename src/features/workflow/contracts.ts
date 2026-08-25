@@ -79,8 +79,18 @@ export type TargetLocator =
 /** Action 属性面板允许切换的目标定位类别。 */
 export type TargetLocatorKind = TargetLocator['type'];
 
-/** AQL analyzer 支持的稳定后端标识。 */
+/** AQL backend compiler 使用的稳定后端家族。 */
 export type QueryBackend = 'windows_uia' | 'browser_cdp' | 'vision';
+
+/** Runtime Planner 可选择的实际执行后端。 */
+export type BackendKind =
+  | 'windows_uia'
+  | 'browser_cdp'
+  | 'visual_cache'
+  | 'ocr_tiny'
+  | 'ocr_medium'
+  | 'gui_grounding'
+  | 'send_input';
 
 /** 后端保持 AQL 语义所需的执行方式。 */
 export type QuerySupportLevel = 'native' | 'hybrid' | 'emulated' | 'unsupported';
@@ -88,43 +98,13 @@ export type QuerySupportLevel = 'native' | 'hybrid' | 'emulated' | 'unsupported'
 /** AQL 查询计划的粗粒度预计成本。 */
 export type QueryCost = 'low' | 'medium' | 'high';
 
-/** 单个后端对当前 AQL 的能力判断。 */
-export type BackendQueryCapability = {
-  backend: QueryBackend;
-  level: QuerySupportLevel;
-  estimated_cost: QueryCost;
-};
-
 /** AQL 是否只依赖跨平台语义。 */
 export type QueryPortability =
   | { type: 'portable' }
   | { type: 'backend_specific'; backends: readonly QueryBackend[] };
 
-/** AQL analyzer 面向编辑器返回的稳定警告类别。 */
-export type QueryWarningKind =
-  | 'backend_specific_property'
-  | 'expensive_traversal'
-  | 'regex_residual_filter'
-  | 'potential_multi_match'
-  | 'unsupported_backend';
-
-/** AQL 静态分析发现的一项非阻断问题。 */
-export type QueryWarning = {
-  kind: QueryWarningKind;
-  backend: QueryBackend | null;
-  message: string;
-};
-
-/** AQL 源码中从零开始计数的 UTF-8 半开字节区间及可读行列。 */
-export type AqlSourceSpan = {
-  start: number;
-  end: number;
-  line: number;
-  column: number;
-};
-
-/** AQL v1 parser 可稳定返回的诊断类别。 */
-export type AqlErrorKind =
+/** 语言服务和 backend compiler 共享的稳定诊断代码。 */
+export type AqlDiagnosticCode =
   | 'empty_query'
   | 'invalid_token'
   | 'unexpected_token'
@@ -134,27 +114,90 @@ export type AqlErrorKind =
   | 'invalid_predicate'
   | 'invalid_regex'
   | 'invalid_argument'
-  | 'css_syntax';
+  | 'css_syntax'
+  | 'missing_right_parenthesis'
+  | 'unexpected_right_parenthesis'
+  | 'backend_specific_property'
+  | 'residual_filter'
+  | 'expensive_traversal'
+  | 'potential_multi_match'
+  | 'unsupported_backend'
+  | 'runtime_unavailable';
 
-/** 可直接定位到编辑器源码的 AQL 错误。 */
+export type AqlDiagnosticSeverity = 'error' | 'warning' | 'information';
+
+/** WebView 文本协议位置，列按 UTF-16 code unit 且从零开始。 */
+export type EditorPosition = { line: number; utf16_column: number };
+
+/** WebView 文本协议半开范围。 */
+export type EditorRange = { start: EditorPosition; end: EditorPosition };
+
+/** 诊断本地化所需的结构化参数。 */
+export type AqlDiagnosticParams =
+  | { type: 'none' }
+  | { type: 'token'; token: string }
+  | { type: 'expected'; expected: string }
+  | { type: 'minimum_count'; minimum: number };
+
+/** Rust domain 不携带产品文案的结构化诊断。 */
 export type AqlDiagnostic = {
-  kind: AqlErrorKind;
-  span: AqlSourceSpan;
-  message: string;
-  help: string | null;
+  code: AqlDiagnosticCode;
+  severity: AqlDiagnosticSeverity;
+  range: EditorRange | null;
+  backend: QueryBackend | null;
+  params: AqlDiagnosticParams;
 };
 
-/** `inspect_aql` 返回的解析、格式化与能力分析结果。 */
+/** Executor 实现与当前运行环境是否允许实际执行。 */
+export type RuntimeAvailability =
+  | 'ready' | 'missing_context' | 'unavailable' | 'not_implemented';
+
+/** 后端与当前前台窗口、进程或浏览器会话的匹配程度。 */
+export type ContextFitness = 'excellent' | 'good' | 'neutral' | 'poor';
+
+/** Prepared backend plan 的开发者 Explain 步骤类别。 */
+export type PlanStepKind =
+  | 'scope' | 'candidate_source' | 'pushdown' | 'cache'
+  | 'residual' | 'selection' | 'traversal' | 'action';
+
+/** 单个真实 backend prepared candidate 的只读 Explain。 */
+export type PlanExplain = {
+  /** 实际 backend 类别。 */
+  backend: BackendKind;
+  /** Compiler 从真实逻辑计划推导的语义支持。 */
+  support: QuerySupportLevel;
+  /** Compiler 估算成本。 */
+  cost: QueryCost;
+  /** Executor 与当前上下文状态。 */
+  availability: RuntimeAvailability;
+  /** 当前上下文适配度。 */
+  context_fitness: ContextFitness;
+  /** 查询可移植性。 */
+  portability: QueryPortability;
+  /** 真实 prepared plan 的开发者步骤。 */
+  steps: readonly { kind: PlanStepKind; summary: string }[];
+  /** Compiler 产生的结构化诊断。 */
+  diagnostics: readonly AqlDiagnostic[];
+};
+
+/** Runtime Planner 排序后的候选集合与实际选择。 */
+export type PlanningReport = {
+  /** 没有 Ready 候选时为 null。 */
+  selected_backend: BackendKind | null;
+  /** 按 Planner 规则排序的候选。 */
+  candidates: readonly PlanExplain[];
+};
+
+/** `inspect_aql` 返回的 Runtime Planner Explain 与恢复诊断。 */
 export type AqlInspection =
   | {
       status: 'valid';
       canonical_source: string;
-      formatted_source: string;
       portability: QueryPortability;
-      capabilities: readonly BackendQueryCapability[];
-      warnings: readonly QueryWarning[];
+      diagnostics: readonly AqlDiagnostic[];
+      planning: PlanningReport;
     }
-  | { status: 'invalid'; diagnostic: AqlDiagnostic };
+  | { status: 'invalid'; diagnostics: readonly AqlDiagnostic[] };
 
 export type ConditionBranch = 'true' | 'false';
 

@@ -1,15 +1,17 @@
 use argusflow_core::{ElementRole, PropertyPredicate, SelectorAttribute, UiQuery};
-use argusflow_query::BackendQueryCapability;
+use argusflow_query::{BackendQueryCapability, Diagnostic};
 
 /// 已完成 UIA pushdown/residual 拆分的查询计划。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UiaQueryPlan {
     /// 规范化后仍保留层级和组合关系的计划树。
     pub expression: UiaPlanExpr,
-    /// Analyzer 对 UIA 的支持等级与成本结论。
+    /// 由 UIA compiler 根据实际 pushdown/residual 计划推导的能力摘要。
     pub capability: BackendQueryCapability,
     /// 生成该计划的规范化 AQL AST，供 explain 和诊断使用。
     pub normalized: UiQuery,
+    /// UIA compiler 产生的结构化计划诊断。
+    pub diagnostics: Vec<Diagnostic>,
 }
 
 /// UIA 查询执行器需要保持的关系与选择语义。

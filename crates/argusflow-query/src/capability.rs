@@ -89,30 +89,3 @@ pub struct BackendQueryCapability {
     /// 预计执行成本。
     pub estimated_cost: QueryCost,
 }
-
-/// Analyzer 可稳定暴露给编辑器的警告类别。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum QueryWarningKind {
-    /// 使用了显式后端属性或原生查询。
-    BackendSpecificProperty,
-    /// 计划需要高成本遍历或多分支模拟。
-    ExpensiveTraversal,
-    /// 正则必须作为 residual filter 执行。
-    RegexResidualFilter,
-    /// 查询没有明确单结果选择规则。
-    PotentialMultiMatch,
-    /// 某个后端无法保证查询语义。
-    UnsupportedBackend,
-}
-
-/// 一项带可选后端归属的查询分析警告。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct QueryWarning {
-    /// 稳定警告类别。
-    pub kind: QueryWarningKind,
-    /// 仅影响特定后端时记录该后端。
-    pub backend: Option<QueryBackend>,
-    /// 面向用户的解释。
-    pub message: String,
-}

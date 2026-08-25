@@ -44,16 +44,17 @@
 ### AQL 统一 UI 查询语言
 
 - [x] `AQL-001` `P0` 在 `argusflow-core` 定义版本化 AQL 源码、强类型 AST、角色、属性、谓词、关系和显式选择契约。
-- [x] `AQL-002` `P0` 建立独立 `argusflow-query` crate，实现 v1 lexer/parser、正则校验及带源码范围和修复建议的诊断。
-- [x] `AQL-003` `P0` 实现 predicate 规范排序、去重、`any` 扁平化、canonical cache key 与稳定多行 formatter。
-- [x] `AQL-004` `P0` 实现 portable/backend-specific 分析、Native/Hybrid/Emulated/Unsupported 能力、成本与静态警告。
+- [x] `AQL-002` `P0` 建立独立 `argusflow-query` crate，实现 lossless lexer、recovery CST、HIR lowering、正则校验及 UTF-16 编辑器诊断。
+- [x] `AQL-003` `P0` 分离纯排版 formatter、semantic normalizer 与 canonical identity，保证格式化不改写 Query Algebra。
+- [x] `AQL-004` `P0` 将 Native/Hybrid/Emulated/Unsupported、成本与 residual 诊断改为由 UIA/CDP compiler 真实计划推导。
 - [x] `AQL-005` `P0` 实现 UIA 逻辑编译器，拆分 ControlType/属性 pushdown、CacheRequest 属性与 residual filter。
 - [x] `AQL-006` `P0` 实现 CDP 逻辑编译器，区分原生 CSS fast path、DOM/AX 候选源、属性投影与 residual filter。
-- [x] `AQL-007` `P0` 将 ActionRouter 升级为 capability/cost planner，并支持与查询语义分离的显式后端偏好。
+- [x] `AQL-007` `P0` 将 ActionRouter 升级为 ExecutionContext/PreparedPlan planner，按语义、可用性、上下文和成本排序并严格限制 fallback。
 - [x] `AQL-008` `P0` 在工作流执行前解析并校验 AQL，向节点返回精确诊断，覆盖语言、分析器和后端计划核心测试。
 - [ ] `AQL-009` `P1` 将 UIA 逻辑计划接入真实 `IUIAutomationCondition`、CacheRequest、TreeScope 和多结果消歧执行。
 - [ ] `AQL-010` `P1` 将 CDP 逻辑计划接入 DOM/Accessibility 协议、节点关联、导航失效处理和多结果消歧执行。
-- [x] `AQL-011` `P1` 在 Action 节点提供 AQL editor、实时诊断、formatter、explain、portability 与 capability 展示。
+- [x] `AQL-011` `P1` 实现 textarea 输入层、高亮/装饰层、历史、括号、缩进、补全、Hover、Quick Fix 与 Planner Explain 组成的自研 AQL Editor。
+- [x] `AQL-013` `P1` 新增 `argusflow-query-wasm`，让 WebView 复用同一套 Rust grammar、UTF-16 range 和语言服务协议。
 - [ ] `AQL-012` `P2` 扩展 Vision 查询编译、`nearest`、`has` 和空间关系，不引入 CSS 兼容语义。
 
 ### 工作流运行时

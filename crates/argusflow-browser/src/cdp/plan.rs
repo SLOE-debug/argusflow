@@ -1,15 +1,17 @@
 use argusflow_core::{ElementRole, PropertyPredicate, SelectorAttribute, UiQuery};
-use argusflow_query::BackendQueryCapability;
+use argusflow_query::{BackendQueryCapability, Diagnostic};
 
 /// 已选择 CDP 候选来源并完成 residual 拆分的查询计划。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CdpQueryPlan {
     /// DOM/AX 叶子计划及查询关系树。
     pub expression: CdpPlanExpr,
-    /// Analyzer 对 CDP 的支持等级与成本结论。
+    /// 由 CDP compiler 根据真实候选源和 residual 计划推导的能力摘要。
     pub capability: BackendQueryCapability,
     /// 生成计划的规范化 AQL AST。
     pub normalized: UiQuery,
+    /// CDP compiler 产生的结构化计划诊断。
+    pub diagnostics: Vec<Diagnostic>,
 }
 
 /// CDP planner 选择的候选节点数据源。

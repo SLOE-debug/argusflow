@@ -1,88 +1,72 @@
-//! AQL 编辑器使用的只读解析、格式化与能力分析命令。
+//! AQL 编辑器使用的语言检查与真实 Runtime Planner Explain 命令。
 
-use argusflow_core::AqlQuery;
-use argusflow_query::{
-    AqlError, BackendQueryCapability, QueryPortability, QueryWarning, analyze_query, format_query,
-    parse_stored_query,
-};
+use argusflow_agent::PlanningReport;
+use argusflow_core::{AqlQuery, AutomationAction, AutomationTarget, BackendPreference};
+use argusflow_query::{Diagnostic, QueryPortability, analyze_query, parse_document};
 use serde::Serialize;
+use tauri::State;
 
-/// AQL 编辑器的一次完整检查结果。
+use crate::runtime::AppState;
+
+/// AQL Planner 检查结果；语法高亮等即时反馈由同一 Rust crate 的 WASM 接口提供。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum AqlInspection {
-    /// 查询已通过语法和语义检查，并附带规范化及能力分析结果。
+    /// 查询已完成 HIR lowering，并附带真实 backend prepared candidate 报告。
     Valid {
-        /// 可作为缓存键和紧凑预览的规范单行源码。
+        /// 适合 cache key 与 identity 的 canonical AQL。
         canonical_source: String,
-        /// 适合写回编辑器的稳定多行源码。
-        formatted_source: String,
-        /// 查询是否依赖某个后端专用命名空间。
+        /// 查询是否依赖 backend namespace。
         portability: QueryPortability,
-        /// UIA、CDP 与 Vision 的稳定顺序能力列表。
-        capabilities: Vec<BackendQueryCapability>,
-        /// 不阻止保存但会影响稳定性或成本的分析警告。
-        warnings: Vec<QueryWarning>,
+        /// 与 backend 能力无关的语义诊断。
+        diagnostics: Vec<Diagnostic>,
+        /// 由当前 ExecutionContext 和真实 compiler plan 生成的候选报告。
+        planning: PlanningReport,
     },
-    /// 查询无效，诊断携带源码范围、行列和修复建议。
+    /// 查询不完整或无效；恢复 parser 可以一次返回多项诊断。
     Invalid {
-        /// 可直接投影到前端编辑器的结构化错误。
-        diagnostic: AqlError,
+        /// 浏览器安全的 UTF-16 诊断列表。
+        diagnostics: Vec<Diagnostic>,
     },
 }
 
 #[tauri::command]
-/// 检查持久化 AQL，并返回格式化源码、可移植性、后端能力和精确诊断。
-pub fn inspect_aql(query: AqlQuery) -> AqlInspection {
-    let parsed = match parse_stored_query(&query) {
-        Ok(parsed) => parsed,
-        Err(diagnostic) => return AqlInspection::Invalid { diagnostic },
+/// 检查持久化 AQL，并让 Runtime Planner 基于当前上下文准备真实候选。
+pub fn inspect_aql(
+    state: State<'_, AppState>,
+    query: AqlQuery,
+    backend_preference: BackendPreference,
+) -> AqlInspection {
+    inspect_with_router(state.inner(), query, backend_preference)
+}
+
+/// 从共享 Router 生成检查结果，保持 Tauri adapter 只负责参数装配。
+fn inspect_with_router(
+    state: &AppState,
+    query: AqlQuery,
+    backend_preference: BackendPreference,
+) -> AqlInspection {
+    let document = parse_document(&query.source);
+    let Some(parsed) = document.hir else {
+        return AqlInspection::Invalid {
+            diagnostics: document.diagnostics,
+        };
     };
     let analysis = analyze_query(&parsed);
+    let action = AutomationAction::Click {
+        target: AutomationTarget {
+            locator: argusflow_core::TargetLocator::Query {
+                query: query.clone(),
+            },
+            backend_preference,
+        },
+    };
+    let planning = state.router.inspect_current(&action);
 
     AqlInspection::Valid {
         canonical_source: analysis.canonical_source().to_owned(),
-        formatted_source: format_query(analysis.normalized()),
         portability: analysis.portability().clone(),
-        capabilities: analysis.capabilities().to_vec(),
-        warnings: analysis.warnings().to_vec(),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use argusflow_core::AqlQuery;
-    use argusflow_query::{QueryBackend, SupportLevel};
-
-    use super::{AqlInspection, inspect_aql};
-
-    #[test]
-    fn inspection_returns_formatter_and_capabilities_for_valid_query() {
-        let result = inspect_aql(AqlQuery::v1(r#"button(name="保存",enabled=true)"#));
-
-        let AqlInspection::Valid {
-            formatted_source,
-            capabilities,
-            ..
-        } = result
-        else {
-            panic!("valid AQL should produce an analysis");
-        };
-        assert!(formatted_source.contains("enabled = true"));
-        assert!(capabilities.iter().any(|capability| {
-            capability.backend == QueryBackend::WindowsUia
-                && capability.level == SupportLevel::Native
-        }));
-    }
-
-    #[test]
-    fn inspection_preserves_parser_diagnostic_for_invalid_query() {
-        let result = inspect_aql(AqlQuery::v1(r#"button[name="保存"]"#));
-
-        let AqlInspection::Invalid { diagnostic } = result else {
-            panic!("invalid AQL should produce a diagnostic");
-        };
-        assert_eq!(diagnostic.span.line, 1);
-        assert!(diagnostic.message.contains("CSS"));
+        diagnostics: analysis.diagnostics().to_vec(),
+        planning,
     }
 }

@@ -2,7 +2,7 @@ use argusflow_core::{
     ElementMatcher, PredicateValue, PropertyPredicate, QueryExpr, RegexLiteral, UiQuery,
 };
 
-use crate::normalize_query;
+use crate::{AqlError, normalize_query, parse_query};
 
 /// 将查询规范化并输出单行 canonical cache key。
 pub fn canonicalize_query(query: &UiQuery) -> String {
@@ -10,10 +10,14 @@ pub fn canonicalize_query(query: &UiQuery) -> String {
     format_compact_expression(&normalized.expression)
 }
 
-/// 将查询规范化并输出适合编辑器展示的稳定多行格式。
+/// 只调整排版并保留调用结构、谓词顺序和重复项。
 pub fn format_query(query: &UiQuery) -> String {
-    let normalized = normalize_query(query);
-    format_pretty_expression(&normalized.expression, 0)
+    format_pretty_expression(&query.expression, 0)
+}
+
+/// 解析并格式化源码，但不执行任何语义规范化改写。
+pub fn format_source(source: &str) -> Result<String, AqlError> {
+    parse_query(source).map(|query| format_query(&query))
 }
 
 /// 输出无无关空白的表达式。

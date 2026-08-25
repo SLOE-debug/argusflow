@@ -3,11 +3,16 @@
 #[cfg(not(target_os = "windows"))]
 compile_error!("ArgusFlow only supports Windows targets.");
 
-use argusflow_agent::{ActionBackend, ActionCapability};
+use std::sync::Arc;
+
+use argusflow_agent::{
+    ActionBackend, ContextFitness, ExecutionContext, PlanExplain, PlanRejection, PlanStepExplain,
+    PlanStepKind, PreparedCandidate, PreparedExecution, RuntimeAvailability,
+};
 use argusflow_core::{
     ActionOutcome, AutomationAction, AutomationError, BackendKind, TargetLocator,
 };
-use argusflow_query::{QueryBackend, QueryCost, SupportLevel, analyze_query, parse_stored_query};
+use argusflow_query::{QueryCost, QueryPortability, SupportLevel};
 use async_trait::async_trait;
 
 #[derive(Debug, Clone, Copy)]
@@ -47,33 +52,59 @@ impl UnavailableVisionBackend {
     }
 }
 
-#[async_trait]
 impl ActionBackend for UnavailableVisionBackend {
     fn kind(&self) -> BackendKind {
         self.kind
     }
 
-    fn plan(&self, action: &AutomationAction) -> ActionCapability {
-        match &action.target().locator {
-            TargetLocator::Visual { .. } => ActionCapability {
-                level: SupportLevel::Native,
-                estimated_cost: QueryCost::Medium,
+    fn prepare(
+        &self,
+        action: &AutomationAction,
+        context: &ExecutionContext,
+    ) -> Result<PreparedCandidate, PlanRejection> {
+        let TargetLocator::Visual { query } = &action.target().locator else {
+            return Err(PlanRejection::Unsupported { backend: self.kind });
+        };
+        let explain = PlanExplain {
+            backend: self.kind,
+            support: SupportLevel::Native,
+            cost: QueryCost::Medium,
+            availability: RuntimeAvailability::NotImplemented,
+            context_fitness: if context.visual_cache.ready {
+                ContextFitness::Good
+            } else {
+                ContextFitness::Neutral
             },
-            TargetLocator::Query { query } => {
-                let Ok(query) = parse_stored_query(query) else {
-                    return ActionCapability::unsupported();
-                };
-                let capability = analyze_query(&query).capability(QueryBackend::Vision);
-                ActionCapability {
-                    level: capability.level,
-                    estimated_cost: capability.estimated_cost,
-                }
-            }
-            TargetLocator::Coordinate { .. } => ActionCapability::unsupported(),
-        }
+            portability: QueryPortability::Portable,
+            steps: vec![PlanStepExplain {
+                kind: PlanStepKind::CandidateSource,
+                summary: format!("visual text {:?}, exact={}", query.text, query.exact),
+            }],
+            diagnostics: Vec::new(),
+        };
+        Ok(PreparedCandidate::new(
+            explain,
+            Arc::new(VisionPreparedExecution {
+                kind: self.kind,
+                action: action.clone(),
+            }),
+        ))
     }
+}
 
-    async fn execute(&self, _action: &AutomationAction) -> Result<ActionOutcome, AutomationError> {
+/// 已绑定视觉查询与动作的占位执行计划。
+#[derive(Debug)]
+struct VisionPreparedExecution {
+    /// 实际候选后端类别。
+    kind: BackendKind,
+    /// 准备阶段冻结的动作。
+    action: AutomationAction,
+}
+
+#[async_trait]
+impl PreparedExecution for VisionPreparedExecution {
+    async fn execute(&self) -> Result<ActionOutcome, AutomationError> {
+        let _prepared = &self.action;
         Err(AutomationError::BackendUnavailable {
             backend: self.kind,
             message: "视觉后端尚未接入".to_owned(),

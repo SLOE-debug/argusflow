@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type {
   AqlInspection,
   AqlQuery,
+  BackendPreference,
   BackendCommandErrorCode,
   CommandError,
   RunStarted,
@@ -20,9 +21,12 @@ export function isDesktopRuntime(): boolean {
     && Boolean((window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
 }
 
-/** 请求后端解析并分析 AQL；命令只读，不修改工作流或运行状态。 */
-export function inspectAql(query: AqlQuery): Promise<AqlInspection> {
-  return invoke<AqlInspection>('inspect_aql', { query });
+/** 请求 Runtime Planner 基于当前执行上下文生成只读 AQL Explain。 */
+export function inspectAql(
+  query: AqlQuery,
+  backendPreference: BackendPreference,
+): Promise<AqlInspection> {
+  return invoke<AqlInspection>('inspect_aql', { query, backendPreference });
 }
 
 /** 请求后端校验工作流结构，并返回可定位到节点或边的问题。 */
