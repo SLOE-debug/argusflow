@@ -149,7 +149,9 @@ dependencies = [
  "argusflow-core",
  "argusflow-query",
  "async-trait",
+ "regex",
  "thiserror 2.0.20",
+ "tokio",
  "windows 0.62.2",
 ]
 

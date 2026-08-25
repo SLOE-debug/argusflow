@@ -1,8 +1,10 @@
-//! UIA AQL 逻辑计划的 pushdown、缓存与 residual 边界测试。
+//! UIA AQL 原生计划的 role/property 映射、缓存与 residual 边界测试。
 
-use argusflow_core::SelectorAttribute;
 use argusflow_query::{SupportLevel, parse_query};
-use argusflow_windows::uia::{UiaPlanExpr, UiaQueryCompileError, compile_uia_query};
+use argusflow_windows::uia::{
+    UiaNativeComparison, UiaNativeValue, UiaPlanExpr, UiaProperty, UiaQueryCompileError,
+    UiaRoleConstraint, compile_uia_query,
+};
 
 #[test]
 fn compiler_pushes_native_predicates_and_caches_residual_attributes() {
@@ -16,7 +18,8 @@ fn compiler_pushes_native_predicates_and_caches_residual_attributes() {
     };
     assert_eq!(matcher.pushdown.len(), 1);
     assert_eq!(matcher.residual.len(), 1);
-    assert_eq!(matcher.cache, vec![SelectorAttribute::Name]);
+    assert_eq!(matcher.cache.len(), 1);
+    assert_eq!(matcher.cache[0].property(), UiaProperty::Name);
 }
 
 #[test]
@@ -53,4 +56,76 @@ fn compiler_keeps_supported_branch_of_cross_backend_any() {
 
     assert_eq!(plan.capability.level, SupportLevel::Native);
     assert!(matches!(plan.expression, UiaPlanExpr::Match(_)));
+}
+
+#[test]
+fn dialog_compiles_to_window_and_is_dialog_constraint() {
+    let query = parse_query(r#"dialog(name contains "Find")"#).expect("dialog query should parse");
+    let plan = compile_uia_query(&query).expect("dialog should compile for UIA");
+    let UiaPlanExpr::Match(matcher) = plan.expression else {
+        panic!("expected matcher plan");
+    };
+
+    assert_eq!(matcher.role, UiaRoleConstraint::Dialog);
+}
+
+#[test]
+fn visible_true_compiles_to_is_offscreen_false() {
+    let query = parse_query("button(visible = true)").expect("visible query should parse");
+    let plan = compile_uia_query(&query).expect("visible should compile for UIA");
+    let UiaPlanExpr::Match(matcher) = plan.expression else {
+        panic!("expected matcher plan");
+    };
+
+    assert_eq!(matcher.pushdown[0].property, UiaProperty::IsOffscreen);
+    assert_eq!(
+        matcher.pushdown[0].comparison,
+        UiaNativeComparison::Equal(UiaNativeValue::Boolean(false))
+    );
+}
+
+#[test]
+fn key_compiles_to_automation_id() {
+    let query = parse_query(r#"button(key = "save")"#).expect("key query should parse");
+    let plan = compile_uia_query(&query).expect("key should compile for UIA");
+    let UiaPlanExpr::Match(matcher) = plan.expression else {
+        panic!("expected matcher plan");
+    };
+
+    assert_eq!(matcher.pushdown[0].property, UiaProperty::AutomationId);
+}
+
+#[test]
+fn uia_class_name_compiles_native() {
+    let query =
+        parse_query(r#"pane(uia.class_name = "Scintilla")"#).expect("UIA class query should parse");
+    let plan = compile_uia_query(&query).expect("UIA class should compile natively");
+    let UiaPlanExpr::Match(matcher) = plan.expression else {
+        panic!("expected matcher plan");
+    };
+
+    assert_eq!(plan.capability.level, SupportLevel::Native);
+    assert_eq!(matcher.pushdown[0].property, UiaProperty::ClassName);
+}
+
+#[test]
+fn row_and_cell_are_not_falsely_reported_native() {
+    for source in ["row()", "cell()"] {
+        let query = parse_query(source).expect("table role query should parse");
+
+        assert_eq!(
+            compile_uia_query(&query),
+            Err(UiaQueryCompileError::UnsupportedQuery)
+        );
+    }
+}
+
+#[test]
+fn not_is_rejected_until_complement_scope_is_defined() {
+    let query = parse_query("not(button())").expect("not query should parse");
+
+    assert_eq!(
+        compile_uia_query(&query),
+        Err(UiaQueryCompileError::UnsupportedQuery)
+    );
 }

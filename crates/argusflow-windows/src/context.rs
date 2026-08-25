@@ -1,16 +1,35 @@
-//! 从操作系统读取、且不依赖 UI 状态的 Planner 执行上下文。
+//! 从操作系统与 UIA runtime health 读取 Planner 执行上下文。
 
-use argusflow_agent::{ExecutionContext, ExecutionContextProvider, WindowContext};
+use std::sync::Arc;
+
+use argusflow_agent::{
+    AccessibilityContext, ExecutionContext, ExecutionContextProvider, WindowContext,
+};
 use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
 
+use crate::uia::UiaRuntimeHealth;
+
 /// 每次 Planner prepare 前读取当前 Windows 前台窗口的上下文提供器。
-#[derive(Debug, Default)]
-pub struct WindowsExecutionContextProvider;
+#[derive(Debug)]
+pub struct WindowsExecutionContextProvider {
+    /// 与 UiaBackend 共享的唯一 runtime health。
+    uia_health: Arc<UiaRuntimeHealth>,
+}
+
+impl WindowsExecutionContextProvider {
+    /// 创建绑定真实 UIA runtime health 的上下文提供器。
+    pub fn new(uia_health: Arc<UiaRuntimeHealth>) -> Self {
+        Self { uia_health }
+    }
+}
 
 impl ExecutionContextProvider for WindowsExecutionContextProvider {
     fn snapshot(&self) -> ExecutionContext {
         ExecutionContext {
             foreground_window: foreground_window_context(),
+            accessibility: AccessibilityContext {
+                ready: self.uia_health.is_ready(),
+            },
             ..ExecutionContext::default()
         }
     }
@@ -32,4 +51,25 @@ fn foreground_window_context() -> Option<WindowContext> {
         handle: window.0 as usize as u64,
         process_id,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use argusflow_agent::ExecutionContextProvider;
+
+    use super::WindowsExecutionContextProvider;
+    use crate::uia::UiaRuntime;
+
+    #[test]
+    fn accessibility_context_reflects_shared_runtime_health() {
+        let runtime = Arc::new(UiaRuntime::start());
+        let provider = WindowsExecutionContextProvider::new(runtime.health());
+
+        assert_eq!(
+            provider.snapshot().accessibility.ready,
+            runtime.health().is_ready()
+        );
+    }
 }

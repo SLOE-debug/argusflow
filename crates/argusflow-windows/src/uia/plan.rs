@@ -1,5 +1,9 @@
-use argusflow_core::{ElementRole, PropertyPredicate, SelectorAttribute, UiQuery};
+use argusflow_core::UiQuery;
 use argusflow_query::{BackendQueryCapability, Diagnostic};
+
+use super::native::{
+    UiaNativePredicate, UiaPropertyProjection, UiaResidualPredicate, UiaRoleConstraint,
+};
 
 /// 已完成 UIA pushdown/residual 拆分的查询计划。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -35,8 +39,6 @@ pub enum UiaPlanExpr {
     },
     /// 按顺序尝试多个计划分支。
     Any(Vec<UiaPlanExpr>),
-    /// 通过 TreeWalker 或结果集合排除内部计划。
-    Not(Box<UiaPlanExpr>),
     /// 选择第一个结果。
     First(Box<UiaPlanExpr>),
     /// 选择从一开始计数的第 N 个结果。
@@ -51,12 +53,24 @@ pub enum UiaPlanExpr {
 /// 单个 UIA 元素 matcher 的原生条件、缓存与本地过滤边界。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UiaMatcherPlan {
-    /// 映射为 UIA ControlType condition 的语义角色。
-    pub role: ElementRole,
+    /// 已映射为 UIA ControlType/property condition 的角色。
+    pub role: UiaRoleConstraint,
     /// 可编译为 PropertyCondition/AndCondition/NotCondition 的谓词。
-    pub pushdown: Vec<PropertyPredicate>,
+    pub pushdown: Vec<UiaNativePredicate>,
     /// residual filter 必须通过 CacheRequest 一次性读取的属性。
-    pub cache: Vec<SelectorAttribute>,
+    pub cache: Vec<UiaPropertyProjection>,
     /// UIA 无法原生完整表达、需要在 Rust 中计算的谓词。
-    pub residual: Vec<PropertyPredicate>,
+    pub residual: Vec<UiaResidualPredicate>,
+}
+
+/// prepare 阶段冻结的 UIA 动作策略。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UiaActionPlan {
+    /// 要求目标实例提供 InvokePattern。
+    Invoke,
+    /// 要求目标实例提供可写的 ValuePattern。
+    SetValue {
+        /// 要写入的完整文本。
+        value: String,
+    },
 }

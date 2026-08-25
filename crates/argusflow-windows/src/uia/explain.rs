@@ -1,6 +1,6 @@
 use argusflow_agent::{PlanStepExplain, PlanStepKind};
 
-use super::UiaPlanExpr;
+use super::{UiaActionPlan, UiaPlanExpr, UiaRoleConstraint};
 
 /// 从真实 UIA 逻辑计划递归生成开发者 Explain 步骤。
 pub(super) fn explain_uia_plan(expression: &UiaPlanExpr) -> Vec<PlanStepExplain> {
@@ -9,13 +9,31 @@ pub(super) fn explain_uia_plan(expression: &UiaPlanExpr) -> Vec<PlanStepExplain>
     steps
 }
 
+/// 返回 prepare 阶段冻结的真实 UIA action pattern 说明。
+pub(super) fn explain_uia_action(action: &UiaActionPlan) -> PlanStepExplain {
+    PlanStepExplain {
+        kind: PlanStepKind::Action,
+        summary: match action {
+            UiaActionPlan::Invoke => "InvokePattern::Invoke".to_owned(),
+            UiaActionPlan::SetValue { .. } => "ValuePattern::SetValue".to_owned(),
+        },
+    }
+}
+
 /// 按执行顺序遍历计划表达式。
 fn visit(expression: &UiaPlanExpr, steps: &mut Vec<PlanStepExplain>) {
     match expression {
         UiaPlanExpr::Match(matcher) => {
             steps.push(PlanStepExplain {
                 kind: PlanStepKind::CandidateSource,
-                summary: format!("UIA ControlType::{:?}", matcher.role),
+                summary: match matcher.role {
+                    UiaRoleConstraint::ControlType(control_type) => {
+                        format!("UIA ControlType::{control_type:?}")
+                    }
+                    UiaRoleConstraint::Dialog => {
+                        "UIA ControlType::Window AND IsDialog=true".to_owned()
+                    }
+                },
             });
             if !matcher.pushdown.is_empty() {
                 steps.push(PlanStepExplain {
@@ -60,13 +78,6 @@ fn visit(expression: &UiaPlanExpr, steps: &mut Vec<PlanStepExplain>) {
             for query in queries {
                 visit(query, steps);
             }
-        }
-        UiaPlanExpr::Not(query) => {
-            steps.push(PlanStepExplain {
-                kind: PlanStepKind::Traversal,
-                summary: "exclude result set".to_owned(),
-            });
-            visit(query, steps);
         }
         UiaPlanExpr::First(query) => {
             steps.push(PlanStepExplain {
