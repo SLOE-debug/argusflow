@@ -67,7 +67,7 @@ pub enum TargetLocator {
         /// 持久化的 AQL 源码与独立语言版本。
         query: AqlQuery,
     },
-    /// 确保指定 Windows 应用可交互后，在其顶层窗口内执行 AQL。
+    /// 确保指定 direct-process Windows 桌面应用已运行并恢复后，在其顶层窗口内执行 AQL。
     ApplicationQuery {
         /// 用于复用现有进程或显式启动进程的应用契约。
         application: ApplicationTarget,
@@ -86,7 +86,10 @@ pub enum TargetLocator {
     },
 }
 
-/// UIA 动作执行前需要定位、恢复或启动的 Windows 应用。
+/// UIA 动作执行前需要定位、恢复或启动的 direct-process Windows 桌面应用。
+///
+/// 当前契约要求启动进程自身创建目标顶层窗口，不覆盖 bootstrapper、子进程换壳或把请求
+/// 转交给既有 singleton 进程的应用模型；UIA 查询不要求该窗口成功成为系统前台窗口。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ApplicationTarget {
     /// 进程身份与启动命令共同使用的绝对 EXE 路径。

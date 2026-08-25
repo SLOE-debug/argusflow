@@ -30,3 +30,8 @@ windows = { workspace = true, features = [
     "Win32_UI_WindowsAndMessaging",
 ] }
 
+[dev-dependencies]
+argusflow-runtime.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+

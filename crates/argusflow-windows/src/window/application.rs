@@ -1,4 +1,4 @@
-//! 根据显式 EXE 契约复用、启动、恢复并激活 Windows 应用。
+//! 根据显式 EXE 契约复用、启动并恢复 direct-process Windows 桌面应用。
 
 use std::{
     path::{Path, PathBuf},
@@ -15,9 +15,8 @@ use windows::{
             QueryFullProcessImageNameW,
         },
         UI::WindowsAndMessaging::{
-            EnumWindows, GetForegroundWindow, GetWindowTextLengthW, GetWindowTextW,
-            GetWindowThreadProcessId, IsIconic, IsWindowVisible, SW_RESTORE, SW_SHOW,
-            SetForegroundWindow, ShowWindowAsync,
+            EnumWindows, GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsIconic,
+            IsWindowVisible, SW_RESTORE, SW_SHOW, SetForegroundWindow, ShowWindowAsync,
         },
     },
     core::{BOOL, PWSTR},
@@ -37,7 +36,7 @@ pub struct ResolvedWindow {
 pub struct WindowService;
 
 impl WindowService {
-    /// 在阻塞线程中复用或启动应用，并返回已经恢复和激活的唯一窗口。
+    /// 在阻塞线程中复用或启动 direct-process 应用，并返回已经恢复的唯一窗口。
     pub async fn resolve_application(
         &self,
         target: ApplicationTarget,
@@ -55,7 +54,8 @@ fn resolve_application_blocking(
     let executable_path = validate_executable_path(target)?;
     let existing = find_windows(target, &executable_path, None)?;
     if let Some(window) = require_unique_window(target, existing)? {
-        activate_window(window)?;
+        restore_window(window)?;
+        request_foreground(window);
         return Ok(window);
     }
 
@@ -73,7 +73,8 @@ fn resolve_application_blocking(
     loop {
         let candidates = find_windows(target, &executable_path, Some(process_id))?;
         if let Some(window) = require_unique_window(target, candidates)? {
-            activate_window(window)?;
+            restore_window(window)?;
+            request_foreground(window);
             return Ok(window);
         }
         if let Some(status) = child.try_wait().map_err(|error| {
@@ -259,8 +260,8 @@ fn require_unique_window(
     }
 }
 
-/// 恢复最小化窗口并把它带到前台，确认窗口状态真正完成切换。
-fn activate_window(window: ResolvedWindow) -> Result<(), AutomationError> {
+/// 恢复最小化窗口并把恢复结果作为 UIA 查询的硬条件。
+fn restore_window(window: ResolvedWindow) -> Result<(), AutomationError> {
     let native = HWND(window.handle as usize as *mut std::ffi::c_void);
     // SAFETY: HWND 来自刚完成的 EnumWindows，ShowWindowAsync 不解引用调用方内存。
     unsafe {
@@ -274,18 +275,23 @@ fn activate_window(window: ResolvedWindow) -> Result<(), AutomationError> {
         );
     }
     for _ in 0..20 {
-        // SAFETY: HWND 来自当前有效窗口枚举；调用只请求窗口激活。
-        let _ = unsafe { SetForegroundWindow(native) };
-        // SAFETY: 两个调用只读取全局前台窗口与当前 HWND 的最小化状态。
-        if unsafe { GetForegroundWindow() == native && !IsIconic(native).as_bool() } {
+        // SAFETY: 调用只读取刚枚举窗口的最小化状态。
+        if !unsafe { IsIconic(native) }.as_bool() {
             return Ok(());
         }
         std::thread::sleep(Duration::from_millis(50));
     }
     Err(backend_failed(format!(
-        "Windows refused to activate application window HWND={}",
+        "Windows did not restore application window HWND={}",
         window.handle
     )))
+}
+
+/// 请求把已恢复窗口带到前台；Windows foreground-lock 拒绝不会阻断语义 UIA。
+fn request_foreground(window: ResolvedWindow) {
+    let native = HWND(window.handle as usize as *mut std::ffi::c_void);
+    // SAFETY: HWND 来自刚完成的窗口枚举；调用不解引用外部内存，失败由系统返回 FALSE。
+    let _ = unsafe { SetForegroundWindow(native) };
 }
 
 /// Windows 路径比较遵循文件系统常见的大小写不敏感规则。

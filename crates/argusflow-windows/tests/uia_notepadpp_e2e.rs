@@ -31,14 +31,15 @@ async fn notepadpp_standard_controls_complete_real_uia_e2e() {
     let router = ActionRouter::with_context_provider(backends, context_provider);
 
     // Case 1: compiler、runtime availability 与冻结 Notepad++ HWND 进入同一 PreparedPlan。
-    let window_action = click(r#"window(name contains "Notepad++")"#);
-    let report = router.inspect_current(&window_action);
-    let window_explain = report
+    let prepared_action =
+        click(r#"window(name contains "Notepad++") >> menu_item(name = "Search")"#);
+    let report = router.inspect_current(&prepared_action);
+    let prepared_explain = report
         .candidates
         .first()
         .expect("UIA candidate should be explained");
     assert_eq!(report.selected_backend, Some(BackendKind::WindowsUia));
-    assert_eq!(window_explain.availability, RuntimeAvailability::Ready);
+    assert_eq!(prepared_explain.availability, RuntimeAvailability::Ready);
 
     // Case 2: Search 菜单项必须通过 InvokePattern 打开，禁止物理输入回退。
     let search_outcome = execute(
@@ -106,7 +107,7 @@ async fn notepadpp_standard_controls_complete_real_uia_e2e() {
 
     // Case 8 + Case 5: regex 必须走 CacheRequest/residual，再用 InvokePattern 关闭对话框。
     let close_action =
-        click(r#"dialog(name contains "Find") >> first(button(name matches /Close/i))"#);
+        click(r#"dialog(name contains "Find") >> any(button(name matches /Close/i), button())"#);
     let close_report = router.inspect(&close_action, &context);
     let close_explain = close_report
         .candidates
@@ -130,7 +131,12 @@ async fn notepadpp_standard_controls_complete_real_uia_e2e() {
     assert_eq!(close_outcome.backend, BackendKind::WindowsUia);
     tokio::time::sleep(Duration::from_millis(300)).await;
 
-    let closed_dialog = execute(&router, &context, click(r#"dialog(name contains "Find")"#)).await;
+    let closed_dialog = execute(
+        &router,
+        &context,
+        click(r#"dialog(name contains "Find") >> button(name matches /Close/i)"#),
+    )
+    .await;
     assert!(matches!(
         closed_dialog,
         Err(AutomationError::TargetNotFound { .. })

@@ -77,7 +77,10 @@ export type TargetLocator =
   | { type: 'visual'; query: { text: string; exact: boolean } }
   | { type: 'coordinate'; point: { x: number; y: number } };
 
-/** UIA 查询前需要复用、恢复或显式启动的 Windows 应用。 */
+/**
+ * UIA 查询前需要复用、恢复或显式启动的 direct-process Windows 桌面应用。
+ * 启动进程必须自行创建目标顶层窗口；前台激活仅为 best-effort，不是 UIA 执行前提。
+ */
 export type ApplicationTarget = {
   /** 用于进程身份匹配和启动的绝对 EXE 路径。 */
   executable_path: string;
@@ -182,6 +185,8 @@ export type PlanStepKind =
 export type PlanExplain = {
   /** 实际 backend 类别。 */
   backend: BackendKind;
+  /** 最外层 any 中该后端可执行的最早原始分支；拒绝候选为 null。 */
+  earliest_supported_branch_index: number | null;
   /** Compiler 从真实逻辑计划推导的语义支持。 */
   support: QuerySupportLevel;
   /** Compiler 估算成本。 */

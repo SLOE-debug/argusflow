@@ -24,6 +24,8 @@ struct PlannedBackend {
     kind: BackendKind,
     /// 语义支持等级。
     support: SupportLevel,
+    /// 模拟 backend compiler 支持的最早 `any` 分支。
+    earliest_supported_branch_index: usize,
     /// 查询成本。
     cost: QueryCost,
     /// 上下文匹配度。
@@ -56,6 +58,7 @@ impl ActionBackend for PlannedBackend {
     ) -> Result<PreparedCandidate, PlanRejection> {
         let explain = PlanExplain {
             backend: self.kind,
+            earliest_supported_branch_index: Some(self.earliest_supported_branch_index),
             support: self.support,
             cost: self.cost,
             availability: RuntimeAvailability::Ready,
@@ -144,6 +147,65 @@ async fn router_prefers_support_then_context_fitness_then_cost() {
         .await
         .expect("prepared plan should execute");
     assert_eq!(outcome.backend, BackendKind::BrowserCdp);
+}
+
+#[tokio::test]
+async fn router_prefers_earlier_any_branch_before_backend_capability() {
+    let router = ActionRouter::new(vec![
+        Arc::new(PlannedBackend {
+            earliest_supported_branch_index: 1,
+            support: SupportLevel::Native,
+            fitness: ContextFitness::Excellent,
+            cost: QueryCost::Low,
+            ..planned(BackendKind::WindowsUia, ExecutionResult::Success)
+        }),
+        Arc::new(PlannedBackend {
+            earliest_supported_branch_index: 0,
+            support: SupportLevel::Hybrid,
+            fitness: ContextFitness::Poor,
+            cost: QueryCost::High,
+            ..planned(BackendKind::BrowserCdp, ExecutionResult::Success)
+        }),
+    ]);
+
+    let outcome = router
+        .execute(&portable_click())
+        .await
+        .expect("the backend preserving the earlier fallback branch should execute");
+
+    assert_eq!(outcome.backend, BackendKind::BrowserCdp);
+}
+
+#[tokio::test]
+async fn target_not_found_only_advances_to_a_later_any_branch() {
+    let same_branch_executions = Arc::new(AtomicUsize::new(0));
+    let later_branch_executions = Arc::new(AtomicUsize::new(0));
+    let router = ActionRouter::new(vec![
+        Arc::new(PlannedBackend {
+            earliest_supported_branch_index: 0,
+            result: ExecutionResult::TargetNotFound,
+            ..planned(BackendKind::WindowsUia, ExecutionResult::Success)
+        }),
+        Arc::new(PlannedBackend {
+            earliest_supported_branch_index: 0,
+            executions: same_branch_executions.clone(),
+            ..planned(BackendKind::VisualCache, ExecutionResult::Success)
+        }),
+        Arc::new(PlannedBackend {
+            earliest_supported_branch_index: 1,
+            executions: later_branch_executions.clone(),
+            ..planned(BackendKind::BrowserCdp, ExecutionResult::Success)
+        }),
+    ]);
+
+    let outcome = router
+        .execute(&portable_click())
+        .await
+        .expect("an empty earlier any branch should advance to the next branch");
+
+    assert_eq!(outcome.backend, BackendKind::BrowserCdp);
+    assert_eq!(same_branch_executions.load(Ordering::SeqCst), 0);
+    assert_eq!(later_branch_executions.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]
@@ -262,6 +324,7 @@ fn planned(kind: BackendKind, result: ExecutionResult) -> PlannedBackend {
     PlannedBackend {
         kind,
         support: SupportLevel::Native,
+        earliest_supported_branch_index: 0,
         cost: QueryCost::Low,
         fitness: ContextFitness::Good,
         context_aware: false,
@@ -281,6 +344,7 @@ fn backend(
     Arc::new(PlannedBackend {
         kind,
         support,
+        earliest_supported_branch_index: 0,
         cost,
         fitness,
         context_aware: false,

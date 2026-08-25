@@ -8,6 +8,7 @@ use std::{
         mpsc::{self, Receiver, Sender},
     },
     thread::{self, JoinHandle},
+    time::Duration,
 };
 
 use argusflow_core::{ActionOutcome, AutomationError, BackendKind};
@@ -17,12 +18,14 @@ use windows::Win32::{
         CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx,
         CoUninitialize,
     },
-    UI::Accessibility::{CUIAutomation8, IUIAutomation},
+    UI::Accessibility::{CUIAutomation8, IUIAutomation2},
 };
 
 use super::{
+    budget::UiaExecutionBudget,
+    error::{UiaError, UiaOperation},
     executor::UiaExecutor,
-    plan::{UiaActionPlan, UiaQueryPlan},
+    plan::UiaPreparedPlan,
 };
 
 /// prepare 阶段冻结、execute 阶段重新校验的窗口身份。
@@ -39,10 +42,8 @@ pub(crate) struct PreparedWindowTarget {
 pub(crate) struct UiaExecuteRequest {
     /// prepare 冻结的窗口身份。
     pub(crate) window: PreparedWindowTarget,
-    /// prepare 冻结的动作 pattern。
-    pub(crate) action: UiaActionPlan,
-    /// compiler 冻结的原生查询计划。
-    pub(crate) query_plan: UiaQueryPlan,
+    /// prepare 冻结的查询、动作与联合能力计划。
+    pub(crate) plan: UiaPreparedPlan,
     /// 规范化查询，仅用于公共错误复现。
     pub(crate) query: String,
 }
@@ -68,7 +69,7 @@ pub enum UiaRuntimeState {
 pub struct UiaRuntimeHealth {
     /// 原子状态码使高频 Planner snapshot 无需持有字符串锁。
     state: AtomicU8,
-    /// 仅初始化失败时写入一次的诊断文本。
+    /// 初始化失败或请求 deadline 熔断时保存的最新诊断文本。
     failure: Mutex<Option<String>>,
 }
 
@@ -95,9 +96,16 @@ impl UiaRuntimeHealth {
         self.state.load(Ordering::Acquire) == HEALTH_READY
     }
 
-    /// 标记初始化成功。
-    fn mark_ready(&self) {
-        self.state.store(HEALTH_READY, Ordering::Release);
+    /// 仅允许仍处于初始化状态的 worker 标记成功，避免启动 deadline 后恢复 Ready。
+    fn mark_ready(&self) -> bool {
+        self.state
+            .compare_exchange(
+                HEALTH_INITIALIZING,
+                HEALTH_READY,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_ok()
     }
 
     /// 保存稳定失败原因并标记初始化失败。
@@ -130,28 +138,34 @@ pub struct UiaRuntime {
     sender: Sender<UiaWorkerMessage>,
     /// Backend 与 context provider 共享的 health。
     health: Arc<UiaRuntimeHealth>,
-    /// Drop 时等待 apartment 在创建线程完成清理。
+    /// worker handle；只对已经退出的线程执行 join，避免第三方 provider 卡住 Drop。
     worker: Mutex<Option<JoinHandle<()>>>,
+    /// provider timeout 与 ArgusFlow 请求资源限制。
+    config: UiaRuntimeConfig,
 }
 
 impl UiaRuntime {
     /// 启动名为 `argusflow-uia` 的专用 MTA worker。
     pub fn start() -> Self {
+        let config = UiaRuntimeConfig::default();
         let (sender, receiver) = mpsc::channel();
         let (initialized_sender, initialized_receiver) = mpsc::sync_channel(0);
         let health = Arc::new(UiaRuntimeHealth::default());
         let worker_health = health.clone();
         let worker = thread::Builder::new()
             .name("argusflow-uia".to_owned())
-            .spawn(move || worker_main(receiver, worker_health, initialized_sender));
+            .spawn(move || worker_main(receiver, worker_health, initialized_sender, config));
 
         let worker = match worker {
             Ok(worker) => {
-                if initialized_receiver.recv().is_err()
+                if initialized_receiver
+                    .recv_timeout(config.connection_timeout)
+                    .is_err()
                     && matches!(health.snapshot(), UiaRuntimeState::Initializing)
                 {
                     health.mark_failed(
-                        "UI Automation worker stopped during initialization".to_owned(),
+                        "UI Automation worker did not initialize within the connection timeout"
+                            .to_owned(),
                     );
                 }
                 Some(worker)
@@ -165,6 +179,7 @@ impl UiaRuntime {
             sender,
             health,
             worker: Mutex::new(worker),
+            config,
         }
     }
 
@@ -185,21 +200,39 @@ impl UiaRuntime {
             });
         }
         let (response_sender, response_receiver) = oneshot::channel();
+        let budget = UiaExecutionBudget::new(
+            self.config.execution_timeout,
+            self.config.max_candidates,
+            self.config.max_relation_roots,
+        );
         self.sender
             .send(UiaWorkerMessage::Execute {
                 request,
+                budget,
                 response: response_sender,
             })
             .map_err(|_| AutomationError::BackendUnavailable {
                 backend: BackendKind::WindowsUia,
                 message: "UI Automation worker request channel is closed".to_owned(),
             })?;
-        response_receiver
-            .await
-            .map_err(|_| AutomationError::BackendUnavailable {
+        match tokio::time::timeout(self.config.execution_timeout, response_receiver).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(_)) => Err(AutomationError::BackendUnavailable {
                 backend: BackendKind::WindowsUia,
                 message: "UI Automation worker stopped before returning a result".to_owned(),
-            })?
+            }),
+            Err(_) => {
+                self.health.mark_failed(
+                    "UI Automation request exceeded the ArgusFlow execution deadline".to_owned(),
+                );
+                let _ = self.sender.send(UiaWorkerMessage::Shutdown);
+                Err(AutomationError::BackendUnavailable {
+                    backend: BackendKind::WindowsUia,
+                    message: "UI Automation request exceeded the ArgusFlow execution deadline"
+                        .to_owned(),
+                })
+            }
+        }
     }
 }
 
@@ -221,7 +254,10 @@ impl Drop for UiaRuntime {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .take()
         {
-            let _ = worker.join();
+            // 不对可能仍卡在第三方 provider 的线程执行无上限 join；已退出线程仍完成回收。
+            if worker.is_finished() {
+                let _ = worker.join();
+            }
         }
     }
 }
@@ -232,6 +268,8 @@ enum UiaWorkerMessage {
     Execute {
         /// 不含 COM interface 的请求。
         request: UiaExecuteRequest,
+        /// 包含 channel 排队时间的请求预算。
+        budget: UiaExecutionBudget,
         /// 唯一响应 channel。
         response: oneshot::Sender<Result<ActionOutcome, AutomationError>>,
     },
@@ -244,6 +282,7 @@ fn worker_main(
     receiver: Receiver<UiaWorkerMessage>,
     health: Arc<UiaRuntimeHealth>,
     initialized: mpsc::SyncSender<()>,
+    config: UiaRuntimeConfig,
 ) {
     let apartment = match ComApartment::initialize() {
         Ok(apartment) => apartment,
@@ -254,7 +293,7 @@ fn worker_main(
         }
     };
     // SAFETY: COM 已在当前 worker 初始化；client 创建后不离开这个线程。
-    let automation: IUIAutomation =
+    let automation: IUIAutomation2 =
         match unsafe { CoCreateInstance(&CUIAutomation8, None, CLSCTX_INPROC_SERVER) } {
             Ok(automation) => automation,
             Err(error) => {
@@ -263,14 +302,34 @@ fn worker_main(
                 return;
             }
         };
-    health.mark_ready();
+    if let Err(error) = configure_provider_timeouts(&automation, config) {
+        health.mark_failed(error.to_string());
+        let _ = initialized.send(());
+        return;
+    }
+    if !health.mark_ready() {
+        let _ = initialized.send(());
+        return;
+    }
     let _ = initialized.send(());
-    let _health_guard = WorkerHealthGuard(health);
+    let _health_guard = WorkerHealthGuard(health.clone());
     let executor = UiaExecutor::new(&automation);
     while let Ok(message) = receiver.recv() {
         match message {
-            UiaWorkerMessage::Execute { request, response } => {
-                let _ = response.send(executor.execute(request));
+            UiaWorkerMessage::Execute {
+                request,
+                budget,
+                response,
+            } => {
+                let result = if health.is_ready() {
+                    executor.execute(request, budget)
+                } else {
+                    Err(AutomationError::BackendUnavailable {
+                        backend: BackendKind::WindowsUia,
+                        message: runtime_state_message(health.snapshot()),
+                    })
+                };
+                let _ = response.send(result);
             }
             UiaWorkerMessage::Shutdown => break,
         }
@@ -315,6 +374,56 @@ fn runtime_state_message(state: UiaRuntimeState) -> String {
         UiaRuntimeState::Ready => "UI Automation worker is ready".to_owned(),
         UiaRuntimeState::InitializationFailed { message } => message,
         UiaRuntimeState::Stopped => "UI Automation worker has stopped".to_owned(),
+    }
+}
+
+/// 显式设置 UIA provider 自带的连接与事务超时，不依赖系统默认值。
+fn configure_provider_timeouts(
+    automation: &IUIAutomation2,
+    config: UiaRuntimeConfig,
+) -> Result<(), UiaError> {
+    let connection_timeout = duration_millis(config.connection_timeout);
+    let transaction_timeout = duration_millis(config.transaction_timeout);
+    // SAFETY: automation client 在当前 MTA worker 创建，配置调用不会离开该 apartment。
+    unsafe { automation.SetConnectionTimeout(connection_timeout) }
+        .map_err(|source| UiaError::from_native(UiaOperation::ConfigureTimeouts, source))?;
+    // SAFETY: automation client 仍由当前 worker 独占，毫秒值已收窄为 API 接受的 u32。
+    unsafe { automation.SetTransactionTimeout(transaction_timeout) }
+        .map_err(|source| UiaError::from_native(UiaOperation::ConfigureTimeouts, source))?;
+    Ok(())
+}
+
+/// 把受控 runtime Duration 转换为 IUIAutomation2 使用的非零毫秒值。
+fn duration_millis(duration: Duration) -> u32 {
+    u32::try_from(duration.as_millis())
+        .unwrap_or(u32::MAX)
+        .max(1)
+}
+
+/// UIA runtime 的稳定 provider timeout 与单次请求资源限制。
+#[derive(Debug, Clone, Copy)]
+struct UiaRuntimeConfig {
+    /// provider 建立连接的最长时间。
+    connection_timeout: Duration,
+    /// 单个跨进程 UIA 调用的最长事务时间。
+    transaction_timeout: Duration,
+    /// 包含 worker 排队时间的 ArgusFlow 请求总时限。
+    execution_timeout: Duration,
+    /// 单次请求允许读取的 provider 候选总数。
+    max_candidates: usize,
+    /// 单次请求允许展开的关系根总数。
+    max_relation_roots: usize,
+}
+
+impl Default for UiaRuntimeConfig {
+    fn default() -> Self {
+        Self {
+            connection_timeout: Duration::from_secs(2),
+            transaction_timeout: Duration::from_secs(20),
+            execution_timeout: Duration::from_secs(25),
+            max_candidates: 10_000,
+            max_relation_roots: 256,
+        }
     }
 }
 

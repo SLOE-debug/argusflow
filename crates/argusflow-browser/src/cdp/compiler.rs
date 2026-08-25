@@ -23,6 +23,8 @@ struct CompiledExpression {
     support: SupportLevel,
     /// 实际计划的粗粒度成本。
     cost: QueryCost,
+    /// 当前后端在最外层 `any` 中保留的最早原始分支索引。
+    earliest_supported_branch_index: usize,
     /// 与 residual 或树遍历有关的结构化诊断。
     diagnostics: Vec<Diagnostic>,
 }
@@ -37,6 +39,7 @@ pub fn compile_cdp_query(query: &UiQuery) -> Result<CdpQueryPlan, CdpQueryCompil
             backend: QueryBackend::BrowserCdp,
             level: compiled.support,
             estimated_cost: compiled.cost,
+            earliest_supported_branch_index: compiled.earliest_supported_branch_index,
         },
         normalized,
         diagnostics: compiled.diagnostics,
@@ -73,6 +76,7 @@ fn compile_expression(expression: &QueryExpr) -> Result<CompiledExpression, CdpQ
             Ok(emulated(
                 CdpPlanExpr::Not(Box::new(compiled.expression)),
                 compiled.diagnostics,
+                compiled.earliest_supported_branch_index,
             ))
         }
         QueryExpr::First { query } => {
@@ -81,6 +85,7 @@ fn compile_expression(expression: &QueryExpr) -> Result<CompiledExpression, CdpQ
                 expression: CdpPlanExpr::First(Box::new(compiled.expression)),
                 support: compiled.support,
                 cost: compiled.cost,
+                earliest_supported_branch_index: compiled.earliest_supported_branch_index,
                 diagnostics: compiled.diagnostics,
             })
         }
@@ -93,6 +98,7 @@ fn compile_expression(expression: &QueryExpr) -> Result<CompiledExpression, CdpQ
                 },
                 support: max_support(compiled.support, SupportLevel::Hybrid),
                 cost: max_cost(compiled.cost, QueryCost::Medium),
+                earliest_supported_branch_index: compiled.earliest_supported_branch_index,
                 diagnostics: compiled.diagnostics,
             })
         }
@@ -102,6 +108,7 @@ fn compile_expression(expression: &QueryExpr) -> Result<CompiledExpression, CdpQ
             },
             support: SupportLevel::Native,
             cost: QueryCost::Low,
+            earliest_supported_branch_index: 0,
             diagnostics: Vec::new(),
         }),
     }
@@ -170,6 +177,7 @@ fn compile_matcher(matcher: &ElementMatcher) -> Result<CompiledExpression, CdpQu
         } else {
             QueryCost::Low
         },
+        earliest_supported_branch_index: 0,
         diagnostics,
     })
 }
@@ -178,21 +186,32 @@ fn compile_matcher(matcher: &ElementMatcher) -> Result<CompiledExpression, CdpQu
 fn compile_any(queries: &[QueryExpr]) -> Result<CompiledExpression, CdpQueryCompileError> {
     let branches = queries
         .iter()
-        .filter_map(|query| compile_expression(query).ok())
+        .enumerate()
+        .filter_map(|(index, query)| {
+            compile_expression(query)
+                .ok()
+                .map(|compiled| (index, compiled))
+        })
         .collect::<Vec<_>>();
     if branches.is_empty() {
         return Err(CdpQueryCompileError::UnsupportedQuery);
     }
     if branches.len() == 1 {
-        return Ok(branches
+        let (index, mut branch) = branches
             .into_iter()
             .next()
-            .expect("one compiled branch exists"));
+            .expect("one compiled branch exists");
+        branch.earliest_supported_branch_index = index;
+        return Ok(branch);
     }
 
+    let earliest_supported_branch_index = branches
+        .first()
+        .map(|(index, _)| *index)
+        .expect("at least one compiled branch exists");
     let mut expressions = Vec::new();
     let mut diagnostics = Vec::new();
-    for branch in branches {
+    for (_, branch) in branches {
         expressions.push(branch.expression);
         diagnostics.extend(branch.diagnostics);
     }
@@ -205,6 +224,7 @@ fn compile_any(queries: &[QueryExpr]) -> Result<CompiledExpression, CdpQueryComp
         expression: CdpPlanExpr::Any(expressions),
         support: SupportLevel::Emulated,
         cost: QueryCost::High,
+        earliest_supported_branch_index,
         diagnostics,
     })
 }
@@ -215,16 +235,27 @@ fn emulated_binary(
     right: CompiledExpression,
     build: impl FnOnce(CdpPlanExpr, CdpPlanExpr) -> CdpPlanExpr,
 ) -> CompiledExpression {
+    let earliest_supported_branch_index = left
+        .earliest_supported_branch_index
+        .max(right.earliest_supported_branch_index);
     let diagnostics = left
         .diagnostics
         .into_iter()
         .chain(right.diagnostics)
         .collect();
-    emulated(build(left.expression, right.expression), diagnostics)
+    emulated(
+        build(left.expression, right.expression),
+        diagnostics,
+        earliest_supported_branch_index,
+    )
 }
 
 /// 标记需要额外树遍历或结果集合计算的计划。
-fn emulated(expression: CdpPlanExpr, mut diagnostics: Vec<Diagnostic>) -> CompiledExpression {
+fn emulated(
+    expression: CdpPlanExpr,
+    mut diagnostics: Vec<Diagnostic>,
+    earliest_supported_branch_index: usize,
+) -> CompiledExpression {
     diagnostics.push(Diagnostic::global(
         DiagnosticCode::ExpensiveTraversal,
         DiagnosticSeverity::Information,
@@ -234,6 +265,7 @@ fn emulated(expression: CdpPlanExpr, mut diagnostics: Vec<Diagnostic>) -> Compil
         expression,
         support: SupportLevel::Emulated,
         cost: QueryCost::High,
+        earliest_supported_branch_index,
         diagnostics,
     }
 }

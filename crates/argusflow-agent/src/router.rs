@@ -139,10 +139,13 @@ const fn preference_allows(preference: BackendPreference, backend: BackendKind) 
     }
 }
 
-/// 返回真实候选的完整 Planner 排序键。
-fn candidate_rank(candidate: &PreparedCandidate) -> (u8, u8, u8, usize) {
+/// 返回真实候选的完整 Planner 排序键；`any` 分支优先级高于后端能力评分。
+fn candidate_rank(candidate: &PreparedCandidate) -> (usize, u8, u8, u8, usize) {
     let explain = candidate.explain();
     (
+        explain
+            .earliest_supported_branch_index
+            .unwrap_or(usize::MAX),
         explain.support.rank(),
         explain.context_fitness.rank(),
         explain.cost.rank(),
@@ -150,9 +153,12 @@ fn candidate_rank(candidate: &PreparedCandidate) -> (u8, u8, u8, usize) {
     )
 }
 
-/// Explain 沿用语义支持、availability、上下文、成本和 tie-break 的完整顺序。
-fn explain_rank(explain: &PlanExplain) -> (u8, u8, u8, u8, usize) {
+/// Explain 沿用分支优先级、语义支持、availability、上下文、成本和 tie-break 的顺序。
+fn explain_rank(explain: &PlanExplain) -> (usize, u8, u8, u8, u8, usize) {
     (
+        explain
+            .earliest_supported_branch_index
+            .unwrap_or(usize::MAX),
         explain.support.rank(),
         explain.availability.rank(),
         explain.context_fitness.rank(),
@@ -165,6 +171,7 @@ fn explain_rank(explain: &PlanExplain) -> (u8, u8, u8, u8, usize) {
 fn rejected_explain(rejection: PlanRejection) -> PlanExplain {
     PlanExplain {
         backend: rejection.backend(),
+        earliest_supported_branch_index: None,
         support: SupportLevel::Unsupported,
         cost: QueryCost::High,
         availability: RuntimeAvailability::Unavailable,

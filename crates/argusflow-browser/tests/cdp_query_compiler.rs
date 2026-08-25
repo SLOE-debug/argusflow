@@ -73,5 +73,6 @@ fn compiler_keeps_supported_branch_of_cross_backend_any() {
     let plan = compile_cdp_query(&query).expect("DOM branch should keep the any query supported");
 
     assert_eq!(plan.capability.level, SupportLevel::Native);
+    assert_eq!(plan.capability.earliest_supported_branch_index, 1);
     assert!(matches!(plan.expression, CdpPlanExpr::Match(_)));
 }

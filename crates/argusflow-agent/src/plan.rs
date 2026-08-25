@@ -74,6 +74,8 @@ pub struct PlanStepExplain {
 pub struct PlanExplain {
     /// 候选后端。
     pub backend: BackendKind,
+    /// 最外层 `any(...)` 中该候选能够执行的最早原始分支；拒绝候选为 `None`。
+    pub earliest_supported_branch_index: Option<usize>,
     /// Compiler 对完整语义的支持等级。
     pub support: SupportLevel,
     /// Compiler 计划的预计成本。
@@ -200,18 +202,30 @@ impl PreparedPlan {
             .explain()
     }
 
-    /// 依次执行冻结候选；只有运行环境不可用允许 fallback。
+    /// 依次执行冻结候选；环境不可用允许同分支 fallback，空结果只允许推进到更晚 `any` 分支。
     pub async fn execute(self) -> Result<ActionOutcome, AutomationError> {
-        let mut unavailable = None;
+        let mut fallback_error = None;
+        let mut exhausted_branch = None;
         for candidate in self.candidates {
+            let branch_index = candidate
+                .explain()
+                .earliest_supported_branch_index
+                .unwrap_or(0);
+            if exhausted_branch.is_some_and(|exhausted| branch_index <= exhausted) {
+                continue;
+            }
             match candidate.execute().await {
                 Ok(outcome) => return Ok(outcome),
                 Err(error @ AutomationError::BackendUnavailable { .. }) => {
-                    unavailable = Some(error)
+                    fallback_error = Some(error)
+                }
+                Err(error @ AutomationError::TargetNotFound { .. }) => {
+                    exhausted_branch = Some(branch_index);
+                    fallback_error = Some(error);
                 }
                 Err(error) => return Err(error),
             }
         }
-        Err(unavailable.unwrap_or(AutomationError::NoBackendAvailable))
+        Err(fallback_error.unwrap_or(AutomationError::NoBackendAvailable))
     }
 }

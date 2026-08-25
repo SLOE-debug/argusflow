@@ -23,6 +23,7 @@ use windows::Win32::{
 
 use super::{
     action::execute_action,
+    budget::{UiaBudgetTracker, UiaExecutionBudget},
     cache::build_cache_request,
     condition::build_match_condition,
     error::{UiaError, UiaOperation},
@@ -47,17 +48,31 @@ impl<'automation> UiaExecutor<'automation> {
     pub(crate) fn execute(
         &self,
         request: UiaExecuteRequest,
+        budget: UiaExecutionBudget,
     ) -> Result<ActionOutcome, AutomationError> {
-        // 只有 action 阶段的 stale element 会触发一次完整重新 materialize。
+        let mut budget = UiaBudgetTracker::new(budget);
+        // root、query 或 action 阶段的 stale element 都只触发一次完整重新 materialize。
         for attempt in 0..=1 {
-            let root = self
-                .root_element(request.window)
-                .map_err(UiaError::into_automation_error)?;
-            let candidates = self
-                .execute_expression(&root, SearchScope::Subtree, &request.query_plan.expression)
-                .map_err(UiaError::into_automation_error)?;
+            let root = match self.root_element(request.window, &budget) {
+                Ok(root) => root,
+                Err(error) if attempt == 0 && error.is_element_unavailable() => continue,
+                Err(error) => return Err(error.into_automation_error()),
+            };
+            let candidates = match self.execute_expression(
+                &root,
+                SearchScope::Subtree,
+                &request.plan.query.expression,
+                &mut budget,
+            ) {
+                Ok(candidates) => candidates,
+                Err(error) if attempt == 0 && error.is_element_unavailable() => continue,
+                Err(error) => return Err(error.into_automation_error()),
+            };
             let target = resolve_unique(candidates, &request.query)?;
-            match execute_action(&target.element, &request.action) {
+            budget
+                .check_deadline()
+                .map_err(UiaError::into_automation_error)?;
+            match execute_action(&target.element, &request.plan.action) {
                 Ok(message) => {
                     return Ok(ActionOutcome {
                         backend: BackendKind::WindowsUia,
@@ -75,7 +90,12 @@ impl<'automation> UiaExecutor<'automation> {
     }
 
     /// 校验 handle reuse，并从冻结 HWND 创建本次解析的根元素。
-    fn root_element(&self, window: PreparedWindowTarget) -> Result<IUIAutomationElement, UiaError> {
+    fn root_element(
+        &self,
+        window: PreparedWindowTarget,
+        budget: &UiaBudgetTracker,
+    ) -> Result<IUIAutomationElement, UiaError> {
+        budget.check_deadline()?;
         let hwnd = HWND(window.handle as usize as *mut c_void);
         // SAFETY: HWND 仅作为不透明值校验，不被解引用；来源是 prepare 冻结的整数句柄。
         if !unsafe { IsWindow(Some(hwnd)) }.as_bool() {
@@ -97,8 +117,10 @@ impl<'automation> UiaExecutor<'automation> {
             });
         }
         // SAFETY: automation client 与返回元素始终留在当前 UIA worker apartment。
-        unsafe { self.automation.ElementFromHandle(hwnd) }
-            .map_err(|source| UiaError::from_native(UiaOperation::ElementFromHandle, source))
+        let root = unsafe { self.automation.ElementFromHandle(hwnd) }
+            .map_err(|source| UiaError::from_native(UiaOperation::ElementFromHandle, source))?;
+        budget.check_deadline()?;
+        Ok(root)
     }
 
     /// 递归执行 Match、关系、Any 与显式选择语义。
@@ -107,31 +129,28 @@ impl<'automation> UiaExecutor<'automation> {
         root: &IUIAutomationElement,
         scope: SearchScope,
         expression: &UiaPlanExpr,
+        budget: &mut UiaBudgetTracker,
     ) -> Result<Vec<ResolvedElement>, UiaError> {
+        budget.check_deadline()?;
         match expression {
-            UiaPlanExpr::Match(matcher) => self.execute_match(root, scope, matcher),
+            UiaPlanExpr::Match(matcher) => self.execute_match(root, scope, matcher, budget),
             UiaPlanExpr::Descendant { ancestor, target } => {
-                let ancestors = self.execute_expression(root, scope, ancestor)?;
-                self.execute_within(ancestors, SearchScope::Descendants, target)
+                let ancestors = self.execute_expression(root, scope, ancestor, budget)?;
+                self.execute_within(ancestors, SearchScope::Descendants, target, budget)
             }
             UiaPlanExpr::Child { parent, target } => {
-                let parents = self.execute_expression(root, scope, parent)?;
-                self.execute_within(parents, SearchScope::Children, target)
+                let parents = self.execute_expression(root, scope, parent, budget)?;
+                self.execute_within(parents, SearchScope::Children, target, budget)
             }
-            UiaPlanExpr::Any(branches) => {
-                let mut combined = Vec::new();
-                for branch in branches {
-                    let branch_results = self.execute_expression(root, scope, branch)?;
-                    append_unique(&mut combined, branch_results);
-                }
-                Ok(combined)
-            }
+            UiaPlanExpr::Any(branches) => execute_any(branches, |branch| {
+                self.execute_expression(root, scope, branch, budget)
+            }),
             UiaPlanExpr::First(query) => {
-                let results = self.execute_expression(root, scope, query)?;
+                let results = self.execute_expression(root, scope, query, budget)?;
                 Ok(results.into_iter().take(1).collect())
             }
             UiaPlanExpr::Nth { query, index } => {
-                let results = self.execute_expression(root, scope, query)?;
+                let results = self.execute_expression(root, scope, query, budget)?;
                 Ok(results.into_iter().nth(*index - 1).into_iter().collect())
             }
         }
@@ -143,10 +162,13 @@ impl<'automation> UiaExecutor<'automation> {
         roots: Vec<ResolvedElement>,
         scope: SearchScope,
         expression: &UiaPlanExpr,
+        budget: &mut UiaBudgetTracker,
     ) -> Result<Vec<ResolvedElement>, UiaError> {
+        budget.observe_relation_roots(roots.len())?;
         let mut combined = Vec::new();
         for root in roots {
-            let results = self.execute_expression(&root.element, scope, expression)?;
+            budget.check_deadline()?;
+            let results = self.execute_expression(&root.element, scope, expression, budget)?;
             append_unique(&mut combined, results);
         }
         Ok(combined)
@@ -158,13 +180,16 @@ impl<'automation> UiaExecutor<'automation> {
         root: &IUIAutomationElement,
         scope: SearchScope,
         matcher: &UiaMatcherPlan,
+        budget: &mut UiaBudgetTracker,
     ) -> Result<Vec<ResolvedElement>, UiaError> {
+        budget.check_deadline()?;
         let condition = build_match_condition(self.automation, matcher)?;
         let cache = build_cache_request(self.automation, &matcher.cache)?;
         // SAFETY: root、condition 与 cache 均在同一 apartment 创建，scope 来自封闭枚举。
         let elements = unsafe { root.FindAllBuildCache(scope.native(), &condition, &cache) }
             .map_err(|source| UiaError::from_native(UiaOperation::FindAll, source))?;
-        self.collect_matches(elements, &matcher.residual)
+        budget.check_deadline()?;
+        self.collect_matches(elements, &matcher.residual, budget)
     }
 
     /// 保持 provider encounter order，过滤 residual 并绑定 runtime id。
@@ -172,12 +197,17 @@ impl<'automation> UiaExecutor<'automation> {
         &self,
         elements: IUIAutomationElementArray,
         residual: &[super::native::UiaResidualPredicate],
+        budget: &mut UiaBudgetTracker,
     ) -> Result<Vec<ResolvedElement>, UiaError> {
         // SAFETY: element array 没有离开创建它的 UIA worker apartment。
         let length = unsafe { elements.Length() }
             .map_err(|source| UiaError::from_native(UiaOperation::FindAll, source))?;
+        let candidate_count = usize::try_from(length)
+            .map_err(|_| UiaError::InvalidCandidateCount { count: length })?;
+        budget.observe_candidates(candidate_count)?;
         let mut matches = Vec::new();
         for index in 0..length {
+            budget.check_deadline()?;
             // SAFETY: index 来自同一 array 返回的半开区间，array 仍在当前 apartment。
             let element = unsafe { elements.GetElement(index) }
                 .map_err(|source| UiaError::from_native(UiaOperation::FindAll, source))?;
@@ -191,6 +221,20 @@ impl<'automation> UiaExecutor<'automation> {
         }
         Ok(matches)
     }
+}
+
+/// 懒执行 `any` 分支并原样返回首个非空集合，保留该分支内部的歧义语义。
+fn execute_any<TBranch, TResult, TError>(
+    branches: &[TBranch],
+    mut execute: impl FnMut(&TBranch) -> Result<Vec<TResult>, TError>,
+) -> Result<Vec<TResult>, TError> {
+    for branch in branches {
+        let results = execute(branch)?;
+        if !results.is_empty() {
+            return Ok(results);
+        }
+    }
+    Ok(Vec::new())
 }
 
 /// 当前表达式相对于根元素使用的原生 TreeScope。
@@ -317,7 +361,9 @@ impl Drop for SafeArrayGuard {
 
 #[cfg(test)]
 mod tests {
-    use super::contains_runtime_id;
+    use std::cell::Cell;
+
+    use super::{contains_runtime_id, execute_any};
 
     /// 验证与 COM 元素无关的 runtime id 顺序去重规则。
     #[test]
@@ -326,5 +372,31 @@ mod tests {
 
         assert!(contains_runtime_id(ids.iter().map(Vec::as_slice), &[1, 2]));
         assert!(!contains_runtime_id(ids.iter().map(Vec::as_slice), &[1, 3]));
+    }
+
+    /// `any` 不执行首个非空结果之后的分支，也不把首分支多结果偷偷收窄成一个。
+    #[test]
+    fn any_stops_at_the_first_non_empty_branch_and_preserves_ambiguity() {
+        let executions = Cell::new(0_usize);
+        let branches = [vec![1, 2], vec![3]];
+
+        let results = execute_any(&branches, |branch| {
+            executions.set(executions.get() + 1);
+            Ok::<_, ()>(branch.clone())
+        })
+        .expect("pure any branch evaluation should succeed");
+
+        assert_eq!(results, vec![1, 2]);
+        assert_eq!(executions.get(), 1);
+    }
+
+    /// 空分支按声明顺序推进，全部为空时保持 TargetNotFound 所需的空集合。
+    #[test]
+    fn any_advances_past_empty_branches() {
+        let branches = [Vec::<i32>::new(), vec![7]];
+        let results = execute_any(&branches, |branch| Ok::<_, ()>(branch.clone()))
+            .expect("pure any branch evaluation should succeed");
+
+        assert_eq!(results, vec![7]);
     }
 }

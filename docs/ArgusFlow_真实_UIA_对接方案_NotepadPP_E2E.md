@@ -967,6 +967,8 @@ FindAllBuildCache
 Rust 本地比较
 ```
 
+`matches` 正则必须在 query compiler/request 级预编译一次并由所有候选共享，禁止在每个 candidate 上重复 `RegexBuilder::build()`。
+
 不要对每个 candidate 再调用：
 
 ```text
@@ -1001,6 +1003,27 @@ executor.execute(
 )
 ```
 
+## 16.1 UIA provider timeout 与 ArgusFlow execution budget
+
+worker 初始化必须取得 `IUIAutomation2` 并显式配置：
+
+```text
+connection timeout = 2s
+transaction timeout = 20s
+```
+
+同时每个进入 channel 的请求创建独立 `UiaExecutionBudget`：
+
+```text
+deadline = enqueue time + 25s
+max_candidates = 10_000
+max_relation_roots = 256
+```
+
+deadline 必须包含 worker 排队时间，并在每次 provider 调用前后检查。候选数和关系根数按完整请求累计，而不是只检查单个 `FindAllBuildCache`。ArgusFlow 外层异步等待也使用同一总时限；超时后 runtime 标记不可用并停止接收后续请求。
+
+`Drop` 不得对仍可能卡在第三方 provider 的 worker 执行无上限 `join`。已退出线程可以回收；仍运行线程发送 shutdown 后分离，由配置的 provider timeout 约束最终清理。
+
 ---
 
 # 17. 根元素必须来自 prepare 时冻结的 HWND
@@ -1033,6 +1056,38 @@ IUIAutomation::ElementFromHandle
 AmbiguousTarget 更可解释
 Notepad++ E2E 更稳定
 ```
+
+## 17.1 `ApplicationQuery` 的 P0 能力边界
+
+当前 `ApplicationTarget` 只保证 direct-process desktop applications：
+
+```text
+absolute executable path
+    ↓
+Command::spawn PID
+    ↓
+同一 PID 创建匹配的可见顶层 HWND
+```
+
+不覆盖：
+
+```text
+bootstrapper -> real app child process
+new process -> handoff to existing singleton -> exit
+packaged app indirection
+```
+
+绝对 EXE 路径也意味着该契约当前是本机绑定，不应宣称工作流天然跨机器可移植。
+
+应用窗口准备分成三个明确步骤：
+
+```text
+EnsureRunning
+EnsureRestored          required by UIA scope
+BestEffortForeground    failure does not block UIA
+```
+
+`SetForegroundWindow` 受 Windows foreground-lock 约束，它的失败不能让 ApplicationQuery 变成 `BackendFailed`。只有未来依赖 SendInput 的物理输入计划才声明 `ForegroundRequired`。
 
 ---
 
@@ -1160,26 +1215,55 @@ UIA 已经有 `TreeScope_Children`，直接保持语义即可。
 
 # 22. `Any`
 
-现有 docs 定义：
-
-```text
-按声明顺序组合多个可替代查询
-```
-
-UIA compiler 当前已经会删除无法由 UIA 表达的 branch。
-
-executor：
+`Any` 的领域契约是按声明顺序执行的 fallback，而不是结果集合 union：
 
 ```text
 for branch in executable_branches:
-    execute branch
-    append results
-    dedupe by runtime id
+    results = execute branch
+    if results is not empty:
+        return results
+
+return []
 ```
 
-不要在发现第一个非空 branch 时就直接终止，除非后续 AQL 语义明确规定 `any` 是 fallback-first。
+第一个非空 branch 如果返回多个元素，仍必须由最终唯一性校验报告：
 
-按当前 AST 注释，更稳妥的是保持“组合多个可替代查询”的完整结果语义，再由 `first(...)` 明确做单个选择。
+```text
+AmbiguousTarget
+```
+
+不能为了 fallback 语义偷偷取第一个元素；只有显式 `first(...)` / `nth(...)` 可以消除歧义。
+
+跨 backend 时，compiler 删除不支持的 branch 还不够。每个候选必须携带：
+
+```text
+earliest_supported_branch_index
+```
+
+Router 排序固定为：
+
+```text
+Any branch priority
+    ↓
+SupportLevel
+    ↓
+ContextFitness
+    ↓
+QueryCost
+    ↓
+backend tie-break
+```
+
+因此：
+
+```text
+any(
+    button(dom.test_id = "save"),
+    button(uia.automation_id = "save")
+)
+```
+
+必须先选择能执行 branch 0 的 CDP 候选；不能因为 UIA 的稳定 tie-break 更靠前而直接执行 branch 1。
 
 ---
 
@@ -1337,6 +1421,17 @@ IUIAutomationInvokePattern::Invoke()
 
 这是真正的语义 UIA 点击。
 
+P0 不能再把所有可查询角色统一映射成 Invoke：
+
+| 最终目标角色 | Click 能力 |
+|---|---|
+| Button / Hyperlink | `Native` |
+| MenuItem | `RequiresRuntimePatternCheck` |
+| CheckBox / Radio | `Unsupported`，后续分别设计 Toggle / SelectionItem |
+| ListItem / TreeItem / TabItem / ComboBox | `Unsupported`，不得错误报告 Invoke Native |
+
+`any(...)` 的任一可执行分支只要可能先返回不支持 Click 的角色，整个 UIA 动作候选就必须拒绝；不能跳过更早 branch 改点后续角色。
+
 P0 **不要**在 UIA backend 里偷偷做：
 
 ```text
@@ -1400,6 +1495,14 @@ IsReadOnly == false
 ```
 
 就直接设置。
+
+静态动作能力边界：
+
+```text
+Edit      -> Native
+ComboBox  -> RequiresRuntimePatternCheck
+其它角色   -> Unsupported
+```
 
 如果没有 ValuePattern：
 
@@ -1987,6 +2090,8 @@ pub enum UiaOperation {
 
 最终集中映射到 `AutomationError`。
 
+分类必须优先看 `HRESULT`，`UiaOperation` 只用于诊断上下文。不能因为错误发生在 FindAll/CreateCondition 就默认归为 BackendUnavailable。
+
 ---
 
 # 37. `UiaError -> AutomationError` 映射
@@ -1997,18 +2102,24 @@ pub enum UiaOperation {
 |---|---|
 | UIA worker 未启动/崩溃 | `BackendUnavailable` |
 | prepare 冻结的 window 已关闭 | `BackendUnavailable` |
-| UIA provider RPC/环境整体不可用 | `BackendUnavailable` |
+| `UIA_E_TIMEOUT`、RPC timeout/disconnected/server died | `BackendUnavailable` |
+| `UIA_E_ELEMENTNOTAVAILABLE` | 同一冻结计划 stale retry 一次，仍失败则 `BackendUnavailable` |
 | query 结果 0 | `TargetNotFound` |
 | query 结果 >1 | `AmbiguousTarget` |
+| `UIA_E_NOTSUPPORTED` / `UIA_E_INVALIDOPERATION` | `BackendFailed`；仅 GetPattern 时转换为 pattern 缺失 |
+| `E_INVALIDARG`、属性类型不一致、native IR 不一致 | `BackendFailed` |
+| candidate/relation budget 超限 | `BackendFailed` |
 | 找到元素但没有 InvokePattern | `BackendFailed` |
 | 找到元素但没有 ValuePattern | `BackendFailed` |
 | ValuePattern read-only | `BackendFailed` |
-| Invoke/SetValue HRESULT 失败 | `BackendFailed` |
+| 其它未知 HRESULT | `BackendFailed`，不得静默 fallback |
 
 这个分类非常重要，因为当前 `PreparedPlan`：
 
 ```text
-只有 BackendUnavailable 允许 fallback
+BackendUnavailable 允许同一分支/后续候选 fallback
+TargetNotFound 只允许推进到更晚的 any branch index
+其它错误立即终止
 ```
 
 所以不能把：
@@ -2023,16 +2134,18 @@ TargetNotFound
 BackendUnavailable
 ```
 
+同样不能把确定性的 compiler/native IR bug 包装成 `BackendUnavailable`，否则未来接入 Vision/OCR 后会由 fallback 掩盖实现错误。
+
 ---
 
 # 38. stale element 的处理
 
-UIA 元素在 query 和 action 之间可能失效。
+UIA 元素在 root、query 和 action 任一阶段都可能失效。
 
 P0 可以做一次非常有限的：
 
 ```text
-resolve
+root/query/resolve
   ↓
 action
   ↓
@@ -2269,7 +2382,7 @@ dedupe
 first
 nth
 ambiguous
-any merge order
+any first-non-empty fallback
 residual string compare
 visible inversion
 toggle bool compare
@@ -2317,6 +2430,31 @@ cargo test -p argusflow-windows
 ```
 
 本方案只给出命令，不建议实现代码时自动下载或自动安装 Notepad++。
+
+持续验证分成两层：
+
+```text
+.github/workflows/ci.yml
+    windows-latest
+    cargo test --workspace
+    compiler/unit/router/runtime tests
+
+.github/workflows/windows-uia-e2e.yml
+    self-hosted + Windows + X64 + interactive
+    nightly/manual
+    ignored real Notepad++ provider tests
+```
+
+交互 runner 必须运行在真实用户 desktop session，不能使用无桌面的 service session。除查询/pattern E2E 外，至少保留一条：
+
+```text
+WorkflowDefinition
+  -> WorkflowEngine
+  -> ApplicationQuery
+  -> launch Notepad++
+  -> WindowsUia action
+  -> observable UI state assertion
+```
 
 ---
 
@@ -2423,12 +2561,14 @@ ValuePattern::SetValue
 目标实例一定有 InvokePattern
 ```
 
-所以 P0 可采用：
+所以 P0 必须采用查询与动作联合计划：
 
 ```text
 prepare:
     query semantics supported
-    action strategy = RequireInvokePattern / RequireValuePattern
+    collect final target roles
+    derive UiaActionSupport
+    combine query capability + action capability
 
 execute:
     resolve element
@@ -2442,13 +2582,27 @@ pub enum UiaActionPlan {
     Invoke,
     SetValue { value: String },
 }
+
+pub enum UiaActionSupport {
+    Native,
+    RequiresRuntimePatternCheck,
+    Unsupported,
+}
+
+pub struct UiaPreparedPlan {
+    pub query: UiaQueryPlan,
+    pub action: UiaActionPlan,
+    pub action_support: UiaActionSupport,
+    pub capability: BackendQueryCapability,
+}
 ```
+
+`PlanExplain.support` 必须读取 `UiaPreparedPlan.capability`，而不是继续直接读取 `query_plan.capability`。当动作需要实例 pattern 复验时，联合支持至少是 `Hybrid`；`Unsupported` 在 prepare 阶段直接拒绝。
 
 `UiaPreparedExecution` 保存：
 
 ```text
-query_plan
-action_plan
+UiaPreparedPlan
 ```
 
 这样 action 也被冻结，不需要 execute 时重新 `match AutomationAction` 做规划。
@@ -2940,6 +3094,8 @@ tests/support/uia_dump.rs
 
 - [ ] `UiaBackend` 不再是 unit struct，而是绑定真实 `UiaRuntime`
 - [ ] UIA COM client 在专用 worker thread 初始化和使用
+- [ ] `IUIAutomation2` 显式配置 connection/transaction timeout
+- [ ] 请求 deadline、candidate budget、relation root budget 生效
 - [ ] COM interface 不跨 Tokio worker thread 传播
 - [ ] `RuntimeAvailability::NotImplemented` 从真实 UIA candidate 消失
 - [ ] `AccessibilityContext.ready` 能反映 UIA runtime 状态
@@ -2948,12 +3104,15 @@ tests/support/uia_dump.rs
 - [ ] residual query 使用 `CacheRequest`
 - [ ] `Descendant` 使用严格 descendants scope
 - [ ] `Child` 使用 children scope
-- [ ] `Any` 保持 branch 结果语义
+- [ ] `Any` 按声明顺序返回第一个非空 branch
+- [ ] Backend candidate 携带并优先比较 earliest supported branch index
 - [ ] `First` / `Nth` 正确选择
 - [ ] 未显式选择时多个元素返回 `AmbiguousTarget`
 - [ ] 无元素返回 `TargetNotFound`
 - [ ] Click 使用真实 `InvokePattern`
 - [ ] SetValue 使用真实 `ValuePattern`
+- [ ] Query capability 与 Action capability 联合生成 Explain support
+- [ ] Checkbox/Radio 等非 Invoke 角色不会错误报告 Click Native
 - [ ] UIA backend 内没有 SendInput fallback
 - [ ] `dialog` 不再被粗暴等价成普通 Window
 - [ ] `row/cell` 未验证前不再错误宣称 Native
@@ -2963,6 +3122,10 @@ tests/support/uia_dump.rs
 - [ ] `ActionOutcome.backend == WindowsUia`
 - [ ] Planner Explain 中 availability 为 Ready
 - [ ] Notepad++ E2E 失败时输出有限深度 UIA tree
+- [ ] HRESULT 分类只允许 provider/window/timeout 错误触发 fallback
+- [ ] 普通 Windows CI 持续运行 compiler/unit/router/runtime tests
+- [ ] 交互式 Windows runner 持续运行真实 Notepad++ UIA E2E
+- [ ] WorkflowEngine -> ApplicationQuery -> UIA 有可观察 UI 状态断言
 
 ---
 

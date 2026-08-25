@@ -50,6 +50,9 @@ impl ActionBackend for CdpBackend {
         })?;
         let explain = PlanExplain {
             backend: BackendKind::BrowserCdp,
+            earliest_supported_branch_index: Some(
+                query_plan.capability.earliest_supported_branch_index,
+            ),
             support: query_plan.capability.level,
             cost: query_plan.capability.estimated_cost,
             availability: RuntimeAvailability::NotImplemented,

@@ -33,6 +33,7 @@ describe('AqlEditor', () => {
           selected_backend: 'windows_uia',
           candidates: [{
             backend: 'windows_uia',
+            earliest_supported_branch_index: 0,
             support: 'native',
             cost: 'low',
             availability: 'ready',

@@ -1,5 +1,7 @@
 //! 已由 AQL compiler 证明可由 Windows UI Automation 执行的原生查询 IR。
 
+use regex::{Regex, RegexBuilder};
+
 /// ArgusFlow 支持物化的 UIA ControlType。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum UiaControlType {
@@ -136,14 +138,47 @@ pub enum UiaResidualMatcher {
     StartsWith(String),
     /// 以指定文本结尾。
     EndsWith(String),
-    /// 使用已经由 AQL 校验过的正则模式。
-    Regex {
-        /// 不含字面量分隔符的正则源码。
-        pattern: String,
-        /// 是否忽略 Unicode 大小写。
-        case_insensitive: bool,
-    },
+    /// 使用 UIA query compiler 在 request 级预编译的正则模式。
+    Regex(UiaResidualRegex),
 }
+
+/// 保留可解释源码并持有一次编译结果的 UIA residual 正则。
+#[derive(Debug, Clone)]
+pub struct UiaResidualRegex {
+    /// 不含字面量分隔符的正则源码。
+    pattern: String,
+    /// 是否忽略 Unicode 大小写。
+    case_insensitive: bool,
+    /// query compiler 创建、供所有候选共享的正则执行器。
+    compiled: Regex,
+}
+
+impl UiaResidualRegex {
+    /// 编译一条由 AQL parser 校验过的 residual 正则。
+    pub fn new(pattern: &str, case_insensitive: bool) -> Result<Self, regex::Error> {
+        let compiled = RegexBuilder::new(pattern)
+            .case_insensitive(case_insensitive)
+            .build()?;
+        Ok(Self {
+            pattern: pattern.to_owned(),
+            case_insensitive,
+            compiled,
+        })
+    }
+
+    /// 对缓存属性执行已经编译的正则匹配。
+    pub(crate) fn is_match(&self, value: &str) -> bool {
+        self.compiled.is_match(value)
+    }
+}
+
+impl PartialEq for UiaResidualRegex {
+    fn eq(&self, other: &Self) -> bool {
+        self.pattern == other.pattern && self.case_insensitive == other.case_insensitive
+    }
+}
+
+impl Eq for UiaResidualRegex {}
 
 /// 使用 CacheRequest 投影在 Rust 中求值的 residual 谓词。
 #[derive(Debug, Clone, PartialEq, Eq)]

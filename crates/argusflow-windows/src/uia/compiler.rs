@@ -11,7 +11,8 @@ use thiserror::Error;
 use super::{
     native::{
         UiaControlType, UiaNativeComparison, UiaNativePredicate, UiaNativeValue, UiaProperty,
-        UiaPropertyProjection, UiaResidualMatcher, UiaResidualPredicate, UiaRoleConstraint,
+        UiaPropertyProjection, UiaResidualMatcher, UiaResidualPredicate, UiaResidualRegex,
+        UiaRoleConstraint,
     },
     plan::{UiaMatcherPlan, UiaPlanExpr, UiaQueryPlan},
 };
@@ -22,6 +23,9 @@ pub enum UiaQueryCompileError {
     /// 查询没有任何可由 UIA 保持语义的分支。
     #[error("AQL query has no branch that Windows UI Automation can execute")]
     UnsupportedQuery,
+    /// parser 已接受的正则无法在 UIA 原生计划中预编译。
+    #[error("AQL residual regular expression could not be compiled for Windows UI Automation")]
+    InvalidResidualRegex,
 }
 
 /// 单棵 UIA 表达式及由真实编译结果推导的摘要。
@@ -32,6 +36,8 @@ struct CompiledExpression {
     support: SupportLevel,
     /// 实际计划的粗粒度成本。
     cost: QueryCost,
+    /// 当前后端在最外层 `any` 中保留的最早原始分支索引。
+    earliest_supported_branch_index: usize,
     /// 与 residual 或树遍历有关的结构化诊断。
     diagnostics: Vec<Diagnostic>,
 }
@@ -46,6 +52,7 @@ pub fn compile_uia_query(query: &UiQuery) -> Result<UiaQueryPlan, UiaQueryCompil
             backend: QueryBackend::WindowsUia,
             level: compiled.support,
             estimated_cost: compiled.cost,
+            earliest_supported_branch_index: compiled.earliest_supported_branch_index,
         },
         normalized,
         diagnostics: compiled.diagnostics,
@@ -84,6 +91,7 @@ fn compile_expression(expression: &QueryExpr) -> Result<CompiledExpression, UiaQ
                 expression: UiaPlanExpr::First(Box::new(compiled.expression)),
                 support: compiled.support,
                 cost: compiled.cost,
+                earliest_supported_branch_index: compiled.earliest_supported_branch_index,
                 diagnostics: compiled.diagnostics,
             })
         }
@@ -96,6 +104,7 @@ fn compile_expression(expression: &QueryExpr) -> Result<CompiledExpression, UiaQ
                 },
                 support: max_support(compiled.support, SupportLevel::Hybrid),
                 cost: max_cost(compiled.cost, QueryCost::Medium),
+                earliest_supported_branch_index: compiled.earliest_supported_branch_index,
                 diagnostics: compiled.diagnostics,
             })
         }
@@ -156,6 +165,7 @@ fn compile_matcher(
         } else {
             QueryCost::Low
         },
+        earliest_supported_branch_index: 0,
         diagnostics,
     })
 }
@@ -246,10 +256,10 @@ fn compile_predicate(
             };
             residual(
                 property,
-                UiaResidualMatcher::Regex {
-                    pattern: regex.pattern.clone(),
-                    case_insensitive: regex.case_insensitive,
-                },
+                UiaResidualMatcher::Regex(
+                    UiaResidualRegex::new(&regex.pattern, regex.case_insensitive)
+                        .map_err(|_| UiaQueryCompileError::InvalidResidualRegex)?,
+                ),
             )
         }
     }
@@ -329,21 +339,32 @@ const fn is_string_property(property: UiaProperty) -> bool {
 fn compile_any(queries: &[QueryExpr]) -> Result<CompiledExpression, UiaQueryCompileError> {
     let branches = queries
         .iter()
-        .filter_map(|query| compile_expression(query).ok())
+        .enumerate()
+        .filter_map(|(index, query)| {
+            compile_expression(query)
+                .ok()
+                .map(|compiled| (index, compiled))
+        })
         .collect::<Vec<_>>();
     if branches.is_empty() {
         return Err(UiaQueryCompileError::UnsupportedQuery);
     }
     if branches.len() == 1 {
-        return Ok(branches
+        let (index, mut branch) = branches
             .into_iter()
             .next()
-            .expect("one compiled branch exists"));
+            .expect("one compiled branch exists");
+        branch.earliest_supported_branch_index = index;
+        return Ok(branch);
     }
 
+    let earliest_supported_branch_index = branches
+        .first()
+        .map(|(index, _)| *index)
+        .expect("at least one compiled branch exists");
     let mut expressions = Vec::new();
     let mut diagnostics = Vec::new();
-    for branch in branches {
+    for (_, branch) in branches {
         expressions.push(branch.expression);
         diagnostics.extend(branch.diagnostics);
     }
@@ -356,6 +377,7 @@ fn compile_any(queries: &[QueryExpr]) -> Result<CompiledExpression, UiaQueryComp
         expression: UiaPlanExpr::Any(expressions),
         support: SupportLevel::Emulated,
         cost: QueryCost::High,
+        earliest_supported_branch_index,
         diagnostics,
     })
 }
@@ -368,6 +390,9 @@ fn combine_binary(
 ) -> CompiledExpression {
     let support = max_support(left.support, right.support);
     let cost = max_cost(left.cost, right.cost);
+    let earliest_supported_branch_index = left
+        .earliest_supported_branch_index
+        .max(right.earliest_supported_branch_index);
     let diagnostics = left
         .diagnostics
         .into_iter()
@@ -377,6 +402,7 @@ fn combine_binary(
         expression: build(left.expression, right.expression),
         support,
         cost,
+        earliest_supported_branch_index,
         diagnostics,
     }
 }

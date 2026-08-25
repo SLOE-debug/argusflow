@@ -2,13 +2,26 @@
 
 use argusflow_core::{AutomationError, BackendKind};
 use thiserror::Error;
-use windows::{Win32::UI::Accessibility::UIA_E_ELEMENTNOTAVAILABLE, core::Error as WindowsError};
+use windows::{
+    Win32::{
+        Foundation::{
+            CO_E_SERVER_STOPPING, RPC_E_CONNECTION_TERMINATED, RPC_E_DISCONNECTED,
+            RPC_E_SERVER_DIED, RPC_E_SERVER_DIED_DNE, RPC_E_TIMEOUT,
+        },
+        UI::Accessibility::{
+            UIA_E_ELEMENTNOTAVAILABLE, UIA_E_INVALIDOPERATION, UIA_E_NOTSUPPORTED, UIA_E_TIMEOUT,
+        },
+    },
+    core::Error as WindowsError,
+};
 
 use super::native::UiaProperty;
 
 /// UIA 原生调用的稳定操作类别。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum UiaOperation {
+    /// 显式配置 IUIAutomation2 provider 超时。
+    ConfigureTimeouts,
     /// 从冻结 HWND 创建根元素。
     ElementFromHandle,
     /// 物化原生查询 condition。
@@ -27,6 +40,15 @@ pub(crate) enum UiaOperation {
     Invoke,
     /// 调用 ValuePattern。
     SetValue,
+}
+
+/// UIA 请求预算限制的强类型资源类别。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum UiaBudgetResource {
+    /// FindAllBuildCache 返回的累计候选数。
+    Candidates,
+    /// Child/Descendant 关系展开的累计根元素数。
+    RelationRoots,
 }
 
 /// UIA 动作所需的原生 pattern。
@@ -50,6 +72,25 @@ pub(crate) enum UiaError {
     /// 元素在查询和动作之间失效。
     #[error("UI Automation element became unavailable")]
     ElementUnavailable,
+    /// 请求排队或执行已经超过 ArgusFlow 层截止时刻。
+    #[error("UI Automation execution deadline was exceeded")]
+    ExecutionDeadlineExceeded,
+    /// 查询宽度超过稳定资源限制，拒绝继续扫描 provider 结果。
+    #[error("UI Automation {resource:?} budget exceeded: observed {observed}, limit {limit}")]
+    BudgetExceeded {
+        /// 被耗尽的资源类别。
+        resource: UiaBudgetResource,
+        /// runtime 配置的稳定上限。
+        limit: usize,
+        /// 当前请求已经观察到的累计数量。
+        observed: usize,
+    },
+    /// provider 返回了无法作为数组长度处理的负候选数。
+    #[error("UI Automation provider returned invalid candidate count {count}")]
+    InvalidCandidateCount {
+        /// IUIAutomationElementArray::Length 返回的原始值。
+        count: i32,
+    },
     /// 某次原生 UIA 调用失败。
     #[error("UI Automation operation {operation:?} failed: {source}")]
     NativeCallFailed {
@@ -74,13 +115,6 @@ pub(crate) enum UiaError {
     /// ValuePattern 存在但目标只读。
     #[error("target ValuePattern is read-only")]
     ReadOnlyValue,
-    /// 冻结计划中的正则无法由执行器构造。
-    #[error("invalid residual regular expression: {source}")]
-    InvalidResidualPattern {
-        /// 正则引擎返回的错误。
-        #[source]
-        source: regex::Error,
-    },
     /// provider 返回了无效的 runtime id SAFEARRAY。
     #[error("target returned an invalid UI Automation runtime id")]
     InvalidRuntimeId,
@@ -101,32 +135,34 @@ impl UiaError {
         matches!(self, Self::ElementUnavailable)
     }
 
-    /// 按 PreparedPlan 的 fallback 约束集中映射公共错误。
+    /// 按 HRESULT 与稳定语义集中映射公共错误；未知原生错误默认不可回退。
     pub(crate) fn into_automation_error(self) -> AutomationError {
-        let is_action_failure = matches!(
-            &self,
-            Self::RequiredPatternUnavailable { .. }
-                | Self::ReadOnlyValue
-                | Self::PropertyTypeMismatch { .. }
-                | Self::InvalidResidualPattern { .. }
-                | Self::InvalidRuntimeId
-                | Self::NativeCallFailed {
-                    operation: UiaOperation::GetPattern
-                        | UiaOperation::Invoke
-                        | UiaOperation::SetValue,
-                    ..
-                }
-        );
-        if is_action_failure {
-            AutomationError::BackendFailed {
-                backend: BackendKind::WindowsUia,
-                message: self.to_string(),
-            }
-        } else {
+        if self.is_backend_unavailable() {
             AutomationError::BackendUnavailable {
                 backend: BackendKind::WindowsUia,
                 message: self.to_string(),
             }
+        } else {
+            AutomationError::BackendFailed {
+                backend: BackendKind::WindowsUia,
+                message: self.to_string(),
+            }
+        }
+    }
+
+    /// 只有窗口/provider 生命周期或 deadline 错误允许 PreparedPlan fallback。
+    fn is_backend_unavailable(&self) -> bool {
+        match self {
+            Self::WindowUnavailable { .. }
+            | Self::ElementUnavailable
+            | Self::ExecutionDeadlineExceeded => true,
+            Self::NativeCallFailed { source, .. } => is_transient_provider_failure(source),
+            Self::BudgetExceeded { .. }
+            | Self::InvalidCandidateCount { .. }
+            | Self::PropertyTypeMismatch { .. }
+            | Self::RequiredPatternUnavailable { .. }
+            | Self::ReadOnlyValue
+            | Self::InvalidRuntimeId => false,
         }
     }
 }
@@ -134,4 +170,82 @@ impl UiaError {
 /// 识别 UIA provider 明确报告的 stale element HRESULT。
 fn is_element_unavailable(error: &WindowsError) -> bool {
     error.code().0 as u32 == UIA_E_ELEMENTNOTAVAILABLE
+}
+
+/// 识别 UIA/RPC 明确报告的 provider 环境中断；其它 HRESULT 一律视为实现失败。
+fn is_transient_provider_failure(error: &WindowsError) -> bool {
+    let code = error.code().0 as u32;
+    code == UIA_E_TIMEOUT
+        || code == RPC_E_TIMEOUT.0 as u32
+        || code == RPC_E_DISCONNECTED.0 as u32
+        || code == RPC_E_CONNECTION_TERMINATED.0 as u32
+        || code == RPC_E_SERVER_DIED.0 as u32
+        || code == RPC_E_SERVER_DIED_DNE.0 as u32
+        || code == CO_E_SERVER_STOPPING.0 as u32
+        || code == HRESULT_RPC_SERVER_UNAVAILABLE
+}
+
+/// 判断 GetCurrentPatternAs 是否明确表示目标实例没有所需 pattern。
+pub(crate) fn is_pattern_unavailable(error: &WindowsError) -> bool {
+    let code = error.code().0 as u32;
+    code == UIA_E_NOTSUPPORTED || code == UIA_E_INVALIDOPERATION
+}
+
+/// `HRESULT_FROM_WIN32(RPC_S_SERVER_UNAVAILABLE)`；windows crate 未直接导出该 HRESULT。
+const HRESULT_RPC_SERVER_UNAVAILABLE: u32 = 0x8007_06BA;
+
+#[cfg(test)]
+mod tests {
+    use argusflow_core::AutomationError;
+    use windows::{
+        Win32::{
+            Foundation::E_INVALIDARG,
+            UI::Accessibility::{UIA_E_NOTSUPPORTED, UIA_E_TIMEOUT},
+        },
+        core::{Error as WindowsError, HRESULT},
+    };
+
+    use super::{UiaError, UiaOperation};
+
+    /// UIA timeout 表示 provider 环境不可用，允许冻结计划尝试其它 backend。
+    #[test]
+    fn timeout_hresult_maps_to_backend_unavailable() {
+        let error = UiaError::from_native(
+            UiaOperation::FindAll,
+            WindowsError::from_hresult(HRESULT(UIA_E_TIMEOUT as i32)),
+        );
+
+        assert!(matches!(
+            error.into_automation_error(),
+            AutomationError::BackendUnavailable { .. }
+        ));
+    }
+
+    /// 编译器/native IR 不一致不得被伪装成运行环境故障。
+    #[test]
+    fn invalid_argument_maps_to_backend_failed() {
+        let error = UiaError::from_native(
+            UiaOperation::CreateCondition,
+            WindowsError::from_hresult(E_INVALIDARG),
+        );
+
+        assert!(matches!(
+            error.into_automation_error(),
+            AutomationError::BackendFailed { .. }
+        ));
+    }
+
+    /// UIA_E_NOTSUPPORTED 只有动作 pattern 获取点会转换为 pattern 缺失。
+    #[test]
+    fn unsupported_query_operation_maps_to_backend_failed() {
+        let error = UiaError::from_native(
+            UiaOperation::FindAll,
+            WindowsError::from_hresult(HRESULT(UIA_E_NOTSUPPORTED as i32)),
+        );
+
+        assert!(matches!(
+            error.into_automation_error(),
+            AutomationError::BackendFailed { .. }
+        ));
+    }
 }

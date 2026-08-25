@@ -14,7 +14,7 @@ use windows::Win32::{
     },
     UI::Accessibility::{
         CUIAutomation8, IUIAutomation, IUIAutomationElement, IUIAutomationTreeWalker,
-        TreeScope_Subtree, UIA_ValueValuePropertyId,
+        TreeScope_Subtree, UIA_NamePropertyId, UIA_ProcessIdPropertyId, UIA_ValueValuePropertyId,
     },
 };
 
@@ -47,6 +47,11 @@ pub(crate) fn dump_control_view(window: &WindowContext, max_depth: usize) {
 /// 判断窗口子树是否存在指定 Value property，用于 SetValue readback。
 pub(crate) fn has_value(window: &WindowContext, expected: &str) -> bool {
     try_has_value(window, expected).unwrap_or(false)
+}
+
+/// 判断指定进程的 UIA tree 是否存在 Accessible Name，用于弹出菜单状态断言。
+pub(crate) fn has_name_for_process(process_id: u32, expected: &str) -> bool {
+    try_has_name_for_process(process_id, expected).unwrap_or(false)
 }
 
 /// 创建临时测试 client 并递归输出节点摘要。
@@ -145,6 +150,29 @@ fn try_has_value(window: &WindowContext, expected: &str) -> windows::core::Resul
     // SAFETY: 两个 condition 均由同一 automation client 创建。
     let condition = unsafe { automation.CreateAndCondition(&control_view, &value_condition) }?;
     // SAFETY: root/condition 同属当前 apartment，TreeScope_Subtree 是有效枚举值。
+    let elements = unsafe { root.FindAll(TreeScope_Subtree, &condition) }?;
+    // SAFETY: element array 未离开当前 apartment。
+    unsafe { elements.Length() }.map(|length| length > 0)
+}
+
+/// 在 Desktop UIA tree 中联合 ProcessId 与 Name，覆盖独立 popup HWND。
+fn try_has_name_for_process(process_id: u32, expected: &str) -> windows::core::Result<bool> {
+    let _apartment = TestApartment::initialize()?;
+    // SAFETY: COM 已在当前测试线程初始化，client 不会离开本同步 helper。
+    let automation: IUIAutomation =
+        unsafe { CoCreateInstance(&CUIAutomation8, None, CLSCTX_INPROC_SERVER) }?;
+    // SAFETY: automation client 留在创建它的当前 apartment。
+    let root = unsafe { automation.GetRootElement() }?;
+    let name = VARIANT::from(expected);
+    // SAFETY: Name property 与 BSTR VARIANT 类型匹配，name 在同步调用期间有效。
+    let name_condition = unsafe { automation.CreatePropertyCondition(UIA_NamePropertyId, &name) }?;
+    let process = VARIANT::from(process_id as i32);
+    // SAFETY: ProcessId property 与 i32 VARIANT 类型匹配，process 在同步调用期间有效。
+    let process_condition =
+        unsafe { automation.CreatePropertyCondition(UIA_ProcessIdPropertyId, &process) }?;
+    // SAFETY: 两个 condition 均由同一 automation client 创建。
+    let condition = unsafe { automation.CreateAndCondition(&process_condition, &name_condition) }?;
+    // SAFETY: root/condition 同属当前 apartment，桌面搜索由 ProcessId 原生条件严格限制。
     let elements = unsafe { root.FindAll(TreeScope_Subtree, &condition) }?;
     // SAFETY: element array 未离开当前 apartment。
     unsafe { elements.Length() }.map(|length| length > 0)

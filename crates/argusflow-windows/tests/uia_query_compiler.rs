@@ -1,9 +1,10 @@
 //! UIA AQL 原生计划的 role/property 映射、缓存与 residual 边界测试。
 
+use argusflow_core::{AqlQuery, AutomationAction, AutomationTarget};
 use argusflow_query::{SupportLevel, parse_query};
 use argusflow_windows::uia::{
-    UiaNativeComparison, UiaNativeValue, UiaPlanExpr, UiaProperty, UiaQueryCompileError,
-    UiaRoleConstraint, compile_uia_query,
+    UiaActionCompileError, UiaActionSupport, UiaNativeComparison, UiaNativeValue, UiaPlanExpr,
+    UiaProperty, UiaQueryCompileError, UiaRoleConstraint, compile_uia_action, compile_uia_query,
 };
 
 #[test]
@@ -55,6 +56,7 @@ fn compiler_keeps_supported_branch_of_cross_backend_any() {
     let plan = compile_uia_query(&query).expect("UIA branch should keep the any query supported");
 
     assert_eq!(plan.capability.level, SupportLevel::Native);
+    assert_eq!(plan.capability.earliest_supported_branch_index, 0);
     assert!(matches!(plan.expression, UiaPlanExpr::Match(_)));
 }
 
@@ -128,4 +130,35 @@ fn not_is_rejected_until_complement_scope_is_defined() {
         compile_uia_query(&query),
         Err(UiaQueryCompileError::UnsupportedQuery)
     );
+}
+
+#[test]
+fn checkbox_click_is_rejected_instead_of_being_reported_as_native_invoke() {
+    let query = parse_query(r#"checkbox(name = "Enable")"#).expect("checkbox query should parse");
+    let query_plan = compile_uia_query(&query).expect("checkbox should remain queryable");
+    let action = AutomationAction::Click {
+        target: AutomationTarget::query(AqlQuery::v1(r#"checkbox(name = "Enable")"#)),
+    };
+
+    assert!(matches!(
+        compile_uia_action(&action, query_plan),
+        Err(UiaActionCompileError::UnsupportedTargetRole { .. })
+    ));
+}
+
+#[test]
+fn menu_item_click_reports_runtime_pattern_check_in_combined_support() {
+    let query = parse_query(r#"menu_item(name = "Search")"#).expect("menu item query should parse");
+    let query_plan = compile_uia_query(&query).expect("menu item should remain queryable");
+    let action = AutomationAction::Click {
+        target: AutomationTarget::query(AqlQuery::v1(r#"menu_item(name = "Search")"#)),
+    };
+    let prepared =
+        compile_uia_action(&action, query_plan).expect("menu item invoke requires instance proof");
+
+    assert_eq!(
+        prepared.action_support,
+        UiaActionSupport::RequiresRuntimePatternCheck
+    );
+    assert_eq!(prepared.capability.level, SupportLevel::Hybrid);
 }

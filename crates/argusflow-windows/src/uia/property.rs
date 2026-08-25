@@ -1,6 +1,5 @@
 //! cached UIA property 的类型转换与 residual 求值。
 
-use regex::RegexBuilder;
 use windows::{
     Win32::{System::Variant::VARIANT, UI::Accessibility::IUIAutomationElement},
     core::BSTR,
@@ -81,14 +80,7 @@ fn matches_value(value: &str, matcher: &UiaResidualMatcher) -> Result<bool, UiaE
         UiaResidualMatcher::Contains(expected) => Ok(value.contains(expected)),
         UiaResidualMatcher::StartsWith(expected) => Ok(value.starts_with(expected)),
         UiaResidualMatcher::EndsWith(expected) => Ok(value.ends_with(expected)),
-        UiaResidualMatcher::Regex {
-            pattern,
-            case_insensitive,
-        } => RegexBuilder::new(pattern)
-            .case_insensitive(*case_insensitive)
-            .build()
-            .map(|regex| regex.is_match(value))
-            .map_err(|source| UiaError::InvalidResidualPattern { source }),
+        UiaResidualMatcher::Regex(regex) => Ok(regex.is_match(value)),
     }
 }
 
@@ -118,10 +110,10 @@ mod tests {
     #[test]
     fn residual_regex_honors_case_insensitive_flag() {
         let value = "CLOSE";
-        let matcher = UiaResidualMatcher::Regex {
-            pattern: "close".to_owned(),
-            case_insensitive: true,
-        };
+        let matcher = UiaResidualMatcher::Regex(
+            crate::uia::native::UiaResidualRegex::new("close", true)
+                .expect("test regex should compile"),
+        );
 
         assert!(matches_value(value, &matcher).expect("regex matcher should execute"));
     }

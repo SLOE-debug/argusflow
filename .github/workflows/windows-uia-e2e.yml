@@ -1,0 +1,32 @@
+name: Windows UIA E2E
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 18 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-uia-interactive
+  cancel-in-progress: false
+
+jobs:
+  notepadpp-uia:
+    name: Notepad++ interactive UIA path
+    runs-on: [self-hosted, Windows, X64, interactive]
+    timeout-minutes: 30
+    env:
+      ARGUSFLOW_NOTEPADPP_EXE: 'C:\Program Files\Notepad++\notepad++.exe'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.91"
+      - name: Run real provider query and pattern E2E
+        run: cargo test -p argusflow-windows --test uia_notepadpp_e2e -- --ignored --nocapture
+      - name: Run application workflow E2E
+        run: cargo test -p argusflow-windows --test window_application -- --ignored --nocapture

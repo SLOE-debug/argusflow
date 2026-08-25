@@ -1,6 +1,6 @@
 use argusflow_agent::{PlanStepExplain, PlanStepKind};
 
-use super::{UiaActionPlan, UiaPlanExpr, UiaRoleConstraint};
+use super::{UiaActionPlan, UiaActionSupport, UiaPlanExpr, UiaRoleConstraint};
 
 /// 从真实 UIA 逻辑计划递归生成开发者 Explain 步骤。
 pub(super) fn explain_uia_plan(expression: &UiaPlanExpr) -> Vec<PlanStepExplain> {
@@ -10,12 +10,22 @@ pub(super) fn explain_uia_plan(expression: &UiaPlanExpr) -> Vec<PlanStepExplain>
 }
 
 /// 返回 prepare 阶段冻结的真实 UIA action pattern 说明。
-pub(super) fn explain_uia_action(action: &UiaActionPlan) -> PlanStepExplain {
+pub(super) fn explain_uia_action(
+    action: &UiaActionPlan,
+    support: UiaActionSupport,
+) -> PlanStepExplain {
+    let pattern_check = match support {
+        UiaActionSupport::Native => "role-proven",
+        UiaActionSupport::RequiresRuntimePatternCheck => "runtime pattern check required",
+        UiaActionSupport::Unsupported => "unsupported",
+    };
     PlanStepExplain {
         kind: PlanStepKind::Action,
         summary: match action {
-            UiaActionPlan::Invoke => "InvokePattern::Invoke".to_owned(),
-            UiaActionPlan::SetValue { .. } => "ValuePattern::SetValue".to_owned(),
+            UiaActionPlan::Invoke => format!("InvokePattern::Invoke ({pattern_check})"),
+            UiaActionPlan::SetValue { .. } => {
+                format!("ValuePattern::SetValue ({pattern_check})")
+            }
         },
     }
 }
@@ -73,7 +83,10 @@ fn visit(expression: &UiaPlanExpr, steps: &mut Vec<PlanStepExplain>) {
         UiaPlanExpr::Any(queries) => {
             steps.push(PlanStepExplain {
                 kind: PlanStepKind::Traversal,
-                summary: format!("{} executable any branch(es)", queries.len()),
+                summary: format!(
+                    "{} executable fallback branch(es), stop at first non-empty result",
+                    queries.len()
+                ),
             });
             for query in queries {
                 visit(query, steps);

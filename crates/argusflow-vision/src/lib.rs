@@ -67,6 +67,7 @@ impl ActionBackend for UnavailableVisionBackend {
         };
         let explain = PlanExplain {
             backend: self.kind,
+            earliest_supported_branch_index: Some(0),
             support: SupportLevel::Native,
             cost: QueryCost::Medium,
             availability: RuntimeAvailability::NotImplemented,

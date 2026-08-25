@@ -16,9 +16,10 @@ use argusflow_query::{
 use async_trait::async_trait;
 
 use super::{
+    action_compiler::compile_uia_action,
     compiler::compile_uia_query,
     explain::{explain_uia_action, explain_uia_plan},
-    plan::{UiaActionPlan, UiaQueryPlan},
+    plan::UiaPreparedPlan,
     runtime::{PreparedWindowTarget, UiaExecuteRequest, UiaRuntime, UiaRuntimeState},
 };
 use crate::window::WindowService;
@@ -79,9 +80,12 @@ impl ActionBackend for UiaBackend {
         let query_plan = compile_uia_query(&parsed).map_err(|_| PlanRejection::Unsupported {
             backend: BackendKind::WindowsUia,
         })?;
-        let action_plan = compile_action(action);
+        let prepared_plan =
+            compile_uia_action(action, query_plan).map_err(|_| PlanRejection::Unsupported {
+                backend: BackendKind::WindowsUia,
+            })?;
         let availability = runtime_availability(self.runtime.health().snapshot(), &window_source);
-        let mut diagnostics = query_plan.diagnostics.clone();
+        let mut diagnostics = prepared_plan.query.diagnostics.clone();
         if !availability.is_ready() {
             diagnostics.push(Diagnostic::global(
                 DiagnosticCode::RuntimeUnavailable,
@@ -89,24 +93,38 @@ impl ActionBackend for UiaBackend {
                 Some(QueryBackend::WindowsUia),
             ));
         }
-        let mut steps = explain_uia_plan(&query_plan.expression);
+        let mut steps = explain_uia_plan(&prepared_plan.query.expression);
         if let PreparedWindowSource::Application(application) = &window_source {
-            steps.insert(
-                0,
+            let application_steps = [
                 PlanStepExplain {
                     kind: PlanStepKind::Scope,
                     summary: format!(
-                        "EnsureApplication({}, title {:?})",
+                        "EnsureDirectProcessApplication({}, title {:?})",
                         application.executable_path, application.window_title
                     ),
                 },
-            );
+                PlanStepExplain {
+                    kind: PlanStepKind::Scope,
+                    summary: "EnsureRestored (required)".to_owned(),
+                },
+                PlanStepExplain {
+                    kind: PlanStepKind::Scope,
+                    summary: "BestEffortForeground (not required by UIA)".to_owned(),
+                },
+            ];
+            steps.splice(0..0, application_steps);
         }
-        steps.push(explain_uia_action(&action_plan));
+        steps.push(explain_uia_action(
+            &prepared_plan.action,
+            prepared_plan.action_support,
+        ));
         let explain = PlanExplain {
             backend: BackendKind::WindowsUia,
-            support: query_plan.capability.level,
-            cost: query_plan.capability.estimated_cost,
+            earliest_supported_branch_index: Some(
+                prepared_plan.capability.earliest_supported_branch_index,
+            ),
+            support: prepared_plan.capability.level,
+            cost: prepared_plan.capability.estimated_cost,
             availability,
             context_fitness: uia_context_fitness(context, &window_source),
             portability,
@@ -117,8 +135,7 @@ impl ActionBackend for UiaBackend {
             runtime: self.runtime.clone(),
             windows: self.windows.clone(),
             window_source,
-            action_plan,
-            query_plan,
+            plan: prepared_plan,
             query: canonicalize_query(&parsed),
         };
         Ok(PreparedCandidate::new(explain, Arc::new(execution)))
@@ -134,10 +151,8 @@ struct UiaPreparedExecution {
     windows: Arc<WindowService>,
     /// prepare 时冻结的前台 HWND/PID 或显式应用启动契约。
     window_source: PreparedWindowSource,
-    /// prepare 时冻结的 UIA action pattern。
-    action_plan: UiaActionPlan,
-    /// prepare 时冻结的 UIA 原生查询计划。
-    query_plan: UiaQueryPlan,
+    /// prepare 时冻结的 UIA 查询、动作与联合能力计划。
+    plan: UiaPreparedPlan,
     /// 规范化查询，仅用于错误日志。
     query: String,
 }
@@ -149,8 +164,7 @@ impl PreparedExecution for UiaPreparedExecution {
         self.runtime
             .execute(UiaExecuteRequest {
                 window,
-                action: self.action_plan.clone(),
-                query_plan: self.query_plan.clone(),
+                plan: self.plan.clone(),
                 query: self.query.clone(),
             })
             .await
@@ -186,16 +200,6 @@ impl PreparedWindowSource {
                 })
             }
         }
-    }
-}
-
-/// 把跨后端动作冻结为 UIA pattern 策略。
-fn compile_action(action: &AutomationAction) -> UiaActionPlan {
-    match action {
-        AutomationAction::Click { .. } => UiaActionPlan::Invoke,
-        AutomationAction::SetValue { value, .. } => UiaActionPlan::SetValue {
-            value: value.clone(),
-        },
     }
 }
 

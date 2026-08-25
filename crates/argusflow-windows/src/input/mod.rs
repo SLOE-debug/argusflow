@@ -33,6 +33,7 @@ impl ActionBackend for SendInputBackend {
         };
         let explain = PlanExplain {
             backend: BackendKind::SendInput,
+            earliest_supported_branch_index: Some(0),
             support: SupportLevel::Native,
             cost: QueryCost::Low,
             availability: RuntimeAvailability::NotImplemented,

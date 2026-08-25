@@ -88,4 +88,9 @@ pub struct BackendQueryCapability {
     pub level: SupportLevel,
     /// 预计执行成本。
     pub estimated_cost: QueryCost,
+    /// 当前后端在最外层 `any(...)` 中能够保持语义的最早原始分支索引。
+    ///
+    /// 不含 `any` 的查询固定为 0；该值必须先于支持等级和成本参与跨后端路由，
+    /// 避免后端丢弃更早分支后反而抢先执行后续 fallback。
+    pub earliest_supported_branch_index: usize,
 }

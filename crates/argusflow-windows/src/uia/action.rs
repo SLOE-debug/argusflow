@@ -9,7 +9,7 @@ use windows::{
 };
 
 use super::{
-    error::{UiaError, UiaOperation, UiaPattern},
+    error::{UiaError, UiaOperation, UiaPattern, is_pattern_unavailable},
     plan::UiaActionPlan,
 };
 
@@ -57,10 +57,9 @@ fn set_value(element: &IUIAutomationElement, value: &str) -> Result<&'static str
 
 /// 把 stale element 与 pattern 缺失分开，供 executor 决定是否重试。
 fn pattern_error(source: windows::core::Error, pattern: UiaPattern) -> UiaError {
-    let error = UiaError::from_native(UiaOperation::GetPattern, source);
-    if error.is_element_unavailable() {
-        error
-    } else {
+    if is_pattern_unavailable(&source) {
         UiaError::RequiredPatternUnavailable { pattern }
+    } else {
+        UiaError::from_native(UiaOperation::GetPattern, source)
     }
 }

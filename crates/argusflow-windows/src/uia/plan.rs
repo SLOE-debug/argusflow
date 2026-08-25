@@ -74,3 +74,27 @@ pub enum UiaActionPlan {
         value: String,
     },
 }
+
+/// 查询目标角色对已冻结 UIA 动作策略的静态支持程度。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UiaActionSupport {
+    /// 目标角色按 UIA 规范要求提供对应 pattern。
+    Native,
+    /// 角色可能提供多个 pattern，必须在唯一目标实例上复验所需 pattern。
+    RequiresRuntimePatternCheck,
+    /// 当前动作策略无法保持该角色的点击或写值语义。
+    Unsupported,
+}
+
+/// prepare 阶段冻结的 UIA 查询、动作及两者联合能力证明。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UiaPreparedPlan {
+    /// 已编译且保持 AQL 关系与 fallback 语义的查询计划。
+    pub query: UiaQueryPlan,
+    /// 不需要在 execute 阶段重新解释的动作策略。
+    pub action: UiaActionPlan,
+    /// 最终目标角色对动作 pattern 的静态证明程度。
+    pub action_support: UiaActionSupport,
+    /// 查询支持与动作支持合并后的 Planner 能力摘要。
+    pub capability: BackendQueryCapability,
+}

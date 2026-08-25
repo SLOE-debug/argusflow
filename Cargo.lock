@@ -149,10 +149,13 @@ dependencies = [
  "argusflow-agent",
  "argusflow-core",
  "argusflow-query",
+ "argusflow-runtime",
  "async-trait",
  "regex",
+ "serde_json",
  "thiserror 2.0.20",
  "tokio",
+ "uuid",
  "windows 0.62.2",
 ]
 
