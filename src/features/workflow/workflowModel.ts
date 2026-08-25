@@ -1,21 +1,44 @@
 import type { FlowEdge, FlowNode, FlowPoint } from '../../flow/types';
-import type { ConditionBranch, ConditionOperator, ExecutionEvent, JsonObject, JsonValue, WorkflowDefinition, WorkflowNodeKind } from './contracts';
+import type {
+  AutomationAction,
+  ConditionBranch,
+  ConditionOperator,
+  ExecutionEvent,
+  JsonObject,
+  JsonValue,
+  WorkflowDefinition,
+  WorkflowNodeKind,
+} from './contracts';
+import { createDefaultAutomationAction } from './workflowAction';
 
-export type EditableNodeKind = 'start' | 'log' | 'delay' | 'condition' | 'end';
 export type NodeRunState = 'idle' | 'running' | 'success' | 'error';
 
-/** ArgusFlow 节点在通用 Flow 内核中保存的业务字段。 */
-export type WorkflowNodeData = {
-  kind: EditableNodeKind;
+/** 所有工作流节点共享的编辑器状态。 */
+type WorkflowNodeDataBase = {
   label: string;
-  message?: string;
-  milliseconds?: number;
-  pointer?: string;
-  operator?: ConditionOperator;
-  operand?: JsonValue;
   runState?: NodeRunState;
   invalid?: boolean;
 };
+
+/** ArgusFlow 节点在通用 Flow 内核中保存的强类型业务字段。 */
+export type WorkflowNodeData =
+  | WorkflowNodeDataBase & { kind: 'start' }
+  | WorkflowNodeDataBase & { kind: 'log'; message: string }
+  | WorkflowNodeDataBase & { kind: 'delay'; milliseconds: number }
+  | WorkflowNodeDataBase & {
+      kind: 'condition';
+      pointer: string;
+      operator: ConditionOperator;
+      operand: JsonValue;
+    }
+  | WorkflowNodeDataBase & { kind: 'action'; action: AutomationAction }
+  | WorkflowNodeDataBase & { kind: 'end' };
+
+/** 可由节点库创建的完整节点类型集合。 */
+export type EditableNodeKind = WorkflowNodeData['kind'];
+
+/** 以不可变方式更新一个节点判别联合。 */
+export type WorkflowNodeUpdater = (current: WorkflowNodeData) => WorkflowNodeData;
 
 export type WorkflowEdgeData = { branch: ConditionBranch | null };
 export type WorkflowCanvasNode = FlowNode<WorkflowNodeData>;
@@ -27,139 +50,14 @@ export const WORKFLOW_NODE_SIZES = {
   log: { width: 142, height: 52 },
   delay: { width: 136, height: 52 },
   condition: { width: 132, height: 52 },
+  action: { width: 164, height: 52 },
   end: { width: 122, height: 52 },
 } as const satisfies Readonly<
   Record<EditableNodeKind, Readonly<{ width: number; height: number }>>
 >;
 
-/** 初始示例工作流中的条件节点 ID，供工作台默认选中并展示属性面板。 */
-export const DEFAULT_SELECTED_NODE_ID = 'condition_1';
-
-/** 初始示例工作流；仅使用后端 schema v2 已支持的节点类型。 */
-export const DEFAULT_NODES: WorkflowCanvasNode[] = [
-  {
-    id: 'start_1',
-    kind: 'start',
-    position: { x: 20, y: 112 },
-    size: { ...WORKFLOW_NODE_SIZES.start },
-    data: { kind: 'start', label: '开始', runState: 'idle' },
-  },
-  {
-    id: 'read_task_1',
-    kind: 'log',
-    position: { x: 174, y: 112 },
-    size: { ...WORKFLOW_NODE_SIZES.log },
-    data: {
-      kind: 'log',
-      label: '读取任务',
-      message: '读取待处理任务',
-      runState: 'idle',
-    },
-  },
-  {
-    id: DEFAULT_SELECTED_NODE_ID,
-    kind: 'condition',
-    position: { x: 354, y: 112 },
-    size: { ...WORKFLOW_NODE_SIZES.condition },
-    data: {
-      kind: 'condition',
-      label: '条件判断',
-      pointer: '/enabled',
-      operator: 'equal',
-      operand: true,
-      runState: 'idle',
-    },
-  },
-  {
-    id: 'delay_1',
-    kind: 'delay',
-    position: { x: 358, y: 268 },
-    size: { ...WORKFLOW_NODE_SIZES.delay },
-    data: {
-      kind: 'delay',
-      label: '延迟等待',
-      milliseconds: 60_000,
-      runState: 'idle',
-    },
-  },
-  {
-    id: 'write_log_1',
-    kind: 'log',
-    position: { x: 626, y: 112 },
-    size: { ...WORKFLOW_NODE_SIZES.log },
-    data: {
-      kind: 'log',
-      label: '写入日志',
-      message: '记录处理结果',
-      runState: 'idle',
-    },
-  },
-  {
-    id: 'end_1',
-    kind: 'end',
-    position: { x: 636, y: 324 },
-    size: { ...WORKFLOW_NODE_SIZES.end },
-    data: { kind: 'end', label: '结束', runState: 'idle' },
-  },
-];
-
-/** 初始示例工作流的两路条件分支和汇合路径。 */
-export const DEFAULT_EDGES: WorkflowCanvasEdge[] = [
-  {
-    id: 'edge_start_read',
-    source: { nodeId: 'start_1', side: 'right' },
-    target: { nodeId: 'read_task_1', side: 'left' },
-    data: { branch: null },
-  },
-  {
-    id: 'edge_read_condition',
-    source: { nodeId: 'read_task_1', side: 'right' },
-    target: { nodeId: DEFAULT_SELECTED_NODE_ID, side: 'left' },
-    data: { branch: null },
-  },
-  {
-    id: 'edge_condition_log',
-    source: { nodeId: DEFAULT_SELECTED_NODE_ID, side: 'right' },
-    target: { nodeId: 'write_log_1', side: 'left' },
-    data: { branch: 'true' },
-  },
-  {
-    id: 'edge_condition_delay',
-    source: { nodeId: DEFAULT_SELECTED_NODE_ID, side: 'bottom' },
-    target: { nodeId: 'delay_1', side: 'top' },
-    data: { branch: 'false' },
-  },
-  {
-    id: 'edge_delay_log',
-    source: { nodeId: 'delay_1', side: 'right' },
-    target: { nodeId: 'write_log_1', side: 'bottom' },
-    data: { branch: null },
-  },
-  {
-    id: 'edge_log_end',
-    source: { nodeId: 'write_log_1', side: 'bottom' },
-    target: { nodeId: 'end_1', side: 'top' },
-    data: { branch: null },
-  },
-];
-
-const NODE_DEFAULTS: Readonly<
-  Record<EditableNodeKind, Readonly<{
-    label: string;
-    size: Readonly<{ width: number; height: number }>;
-    extras?: Partial<WorkflowNodeData>;
-  }>>
-> = {
-  start: { label: '开始', size: WORKFLOW_NODE_SIZES.start },
-  log: { label: '日志', size: WORKFLOW_NODE_SIZES.log, extras: { message: '记录一条运行信息' } },
-  delay: { label: '等待', size: WORKFLOW_NODE_SIZES.delay, extras: { milliseconds: 500 } },
-  condition: { label: '条件', size: WORKFLOW_NODE_SIZES.condition, extras: { pointer: '/enabled', operator: 'equal', operand: true } },
-  end: { label: '结束', size: WORKFLOW_NODE_SIZES.end },
-};
-
 /** 在指定世界坐标创建一个业务节点。 */
 export function createNode(kind: EditableNodeKind, position: FlowPoint = { x: 200, y: 160 }): WorkflowCanvasNode {
-  const defaults = NODE_DEFAULTS[kind];
   return {
     id: `${kind}-${crypto.randomUUID()}`,
     kind,
@@ -167,8 +65,8 @@ export function createNode(kind: EditableNodeKind, position: FlowPoint = { x: 20
       x: Math.round(position.x),
       y: Math.round(position.y),
     },
-    size: { ...defaults.size },
-    data: { kind, label: defaults.label, runState: 'idle', ...defaults.extras },
+    size: { ...WORKFLOW_NODE_SIZES[kind] },
+    data: createNodeData(kind),
   };
 }
 
@@ -228,11 +126,42 @@ export function canConnect(nodes: ReadonlyArray<WorkflowCanvasNode>, edges: Read
 function toNodeKind(data: WorkflowNodeData): WorkflowNodeKind {
   switch (data.kind) {
     case 'start': return { type: 'start' };
-    case 'log': return { type: 'log', message: data.message ?? '' };
-    case 'delay': return { type: 'delay', milliseconds: data.milliseconds ?? 0 };
-    case 'condition': return { type: 'condition', predicate: { pointer: data.pointer ?? '', operator: data.operator ?? 'equal', operand: isUnary(data.operator) ? null : data.operand ?? null } };
+    case 'log': return { type: 'log', message: data.message };
+    case 'delay': return { type: 'delay', milliseconds: data.milliseconds };
+    case 'condition': return { type: 'condition', predicate: { pointer: data.pointer, operator: data.operator, operand: isUnary(data.operator) ? null : data.operand } };
+    case 'action': return { type: 'action', action: data.action };
     case 'end': return { type: 'end' };
   }
 }
 
 export const isUnary = (operator?: ConditionOperator): boolean => operator === 'exists' || operator === 'not_exists' || operator === 'is_empty' || operator === 'not_empty';
+
+/** 为每种节点建立字段完整且立即可编辑的默认数据。 */
+function createNodeData(kind: EditableNodeKind): WorkflowNodeData {
+  switch (kind) {
+    case 'start':
+      return { kind, label: '开始', runState: 'idle' };
+    case 'log':
+      return { kind, label: '日志', message: '记录一条运行信息', runState: 'idle' };
+    case 'delay':
+      return { kind, label: '等待', milliseconds: 500, runState: 'idle' };
+    case 'condition':
+      return {
+        kind,
+        label: '条件',
+        pointer: '/enabled',
+        operator: 'equal',
+        operand: true,
+        runState: 'idle',
+      };
+    case 'action':
+      return {
+        kind,
+        label: '执行动作',
+        action: createDefaultAutomationAction(),
+        runState: 'idle',
+      };
+    case 'end':
+      return { kind, label: '结束', runState: 'idle' };
+  }
+}

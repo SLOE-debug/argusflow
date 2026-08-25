@@ -19,11 +19,11 @@ const LIBRARY_PANEL_WIDTH = {
   max: 360,
 } as const;
 
-/** 右侧属性面板默认收窄到 280px，同时保留表单可用下限。 */
+/** Action/AQL 编辑器需要更宽的属性面板，同时仍允许用户按需收窄。 */
 const INSPECTOR_PANEL_WIDTH = {
-  default: 280,
-  min: 240,
-  max: 420,
+  default: 340,
+  min: 280,
+  max: 520,
 } as const;
 
 /** 工作台的全局主视图。 */

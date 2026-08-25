@@ -1,6 +1,8 @@
 import { invoke } from '@tauri-apps/api/core';
 
 import type {
+  AqlInspection,
+  AqlQuery,
   BackendCommandErrorCode,
   CommandError,
   RunStarted,
@@ -11,6 +13,17 @@ import { COMMAND_ERROR_CODES } from './contracts';
 
 /** 后端当前允许返回的稳定命令错误码集合。 */
 const commandErrorCodes = new Set<string>(COMMAND_ERROR_CODES);
+
+/** 判断当前页面是否运行在拥有 Tauri IPC 的桌面 WebView 中。 */
+export function isDesktopRuntime(): boolean {
+  return typeof window !== 'undefined'
+    && Boolean((window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
+}
+
+/** 请求后端解析并分析 AQL；命令只读，不修改工作流或运行状态。 */
+export function inspectAql(query: AqlQuery): Promise<AqlInspection> {
+  return invoke<AqlInspection>('inspect_aql', { query });
+}
 
 /** 请求后端校验工作流结构，并返回可定位到节点或边的问题。 */
 export function validateWorkflow(workflow: WorkflowDefinition): Promise<ValidationReport> {

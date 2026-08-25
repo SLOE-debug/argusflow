@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main-workflow",
-  "description": "Allow the main ArgusFlow window to validate and run in-memory workflows.",
+  "description": "Allow the main ArgusFlow window to inspect AQL and validate or run in-memory workflows.",
   "windows": ["main"],
   "platforms": ["windows"],
   "permissions": [
@@ -10,6 +10,7 @@
     "core:window:allow-minimize",
     "core:window:allow-toggle-maximize",
     "core:window:allow-close",
+    "allow-inspect-aql",
     "allow-validate-workflow",
     "allow-run-workflow"
   ]

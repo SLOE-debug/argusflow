@@ -23,6 +23,10 @@ describe('NodePalette', () => {
 
     expect(dataTransfer.effectAllowed).toBe('copy');
     expect(setData).toHaveBeenCalledWith(FLOW_NODE_KIND_DRAG_TYPE, 'start');
+
+    const actionNode = screen.getByRole('button', { name: '执行动作' });
+    fireEvent.dragStart(actionNode, { dataTransfer });
+    expect(setData).toHaveBeenLastCalledWith(FLOW_NODE_KIND_DRAG_TYPE, 'action');
   });
 
   it('collapses and expands node groups', () => {

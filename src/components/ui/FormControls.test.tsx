@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import { Input, Select } from './index';
+import { Input, Select, Textarea } from './index';
 
 describe('form controls', () => {
   it('shares compact text sizing between Input and Select', () => {
@@ -44,5 +44,14 @@ describe('form controls', () => {
     });
 
     expect(onValueChange).toHaveBeenCalledWith('team');
+  });
+
+  it('provides the shared focus and disabled treatment for multiline input', () => {
+    render(<Textarea aria-label="查询源码" disabled />);
+
+    expect(screen.getByRole('textbox', { name: '查询源码' })).toHaveClass(
+      'focus:border-blue-400',
+      'disabled:cursor-not-allowed',
+    );
   });
 });

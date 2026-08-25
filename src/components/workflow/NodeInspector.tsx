@@ -6,6 +6,7 @@ import type {
   WorkflowCanvasNode,
   WorkflowEdgeData,
   WorkflowNodeData,
+  WorkflowNodeUpdater,
 } from '../../features/workflow/workflowModel';
 import {
   EdgeInspectorFields,
@@ -28,7 +29,7 @@ type NodeInspectorProps = Readonly<{
   /** 修改 JSON 变量。 */
   onVariablesChange: (draft: string) => void;
   /** 修改节点字段。 */
-  onUpdateNode: (data: Partial<WorkflowNodeData>) => void;
+  onUpdateNode: (updater: WorkflowNodeUpdater) => void;
   /** 修改条件分支。 */
   onUpdateEdgeBranch: (branch: 'true' | 'false') => void;
   /** 删除当前选择。 */

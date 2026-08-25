@@ -20,9 +20,9 @@ tauri-build = { version = "2.6.3", features = [] }
 argusflow-agent.workspace = true
 argusflow-browser.workspace = true
 argusflow-core.workspace = true
+argusflow-query.workspace = true
 argusflow-runtime.workspace = true
 argusflow-vision.workspace = true
 argusflow-windows.workspace = true
 serde.workspace = true
 tauri = { version = "2.11.5", features = [] }
-

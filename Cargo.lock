@@ -86,6 +86,7 @@ dependencies = [
  "argusflow-agent",
  "argusflow-browser",
  "argusflow-core",
+ "argusflow-query",
  "argusflow-runtime",
  "argusflow-vision",
  "argusflow-windows",

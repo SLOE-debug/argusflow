@@ -29,4 +29,32 @@ describe('WorkflowNodeCard', () => {
     expect(card).toHaveClass('border-blue-400', 'bg-blue-50');
     expect(screen.getByText('记录结果')).toHaveClass('text-blue-600');
   });
+
+  it('summarizes an AQL SetValue action on the canvas', () => {
+    const node: WorkflowCanvasNode = {
+      id: 'action-1',
+      kind: 'action',
+      position: { x: 0, y: 0 },
+      size: { width: 164, height: 52 },
+      data: {
+        kind: 'action',
+        label: '填写记事本',
+        action: {
+          type: 'set_value',
+          target: {
+            locator: {
+              type: 'query',
+              query: { language_version: 1, source: 'document()' },
+            },
+            backend_preference: 'windows_uia',
+          },
+          value: 'ArgusFlow',
+        },
+      },
+    };
+
+    render(<WorkflowNodeCard node={node} selected={false} />);
+
+    expect(screen.getByText('填写 · AQL')).toBeVisible();
+  });
 });

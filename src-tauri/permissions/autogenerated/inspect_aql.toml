@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-inspect-aql"
+description = "Enables the inspect_aql command without any pre-configured scope."
+commands.allow = ["inspect_aql"]
+
+[[permission]]
+identifier = "deny-inspect-aql"
+description = "Denies the inspect_aql command without any pre-configured scope."
+commands.deny = ["inspect_aql"]

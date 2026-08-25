@@ -13,6 +13,7 @@ pub fn run() -> tauri::Result<()> {
     tauri::Builder::default()
         .manage(runtime::AppState::new())
         .invoke_handler(tauri::generate_handler![
+            commands::query::inspect_aql,
             commands::workflow::validate_workflow,
             commands::workflow::run_workflow,
         ])

@@ -9,6 +9,10 @@ import {
   DEFAULT_EDGES,
   DEFAULT_NODES,
   DEFAULT_SELECTED_NODE_ID,
+  DEFAULT_WORKFLOW_NAME,
+  DEFAULT_WORKFLOW_VARIABLES,
+} from './defaultWorkflowTemplate';
+import {
   applyExecutionEventToNodes,
   canConnect,
   createEdge,
@@ -17,8 +21,10 @@ import {
   type EditableNodeKind,
   type WorkflowEdgeData,
   type WorkflowNodeData,
+  type WorkflowNodeUpdater,
 } from './workflowModel';
 import {
+  isDesktopRuntime,
   normalizeCommandError,
   runWorkflow,
   validateWorkflow,
@@ -33,8 +39,8 @@ export function useWorkflowStudio() {
     /** 带参考工作流的独立画布 Store。 */
     const store = createFlowStore<WorkflowNodeData, WorkflowEdgeData>({
       metadata: {
-        workflowName: '数据同步流程',
-        variables: { enabled: true, batchSize: 100 },
+        workflowName: DEFAULT_WORKFLOW_NAME,
+        variables: DEFAULT_WORKFLOW_VARIABLES,
       },
       nodes: DEFAULT_NODES,
       edges: DEFAULT_EDGES,
@@ -51,7 +57,7 @@ export function useWorkflowStudio() {
     (state) => state.metadata.variables as JsonObject,
   );
   const [variablesDraft, setVariablesDraft] = useState(
-    JSON.stringify({ enabled: true, batchSize: 100 }, null, 2),
+    JSON.stringify(DEFAULT_WORKFLOW_VARIABLES, null, 2),
   );
   const [variablesError, setVariablesError] = useState<string | null>(null);
   const [report, setReport] = useState<ValidationReport | null>(null);
@@ -80,7 +86,7 @@ export function useWorkflowStudio() {
 
   useEffect(() => {
     // 普通浏览器开发预览没有 Tauri IPC；只在桌面 WebView 中注册事件桥接。
-    if (!(window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__) {
+    if (!isDesktopRuntime()) {
       return;
     }
     let disposed = false;
@@ -289,7 +295,7 @@ export function useWorkflowStudio() {
     return true;
   }, [flowStore]);
 
-  const updateNode = useCallback((data: Partial<WorkflowNodeData>) => {
+  const updateNode = useCallback((updater: WorkflowNodeUpdater) => {
     const state = flowStore.getState();
     if (state.selectedNodeIds.size !== 1) return;
     const selectedNodeId = state.selectedNodeIds.values().next().value;
@@ -297,7 +303,7 @@ export function useWorkflowStudio() {
     state.transact((document) => ({
       ...document,
       nodes: document.nodes.map((node) => node.id === selectedNodeId
-        ? { ...node, data: { ...node.data, ...data } }
+        ? { ...node, data: updater(node.data) }
         : node),
     }), `node-fields:${selectedNodeId}`);
     setReport(null);

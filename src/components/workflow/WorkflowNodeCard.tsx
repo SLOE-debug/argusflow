@@ -2,12 +2,14 @@ import {
   Clock3,
   FileText,
   GitBranch,
+  MousePointerClick,
   PlayCircle,
   Square,
   type LucideIcon,
 } from 'lucide-react';
 
 import type { FlowNodeRendererProps, NodeDefinition } from '../../flow';
+import type { TargetLocatorKind } from '../../features/workflow/contracts';
 import {
   WORKFLOW_NODE_SIZES,
   type NodeRunState,
@@ -32,6 +34,7 @@ const NODE_ICONS: Readonly<Record<WorkflowNodeKind, LucideIcon>> = {
   log: FileText,
   delay: Clock3,
   condition: GitBranch,
+  action: MousePointerClick,
   end: Square,
 };
 
@@ -56,6 +59,10 @@ const NODE_TONES: Readonly<Record<
     accent: 'bg-violet-500',
     icon: 'bg-violet-50 text-violet-600',
   },
+  action: {
+    accent: 'bg-cyan-500',
+    icon: 'bg-cyan-50 text-cyan-700',
+  },
   end: {
     accent: 'bg-rose-500',
     icon: 'bg-rose-50 text-rose-600',
@@ -79,6 +86,7 @@ export const workflowNodeRegistry = {
   log: createDefinition('log', '日志', WORKFLOW_NODE_SIZES.log),
   delay: createDefinition('delay', '等待', WORKFLOW_NODE_SIZES.delay),
   condition: createDefinition('condition', '条件', WORKFLOW_NODE_SIZES.condition),
+  action: createDefinition('action', '执行动作', WORKFLOW_NODE_SIZES.action),
   end: {
     ...createDefinition('end', '结束', WORKFLOW_NODE_SIZES.end, true),
     canStartConnection: false,
@@ -144,14 +152,30 @@ export function WorkflowNodeCard({
 function resolveNodeDetail(data: WorkflowNodeData): string {
   switch (data.kind) {
     case 'log':
-      return data.message ?? '';
+      return data.message;
     case 'delay':
-      return `等待 ${(data.milliseconds ?? 0) / 1000} 秒`;
+      return `等待 ${data.milliseconds / 1000} 秒`;
     case 'condition':
-      return '检测数据量';
+      return `${data.pointer} ${data.operator}`;
+    case 'action':
+      return data.action.type === 'click'
+        ? `点击 · ${locatorLabel(data.action.target.locator.type)}`
+        : `填写 · ${locatorLabel(data.action.target.locator.type)}`;
     case 'start':
       return '手动触发';
     case 'end':
       return '流程结束';
+  }
+}
+
+/** 将目标定位类别压缩为卡片可读文案。 */
+function locatorLabel(locator: TargetLocatorKind): string {
+  switch (locator) {
+    case 'query':
+      return 'AQL';
+    case 'visual':
+      return '视觉文字';
+    case 'coordinate':
+      return '屏幕坐标';
   }
 }

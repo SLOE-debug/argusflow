@@ -53,7 +53,7 @@
 - [x] `AQL-008` `P0` 在工作流执行前解析并校验 AQL，向节点返回精确诊断，覆盖语言、分析器和后端计划核心测试。
 - [ ] `AQL-009` `P1` 将 UIA 逻辑计划接入真实 `IUIAutomationCondition`、CacheRequest、TreeScope 和多结果消歧执行。
 - [ ] `AQL-010` `P1` 将 CDP 逻辑计划接入 DOM/Accessibility 协议、节点关联、导航失效处理和多结果消歧执行。
-- [ ] `AQL-011` `P1` 在 Action 节点提供 AQL editor、实时诊断、formatter、explain、portability 与 capability 展示。
+- [x] `AQL-011` `P1` 在 Action 节点提供 AQL editor、实时诊断、formatter、explain、portability 与 capability 展示。
 - [ ] `AQL-012` `P2` 扩展 Vision 查询编译、`nearest`、`has` 和空间关系，不引入 CSS 兼容语义。
 
 ### 工作流运行时
@@ -85,13 +85,13 @@
 ### 可视化工作流编辑器
 
 - [x] `EDITOR-001` `P0` 集成 React、TypeScript、Vite、Tailwind CSS、Zustand 和项目内自研 Flow 引擎。
-- [x] `EDITOR-002` `P0` 提供 Start、Log、Delay、Condition、End 节点注册表和空白初始文档。
+- [x] `EDITOR-002` `P0` 提供 Start、Log、Delay、Condition、Action、End 节点注册表和可实际配置的记事本初始模板。
 - [x] `EDITOR-003` `P0` 支持多形态节点新增、删除、流畅拖动和属性编辑。
 - [x] `EDITOR-004` `P0` 支持四向锚点连线、选择、删除、端点重连和条件分支标签。
 - [x] `EDITOR-005` `P0` 展示 Rust 校验问题并标记对应节点。
 - [x] `EDITOR-006` `P0` 展示实时执行日志与节点运行状态。
 - [ ] `EDITOR-007` `P1` 支持工作流新建、打开、保存、另存为和最近文件。
-- [ ] `EDITOR-008` `P1` 增加 Click、SetValue、Wait、窗口和浏览器节点面板。
+- [x] `EDITOR-008` `P1` 增加 Action 节点及 Click、SetValue、AQL、视觉文字和屏幕坐标属性面板。
 - [x] `EDITOR-009` `P1` 增加撤销/重做、复制/粘贴、重复、多选、框选和桌面快捷键。
 - [x] `EDITOR-010` `P1` 增加对齐、等距分布、自动吸附、辅助线、节点搜索和缩放平移。
 - [x] `EDITOR-014` `P1` 增加圆角正交自动避障、Worker 精确路由、视口裁剪和运行粒子流动。

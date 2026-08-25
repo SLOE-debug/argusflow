@@ -1,13 +1,18 @@
 import { ArrowRight } from 'lucide-react';
 import { useEffect, useState, type ChangeEvent } from 'react';
 
-import type { ConditionOperator } from '../../features/workflow/contracts';
+import type {
+  ConditionOperator,
+  JsonValue,
+} from '../../features/workflow/contracts';
 import {
   isUnary,
   type WorkflowCanvasEdge,
   type WorkflowCanvasNode,
   type WorkflowNodeData,
+  type WorkflowNodeUpdater,
 } from '../../features/workflow/workflowModel';
+import { ActionNodeFields } from './ActionNodeFields';
 import {
   INSPECTOR_CONTROL_CLASS_NAME,
   INSPECTOR_HELP_CLASS_NAME,
@@ -20,7 +25,7 @@ type NodeInspectorFieldsProps = Readonly<{
   /** 当前唯一选中的节点。 */
   node: WorkflowCanvasNode;
   /** 修改节点业务字段。 */
-  onUpdate: (data: Partial<WorkflowNodeData>) => void;
+  onUpdate: (updater: WorkflowNodeUpdater) => void;
   /** 删除当前节点。 */
   onDelete: () => void;
 }>;
@@ -55,6 +60,7 @@ const NODE_KIND_LABELS: Readonly<Record<WorkflowNodeData['kind'], string>> = {
   log: '日志节点',
   delay: '延迟节点',
   condition: '条件判断',
+  action: '执行节点',
   end: '结束节点',
 };
 
@@ -68,21 +74,26 @@ const RUN_STATE_LABELS: Readonly<Record<NonNullable<WorkflowNodeData['runState']
 
 /** 编辑当前选中节点的基本信息和类型专属字段。 */
 export function NodeInspectorFields({ node, onUpdate, onDelete }: NodeInspectorFieldsProps) {
+  const conditionData = node.data.kind === 'condition' ? node.data : null;
   const [operandDraft, setOperandDraft] = useState(
-    JSON.stringify(node.data.operand ?? null, null, 2),
+    JSON.stringify(conditionData?.operand ?? null, null, 2),
   );
   const [operandError, setOperandError] = useState<string | null>(null);
 
   useEffect(() => {
-    setOperandDraft(JSON.stringify(node.data.operand ?? null, null, 2));
+    setOperandDraft(JSON.stringify(conditionData?.operand ?? null, null, 2));
     setOperandError(null);
-  }, [node.id, node.data.operand]);
+  }, [conditionData?.operand, node.id]);
 
   const updateOperand = (event: ChangeEvent<HTMLTextAreaElement>) => {
     const draft = event.target.value;
     setOperandDraft(draft);
     try {
-      onUpdate({ operand: JSON.parse(draft), invalid: false });
+      /** JSON.parse 成功后结果属于契约允许的递归 JSON 值。 */
+      const operand = JSON.parse(draft) as JsonValue;
+      onUpdate((current) => current.kind === 'condition'
+        ? { ...current, operand, invalid: false }
+        : current);
       setOperandError(null);
     } catch (error) {
       setOperandError(error instanceof Error ? error.message : 'JSON 格式无效');
@@ -96,7 +107,10 @@ export function NodeInspectorFields({ node, onUpdate, onDelete }: NodeInspectorF
           <input
             className={`${INSPECTOR_CONTROL_CLASS_NAME} h-8`}
             value={node.data.label}
-            onChange={(event) => onUpdate({ label: event.target.value })}
+            onChange={(event) => {
+              const label = event.target.value;
+              onUpdate((current) => ({ ...current, label }));
+            }}
           />
         </InspectorField>
         <InspectorField label="节点 ID">
@@ -109,7 +123,7 @@ export function NodeInspectorFields({ node, onUpdate, onDelete }: NodeInspectorF
         <InspectorField label="节点类型">
           <input
             className={`${INSPECTOR_CONTROL_CLASS_NAME} h-8`}
-            value={NODE_KIND_LABELS[node.kind]}
+            value={NODE_KIND_LABELS[node.data.kind]}
             readOnly
           />
         </InspectorField>
@@ -172,7 +186,7 @@ type NodeKindFieldsProps = Readonly<{
   operandDraft: string;
   operandError: string | null;
   onOperandChange: (event: ChangeEvent<HTMLTextAreaElement>) => void;
-  onUpdate: (data: Partial<WorkflowNodeData>) => void;
+  onUpdate: (updater: WorkflowNodeUpdater) => void;
 }>;
 
 /** 根据节点判别联合穷尽渲染专属配置。 */
@@ -183,14 +197,20 @@ function NodeKindFields({
   onOperandChange,
   onUpdate,
 }: NodeKindFieldsProps) {
-  switch (node.kind) {
+  const data = node.data;
+  switch (data.kind) {
     case 'log':
       return (
         <InspectorField label="日志内容">
           <textarea
             className={`${INSPECTOR_CONTROL_CLASS_NAME} h-[76px] resize-none py-2 leading-[18px]`}
-            value={node.data.message ?? ''}
-            onChange={(event) => onUpdate({ message: event.target.value, invalid: false })}
+            value={data.message}
+            onChange={(event) => {
+              const message = event.target.value;
+              onUpdate((current) => current.kind === 'log'
+                ? { ...current, message, invalid: false }
+                : current);
+            }}
           />
         </InspectorField>
       );
@@ -202,11 +222,13 @@ function NodeKindFields({
             type="number"
             min={1}
             max={60_000}
-            value={node.data.milliseconds ?? 0}
-            onChange={(event) => onUpdate({
-              milliseconds: Number(event.target.value),
-              invalid: false,
-            })}
+            value={data.milliseconds}
+            onChange={(event) => {
+              const milliseconds = Number(event.target.value);
+              onUpdate((current) => current.kind === 'delay'
+                ? { ...current, milliseconds, invalid: false }
+                : current);
+            }}
           />
         </InspectorField>
       );
@@ -217,25 +239,32 @@ function NodeKindFields({
             <input
               className={`${INSPECTOR_CONTROL_CLASS_NAME} h-8`}
               placeholder="/user/active"
-              value={node.data.pointer ?? ''}
-              onChange={(event) => onUpdate({ pointer: event.target.value, invalid: false })}
+              value={data.pointer}
+              onChange={(event) => {
+                const pointer = event.target.value;
+                onUpdate((current) => current.kind === 'condition'
+                  ? { ...current, pointer, invalid: false }
+                  : current);
+              }}
             />
           </InspectorField>
           <InspectorField label="运算符">
             <select
               className={`${INSPECTOR_CONTROL_CLASS_NAME} h-8`}
-              value={node.data.operator ?? 'equal'}
-              onChange={(event) => onUpdate({
-                operator: event.target.value as ConditionOperator,
-                invalid: false,
-              })}
+              value={data.operator}
+              onChange={(event) => {
+                const operator = event.target.value as ConditionOperator;
+                onUpdate((current) => current.kind === 'condition'
+                  ? { ...current, operator, invalid: false }
+                  : current);
+              }}
             >
               {Object.entries(OPERATOR_LABELS).map(([value, label]) => (
                 <option key={value} value={value}>{label}</option>
               ))}
             </select>
           </InspectorField>
-          {!isUnary(node.data.operator) ? (
+          {!isUnary(data.operator) ? (
             <InspectorField label="右操作数">
               <textarea
                 className={`${INSPECTOR_CONTROL_CLASS_NAME} h-[76px] resize-none py-2 font-mono leading-[18px]`}
@@ -248,6 +277,15 @@ function NodeKindFields({
             </InspectorField>
           ) : null}
         </>
+      );
+    case 'action':
+      return (
+        <ActionNodeFields
+          action={data.action}
+          onChange={(action) => onUpdate((current) => current.kind === 'action'
+            ? { ...current, action, invalid: false }
+            : current)}
+        />
       );
     case 'start':
       return <p className={INSPECTOR_HELP_CLASS_NAME}>开始节点是工作流的唯一入口，无额外参数。</p>;
