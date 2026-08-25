@@ -2,10 +2,10 @@
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 export type JsonObject = { [key: string]: JsonValue };
 
-/** 与 Rust 后端交换的 schema v2 工作流。 */
+/** 与 Rust 后端交换的 schema v3 工作流。 */
 export type WorkflowDefinition = {
   /** 当前契约固定版本。 */
-  schema_version: 2;
+  schema_version: 3;
   /** 工作流稳定 ID。 */
   id: string;
   /** 面向用户的名称。 */
@@ -73,8 +73,26 @@ export type AqlQuery = {
 /** AQL、显式视觉查询或物理坐标组成的目标判别联合。 */
 export type TargetLocator =
   | { type: 'query'; query: AqlQuery }
+  | { type: 'application_query'; application: ApplicationTarget; query: AqlQuery }
   | { type: 'visual'; query: { text: string; exact: boolean } }
   | { type: 'coordinate'; point: { x: number; y: number } };
+
+/** UIA 查询前需要复用、恢复或显式启动的 Windows 应用。 */
+export type ApplicationTarget = {
+  /** 用于进程身份匹配和启动的绝对 EXE 路径。 */
+  executable_path: string;
+  /** 不经过 shell 解析、直接传给 EXE 的参数。 */
+  arguments: string[];
+  /** 唯一顶层窗口的标题匹配规则。 */
+  window_title: WindowTitleMatcher;
+  /** 启动后等待顶层窗口的最长毫秒数。 */
+  launch_timeout_ms: number;
+};
+
+/** Windows 顶层窗口标题支持精确或包含匹配。 */
+export type WindowTitleMatcher =
+  | { type: 'equal'; value: string }
+  | { type: 'contains'; value: string };
 
 /** Action 属性面板允许切换的目标定位类别。 */
 export type TargetLocatorKind = TargetLocator['type'];
@@ -234,7 +252,8 @@ export type ValidationIssueCode =
   | 'no_path_to_end'
   | 'empty_log_message'
   | 'invalid_delay'
-  | 'invalid_aql_query';
+  | 'invalid_aql_query'
+  | 'invalid_application_target';
 
 export type ValidationIssue = {
   code: ValidationIssueCode;

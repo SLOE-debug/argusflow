@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-import type { AqlInspection, AqlQuery, BackendPreference } from './contracts';
+import type { AqlInspection, AutomationTarget } from './contracts';
 import { inspectAql, isDesktopRuntime } from './workflowApi';
 
 /** Runtime Planner Explain 在编辑器中的请求状态。 */
@@ -11,8 +11,7 @@ export type AqlInspectionState =
 
 /** 输入稳定后调用桌面 Runtime Planner，且丢弃过期响应。 */
 export function useAqlInspection(
-  query: AqlQuery,
-  backendPreference: BackendPreference,
+  target: AutomationTarget,
 ): AqlInspectionState {
   const [state, setState] = useState<AqlInspectionState>(() => (
     isDesktopRuntime()
@@ -38,7 +37,7 @@ export function useAqlInspection(
     setState({ phase: 'loading', inspection: null, message: null });
     /** Runtime planning 依赖系统上下文，稳定输入后再跨越 IPC。 */
     const debounceTimer = window.setTimeout(() => {
-      void inspectAql(query, backendPreference)
+      void inspectAql(target)
         .then((inspection) => {
           if (active) {
             setState({ phase: 'ready', inspection, message: null });
@@ -59,7 +58,7 @@ export function useAqlInspection(
       active = false;
       window.clearTimeout(debounceTimer);
     };
-  }, [backendPreference, query]);
+  }, [target]);
 
   return state;
 }

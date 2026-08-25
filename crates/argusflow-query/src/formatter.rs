@@ -1,5 +1,6 @@
 use argusflow_core::{
-    ElementMatcher, PredicateValue, PropertyPredicate, QueryExpr, RegexLiteral, UiQuery,
+    ElementMatcher, MatchOperator, PredicateValue, PropertyPredicate, QueryExpr, RegexLiteral,
+    UiQuery,
 };
 
 use crate::{AqlError, normalize_query, parse_query};
@@ -82,10 +83,26 @@ fn format_compact_matcher(matcher: &ElementMatcher) -> String {
     let predicates = matcher
         .predicates
         .iter()
-        .map(format_predicate)
+        .map(format_compact_predicate)
         .collect::<Vec<_>>()
         .join(",");
     format!("{}({predicates})", matcher.role)
+}
+
+/// canonical 等号运算符移除无关空白，单词运算符保留语法分隔空格。
+fn format_compact_predicate(predicate: &PropertyPredicate) -> String {
+    match predicate.operator {
+        MatchOperator::Equal | MatchOperator::NotEqual => format!(
+            "{}{}{}",
+            predicate.attribute,
+            predicate.operator,
+            format_value(&predicate.value)
+        ),
+        MatchOperator::Contains
+        | MatchOperator::StartsWith
+        | MatchOperator::EndsWith
+        | MatchOperator::Regex => format_predicate(predicate),
+    }
 }
 
 /// 输出属性逐行排列的 matcher。

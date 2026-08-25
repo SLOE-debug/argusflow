@@ -17,9 +17,9 @@ import {
 } from './workflowModel';
 
 describe('workflow model', () => {
-  it('maps the empty canvas to the schema v2 Rust contract', () => {
+  it('maps the empty canvas to the schema v3 Rust contract', () => {
     const workflow = toWorkflowDefinition('6d7d7a91-4e19-42c9-b1d8-011d4cf94330', 'Demo', { enabled: true }, [], []);
-    expect(workflow.schema_version).toBe(2);
+    expect(workflow.schema_version).toBe(3);
     expect(workflow.variables).toEqual({ enabled: true });
     expect(workflow.nodes).toEqual([]);
   });
@@ -61,7 +61,7 @@ describe('workflow model', () => {
     vi.unstubAllGlobals();
   });
 
-  it('uses a practical Notepad workflow as the default template', () => {
+  it('uses a practical Notepad++ application workflow as the default template', () => {
     const workflow = toWorkflowDefinition(
       '6d7d7a91-4e19-42c9-b1d8-011d4cf94330',
       DEFAULT_WORKFLOW_NAME,
@@ -70,15 +70,19 @@ describe('workflow model', () => {
       DEFAULT_EDGES,
     );
 
-    expect(workflow.name).toBe('向已打开的记事本填写文本');
+    expect(workflow.name).toBe('启动或唤醒 Notepad++ 并打开帮助菜单');
     expect(workflow.nodes.some((node) => node.type === 'condition')).toBe(false);
     expect(workflow.edges).toHaveLength(3);
     expect(workflow.edges.every((edge) => edge.branch === null)).toBe(true);
     expect(workflow.nodes).toContainEqual(expect.objectContaining({
       type: 'action',
       action: expect.objectContaining({
-        type: 'set_value',
-        value: '你好，这段文字由 ArgusFlow 自动填写。',
+        type: 'click',
+        target: expect.objectContaining({
+          locator: expect.objectContaining({
+            type: 'application_query',
+          }),
+        }),
       }),
     }));
   });

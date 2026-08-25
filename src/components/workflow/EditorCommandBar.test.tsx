@@ -14,7 +14,7 @@ const node: FlowNode<WorkflowNodeData> = {
   kind: 'log',
   position: { x: 0, y: 0 },
   size: { width: 168, height: 52 },
-  data: { kind: 'log', label: '日志' },
+  data: { kind: 'log', label: '日志', message: '测试日志' },
 };
 
 describe('EditorCommandBar', () => {

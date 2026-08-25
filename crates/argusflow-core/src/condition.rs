@@ -83,25 +83,39 @@ impl ConditionPredicate {
             ConditionOperator::NotEmpty => {
                 ensure_no_operand(&self.operand)?;
                 let left = required_value(left, &self.pointer)?;
-                is_empty(left).map(|empty| !empty).ok_or(ConditionEvaluationError::TypeMismatch)
+                is_empty(left)
+                    .map(|empty| !empty)
+                    .ok_or(ConditionEvaluationError::TypeMismatch)
             }
             ConditionOperator::Equal => {
-                compare_values(left, &self.pointer, &self.operand, |left, right| left == right)
+                compare_values(left, &self.pointer, &self.operand, |left, right| {
+                    left == right
+                })
             }
             ConditionOperator::NotEqual => {
-                compare_values(left, &self.pointer, &self.operand, |left, right| left != right)
+                compare_values(left, &self.pointer, &self.operand, |left, right| {
+                    left != right
+                })
             }
             ConditionOperator::GreaterThan => {
-                compare_numbers(left, &self.pointer, &self.operand, |left, right| left > right)
+                compare_numbers(left, &self.pointer, &self.operand, |left, right| {
+                    left > right
+                })
             }
             ConditionOperator::GreaterThanOrEqual => {
-                compare_numbers(left, &self.pointer, &self.operand, |left, right| left >= right)
+                compare_numbers(left, &self.pointer, &self.operand, |left, right| {
+                    left >= right
+                })
             }
             ConditionOperator::LessThan => {
-                compare_numbers(left, &self.pointer, &self.operand, |left, right| left < right)
+                compare_numbers(left, &self.pointer, &self.operand, |left, right| {
+                    left < right
+                })
             }
             ConditionOperator::LessThanOrEqual => {
-                compare_numbers(left, &self.pointer, &self.operand, |left, right| left <= right)
+                compare_numbers(left, &self.pointer, &self.operand, |left, right| {
+                    left <= right
+                })
             }
             ConditionOperator::Contains => contains_value(left, &self.pointer, &self.operand),
         }
@@ -194,9 +208,7 @@ fn validate_pointer(pointer: &str) -> Result<(), ConditionEvaluationError> {
         return Ok(());
     }
     if !pointer.starts_with('/') {
-        return Err(ConditionEvaluationError::InvalidPointer(
-            pointer.to_owned(),
-        ));
+        return Err(ConditionEvaluationError::InvalidPointer(pointer.to_owned()));
     }
     let bytes = pointer.as_bytes();
     let mut index = 0;

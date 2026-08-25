@@ -43,6 +43,12 @@ try {
         }
     }
 
+    Write-Host "Building the AQL WASM language service..." -ForegroundColor Cyan
+    & pnpm build:aql-wasm
+    if ($LASTEXITCODE -ne 0) {
+        throw "AQL WASM build failed with exit code $LASTEXITCODE."
+    }
+
     Write-Host "Starting ArgusFlow (Tauri + Vite)..." -ForegroundColor Cyan
     & pnpm exec tauri dev
     if ($LASTEXITCODE -ne 0) {

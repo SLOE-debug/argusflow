@@ -9,11 +9,11 @@ use argusflow_core::{
     ConditionPredicate, ExecutionEvent, ExecutionEventKind, Position, WorkflowDefinition,
     WorkflowEdge, WorkflowNode, WorkflowNodeKind,
 };
-use serde_json::json;
 use argusflow_runtime::{
     ExecutionEventSink, RuntimeError, UnavailableActionDispatcher, ValidationIssueCode,
     WorkflowEngine, validate_workflow,
 };
+use serde_json::json;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
@@ -153,7 +153,13 @@ async fn runtime_emits_ordered_log_and_completion_events() {
     assert!(events.iter().any(|event| {
         event.kind == ExecutionEventKind::Log && event.message.as_deref() == Some("ArgusFlow")
     }));
-    assert_eq!(events.iter().filter(|event| event.kind == ExecutionEventKind::EdgeTraversed).count(), 3);
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event.kind == ExecutionEventKind::EdgeTraversed)
+            .count(),
+        3
+    );
     assert_eq!(
         events.last().map(|event| event.kind),
         Some(ExecutionEventKind::WorkflowCompleted)
@@ -164,11 +170,18 @@ async fn runtime_emits_ordered_log_and_completion_events() {
 async fn runtime_only_executes_the_selected_condition_branch() {
     let engine = Arc::new(WorkflowEngine::new(Arc::new(UnavailableActionDispatcher)));
     let (sender, mut receiver) = mpsc::unbounded_channel();
-    engine.start(condition_workflow(false), Arc::new(ChannelSink(sender))).await.expect("run should start");
+    engine
+        .start(condition_workflow(false), Arc::new(ChannelSink(sender)))
+        .await
+        .expect("run should start");
     let mut edge_ids = Vec::new();
     while let Some(event) = receiver.recv().await {
-        if event.kind == ExecutionEventKind::EdgeTraversed { edge_ids.push(event.edge_id.clone().unwrap()); }
-        if event.kind == ExecutionEventKind::WorkflowCompleted { break; }
+        if event.kind == ExecutionEventKind::EdgeTraversed {
+            edge_ids.push(event.edge_id.clone().unwrap());
+        }
+        if event.kind == ExecutionEventKind::WorkflowCompleted {
+            break;
+        }
     }
     assert!(edge_ids.contains(&"condition-false".to_owned()));
     assert!(!edge_ids.contains(&"condition-true".to_owned()));
@@ -232,7 +245,7 @@ fn assert_has_issue(workflow: &WorkflowDefinition, code: ValidationIssueCode) {
 /// 在测试中构造一条可执行的 Start -> Log -> Delay -> End 线性链。
 fn demo_workflow(milliseconds: u64) -> WorkflowDefinition {
     WorkflowDefinition {
-        schema_version: 2,
+        schema_version: 3,
         id: Uuid::new_v4(),
         name: "Demo".to_owned(),
         variables: json!({}),
@@ -278,21 +291,53 @@ fn edge(source: &str, target: &str) -> WorkflowEdge {
 /// 构造两条分支最终汇合到 End 的条件 DAG。
 fn condition_workflow(enabled: bool) -> WorkflowDefinition {
     WorkflowDefinition {
-        schema_version: 2,
+        schema_version: 3,
         id: Uuid::new_v4(),
         name: "Condition".to_owned(),
         variables: json!({ "enabled": enabled }),
         nodes: vec![
             node("start", 0.0, WorkflowNodeKind::Start),
-            node("condition", 160.0, WorkflowNodeKind::Condition { predicate: ConditionPredicate { pointer: "/enabled".to_owned(), operator: ConditionOperator::Equal, operand: Some(json!(true)) } }),
-            node("true-log", 320.0, WorkflowNodeKind::Log { message: "true".to_owned() }),
-            node("false-log", 320.0, WorkflowNodeKind::Log { message: "false".to_owned() }),
+            node(
+                "condition",
+                160.0,
+                WorkflowNodeKind::Condition {
+                    predicate: ConditionPredicate {
+                        pointer: "/enabled".to_owned(),
+                        operator: ConditionOperator::Equal,
+                        operand: Some(json!(true)),
+                    },
+                },
+            ),
+            node(
+                "true-log",
+                320.0,
+                WorkflowNodeKind::Log {
+                    message: "true".to_owned(),
+                },
+            ),
+            node(
+                "false-log",
+                320.0,
+                WorkflowNodeKind::Log {
+                    message: "false".to_owned(),
+                },
+            ),
             node("end", 520.0, WorkflowNodeKind::End),
         ],
         edges: vec![
             edge("start", "condition"),
-            WorkflowEdge { id: "condition-true".to_owned(), source: "condition".to_owned(), target: "true-log".to_owned(), branch: Some(ConditionBranch::True) },
-            WorkflowEdge { id: "condition-false".to_owned(), source: "condition".to_owned(), target: "false-log".to_owned(), branch: Some(ConditionBranch::False) },
+            WorkflowEdge {
+                id: "condition-true".to_owned(),
+                source: "condition".to_owned(),
+                target: "true-log".to_owned(),
+                branch: Some(ConditionBranch::True),
+            },
+            WorkflowEdge {
+                id: "condition-false".to_owned(),
+                source: "condition".to_owned(),
+                target: "false-log".to_owned(),
+                branch: Some(ConditionBranch::False),
+            },
             edge("true-log", "end"),
             edge("false-log", "end"),
         ],

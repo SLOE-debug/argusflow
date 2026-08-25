@@ -60,10 +60,14 @@ describe('AqlEditor', () => {
 
   it('shows planner selection and formats without reordering predicates', () => {
     const onChange = vi.fn();
+    const query = { language_version: 1 as const, source: 'button(name="保存",enabled=true)' };
     render(
       <AqlEditor
-        query={{ language_version: 1, source: 'button(name="保存",enabled=true)' }}
-        backendPreference="windows_uia"
+        query={query}
+        target={{
+          locator: { type: 'query', query },
+          backend_preference: 'windows_uia',
+        }}
         onChange={onChange}
       />,
     );
@@ -80,10 +84,14 @@ describe('AqlEditor', () => {
 
   it('pairs brackets while keeping textarea as the input model', () => {
     const onChange = vi.fn();
+    const query = { language_version: 1 as const, source: 'button' };
     render(
       <AqlEditor
-        query={{ language_version: 1, source: 'button' }}
-        backendPreference="auto"
+        query={query}
+        target={{
+          locator: { type: 'query', query },
+          backend_preference: 'auto',
+        }}
         onChange={onChange}
       />,
     );
@@ -104,7 +112,10 @@ describe('AqlEditor', () => {
       return (
         <AqlEditor
           query={query}
-          backendPreference="auto"
+          target={{
+            locator: { type: 'query', query },
+            backend_preference: 'auto',
+          }}
           onChange={setQuery}
         />
       );

@@ -6,18 +6,16 @@ import {
 } from './workflowModel';
 
 /** 默认模板的工作流名称。 */
-export const DEFAULT_WORKFLOW_NAME = '向已打开的记事本填写文本';
+export const DEFAULT_WORKFLOW_NAME = '启动或唤醒 Notepad++ 并打开帮助菜单';
 
 /** 默认模板不制造未被动作消费的演示变量。 */
 export const DEFAULT_WORKFLOW_VARIABLES = {} as const satisfies JsonObject;
 
 /** 默认选中真实可配置的 UI 自动化节点。 */
-export const DEFAULT_SELECTED_NODE_ID = 'fill_notepad_1';
+export const DEFAULT_SELECTED_NODE_ID = 'open_notepadpp_search_1';
 
 /**
- * 可直接理解和继续配置的线性示例：用户先打开记事本，流程定位其文档区域并填写文本。
- *
- * 模板不包含无业务来源的条件分支，也不假装具备尚未实现的“启动应用”动作。
+ * 可直接执行的线性示例：复用并恢复 Notepad++，或在不存在时启动它，再通过 UIA 打开帮助菜单。
  */
 export const DEFAULT_NODES = [
   {
@@ -34,20 +32,25 @@ export const DEFAULT_NODES = [
     size: { ...WORKFLOW_NODE_SIZES.action },
     data: {
       kind: 'action',
-      label: '填写记事本',
+      label: '唤醒 Notepad++',
       action: {
-        type: 'set_value',
+        type: 'click',
         target: {
           locator: {
-            type: 'query',
+            type: 'application_query',
+            application: {
+              executable_path: 'C:\\Program Files\\Notepad++\\notepad++.exe',
+              arguments: [],
+              window_title: { type: 'contains', value: 'Notepad++' },
+              launch_timeout_ms: 10_000,
+            },
             query: {
               language_version: 1,
-              source: 'first(window(name contains "记事本") >> document())',
+              source: 'first(window(name contains "Notepad++") >> menu_item(name = "?"))',
             },
           },
           backend_preference: 'windows_uia',
         },
-        value: '你好，这段文字由 ArgusFlow 自动填写。',
       },
       runState: 'idle',
     },
@@ -60,7 +63,7 @@ export const DEFAULT_NODES = [
     data: {
       kind: 'log',
       label: '记录结果',
-      message: '已完成记事本内容填写',
+      message: '已唤醒 Notepad++ 并通过 UIA 打开帮助菜单',
       runState: 'idle',
     },
   },
@@ -76,13 +79,13 @@ export const DEFAULT_NODES = [
 /** 默认模板只包含一条可追踪的实际执行路径。 */
 export const DEFAULT_EDGES = [
   {
-    id: 'edge_start_fill',
+    id: 'edge_start_open_notepadpp',
     source: { nodeId: 'start_1', side: 'right' },
     target: { nodeId: DEFAULT_SELECTED_NODE_ID, side: 'left' },
     data: { branch: null },
   },
   {
-    id: 'edge_fill_log',
+    id: 'edge_open_notepadpp_log',
     source: { nodeId: DEFAULT_SELECTED_NODE_ID, side: 'right' },
     target: { nodeId: 'log_result_1', side: 'left' },
     data: { branch: null },

@@ -17,9 +17,6 @@ type WasmLanguageModule = Readonly<{
   code_actions: (source: string) => readonly TextEdit[];
 }>;
 
-/** 生成后的 WASM/JS 位于 Vite public 目录，由显式构建脚本产生。 */
-const WASM_MODULE_URL = '/aql-wasm/argusflow_query_wasm.js';
-
 /** 复用唯一初始化 Promise，避免多个编辑器重复实例化 WASM。 */
 let languageServicePromise: Promise<AqlLanguageService> | null = null;
 
@@ -35,8 +32,8 @@ export function resetAqlLanguageService(): void {
 }
 
 async function loadWasmModule(): Promise<AqlLanguageService> {
-  // Vite 不应在前端构建阶段解析由 Rust 构建脚本生成的模块。
-  const loadedModule = await import(/* @vite-ignore */ WASM_MODULE_URL) as WasmLanguageModule;
+  // 生成模块必须进入 Vite 源码图，才能在开发和生产构建中正确处理其 WASM URL。
+  const loadedModule = await import('../generated/argusflow_query_wasm.js') as WasmLanguageModule;
   await loadedModule.default();
 
   return {

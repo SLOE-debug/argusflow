@@ -18,7 +18,7 @@ import type {
 import type {
   AqlDiagnostic,
   AqlQuery,
-  BackendPreference,
+  AutomationTarget,
   EditorRange,
 } from '../../workflow/contracts';
 import { useAqlInspection } from '../../workflow/useAqlInspection';
@@ -44,8 +44,8 @@ import { PlanExplanation } from './PlanExplanation';
 type AqlEditorProps = Readonly<{
   /** 当前节点持久化的版本化 AQL。 */
   query: AqlQuery;
-  /** 只作为 Runtime Planner 的高级约束。 */
-  backendPreference: BackendPreference;
+  /** Runtime Planner 使用的完整目标作用域与后端约束。 */
+  target: AutomationTarget;
   /** 写回节点的 AQL 源码。 */
   onChange: (query: AqlQuery) => void;
 }>;
@@ -53,11 +53,11 @@ type AqlEditorProps = Readonly<{
 type ScrollPosition = Readonly<{ left: number; top: number }>;
 
 /** 基于 textarea 输入层与 Rust WASM 语言服务的自研 AQL Editor。 */
-export function AqlEditor({ query, backendPreference, onChange }: AqlEditorProps) {
+export function AqlEditor({ query, target, onChange }: AqlEditorProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const historyRef = useRef(new EditorHistory());
   const composingRef = useRef(false);
-  const plannerState = useAqlInspection(query, backendPreference);
+  const plannerState = useAqlInspection(target);
   const languageState = useLanguageDocument(query.source);
   const [selection, setSelection] = useState<EditorSelection>({ anchor: 0, head: 0 });
   const [scroll, setScroll] = useState<ScrollPosition>({ left: 0, top: 0 });

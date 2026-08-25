@@ -1,6 +1,11 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    path::Path,
+};
 
-use argusflow_core::{ConditionBranch, TargetLocator, WorkflowDefinition, WorkflowNodeKind};
+use argusflow_core::{
+    ApplicationTarget, ConditionBranch, TargetLocator, WorkflowDefinition, WorkflowNodeKind,
+};
 use argusflow_query::parse_stored_query;
 use serde::{Deserialize, Serialize};
 
@@ -30,7 +35,7 @@ pub struct ValidationIssue {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ValidationIssueCode {
-    /// schema 版本不是 2。
+    /// schema 版本不是 3。
     UnsupportedSchemaVersion,
     /// 工作流名称为空。
     EmptyWorkflowName,
@@ -70,15 +75,17 @@ pub enum ValidationIssueCode {
     InvalidDelay,
     /// Action 节点携带的 AQL 无法解析或通过语义检查。
     InvalidAqlQuery,
+    /// 应用内查询缺少有效的 EXE、窗口标题或启动超时配置。
+    InvalidApplicationTarget,
 }
 
-/// 校验 schema v2 条件 DAG、节点参数和分支契约。
+/// 校验 schema v3 条件 DAG、节点参数和分支契约。
 pub fn validate_workflow(workflow: &WorkflowDefinition) -> ValidationReport {
     let mut issues = Vec::new();
-    if workflow.schema_version != 2 {
+    if workflow.schema_version != 3 {
         issues.push(issue(
             ValidationIssueCode::UnsupportedSchemaVersion,
-            "schema_version 必须为 2",
+            "schema_version 必须为 3",
             None,
             None,
         ));
@@ -153,24 +160,16 @@ pub fn validate_workflow(workflow: &WorkflowDefinition) -> ValidationReport {
                     ));
                 }
             }
-            WorkflowNodeKind::Action { action } => {
-                if let TargetLocator::Query { query } = &action.target().locator
-                    && let Err(error) = parse_stored_query(query)
-                {
-                    // 同时保留稳定问题码和精确 AQL 行列，供编辑器定位到节点后展示源码诊断。
-                    let help = error
-                        .help
-                        .as_deref()
-                        .map(|help| format!("；建议：{help}"))
-                        .unwrap_or_default();
-                    issues.push(issue(
-                        ValidationIssueCode::InvalidAqlQuery,
-                        format!("AQL 查询无效：{error}{help}"),
-                        Some(node.id.clone()),
-                        None,
-                    ));
+            WorkflowNodeKind::Action { action } => match &action.target().locator {
+                TargetLocator::Query { query } => {
+                    validate_aql_query(query, &node.id, &mut issues);
                 }
-            }
+                TargetLocator::ApplicationQuery { application, query } => {
+                    validate_application_target(application, &node.id, &mut issues);
+                    validate_aql_query(query, &node.id, &mut issues);
+                }
+                TargetLocator::Visual { .. } | TargetLocator::Coordinate { .. } => {}
+            },
         }
     }
     if start_ids.len() != 1 {
@@ -192,18 +191,12 @@ pub fn validate_workflow(workflow: &WorkflowDefinition) -> ValidationReport {
 
     let mut edge_ids = HashSet::new();
     let mut incoming: HashMap<String, usize> = node_ids.iter().map(|id| (id.clone(), 0)).collect();
-    let mut outgoing: HashMap<String, Vec<&argusflow_core::WorkflowEdge>> = node_ids
-        .iter()
-        .map(|id| (id.clone(), Vec::new()))
-        .collect();
-    let mut adjacency: HashMap<String, Vec<String>> = node_ids
-        .iter()
-        .map(|id| (id.clone(), Vec::new()))
-        .collect();
-    let mut reverse: HashMap<String, Vec<String>> = node_ids
-        .iter()
-        .map(|id| (id.clone(), Vec::new()))
-        .collect();
+    let mut outgoing: HashMap<String, Vec<&argusflow_core::WorkflowEdge>> =
+        node_ids.iter().map(|id| (id.clone(), Vec::new())).collect();
+    let mut adjacency: HashMap<String, Vec<String>> =
+        node_ids.iter().map(|id| (id.clone(), Vec::new())).collect();
+    let mut reverse: HashMap<String, Vec<String>> =
+        node_ids.iter().map(|id| (id.clone(), Vec::new())).collect();
     for edge in &workflow.edges {
         if edge.id.trim().is_empty() {
             issues.push(issue(
@@ -252,7 +245,10 @@ pub fn validate_workflow(workflow: &WorkflowDefinition) -> ValidationReport {
 
     for node in &workflow.nodes {
         let incoming_count = incoming.get(&node.id).copied().unwrap_or_default();
-        let node_edges = outgoing.get(&node.id).map(Vec::as_slice).unwrap_or_default();
+        let node_edges = outgoing
+            .get(&node.id)
+            .map(Vec::as_slice)
+            .unwrap_or_default();
         let valid_degree = match &node.kind {
             WorkflowNodeKind::Start => incoming_count == 0 && node_edges.len() == 1,
             WorkflowNodeKind::End => incoming_count >= 1 && node_edges.is_empty(),
@@ -324,6 +320,60 @@ pub fn validate_workflow(workflow: &WorkflowDefinition) -> ValidationReport {
     ValidationReport {
         valid: issues.is_empty(),
         issues,
+    }
+}
+
+/// 保留恢复 parser 的精确 AQL 行列和修复建议。
+fn validate_aql_query(
+    query: &argusflow_core::AqlQuery,
+    node_id: &str,
+    issues: &mut Vec<ValidationIssue>,
+) {
+    let Err(error) = parse_stored_query(query) else {
+        return;
+    };
+    let help = error
+        .help
+        .as_deref()
+        .map(|help| format!("；建议：{help}"))
+        .unwrap_or_default();
+    issues.push(issue(
+        ValidationIssueCode::InvalidAqlQuery,
+        format!("AQL 查询无效：{error}{help}"),
+        Some(node_id.to_owned()),
+        None,
+    ));
+}
+
+/// 在运行前拒绝无法形成确定应用身份和等待边界的配置。
+fn validate_application_target(
+    application: &ApplicationTarget,
+    node_id: &str,
+    issues: &mut Vec<ValidationIssue>,
+) {
+    if !Path::new(application.executable_path.trim()).is_absolute() {
+        issues.push(issue(
+            ValidationIssueCode::InvalidApplicationTarget,
+            "应用 EXE 必须使用绝对路径",
+            Some(node_id.to_owned()),
+            None,
+        ));
+    }
+    if application.window_title.value().trim().is_empty() {
+        issues.push(issue(
+            ValidationIssueCode::InvalidApplicationTarget,
+            "应用窗口标题匹配文本不能为空",
+            Some(node_id.to_owned()),
+            None,
+        ));
+    }
+    if !(100..=60_000).contains(&application.launch_timeout_ms) {
+        issues.push(issue(
+            ValidationIssueCode::InvalidApplicationTarget,
+            "应用启动超时必须在 100 到 60000 毫秒之间",
+            Some(node_id.to_owned()),
+            None,
+        ));
     }
 }
 

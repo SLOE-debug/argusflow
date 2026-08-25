@@ -1,7 +1,7 @@
 //! AQL 编辑器使用的语言检查与真实 Runtime Planner Explain 命令。
 
 use argusflow_agent::PlanningReport;
-use argusflow_core::{AqlQuery, AutomationAction, AutomationTarget, BackendPreference};
+use argusflow_core::{AutomationAction, AutomationTarget, TargetLocator};
 use argusflow_query::{Diagnostic, QueryPortability, analyze_query, parse_document};
 use serde::Serialize;
 use tauri::State;
@@ -32,20 +32,20 @@ pub enum AqlInspection {
 
 #[tauri::command]
 /// 检查持久化 AQL，并让 Runtime Planner 基于当前上下文准备真实候选。
-pub fn inspect_aql(
-    state: State<'_, AppState>,
-    query: AqlQuery,
-    backend_preference: BackendPreference,
-) -> AqlInspection {
-    inspect_with_router(state.inner(), query, backend_preference)
+pub fn inspect_aql(state: State<'_, AppState>, target: AutomationTarget) -> AqlInspection {
+    inspect_with_router(state.inner(), target)
 }
 
 /// 从共享 Router 生成检查结果，保持 Tauri adapter 只负责参数装配。
-fn inspect_with_router(
-    state: &AppState,
-    query: AqlQuery,
-    backend_preference: BackendPreference,
-) -> AqlInspection {
+fn inspect_with_router(state: &AppState, target: AutomationTarget) -> AqlInspection {
+    let query = match &target.locator {
+        TargetLocator::Query { query } | TargetLocator::ApplicationQuery { query, .. } => query,
+        TargetLocator::Visual { .. } | TargetLocator::Coordinate { .. } => {
+            return AqlInspection::Invalid {
+                diagnostics: Vec::new(),
+            };
+        }
+    };
     let document = parse_document(&query.source);
     let Some(parsed) = document.hir else {
         return AqlInspection::Invalid {
@@ -53,14 +53,7 @@ fn inspect_with_router(
         };
     };
     let analysis = analyze_query(&parsed);
-    let action = AutomationAction::Click {
-        target: AutomationTarget {
-            locator: argusflow_core::TargetLocator::Query {
-                query: query.clone(),
-            },
-            backend_preference,
-        },
-    };
+    let action = AutomationAction::Click { target };
     let planning = state.router.inspect_current(&action);
 
     AqlInspection::Valid {

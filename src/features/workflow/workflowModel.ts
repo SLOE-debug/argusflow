@@ -81,10 +81,10 @@ export function createEdge(source: string, target: string, nodes: ReadonlyArray<
   return { id: `edge-${crypto.randomUUID()}`, source: { nodeId: source, side: sourceSide }, target: { nodeId: target, side: targetSide }, data: { branch } };
 }
 
-/** 将画布状态转换为后端 schema v2 契约。 */
+/** 将画布状态转换为后端 schema v3 契约。 */
 export function toWorkflowDefinition(workflowId: string, name: string, variables: JsonObject, nodes: ReadonlyArray<WorkflowCanvasNode>, edges: ReadonlyArray<WorkflowCanvasEdge>): WorkflowDefinition {
   return {
-    schema_version: 2,
+    schema_version: 3,
     id: workflowId,
     name,
     variables,
@@ -97,7 +97,7 @@ export function toWorkflowDefinition(workflowId: string, name: string, variables
 export function applyExecutionEventToNodes(nodes: ReadonlyArray<WorkflowCanvasNode>, event: ExecutionEvent): WorkflowCanvasNode[] {
   if (event.kind === 'workflow_started') return nodes.map((node) => ({ ...node, data: { ...node.data, runState: 'idle', invalid: false } }));
   const runState = event.kind === 'node_started' ? 'running' : event.kind === 'node_succeeded' ? 'success' : event.kind === 'node_failed' ? 'error' : null;
-  if (!event.node_id || !runState) return nodes;
+  if (!event.node_id || !runState) return [...nodes];
   return nodes.map((node) => node.id === event.node_id ? { ...node, data: { ...node.data, runState } } : node);
 }
 

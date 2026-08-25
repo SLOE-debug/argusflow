@@ -6,14 +6,14 @@ use argusflow_core::{
     AqlQuery, AutomationAction, AutomationTarget, Position, WorkflowDefinition, WorkflowEdge,
     WorkflowNode, WorkflowNodeKind,
 };
-use uuid::Uuid;
 use serde_json::json;
+use uuid::Uuid;
 
 #[test]
 fn workflow_contract_round_trips_through_json() {
     // 使用包含动作选择器和多条连线的最小完整工作流，覆盖扁平化节点类型及嵌套枚举。
     let workflow = WorkflowDefinition {
-        schema_version: 2,
+        schema_version: 3,
         id: Uuid::new_v4(),
         name: "契约测试".to_owned(),
         variables: json!({ "enabled": true }),

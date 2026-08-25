@@ -32,7 +32,8 @@ const ACTION_KIND_OPTIONS = [
 ] as const;
 
 const LOCATOR_KIND_OPTIONS = [
-  { value: 'query', label: '智能查找（AQL）' },
+  { value: 'application_query', label: '应用内查找（启动/唤醒）' },
+  { value: 'query', label: '当前窗口查找（AQL）' },
   { value: 'visual', label: '按画面文字查找' },
   { value: 'coordinate', label: '按屏幕位置' },
 ] as const;
@@ -45,6 +46,11 @@ const BACKEND_OPTIONS = [
 
 const VISUAL_MATCH_OPTIONS = [
   { value: 'exact', label: '完全相等' },
+  { value: 'contains', label: '允许包含' },
+] as const;
+
+const WINDOW_TITLE_MATCH_OPTIONS = [
+  { value: 'equal', label: '完全相等' },
   { value: 'contains', label: '允许包含' },
 ] as const;
 
@@ -78,34 +84,13 @@ export function ActionNodeFields({ action, onChange }: ActionNodeFieldsProps) {
           onValueChange={(kind) => onChange(changeTargetLocatorKind(action, kind))}
         />
       </InspectorField>
-      {action.target.locator.type === 'query' ? (
-        <>
-          <details className="rounded-md border border-slate-200 bg-slate-50/70 px-2.5 py-2">
-            <summary className="cursor-pointer select-none text-[10px] font-medium text-slate-600">
-              高级设置
-            </summary>
-            <div className="mt-2">
-              <InspectorField label="执行方式约束">
-                <Select<BackendPreference>
-                  value={action.target.backend_preference}
-                  options={BACKEND_OPTIONS}
-                  containerClassName="border-slate-300 bg-white"
-                  onValueChange={(preference) => (
-                    onChange(changeBackendPreference(action, preference))
-                  )}
-                />
-              </InspectorField>
-            </div>
-          </details>
-          <AqlEditor
-            query={action.target.locator.query}
-            backendPreference={action.target.backend_preference}
-            onChange={(query) => onChange(changeTargetLocator(action, {
-              type: 'query',
-              query,
-            }))}
+      {action.target.locator.type === 'query'
+        || action.target.locator.type === 'application_query' ? (
+          <QueryTargetFields
+            action={action}
+            locator={action.target.locator}
+            onChange={onChange}
           />
-        </>
       ) : null}
       {action.target.locator.type === 'visual' ? (
         <VisualTargetFields
@@ -122,6 +107,137 @@ export function ActionNodeFields({ action, onChange }: ActionNodeFieldsProps) {
         />
       ) : null}
     </div>
+  );
+}
+
+/** 编辑前台窗口或显式应用作用域中的 AQL 目标。 */
+function QueryTargetFields({
+  action,
+  locator,
+  onChange,
+}: Readonly<{
+  action: AutomationAction;
+  locator: Extract<
+    AutomationAction['target']['locator'],
+    { type: 'query' | 'application_query' }
+  >;
+  onChange: (action: AutomationAction) => void;
+}>) {
+  /** 在保持查询和作用域判别字段的同时更新应用契约。 */
+  const updateApplication = (
+    application: Extract<typeof locator, { type: 'application_query' }>['application'],
+  ) => {
+    if (locator.type === 'application_query') {
+      onChange(changeTargetLocator(action, { ...locator, application }));
+    }
+  };
+
+  return (
+    <>
+      {locator.type === 'application_query' ? (
+        <div className="flex flex-col gap-2.5 rounded-md border border-blue-100 bg-blue-50/40 p-2.5">
+          <InspectorField label="应用 EXE">
+            <Input
+              aria-label="应用 EXE 绝对路径"
+              value={locator.application.executable_path}
+              containerClassName="border-slate-300 bg-white"
+              onChange={(event) => updateApplication({
+                ...locator.application,
+                executable_path: event.target.value,
+              })}
+            />
+          </InspectorField>
+          <InspectorField label="窗口标题">
+            <Input
+              aria-label="应用窗口标题"
+              value={locator.application.window_title.value}
+              containerClassName="border-slate-300 bg-white"
+              onChange={(event) => updateApplication({
+                ...locator.application,
+                window_title: {
+                  ...locator.application.window_title,
+                  value: event.target.value,
+                },
+              })}
+            />
+          </InspectorField>
+          <InspectorField label="标题匹配">
+            <Select<'equal' | 'contains'>
+              value={locator.application.window_title.type}
+              options={WINDOW_TITLE_MATCH_OPTIONS}
+              containerClassName="border-slate-300 bg-white"
+              onValueChange={(type) => updateApplication({
+                ...locator.application,
+                window_title: {
+                  type,
+                  value: locator.application.window_title.value,
+                },
+              })}
+            />
+          </InspectorField>
+          <InspectorField label="启动参数">
+            <Textarea
+              aria-label="应用启动参数"
+              className="h-[58px] resize-y border-slate-300 bg-white leading-[18px]"
+              value={locator.application.arguments.join('\n')}
+              onChange={(event) => updateApplication({
+                ...locator.application,
+                arguments: event.target.value
+                  .split('\n')
+                  .map((argument) => argument.trim())
+                  .filter(Boolean),
+              })}
+            />
+          </InspectorField>
+          <InspectorField label="启动超时">
+            <Input
+              aria-label="应用启动超时毫秒"
+              type="number"
+              min={100}
+              max={60_000}
+              value={locator.application.launch_timeout_ms}
+              containerClassName="border-slate-300 bg-white"
+              onChange={(event) => updateApplication({
+                ...locator.application,
+                launch_timeout_ms: Number(event.target.value),
+              })}
+            />
+          </InspectorField>
+          <p className={INSPECTOR_HELP_CLASS_NAME}>
+            已运行时恢复并激活唯一匹配窗口；未运行时直接启动 EXE 并等待窗口。
+          </p>
+        </div>
+      ) : null}
+      <details className="rounded-md border border-slate-200 bg-slate-50/70 px-2.5 py-2">
+        <summary className="cursor-pointer select-none text-[10px] font-medium text-slate-600">
+          高级设置
+        </summary>
+        <div className="mt-2">
+          {locator.type === 'query' ? (
+            <InspectorField label="执行方式约束">
+              <Select<BackendPreference>
+                value={action.target.backend_preference}
+                options={BACKEND_OPTIONS}
+                containerClassName="border-slate-300 bg-white"
+                onValueChange={(preference) => (
+                  onChange(changeBackendPreference(action, preference))
+                )}
+              />
+            </InspectorField>
+          ) : (
+            <p className={INSPECTOR_HELP_CLASS_NAME}>应用生命周期目标固定使用 Windows UIA。</p>
+          )}
+        </div>
+      </details>
+      <AqlEditor
+        query={locator.query}
+        target={action.target}
+        onChange={(query) => onChange(changeTargetLocator(action, {
+          ...locator,
+          query,
+        }))}
+      />
+    </>
   );
 }
 

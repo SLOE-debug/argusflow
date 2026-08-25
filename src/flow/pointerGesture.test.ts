@@ -4,9 +4,10 @@ import { createAnimationFrameCoalescer } from './pointerGesture';
 
 describe('animation frame coalescer', () => {
   it('applies only the latest value once per animation frame', () => {
-    let frameCallback: FrameRequestCallback | null = null;
+    /** 通过可变对象跨 mock 回调保存浏览器安排的帧函数。 */
+    const pendingFrame: { callback: FrameRequestCallback | null } = { callback: null };
     vi.stubGlobal('requestAnimationFrame', vi.fn((callback: FrameRequestCallback) => {
-      frameCallback = callback;
+      pendingFrame.callback = callback;
       return 1;
     }));
     vi.stubGlobal('cancelAnimationFrame', vi.fn());
@@ -19,7 +20,7 @@ describe('animation frame coalescer', () => {
 
     expect(requestAnimationFrame).toHaveBeenCalledOnce();
     expect(apply).not.toHaveBeenCalled();
-    frameCallback?.(16);
+    pendingFrame.callback?.(16);
     expect(apply).toHaveBeenCalledOnce();
     expect(apply).toHaveBeenCalledWith(3);
 

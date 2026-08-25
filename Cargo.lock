@@ -114,6 +114,7 @@ dependencies = [
  "argusflow-query",
  "serde",
  "serde-wasm-bindgen",
+ "uuid",
  "wasm-bindgen",
 ]
 

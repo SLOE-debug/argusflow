@@ -46,7 +46,7 @@ cargo install wasm-bindgen-cli --version 0.2.127
 pnpm build:aql-wasm
 ```
 
-生成物位于 `public/aql-wasm`，属于本地构建产物，不提交到仓库。
+生成物位于 `src/features/aql-editor/generated`，属于本地构建产物，不提交到仓库，并由 Vite 作为源码模块处理。
 
 一键启动 Tauri 与 Vite：
 

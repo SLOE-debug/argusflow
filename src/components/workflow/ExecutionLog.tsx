@@ -1,4 +1,4 @@
-import { CircleCheck } from 'lucide-react';
+import { CircleCheck, Copy } from 'lucide-react';
 
 import type {
   ExecutionEvent,
@@ -26,6 +26,9 @@ const eventTone = {
 
 /** 展示执行事件流及结构校验问题。 */
 export function ExecutionLog({ events, report }: ExecutionLogProps) {
+  /** 复制时保留序号、事件类别、节点和完整消息，便于直接提交故障信息。 */
+  const completeLog = events.map(formatEvent).join('\n');
+
   return (
     <section
       className={
@@ -38,7 +41,19 @@ export function ExecutionLog({ events, report }: ExecutionLogProps) {
           <h2 className="text-[10px] font-semibold text-slate-500">
             执行日志
           </h2>
-          <span className="text-[11px] text-slate-400">{events.length} events</span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] text-slate-400">{events.length} events</span>
+            <button
+              type="button"
+              aria-label="复制完整执行日志"
+              className="flex size-5 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+              disabled={events.length === 0}
+              onClick={() => void navigator.clipboard.writeText(completeLog)}
+              title="复制完整执行日志"
+            >
+              <Copy className="size-3" aria-hidden="true" />
+            </button>
+          </div>
         </div>
         <div className="space-y-0.5 overflow-y-auto font-mono text-[10px] leading-4">
           {events.length === 0 && (
@@ -47,7 +62,7 @@ export function ExecutionLog({ events, report }: ExecutionLogProps) {
           {events.map((event) => (
             <div
               key={`${event.run_id}-${event.sequence}`}
-              className="flex gap-2"
+              className="flex items-start gap-2"
             >
               <span className="w-6 shrink-0 text-right text-slate-400">
                 {String(event.sequence).padStart(2, '0')}
@@ -55,7 +70,7 @@ export function ExecutionLog({ events, report }: ExecutionLogProps) {
               <span className={`w-[124px] shrink-0 ${eventTone[event.kind]}`}>
                 {event.kind}
               </span>
-              <span className="truncate text-slate-600">
+              <span className="min-w-0 select-text whitespace-pre-wrap break-all text-slate-600">
                 {event.node_id ? `[${event.node_id}] ` : ''}
                 {event.message ?? ''}
               </span>
@@ -88,4 +103,11 @@ export function ExecutionLog({ events, report }: ExecutionLogProps) {
       </div>
     </section>
   );
+}
+
+/** 把单条事件格式化为不丢字段的可复制文本行。 */
+function formatEvent(event: ExecutionEvent): string {
+  const sequence = String(event.sequence).padStart(2, '0');
+  const node = event.node_id ? `[${event.node_id}] ` : '';
+  return `${sequence} ${event.kind} ${node}${event.message ?? ''}`;
 }

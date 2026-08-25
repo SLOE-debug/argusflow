@@ -2,8 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 
 import type {
   AqlInspection,
-  AqlQuery,
-  BackendPreference,
+  AutomationTarget,
   BackendCommandErrorCode,
   CommandError,
   RunStarted,
@@ -23,10 +22,9 @@ export function isDesktopRuntime(): boolean {
 
 /** 请求 Runtime Planner 基于当前执行上下文生成只读 AQL Explain。 */
 export function inspectAql(
-  query: AqlQuery,
-  backendPreference: BackendPreference,
+  target: AutomationTarget,
 ): Promise<AqlInspection> {
-  return invoke<AqlInspection>('inspect_aql', { query, backendPreference });
+  return invoke<AqlInspection>('inspect_aql', { target });
 }
 
 /** 请求后端校验工作流结构，并返回可定位到节点或边的问题。 */

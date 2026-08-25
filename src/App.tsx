@@ -35,8 +35,8 @@ export default function App() {
   const [libraryOpen, setLibraryOpen] = useState(true);
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [consoleOpen, setConsoleOpen] = useState(true);
-  const [libraryWidth, setLibraryWidth] = useState(LIBRARY_PANEL_WIDTH.default);
-  const [inspectorWidth, setInspectorWidth] = useState(INSPECTOR_PANEL_WIDTH.default);
+  const [libraryWidth, setLibraryWidth] = useState<number>(LIBRARY_PANEL_WIDTH.default);
+  const [inspectorWidth, setInspectorWidth] = useState<number>(INSPECTOR_PANEL_WIDTH.default);
   const [appView, setAppView] = useState<AppView>('editor');
 
   useEffect(() => {

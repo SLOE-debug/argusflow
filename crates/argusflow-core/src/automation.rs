@@ -67,6 +67,13 @@ pub enum TargetLocator {
         /// 持久化的 AQL 源码与独立语言版本。
         query: AqlQuery,
     },
+    /// 确保指定 Windows 应用可交互后，在其顶层窗口内执行 AQL。
+    ApplicationQuery {
+        /// 用于复用现有进程或显式启动进程的应用契约。
+        application: ApplicationTarget,
+        /// 在已确定应用窗口内部执行的 AQL。
+        query: AqlQuery,
+    },
     /// 通过 OCR 或视觉模型描述目标。
     Visual {
         /// 视觉后端使用的查询条件。
@@ -77,6 +84,44 @@ pub enum TargetLocator {
         /// 目标屏幕点。
         point: ScreenPoint,
     },
+}
+
+/// UIA 动作执行前需要定位、恢复或启动的 Windows 应用。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApplicationTarget {
+    /// 进程身份与启动命令共同使用的绝对 EXE 路径。
+    pub executable_path: String,
+    /// 直接传给 EXE 的参数列表，不经过 shell 解析。
+    pub arguments: Vec<String>,
+    /// 从同一 EXE 的顶层窗口中筛选唯一目标的标题规则。
+    pub window_title: WindowTitleMatcher,
+    /// 启动后等待可交互顶层窗口的最长毫秒数。
+    pub launch_timeout_ms: u64,
+}
+
+/// 顶层应用窗口标题的强类型匹配规则。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum WindowTitleMatcher {
+    /// 窗口标题必须与配置值完全相等，忽略 Unicode 大小写。
+    Equal {
+        /// 用于匹配窗口标题的非空文本。
+        value: String,
+    },
+    /// 窗口标题必须包含配置值，忽略 Unicode 大小写。
+    Contains {
+        /// 用于匹配窗口标题的非空片段。
+        value: String,
+    },
+}
+
+impl WindowTitleMatcher {
+    /// 返回匹配器携带的只读文本。
+    pub fn value(&self) -> &str {
+        match self {
+            Self::Equal { value } | Self::Contains { value } => value,
+        }
+    }
 }
 
 /// 视觉/OCR 后端使用的显式目标描述。

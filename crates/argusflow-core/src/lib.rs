@@ -10,8 +10,8 @@ mod query;
 mod workflow;
 
 pub use automation::{
-    ActionOutcome, AutomationAction, AutomationTarget, BackendKind, BackendPreference, ScreenPoint,
-    TargetLocator, VisualQuery,
+    ActionOutcome, ApplicationTarget, AutomationAction, AutomationTarget, BackendKind,
+    BackendPreference, ScreenPoint, TargetLocator, VisualQuery, WindowTitleMatcher,
 };
 pub use condition::{ConditionEvaluationError, ConditionOperator, ConditionPredicate};
 pub use error::AutomationError;

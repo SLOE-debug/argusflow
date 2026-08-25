@@ -9,11 +9,14 @@ use std::{
 };
 
 use argusflow_agent::WindowContext;
-use windows::Win32::{
-    Foundation::{BOOL, HWND, LPARAM, WPARAM},
-    UI::WindowsAndMessaging::{
-        EnumWindows, GetWindowThreadProcessId, IsWindowVisible, PostMessageW, WM_CLOSE,
+use windows::{
+    Win32::{
+        Foundation::{HWND, LPARAM, WPARAM},
+        UI::WindowsAndMessaging::{
+            EnumWindows, GetWindowThreadProcessId, IsWindowVisible, PostMessageW, WM_CLOSE,
+        },
     },
+    core::BOOL,
 };
 
 use super::uia_dump::dump_control_view;

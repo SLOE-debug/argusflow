@@ -171,6 +171,8 @@ function resolveNodeDetail(data: WorkflowNodeData): string {
 /** 将目标定位类别压缩为卡片可读文案。 */
 function locatorLabel(locator: TargetLocatorKind): string {
   switch (locator) {
+    case 'application_query':
+      return '应用 AQL';
     case 'query':
       return 'AQL';
     case 'visual':

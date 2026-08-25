@@ -8,7 +8,7 @@
     "start": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/dev.ps1",
     "build:aql-wasm": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/build-aql-wasm.ps1",
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "pnpm build:aql-wasm && tsc -b && vite build",
     "tauri": "tauri",
     "test": "vitest run",
     "test:watch": "vitest"
