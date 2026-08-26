@@ -1,7 +1,8 @@
 use argusflow_core::{ElementMatcher, MatchOperator, QueryExpr, SelectorAttribute, UiQuery};
 use argusflow_query::{
-    BackendQueryCapability, BranchPath, Diagnostic, DiagnosticCode, DiagnosticSeverity,
-    QueryBackend, QueryCost, SupportLevel, normalize_query,
+    AlternativeBudgetExceeded, AlternativeExpansionBudget, BackendQueryCapability, BranchPath,
+    Diagnostic, DiagnosticCode, DiagnosticSeverity, QueryBackend, QueryCost, SupportLevel,
+    normalize_query,
 };
 use thiserror::Error;
 
@@ -13,6 +14,9 @@ pub enum CdpQueryCompileError {
     /// 查询没有任何可由 CDP 保持语义的分支。
     #[error("AQL query has no branch that Chrome DevTools Protocol can execute")]
     UnsupportedQuery,
+    /// 查询替代方案组合超过 compiler 的稳定物化上限。
+    #[error(transparent)]
+    AlternativeLimitExceeded(#[from] AlternativeBudgetExceeded),
 }
 
 /// 单棵 CDP 表达式及由真实编译结果推导的摘要。
@@ -33,7 +37,10 @@ struct CompiledExpression {
 /// 将查询编译为彼此独立的 CDP fallback 替代方案。
 pub fn compile_cdp_query(query: &UiQuery) -> Result<Vec<CdpQueryPlan>, CdpQueryCompileError> {
     let normalized = normalize_query(query);
-    let alternatives = compile_expression(&normalized.expression)?;
+    let alternatives = compile_expression(
+        &normalized.expression,
+        AlternativeExpansionBudget::default(),
+    )?;
     Ok(alternatives
         .into_iter()
         .map(|compiled| CdpQueryPlan {
@@ -53,32 +60,33 @@ pub fn compile_cdp_query(query: &UiQuery) -> Result<Vec<CdpQueryPlan>, CdpQueryC
 /// 递归展开 Query Algebra，确保每个结果只对应一个完整 fallback 路径。
 fn compile_expression(
     expression: &QueryExpr,
+    budget: AlternativeExpansionBudget,
 ) -> Result<Vec<CompiledExpression>, CdpQueryCompileError> {
     match expression {
         QueryExpr::Match { matcher } => compile_matcher(matcher).map(|compiled| vec![compiled]),
         QueryExpr::Descendant { ancestor, target } => {
-            let ancestor = compile_expression(ancestor)?;
-            let target = compile_expression(target)?;
-            Ok(emulated_binary(ancestor, target, |ancestor, target| {
+            let ancestor = compile_expression(ancestor, budget)?;
+            let target = compile_expression(target, budget)?;
+            emulated_binary(ancestor, target, budget, |ancestor, target| {
                 CdpPlanExpr::Descendant {
                     ancestor: Box::new(ancestor),
                     target: Box::new(target),
                 }
-            }))
+            })
         }
         QueryExpr::Child { parent, target } => {
-            let parent = compile_expression(parent)?;
-            let target = compile_expression(target)?;
-            Ok(emulated_binary(parent, target, |parent, target| {
+            let parent = compile_expression(parent, budget)?;
+            let target = compile_expression(target, budget)?;
+            emulated_binary(parent, target, budget, |parent, target| {
                 CdpPlanExpr::Child {
                     parent: Box::new(parent),
                     target: Box::new(target),
                 }
-            }))
+            })
         }
-        QueryExpr::Any { queries } => compile_any(queries),
+        QueryExpr::Any { queries } => compile_any(queries, budget),
         QueryExpr::Not { query } => {
-            let alternatives = compile_expression(query)?;
+            let alternatives = compile_expression(query, budget)?;
             Ok(alternatives
                 .into_iter()
                 .map(|compiled| {
@@ -91,7 +99,7 @@ fn compile_expression(
                 .collect())
         }
         QueryExpr::First { query } => {
-            let alternatives = compile_expression(query)?;
+            let alternatives = compile_expression(query, budget)?;
             Ok(alternatives
                 .into_iter()
                 .map(|compiled| CompiledExpression {
@@ -104,7 +112,7 @@ fn compile_expression(
                 .collect())
         }
         QueryExpr::Nth { query, index } => {
-            let alternatives = compile_expression(query)?;
+            let alternatives = compile_expression(query, budget)?;
             Ok(alternatives
                 .into_iter()
                 .map(|compiled| CompiledExpression {
@@ -200,12 +208,18 @@ fn compile_matcher(matcher: &ElementMatcher) -> Result<CompiledExpression, CdpQu
 }
 
 /// 展开 `any` 的每条可执行分支，并把原始索引前缀写入每个独立替代方案。
-fn compile_any(queries: &[QueryExpr]) -> Result<Vec<CompiledExpression>, CdpQueryCompileError> {
+fn compile_any(
+    queries: &[QueryExpr],
+    budget: AlternativeExpansionBudget,
+) -> Result<Vec<CompiledExpression>, CdpQueryCompileError> {
     let mut alternatives = Vec::new();
     for (branch_index, query) in queries.iter().enumerate() {
-        let Ok(branch_alternatives) = compile_expression(query) else {
-            continue;
+        let branch_alternatives = match compile_expression(query, budget) {
+            Ok(branch_alternatives) => branch_alternatives,
+            Err(CdpQueryCompileError::UnsupportedQuery) => continue,
+            Err(error) => return Err(error),
         };
+        budget.checked_sum(alternatives.len(), branch_alternatives.len())?;
         for mut alternative in branch_alternatives {
             alternative.branch_path.prepend(branch_index);
             alternatives.push(alternative);
@@ -221,9 +235,11 @@ fn compile_any(queries: &[QueryExpr]) -> Result<Vec<CompiledExpression>, CdpQuer
 fn emulated_binary(
     left: Vec<CompiledExpression>,
     right: Vec<CompiledExpression>,
+    budget: AlternativeExpansionBudget,
     build: impl Fn(CdpPlanExpr, CdpPlanExpr) -> CdpPlanExpr,
-) -> Vec<CompiledExpression> {
-    let mut combined = Vec::new();
+) -> Result<Vec<CompiledExpression>, CdpQueryCompileError> {
+    let capacity = budget.checked_product(left.len(), right.len())?;
+    let mut combined = Vec::with_capacity(capacity);
     for left_alternative in left {
         for right_alternative in &right {
             let mut branch_path = left_alternative.branch_path.clone();
@@ -244,7 +260,7 @@ fn emulated_binary(
             ));
         }
     }
-    combined
+    Ok(combined)
 }
 
 /// 标记需要额外树遍历或结果集合计算的计划。

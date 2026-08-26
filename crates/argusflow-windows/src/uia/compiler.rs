@@ -3,8 +3,9 @@ use argusflow_core::{
     UiQuery, UiaAttribute,
 };
 use argusflow_query::{
-    BackendQueryCapability, BranchPath, Diagnostic, DiagnosticCode, DiagnosticSeverity,
-    QueryBackend, QueryCost, SupportLevel, normalize_query,
+    AlternativeBudgetExceeded, AlternativeExpansionBudget, BackendQueryCapability, BranchPath,
+    Diagnostic, DiagnosticCode, DiagnosticSeverity, QueryBackend, QueryCost, SupportLevel,
+    normalize_query,
 };
 use thiserror::Error;
 
@@ -26,6 +27,9 @@ pub enum UiaQueryCompileError {
     /// parser 已接受的正则无法在 UIA 原生计划中预编译。
     #[error("AQL residual regular expression could not be compiled for Windows UI Automation")]
     InvalidResidualRegex,
+    /// 查询替代方案组合超过 compiler 的稳定物化上限。
+    #[error(transparent)]
+    AlternativeLimitExceeded(#[from] AlternativeBudgetExceeded),
 }
 
 /// 单棵 UIA 表达式及由真实编译结果推导的摘要。
@@ -46,7 +50,10 @@ struct CompiledExpression {
 /// 将查询编译为彼此独立的 UIA fallback 替代方案。
 pub fn compile_uia_query(query: &UiQuery) -> Result<Vec<UiaQueryPlan>, UiaQueryCompileError> {
     let normalized = normalize_query(query);
-    let alternatives = compile_expression(&normalized.expression)?;
+    let alternatives = compile_expression(
+        &normalized.expression,
+        AlternativeExpansionBudget::default(),
+    )?;
     Ok(alternatives
         .into_iter()
         .map(|compiled| UiaQueryPlan {
@@ -66,33 +73,34 @@ pub fn compile_uia_query(query: &UiQuery) -> Result<Vec<UiaQueryPlan>, UiaQueryC
 /// 递归展开 Query Algebra，确保每个结果只对应一个完整 fallback 路径。
 fn compile_expression(
     expression: &QueryExpr,
+    budget: AlternativeExpansionBudget,
 ) -> Result<Vec<CompiledExpression>, UiaQueryCompileError> {
     match expression {
         QueryExpr::Match { matcher } => compile_matcher(matcher).map(|compiled| vec![compiled]),
         QueryExpr::Descendant { ancestor, target } => {
-            let ancestor = compile_expression(ancestor)?;
-            let target = compile_expression(target)?;
-            Ok(combine_binary(ancestor, target, |ancestor, target| {
+            let ancestor = compile_expression(ancestor, budget)?;
+            let target = compile_expression(target, budget)?;
+            combine_binary(ancestor, target, budget, |ancestor, target| {
                 UiaPlanExpr::Descendant {
                     ancestor: Box::new(ancestor),
                     target: Box::new(target),
                 }
-            }))
+            })
         }
         QueryExpr::Child { parent, target } => {
-            let parent = compile_expression(parent)?;
-            let target = compile_expression(target)?;
-            Ok(combine_binary(parent, target, |parent, target| {
+            let parent = compile_expression(parent, budget)?;
+            let target = compile_expression(target, budget)?;
+            combine_binary(parent, target, budget, |parent, target| {
                 UiaPlanExpr::Child {
                     parent: Box::new(parent),
                     target: Box::new(target),
                 }
-            }))
+            })
         }
-        QueryExpr::Any { queries } => compile_any(queries),
+        QueryExpr::Any { queries } => compile_any(queries, budget),
         QueryExpr::Not { .. } => Err(UiaQueryCompileError::UnsupportedQuery),
         QueryExpr::First { query } => {
-            let alternatives = compile_expression(query)?;
+            let alternatives = compile_expression(query, budget)?;
             Ok(alternatives
                 .into_iter()
                 .map(|compiled| CompiledExpression {
@@ -105,7 +113,7 @@ fn compile_expression(
                 .collect())
         }
         QueryExpr::Nth { query, index } => {
-            let alternatives = compile_expression(query)?;
+            let alternatives = compile_expression(query, budget)?;
             Ok(alternatives
                 .into_iter()
                 .map(|compiled| CompiledExpression {
@@ -348,12 +356,18 @@ const fn is_string_property(property: UiaProperty) -> bool {
 }
 
 /// 展开 `any` 的每条可执行分支，并把原始索引前缀写入每个独立替代方案。
-fn compile_any(queries: &[QueryExpr]) -> Result<Vec<CompiledExpression>, UiaQueryCompileError> {
+fn compile_any(
+    queries: &[QueryExpr],
+    budget: AlternativeExpansionBudget,
+) -> Result<Vec<CompiledExpression>, UiaQueryCompileError> {
     let mut alternatives = Vec::new();
     for (branch_index, query) in queries.iter().enumerate() {
-        let Ok(branch_alternatives) = compile_expression(query) else {
-            continue;
+        let branch_alternatives = match compile_expression(query, budget) {
+            Ok(branch_alternatives) => branch_alternatives,
+            Err(UiaQueryCompileError::UnsupportedQuery) => continue,
+            Err(error) => return Err(error),
         };
+        budget.checked_sum(alternatives.len(), branch_alternatives.len())?;
         for mut alternative in branch_alternatives {
             alternative.branch_path.prepend(branch_index);
             alternatives.push(alternative);
@@ -369,9 +383,11 @@ fn compile_any(queries: &[QueryExpr]) -> Result<Vec<CompiledExpression>, UiaQuer
 fn combine_binary(
     left: Vec<CompiledExpression>,
     right: Vec<CompiledExpression>,
+    budget: AlternativeExpansionBudget,
     build: impl Fn(UiaPlanExpr, UiaPlanExpr) -> UiaPlanExpr,
-) -> Vec<CompiledExpression> {
-    let mut combined = Vec::new();
+) -> Result<Vec<CompiledExpression>, UiaQueryCompileError> {
+    let capacity = budget.checked_product(left.len(), right.len())?;
+    let mut combined = Vec::with_capacity(capacity);
     for left_alternative in left {
         for right_alternative in &right {
             combined.push(combine_binary_pair(
@@ -381,7 +397,7 @@ fn combine_binary(
             ));
         }
     }
-    combined
+    Ok(combined)
 }
 
 /// 合并一对已经确定分支选择的关系计划和能力摘要。

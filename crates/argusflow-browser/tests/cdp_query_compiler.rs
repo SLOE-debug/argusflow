@@ -101,6 +101,21 @@ fn compiler_splits_non_contiguous_any_branches_into_independent_paths() {
     );
 }
 
+#[test]
+fn relation_alternative_expansion_stops_at_the_hard_budget() {
+    let source = (0..13)
+        .map(|index| format!(r#"any(button(name = "A{index}"), button(name = "B{index}"))"#))
+        .collect::<Vec<_>>()
+        .join(" >> ");
+    let query = parse_query(&source).expect("bounded expansion fixture should parse");
+
+    assert!(matches!(
+        compile_cdp_query(&query),
+        Err(CdpQueryCompileError::AlternativeLimitExceeded(error))
+            if error.limit() == 4_096
+    ));
+}
+
 /// 取出不含多个可执行 fallback 的唯一 CDP 计划。
 fn compile_single(query: &argusflow_core::UiQuery) -> CdpQueryPlan {
     let mut plans = compile_cdp_query(query).expect("query should compile for CDP");

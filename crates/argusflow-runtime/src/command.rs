@@ -13,7 +13,7 @@ use tokio::{
     process::Command,
 };
 
-use crate::{NodeOutcome, RunContext, RuntimeError};
+use crate::{NodeOutcome, RunContext, RuntimeError, command_job::CommandJob};
 
 /// Command 节点准备或执行阶段的稳定错误边界。
 #[derive(Debug, Error)]
@@ -77,21 +77,28 @@ impl CommandExecutor {
             .as_ref()
             .map(|expression| context.resolve_text(expression))
             .transpose()?;
+        let deadline = tokio::time::Instant::now() + Duration::from_millis(operation.timeout_ms);
+        let job =
+            CommandJob::create().map_err(|message| CommandError::ProcessFailed { message })?;
         command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        CommandJob::configure_command(&mut command);
         let mut child = command
             .spawn()
             .map_err(|error| CommandError::ProcessFailed {
                 message: error.to_string(),
             })?;
-        let deadline = tokio::time::Instant::now() + Duration::from_millis(operation.timeout_ms);
+        if let Err(message) = job.assign_and_resume(&child) {
+            terminate_command(&job, &mut child);
+            return Err(CommandError::ProcessFailed { message }.into());
+        }
         let mut child_stdin = child.stdin.take();
         let stdout = match child.stdout.take() {
             Some(stdout) => stdout,
             None => {
-                terminate_child(&mut child).await;
+                terminate_command(&job, &mut child);
                 return Err(CommandError::ProcessFailed {
                     message: "child stdout pipe was not created".to_owned(),
                 }
@@ -101,7 +108,7 @@ impl CommandExecutor {
         let stderr = match child.stderr.take() {
             Some(stderr) => stderr,
             None => {
-                terminate_child(&mut child).await;
+                terminate_command(&job, &mut child);
                 return Err(CommandError::ProcessFailed {
                     message: "child stderr pipe was not created".to_owned(),
                 }
@@ -110,14 +117,14 @@ impl CommandExecutor {
         };
         let stdout_limit = operation.max_stdout_bytes;
         let stderr_limit = operation.max_stderr_bytes;
-        let stdout_task = tokio::spawn(read_bounded(stdout, stdout_limit));
-        let stderr_task = tokio::spawn(read_bounded(stderr, stderr_limit));
+        let mut stdout_task = tokio::spawn(read_bounded(stdout, stdout_limit));
+        let mut stderr_task = tokio::spawn(read_bounded(stderr, stderr_limit));
 
         if let Some(stdin) = stdin {
             let mut stdin_pipe = match child_stdin.take() {
                 Some(stdin_pipe) => stdin_pipe,
                 None => {
-                    terminate_child(&mut child).await;
+                    terminate_command(&job, &mut child);
                     stdout_task.abort();
                     stderr_task.abort();
                     return Err(CommandError::ProcessFailed {
@@ -130,7 +137,7 @@ impl CommandExecutor {
                 Ok(Ok(())) => {}
                 Ok(Err(error)) => {
                     drop(stdin_pipe);
-                    terminate_child(&mut child).await;
+                    terminate_command(&job, &mut child);
                     stdout_task.abort();
                     stderr_task.abort();
                     return Err(CommandError::ProcessFailed {
@@ -140,7 +147,7 @@ impl CommandExecutor {
                 }
                 Err(_) => {
                     drop(stdin_pipe);
-                    terminate_child(&mut child).await;
+                    terminate_command(&job, &mut child);
                     stdout_task.abort();
                     stderr_task.abort();
                     return Err(CommandError::Timeout {
@@ -153,19 +160,29 @@ impl CommandExecutor {
         // 显式关闭 stdin，避免等待输入结束的命令悬挂。
         drop(child_stdin);
 
-        let status = match tokio::time::timeout_at(deadline, child.wait()).await {
-            Ok(Ok(status)) => status,
+        let lifecycle = async {
+            let status = child
+                .wait()
+                .await
+                .map_err(|error| CommandError::ProcessFailed {
+                    message: error.to_string(),
+                })?;
+            // 根进程退出即终止仍存活的后代，确保继承的 stdout/stderr 写端可以关闭。
+            job.terminate();
+            let stdout = join_output(&mut stdout_task, "stdout", stdout_limit).await?;
+            let stderr = join_output(&mut stderr_task, "stderr", stderr_limit).await?;
+            Ok::<_, RuntimeError>((status, stdout, stderr))
+        };
+        let (status, stdout, stderr) = match tokio::time::timeout_at(deadline, lifecycle).await {
+            Ok(Ok(result)) => result,
             Ok(Err(error)) => {
-                terminate_child(&mut child).await;
+                terminate_command(&job, &mut child);
                 stdout_task.abort();
                 stderr_task.abort();
-                return Err(CommandError::ProcessFailed {
-                    message: error.to_string(),
-                }
-                .into());
+                return Err(error);
             }
             Err(_) => {
-                terminate_child(&mut child).await;
+                terminate_command(&job, &mut child);
                 stdout_task.abort();
                 stderr_task.abort();
                 return Err(CommandError::Timeout {
@@ -174,9 +191,6 @@ impl CommandExecutor {
                 .into());
             }
         };
-
-        let stdout = join_output(stdout_task, "stdout", stdout_limit).await?;
-        let stderr = join_output(stderr_task, "stderr", stderr_limit).await?;
         let exit_code = status.code().ok_or_else(|| CommandError::ProcessFailed {
             message: "command terminated without an exit code".to_owned(),
         })?;
@@ -198,10 +212,10 @@ impl CommandExecutor {
     }
 }
 
-/// 终止并回收没有形成成功 NodeOutcome 的子进程。
-async fn terminate_child(child: &mut tokio::process::Child) {
-    let _ = child.kill().await;
-    let _ = child.wait().await;
+/// 同步触发整个 job 与根进程终止，不在已经耗尽的节点 deadline 之后继续等待。
+fn terminate_command(job: &CommandJob, child: &mut tokio::process::Child) {
+    job.terminate();
+    let _ = child.start_kill();
 }
 
 /// 检查 WorkflowPermissions 是否覆盖命令运行器要求。
@@ -353,7 +367,7 @@ async fn read_bounded(
 
 /// 解包输出读取任务并将 I/O、Join 和上限错误映射到命令边界。
 async fn join_output(
-    task: tokio::task::JoinHandle<Result<(Vec<u8>, bool), std::io::Error>>,
+    task: &mut tokio::task::JoinHandle<Result<(Vec<u8>, bool), std::io::Error>>,
     stream: &'static str,
     limit: usize,
 ) -> Result<Vec<u8>, RuntimeError> {

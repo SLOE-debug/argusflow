@@ -2,6 +2,7 @@
 //!
 //! 本 crate 依赖 `argusflow-core` 的平台无关 AST，不依赖任何 UIA、CDP 或视觉实现。
 
+mod alternative;
 mod analyze;
 mod capability;
 mod diagnostic;
@@ -14,6 +15,9 @@ mod parser;
 mod protocol;
 mod syntax;
 
+pub use alternative::{
+    AlternativeBudgetExceeded, AlternativeExpansionBudget, MAX_COMPILED_ALTERNATIVES,
+};
 pub use analyze::{QueryAnalysis, analyze_query};
 pub use capability::{
     BackendQueryCapability, BranchPath, QueryBackend, QueryCost, QueryPortability, SupportLevel,

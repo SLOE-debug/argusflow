@@ -1,9 +1,10 @@
 use serde::{Deserialize, Serialize};
 
-/// 一次完整查询替代方案在各层 `any(...)` 中选择的分支序列。
+/// 一次完整查询替代方案在规范化 AST 各层 `any(...)` 中选择的分支序列。
 ///
-/// 路径按查询树的稳定深度优先顺序记录，并使用字典序参与全局 Planner 排序。
-/// 空路径表示查询中没有 fallback 分支。
+/// `normalize_query` 会先扁平化嵌套 `any` 并去重，因此路径不承诺保留源码树层级；
+/// 它只描述 compiler 实际消费的规范化查询树。路径按稳定深度优先顺序记录，并使用
+/// 字典序参与全局 Planner 排序。空路径表示规范化查询中没有 fallback 分支。
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Ord, PartialOrd, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct BranchPath(Vec<usize>);
@@ -14,7 +15,7 @@ impl BranchPath {
         Self(Vec::new())
     }
 
-    /// 从外到内、按查询树顺序创建一个显式分支路径。
+    /// 按规范化查询树的稳定遍历顺序创建一个显式分支路径。
     pub fn from_indices(indices: impl IntoIterator<Item = usize>) -> Self {
         Self(indices.into_iter().collect())
     }

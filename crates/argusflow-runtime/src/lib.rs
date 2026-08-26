@@ -8,6 +8,7 @@ compile_error!("ArgusFlow only supports Windows targets.");
 
 mod application;
 mod command;
+mod command_job;
 mod dispatcher;
 mod engine;
 mod error;

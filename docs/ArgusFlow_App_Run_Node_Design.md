@@ -1453,6 +1453,26 @@ environment
 accepted exit codes
 ```
 
+`timeout` 必须覆盖完整命令生命周期，而不只是根进程的 `wait()`：
+
+```text
+prepare deadline
+    ↓
+CREATE_SUSPENDED
+    ↓
+assign Windows Job Object (KILL_ON_JOB_CLOSE)
+    ↓
+resume root thread
+    ↓
+stdin write + root wait + process-tree termination + stdout/stderr drain
+    ↓
+same deadline
+```
+
+根进程退出后必须先终止 job 中仍存活的后代，再等待管道 EOF。任何 timeout 或 I/O 失败都终止整个 job，不能只 `kill()` 直接 child；否则继承 stdout/stderr 写端的后代可以让输出任务无限等待。
+
+当前 `WorkflowPermissions` 仍只是可信本地工作流中的能力声明。引入导入、分享、模板市场或远程工作流前，必须拆分为 workflow 自带的 `RequestedPermissions` 与宿主独立保存的 `HostGrantedPermissions`，运行时只能信任二者交集。
+
 ---
 
 # 22. Direct Program 应该优先于 Shell String

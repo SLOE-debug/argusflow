@@ -1243,10 +1243,14 @@ AmbiguousTarget
 跨 backend 时，compiler 删除不支持的 branch 还不够。`any` 必须在 compiler 阶段展开为独立 Planner alternative，每个候选只携带一条完整路径：
 
 ```text
-BranchPath([outer_index, nested_index, ...])
+BranchPath([normalized_any_index, relation_side_index, ...])
 ```
 
-同一 backend 支持原始 branch 0 和 branch 2、但不支持 branch 1 时，必须生成两个候选 `[0]` 与 `[2]`；禁止继续把 0 和 2 合并在同一 backend plan 内。关系表达式两侧存在 `any` 时，对两侧替代方案做笛卡尔积并按查询树顺序连接路径。动作能力也逐替代方案计算，后序不支持的角色不能拒绝可执行的前序分支。
+`BranchPath` 描述 compiler 实际消费的 normalized AST，不描述 source AST。`normalize_query` 会保持顺序地扁平化嵌套 `any` 并去重，因此 `any(A, any(B, C))` 的路径是 `[0] / [1] / [2]`，不是 `[0] / [1, 0] / [1, 1]`。
+
+同一 backend 支持规范化 branch 0 和 branch 2、但不支持 branch 1 时，必须生成两个候选 `[0]` 与 `[2]`；禁止继续把 0 和 2 合并在同一 backend plan 内。关系表达式两侧存在 `any` 时，对两侧替代方案做笛卡尔积并按查询树顺序连接路径。动作能力也逐替代方案计算，后序不支持的角色不能拒绝可执行的前序分支。
+
+替代方案物化必须受共享硬预算约束。当前 UIA/CDP compiler 的稳定上限为 `4_096`；`any` 合并前使用 `checked_add`，关系笛卡尔积前使用 `checked_mul`，溢出或超限直接返回结构化 compile error，不允许先分配再检查。
 
 Router 排序固定为：
 

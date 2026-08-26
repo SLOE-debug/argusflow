@@ -109,7 +109,7 @@ fn action_capability_rejects_only_the_unsupported_any_alternative() {
 }
 
 #[test]
-fn nested_any_uses_lexicographic_branch_paths() {
+fn nested_any_uses_flattened_normalized_branch_paths() {
     let query = parse_query(
         r#"any(
             button(uia.automation_id = "A"),
@@ -126,7 +126,7 @@ fn nested_any_uses_lexicographic_branch_paths() {
         .map(|plan| plan.capability.branch_path.as_slice())
         .collect::<Vec<_>>();
 
-    assert_eq!(paths, vec![&[0][..], &[1, 1][..]]);
+    assert_eq!(paths, vec![&[0][..], &[2][..]]);
 }
 
 #[test]
@@ -151,6 +151,21 @@ fn relation_combines_all_branch_choices_into_complete_paths() {
             .iter()
             .all(|plan| matches!(&plan.expression, UiaPlanExpr::Descendant { .. }))
     );
+}
+
+#[test]
+fn relation_alternative_expansion_stops_at_the_hard_budget() {
+    let source = (0..13)
+        .map(|index| format!(r#"any(button(name = "A{index}"), button(name = "B{index}"))"#))
+        .collect::<Vec<_>>()
+        .join(" >> ");
+    let query = parse_query(&source).expect("bounded expansion fixture should parse");
+
+    assert!(matches!(
+        compile_uia_query(&query),
+        Err(UiaQueryCompileError::AlternativeLimitExceeded(error))
+            if error.limit() == 4_096
+    ));
 }
 
 #[test]
