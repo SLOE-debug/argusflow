@@ -19,29 +19,20 @@ const node: FlowNode<WorkflowNodeData> = {
 };
 
 describe('editor title bar controls', () => {
-  it('tracks history, selection and clipboard availability', () => {
+  it('only exposes undo and redo while tracking history availability', () => {
     const store = createFlowStore<WorkflowNodeData, WorkflowEdgeData>({ nodes: [node] });
 
     render(
       <EditorToolbarControls
         store={store}
-        libraryOpen
-        inspectorOpen
-        consoleOpen={false}
-        onToggleLibrary={vi.fn()}
-        onToggleInspector={vi.fn()}
-        onToggleConsole={vi.fn()}
       />,
     );
 
     expect(screen.getByRole('button', { name: '撤销' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: '复制' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: '粘贴' })).toBeDisabled();
-
-    act(() => store.getState().selectNodes([node.id]));
-    fireEvent.click(screen.getByRole('button', { name: '复制' }));
-    expect(store.getState().clipboard?.nodes).toHaveLength(1);
-    expect(screen.getByRole('button', { name: '粘贴' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '重做' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: '复制' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '删除' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '切换节点库' })).not.toBeInTheDocument();
 
     act(() => store.getState().setNodes([]));
     expect(screen.getByRole('button', { name: '撤销' })).toBeEnabled();

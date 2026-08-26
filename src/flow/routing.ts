@@ -1,13 +1,18 @@
 import { anchorPoint, pointsBounds, rectsIntersect } from './geometry';
 import { getFlowNodeLookup } from './nodeLookup';
+import {
+  findGridPath,
+  isIndexedPathClear,
+  type RoutingObstacle,
+} from './routingPathfinder';
 import { SpatialHash } from './spatialIndex';
 import type { FlowAnchorSide, FlowEdge, FlowNode, FlowPoint, FlowRect, RoutedEdge } from './types';
 
 const SIDES: FlowAnchorSide[] = ['top', 'right', 'bottom', 'left'];
 const OBSTACLE_GAP = 16;
-const GRID_SIZE = 20;
-const MAX_EXPANSIONS = 8_000;
-export type RoutingObstacle = { id: string; rect: FlowRect };
+/** 端点在允许转弯前必须沿锚点法线离开节点的世界像素。 */
+const ENDPOINT_CLEARANCE = 14;
+export type { RoutingObstacle } from './routingPathfinder';
 
 /** 为批量路由构建一次节点空间索引。 */
 export function createRoutingIndex(nodes: ReadonlyArray<FlowNode>): SpatialHash<RoutingObstacle> {
@@ -33,32 +38,73 @@ export function routeEdge(edge: FlowEdge, nodes: ReadonlyArray<FlowNode>, previo
   const sourceRect = { ...source.position, ...source.size };
   const targetRect = { ...target.position, ...target.size };
   const obstacleIndex = sharedIndex ?? createRoutingIndex(nodes);
+  /** 起止节点改由真实边界约束，其他节点仍使用膨胀后的安全区。 */
   const excluded = new Set([source.id, target.id]);
+  const endpointRects = [sourceRect, targetRect] as const;
   const candidates = anchorCandidates(edge, sourceRect, targetRect, previous);
   let best: { points: FlowPoint[]; sourceSide: FlowAnchorSide; targetSide: FlowAnchorSide; score: number } | null = null;
   for (const candidate of candidates) {
     const start = anchorPoint(sourceRect, candidate.sourceSide);
     const end = anchorPoint(targetRect, candidate.targetSide);
-    const simple = simplifyPoints(orthogonalCandidates(start, end).find((points) => clearPath(points, obstacleIndex, excluded)) ?? []);
-    const points = simple.length > 0 ? simple : findGridPath(start, end, obstacleIndex, excluded);
-    if (points.length === 0) continue;
+    const sourceExit = offsetAnchor(start, candidate.sourceSide);
+    const targetApproach = offsetAnchor(end, candidate.targetSide);
+    const simple = simplifyPoints(orthogonalCandidates(sourceExit, targetApproach).find((points) => (
+      isIndexedPathClear(points, obstacleIndex, excluded, endpointRects)
+    )) ?? []);
+    const gridPoints = simple.length > 0
+      ? []
+      : findGridPath(
+          sourceExit,
+          targetApproach,
+          obstacleIndex,
+          excluded,
+          endpointRects,
+        );
+    const corePoints = simple.length > 0
+      ? simple
+      : gridPoints;
+    if (corePoints.length === 0) continue;
+    const points = joinEndpointSegments(
+      start,
+      end,
+      candidate.sourceSide,
+      candidate.targetSide,
+      corePoints,
+    );
     const score = pathLength(points) + (previous && (previous.sourceSide !== candidate.sourceSide || previous.targetSide !== candidate.targetSide) ? 36 : 0);
     if (!best || score < best.score) best = { ...candidate, points, score };
   }
   if (!best) {
     const sourceSide = edge.source.side ?? 'right';
     const targetSide = edge.target.side ?? 'left';
-    const points = [anchorPoint(sourceRect, sourceSide), anchorPoint(targetRect, targetSide)];
+    const start = anchorPoint(sourceRect, sourceSide);
+    const end = anchorPoint(targetRect, targetSide);
+    const sourceExit = offsetAnchor(start, sourceSide);
+    const targetApproach = offsetAnchor(end, targetSide);
+    const routingObstacles = routeObstacles(nodes, source.id, target.id);
+    const corePoints = shortestObstacleSafePreview(
+      sourceExit,
+      targetApproach,
+      routingObstacles,
+    ) ?? findGridPathAgainstRects(sourceExit, targetApproach, routingObstacles);
+    if (corePoints.length === 0) return null;
+    const points = joinEndpointSegments(
+      start,
+      end,
+      sourceSide,
+      targetSide,
+      corePoints,
+    );
     return { edgeId: edge.id, points, sourceSide, targetSide, path: roundedPath(points), bounds: pointsBounds(points) };
   }
   return { edgeId: edge.id, points: best.points, sourceSide: best.sourceSide, targetSide: best.targetSide, path: roundedPath(best.points), bounds: pointsBounds(best.points) };
 }
 
 /**
- * 生成不执行网格搜索的实时预览路径。
+ * 生成优先使用简单候选的实时预览路径。
  *
- * 已有路径会优先随端点平移或调整首尾正交段；没有缓存时立即选择一条
- * 最短正交折线，确保拖动、排列和撤销期间连线始终贴住节点锚点。
+ * 精确路径已选定的锚点边会继续沿用；端点变化时重新选择一条避开全部节点
+ * 安全区的正交折线，简单候选全部受阻时再执行网格寻路。
  */
 export function previewEdgeRoute(
   edge: FlowEdge,
@@ -77,12 +123,22 @@ export function previewEdgeRoute(
   const targetSide = edge.target.side ?? previous?.targetSide ?? 'left';
   const start = anchorPoint(sourceRect, sourceSide);
   const end = anchorPoint(targetRect, targetSide);
-  const canFollowPrevious = previous
-    && previous.sourceSide === sourceSide
-    && previous.targetSide === targetSide;
-  const points = canFollowPrevious && previous
-    ? followRouteEndpoints(previous.points, start, end)
-    : shortestOrthogonalPreview(start, end);
+  const sourceExit = offsetAnchor(start, sourceSide);
+  const targetApproach = offsetAnchor(end, targetSide);
+  const routingObstacles = routeObstacles(nodes, source.id, target.id);
+  const corePoints = shortestObstacleSafePreview(
+    sourceExit,
+    targetApproach,
+    routingObstacles,
+  ) ?? findGridPathAgainstRects(sourceExit, targetApproach, routingObstacles);
+  if (corePoints.length === 0) return null;
+  const points = joinEndpointSegments(
+    start,
+    end,
+    sourceSide,
+    targetSide,
+    corePoints,
+  );
 
   return {
     edgeId: edge.id,
@@ -148,179 +204,131 @@ function orthogonalCandidates(start: FlowPoint, end: FlowPoint): FlowPoint[][] {
   ];
 }
 
-/** 让已有折线随两个新锚点实时移动，并保持每一段水平或垂直。 */
-function followRouteEndpoints(
-  previousPoints: ReadonlyArray<FlowPoint>,
+/** 将路由主体与源端出口、目标端入口连接，并移除冗余共线点。 */
+function joinEndpointSegments(
   start: FlowPoint,
   end: FlowPoint,
+  sourceSide: FlowAnchorSide,
+  targetSide: FlowAnchorSide,
+  corePoints: ReadonlyArray<FlowPoint>,
 ): FlowPoint[] {
-  if (previousPoints.length < 2) return shortestOrthogonalPreview(start, end);
-
-  const previousStart = previousPoints[0];
-  const previousEnd = previousPoints.at(-1)!;
-  const sourceDelta = {
-    x: start.x - previousStart.x,
-    y: start.y - previousStart.y,
-  };
-  const targetDelta = {
-    x: end.x - previousEnd.x,
-    y: end.y - previousEnd.y,
-  };
-  if (sourceDelta.x === targetDelta.x && sourceDelta.y === targetDelta.y) {
-    return previousPoints.map((point) => ({
-      x: point.x + sourceDelta.x,
-      y: point.y + sourceDelta.y,
-    }));
-  }
-  if (previousPoints.length === 2) return shortestOrthogonalPreview(start, end);
-
-  /** 复制折点后只修改首尾及相邻折点，不触碰中间避障形状。 */
-  const points = previousPoints.map((point) => ({ ...point }));
-  points[0] = start;
-  points[points.length - 1] = end;
-  const previousSecond = previousPoints[1];
-  if (previousStart.x === previousSecond.x) points[1].x = start.x;
-  else points[1].y = start.y;
-
-  const penultimateIndex = points.length - 2;
-  const previousPenultimate = previousPoints[penultimateIndex];
-  if (previousPenultimate.x === previousEnd.x) points[penultimateIndex].x = end.x;
-  else points[penultimateIndex].y = end.y;
-  return simplifyPoints(points);
+  return simplifyPoints([
+    start,
+    offsetAnchor(start, sourceSide),
+    ...corePoints,
+    offsetAnchor(end, targetSide),
+    end,
+  ]);
 }
 
-/** 在不检查障碍物的前提下选择最短正交预览路径。 */
-function shortestOrthogonalPreview(start: FlowPoint, end: FlowPoint): FlowPoint[] {
-  return orthogonalCandidates(start, end)
-    .map(simplifyPoints)
-    .reduce((best, candidate) => (
+/** 沿锚点所在边的外法线移动，建立不会贴边转弯的安全出口。 */
+function offsetAnchor(
+  point: FlowPoint,
+  side: FlowAnchorSide,
+): FlowPoint {
+  switch (side) {
+    case 'top':
+      return { x: point.x, y: point.y - ENDPOINT_CLEARANCE };
+    case 'right':
+      return { x: point.x + ENDPOINT_CLEARANCE, y: point.y };
+    case 'bottom':
+      return { x: point.x, y: point.y + ENDPOINT_CLEARANCE };
+    case 'left':
+      return { x: point.x - ENDPOINT_CLEARANCE, y: point.y };
+  }
+}
+
+/** 起止节点使用真实边界，其余节点保留膨胀后的避障安全区。 */
+function routeObstacles(
+  nodes: ReadonlyArray<FlowNode>,
+  sourceId: string,
+  targetId: string,
+): FlowRect[] {
+  return nodes.map((node) => (
+    node.id === sourceId || node.id === targetId
+      ? { ...node.position, ...node.size }
+      : nodeObstacle(node)
+  ));
+}
+
+/** 实时预览从全部简单候选中选择不穿过任何节点安全区的最短路径。 */
+function shortestObstacleSafePreview(
+  start: FlowPoint,
+  end: FlowPoint,
+  obstacles: ReadonlyArray<FlowRect>,
+): FlowPoint[] | null {
+  const outerBounds = getOuterObstacleBounds(obstacles);
+  const perimeterCandidates = outerBounds
+    ? [
+        [start, { x: start.x, y: outerBounds.top }, { x: end.x, y: outerBounds.top }, end],
+        [start, { x: start.x, y: outerBounds.bottom }, { x: end.x, y: outerBounds.bottom }, end],
+        [start, { x: outerBounds.left, y: start.y }, { x: outerBounds.left, y: end.y }, end],
+        [start, { x: outerBounds.right, y: start.y }, { x: outerBounds.right, y: end.y }, end],
+      ]
+    : [];
+  const candidates = [
+    ...orthogonalCandidates(start, end),
+    ...perimeterCandidates,
+  ].map(simplifyPoints);
+  const clearCandidates = candidates.filter((points) => (
+    clearPathAgainstRects(points, obstacles)
+  ));
+  if (clearCandidates.length === 0) return null;
+  return clearCandidates.reduce((best, candidate) => (
       pathLength(candidate) < pathLength(best) ? candidate : best
     ));
 }
 
-function clearPath(points: FlowPoint[], obstacles: SpatialHash<RoutingObstacle>, excluded: Set<string>): boolean {
+/** 为实时预览的矩形集合建立临时索引，并在简单路线失败时执行安全寻路。 */
+function findGridPathAgainstRects(
+  start: FlowPoint,
+  end: FlowPoint,
+  obstacles: ReadonlyArray<FlowRect>,
+): FlowPoint[] {
+  const obstacleIndex = new SpatialHash<RoutingObstacle>();
+  obstacles.forEach((rect, index) => {
+    const obstacle = { id: `preview-${index}`, rect };
+    obstacleIndex.set(obstacle, rect);
+  });
+  return findGridPath(start, end, obstacleIndex, new Set());
+}
+
+/** 计算包围全部节点安全区的四条外部绕行基线。 */
+function getOuterObstacleBounds(
+  obstacles: ReadonlyArray<FlowRect>,
+): Readonly<{ left: number; right: number; top: number; bottom: number }> | null {
+  if (obstacles.length === 0) return null;
+
+  return {
+    left: Math.min(...obstacles.map((obstacle) => obstacle.x)) - ENDPOINT_CLEARANCE,
+    right: Math.max(...obstacles.map((obstacle) => obstacle.x + obstacle.width)) + ENDPOINT_CLEARANCE,
+    top: Math.min(...obstacles.map((obstacle) => obstacle.y)) - ENDPOINT_CLEARANCE,
+    bottom: Math.max(...obstacles.map((obstacle) => obstacle.y + obstacle.height)) + ENDPOINT_CLEARANCE,
+  };
+}
+
+/** 检查折线路径是否避开给定矩形集合。 */
+function clearPathAgainstRects(
+  points: ReadonlyArray<FlowPoint>,
+  obstacles: ReadonlyArray<FlowRect>,
+): boolean {
   for (let index = 1; index < points.length; index += 1) {
-    const a = points[index - 1];
-    const b = points[index];
-    const segment: FlowRect = { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), width: Math.max(1, Math.abs(a.x - b.x)), height: Math.max(1, Math.abs(a.y - b.y)) };
-    if ([...obstacles.query(segment)].some((obstacle) => !excluded.has(obstacle.id) && rectsIntersect(segment, obstacle.rect))) return false;
+    const segment = segmentRect(points[index - 1], points[index]);
+    if (obstacles.some((obstacle) => rectsIntersect(segment, obstacle))) {
+      return false;
+    }
   }
   return true;
 }
 
-function findGridPath(start: FlowPoint, end: FlowPoint, obstacles: SpatialHash<RoutingObstacle>, excluded: Set<string>): FlowPoint[] {
-  const origin = snap(start);
-  const goal = snap(end);
-  /** 最小堆替代每轮线性扫描，避免开放集合产生二次复杂度。 */
-  const open = new GridNodeMinHeap();
-  const originNode = {
-    point: origin,
-    g: 0,
-    f: heuristic(origin, goal),
-    direction: null,
-  } satisfies GridNode;
-  open.push(originNode);
-  /** 每个网格点当前已知的最低代价，用于丢弃堆中的过期节点。 */
-  const bestCosts = new Map<string, number>([[key(origin), 0]]);
-  const closed = new Set<string>();
-  const parent = new Map<string, string>();
-  let expansions = 0;
-  while (open.size > 0 && expansions < MAX_EXPANSIONS) {
-    const current = open.pop();
-    if (!current) break;
-    const currentKey = key(current.point);
-    if (closed.has(currentKey) || current.g !== bestCosts.get(currentKey)) continue;
-    if (currentKey === key(goal)) return simplifyPoints([start, ...reconstruct(parent, currentKey), end]);
-    closed.add(currentKey);
-    expansions += 1;
-    for (const [direction, delta] of DIRECTIONS) {
-      const point = { x: current.point.x + delta.x, y: current.point.y + delta.y };
-      const pointKey = key(point);
-      const pointRect = { ...point, width: 1, height: 1 };
-      if (closed.has(pointKey) || [...obstacles.query(pointRect)].some((obstacle) => !excluded.has(obstacle.id) && pointInside(point, obstacle.rect))) continue;
-      const turnCost = current.direction && current.direction !== direction ? 18 : 0;
-      const g = current.g + GRID_SIZE + turnCost;
-      const existingCost = bestCosts.get(pointKey);
-      if (existingCost === undefined || g < existingCost) {
-        bestCosts.set(pointKey, g);
-        open.push({ point, g, f: g + heuristic(point, goal), direction });
-        parent.set(pointKey, currentKey);
-      }
-    }
-  }
-  return [];
-}
-
-type GridNode = { point: FlowPoint; g: number; f: number; direction: string | null };
-
-/** A* 开放集合使用的路由专用最小堆。 */
-class GridNodeMinHeap {
-  /** 按 f 值维持最小堆顺序的节点。 */
-  private readonly nodes: GridNode[] = [];
-
-  /** 当前堆内节点数量。 */
-  public get size(): number {
-    return this.nodes.length;
-  }
-
-  /** 插入新候选并向上恢复堆序。 */
-  public push(node: GridNode): void {
-    this.nodes.push(node);
-    let index = this.nodes.length - 1;
-    while (index > 0) {
-      const parentIndex = Math.floor((index - 1) / 2);
-      if (this.nodes[parentIndex].f <= this.nodes[index].f) break;
-      [this.nodes[parentIndex], this.nodes[index]] = [
-        this.nodes[index],
-        this.nodes[parentIndex],
-      ];
-      index = parentIndex;
-    }
-  }
-
-  /** 取出最低 f 值候选并向下恢复堆序。 */
-  public pop(): GridNode | undefined {
-    const first = this.nodes[0];
-    const last = this.nodes.pop();
-    if (!first || !last || this.nodes.length === 0) return first;
-
-    this.nodes[0] = last;
-    let index = 0;
-    while (true) {
-      const left = index * 2 + 1;
-      const right = left + 1;
-      let smallest = index;
-      if (left < this.nodes.length && this.nodes[left].f < this.nodes[smallest].f) {
-        smallest = left;
-      }
-      if (right < this.nodes.length && this.nodes[right].f < this.nodes[smallest].f) {
-        smallest = right;
-      }
-      if (smallest === index) break;
-      [this.nodes[smallest], this.nodes[index]] = [
-        this.nodes[index],
-        this.nodes[smallest],
-      ];
-      index = smallest;
-    }
-    return first;
-  }
-}
-const DIRECTIONS: [string, FlowPoint][] = [['r', { x: GRID_SIZE, y: 0 }], ['d', { x: 0, y: GRID_SIZE }], ['l', { x: -GRID_SIZE, y: 0 }], ['u', { x: 0, y: -GRID_SIZE }]];
-const snap = (point: FlowPoint): FlowPoint => ({ x: Math.round(point.x / GRID_SIZE) * GRID_SIZE, y: Math.round(point.y / GRID_SIZE) * GRID_SIZE });
-const key = (point: FlowPoint): string => `${point.x},${point.y}`;
-const heuristic = (a: FlowPoint, b: FlowPoint): number => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
-const pointInside = (point: FlowPoint, rect: FlowRect): boolean => point.x > rect.x && point.x < rect.x + rect.width && point.y > rect.y && point.y < rect.y + rect.height;
-
-function reconstruct(parent: Map<string, string>, goalKey: string): FlowPoint[] {
-  const points: FlowPoint[] = [];
-  let current: string | undefined = goalKey;
-  while (current) {
-    const [x, y] = current.split(',').map(Number);
-    points.push({ x, y });
-    current = parent.get(current);
-  }
-  return points.reverse();
+/** 把水平或垂直线段转换为可参与相交检测的最小矩形。 */
+function segmentRect(a: FlowPoint, b: FlowPoint): FlowRect {
+  return {
+    x: Math.min(a.x, b.x),
+    y: Math.min(a.y, b.y),
+    width: Math.max(1, Math.abs(a.x - b.x)),
+    height: Math.max(1, Math.abs(a.y - b.y)),
+  };
 }
 
 function simplifyPoints(points: FlowPoint[]): FlowPoint[] {

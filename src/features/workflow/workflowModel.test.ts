@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { workflowNodeRegistry } from '../../components/workflow/WorkflowNodeCard';
+import { previewEdgeRoute, routeEdge } from '../../flow/routing';
+import type { FlowNode, FlowPoint } from '../../flow/types';
 import {
   DEFAULT_EDGES,
   DEFAULT_NODES,
@@ -241,6 +243,49 @@ describe('workflow model', () => {
     vi.unstubAllGlobals();
   });
 
+  it('keeps every default workflow connection visible', () => {
+    const exactRoutes = DEFAULT_EDGES.map((edge) => routeEdge(edge, DEFAULT_NODES));
+    const previewRoutes = DEFAULT_EDGES.map((edge) => (
+      previewEdgeRoute(edge, DEFAULT_NODES)
+    ));
+    const waitReadEdgeIndex = DEFAULT_EDGES.findIndex(
+      (edge) => edge.id === 'edge_wait_read',
+    );
+    const waitSetEdgeIndex = DEFAULT_EDGES.findIndex(
+      (edge) => edge.id === 'edge_wait_set',
+    );
+    const routeGroups = [
+      ['exact', exactRoutes],
+      ['preview', previewRoutes],
+    ] as const;
+    const nodeCrossings = routeGroups.flatMap(([routeKind, routes]) => (
+      routes.flatMap((route, routeIndex) => {
+        if (!route) {
+          return [`${routeKind}:${DEFAULT_EDGES[routeIndex].id}:missing`];
+        }
+        return DEFAULT_NODES.flatMap((node) => (
+          route.points.slice(1).some((point, pointIndex) => (
+            segmentCrossesNodeInterior(route.points[pointIndex], point, node)
+          ))
+            ? [`${routeKind}:${DEFAULT_EDGES[routeIndex].id}:${node.id}`]
+            : []
+        ));
+      })
+    ));
+
+    expect(exactRoutes.every((route) => route !== null)).toBe(true);
+    expect(previewRoutes.every((route) => route !== null)).toBe(true);
+    expect(nodeCrossings).toEqual([]);
+    expect(exactRoutes[waitReadEdgeIndex]).toMatchObject({
+      sourceSide: 'bottom',
+      targetSide: 'top',
+    });
+    expect(exactRoutes[waitSetEdgeIndex]).toMatchObject({
+      sourceSide: 'left',
+      targetSide: 'right',
+    });
+  });
+
   it('applies the complete execution state lifecycle', () => {
     vi.stubGlobal('crypto', { randomUUID: () => 'node-id' });
     let nodes = [createNode('log')];
@@ -288,3 +333,30 @@ describe('workflow model', () => {
     vi.unstubAllGlobals();
   });
 });
+
+/** 判断正交线段是否进入节点内部；仅接触端口所在边界不视为穿透。 */
+function segmentCrossesNodeInterior(
+  start: FlowPoint,
+  end: FlowPoint,
+  node: FlowNode,
+): boolean {
+  const left = node.position.x;
+  const right = left + node.size.width;
+  const top = node.position.y;
+  const bottom = top + node.size.height;
+  if (start.x === end.x) {
+    const segmentTop = Math.min(start.y, end.y);
+    const segmentBottom = Math.max(start.y, end.y);
+    return start.x > left
+      && start.x < right
+      && Math.max(segmentTop, top) < Math.min(segmentBottom, bottom);
+  }
+  if (start.y === end.y) {
+    const segmentLeft = Math.min(start.x, end.x);
+    const segmentRight = Math.max(start.x, end.x);
+    return start.y > top
+      && start.y < bottom
+      && Math.max(segmentLeft, left) < Math.min(segmentRight, right);
+  }
+  return true;
+}

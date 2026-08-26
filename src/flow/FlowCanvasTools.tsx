@@ -81,7 +81,7 @@ export function FlowCanvasTools({
 
   return (
     <div
-      className="absolute top-3 right-4 z-40 flex items-center gap-2"
+      className="absolute top-3 right-6 z-40 flex items-center gap-2"
       onPointerDown={stopCanvasGesture}
     >
       <div className={TOOL_GROUP_CLASS_NAME}>
