@@ -1,17 +1,10 @@
 //! HWND/PID 校验后的进程级 UIA 查询、关系解析与有限 stale 重试。
 
-use std::ffi::c_void;
+use std::{ffi::c_void, thread, time::Instant};
 
 use argusflow_core::{ActionOutcome, AutomationError, BackendKind};
 use windows::Win32::{
     Foundation::HWND,
-    System::{
-        Com::SAFEARRAY,
-        Ole::{
-            SafeArrayDestroy, SafeArrayGetDim, SafeArrayGetElement, SafeArrayGetLBound,
-            SafeArrayGetUBound,
-        },
-    },
     UI::{
         Accessibility::{
             IUIAutomation, IUIAutomationCacheRequest, IUIAutomationElement, IUIAutomationTreeWalker,
@@ -25,23 +18,36 @@ use super::{
     budget::{UiaBudgetTracker, UiaExecutionBudget},
     cache::build_cache_request,
     current_match::matches_current,
+    element_identity::runtime_id,
     error::{UiaError, UiaOperation},
-    plan::{UiaMatcherPlan, UiaPlanExpr},
+    plan::{TargetWaitPolicy, UiaMatcherPlan, UiaPlanExpr},
     process_search::find_process_matches,
     property::matches_residual,
     runtime::{PreparedWindowTarget, UiaExecuteRequest},
+    target_selection::{
+        ResolvedElement, TargetSelectionError, append_unique, resolution_error,
+        resolve_action_target,
+    },
 };
 
 /// UIA worker 线程内同步使用的查询执行器。
 pub(crate) struct UiaExecutor<'automation> {
     /// 只在当前 COM apartment 创建和调用的 automation client。
     automation: &'automation IUIAutomation,
+    /// 同一编译计划的有界 polling 策略。
+    target_wait_policy: TargetWaitPolicy,
 }
 
 impl<'automation> UiaExecutor<'automation> {
     /// 绑定 worker 线程拥有的 UIA client。
-    pub(crate) const fn new(automation: &'automation IUIAutomation) -> Self {
-        Self { automation }
+    pub(crate) const fn new(
+        automation: &'automation IUIAutomation,
+        target_wait_policy: TargetWaitPolicy,
+    ) -> Self {
+        Self {
+            automation,
+            target_wait_policy,
+        }
     }
 
     /// 用冻结的 HWND、查询计划和动作计划执行一次完整请求。
@@ -50,10 +56,32 @@ impl<'automation> UiaExecutor<'automation> {
         request: UiaExecuteRequest,
         budget: UiaExecutionBudget,
     ) -> Result<ActionOutcome, AutomationError> {
-        let mut budget = UiaBudgetTracker::new(budget);
+        let wait_deadline = Instant::now()
+            .checked_add(self.target_wait_policy.timeout())
+            .unwrap_or_else(Instant::now);
+        loop {
+            // 遍历/关系上限约束单次 materialize；墙钟 deadline 仍由复制的请求预算共享。
+            let mut materialization_budget = UiaBudgetTracker::new(budget);
+            let result = self.execute_once(&request, &mut materialization_budget);
+            if !matches!(&result, Err(AutomationError::TargetNotFound { .. }))
+                || Instant::now() >= wait_deadline
+            {
+                return result;
+            }
+            let remaining = wait_deadline.saturating_duration_since(Instant::now());
+            thread::sleep(self.target_wait_policy.poll_interval().min(remaining));
+        }
+    }
+
+    /// 使用同一冻结计划完成一次 materialize、动作适配与执行。
+    fn execute_once(
+        &self,
+        request: &UiaExecuteRequest,
+        budget: &mut UiaBudgetTracker,
+    ) -> Result<ActionOutcome, AutomationError> {
         // root、query 或 action 阶段的 stale element 都只触发一次完整重新 materialize。
         for attempt in 0..=1 {
-            let root = match self.root_element(request.window, &budget) {
+            let root = match self.root_element(request.window, &*budget) {
                 Ok(root) => root,
                 Err(error) if attempt == 0 && error.is_element_unavailable() => continue,
                 Err(error) => return Err(error.into_automation_error()),
@@ -64,22 +92,40 @@ impl<'automation> UiaExecutor<'automation> {
                     process_id: request.window.process_id,
                 },
                 &request.plan.query.expression,
-                &mut budget,
+                &mut *budget,
             ) {
                 Ok(candidates) => candidates,
                 Err(error) if attempt == 0 && error.is_element_unavailable() => continue,
                 Err(error) => return Err(error.into_automation_error()),
             };
-            let target = resolve_unique(candidates, &request.query)?;
+            let target = match resolve_action_target(candidates, &request.plan.action) {
+                Ok(target) => target,
+                Err(TargetSelectionError::Uia(error))
+                    if attempt == 0 && error.is_element_unavailable() =>
+                {
+                    continue;
+                }
+                Err(TargetSelectionError::Uia(error)) => {
+                    return Err(error.into_automation_error());
+                }
+                Err(TargetSelectionError::Resolution(failure)) => {
+                    return Err(resolution_error(failure, &request.query));
+                }
+            };
             budget
                 .check_deadline()
                 .map_err(UiaError::into_automation_error)?;
-            match execute_action(&target.element, &request.plan.action) {
+            match execute_action(
+                &target.element.element,
+                &request.plan.action,
+                target.strategy,
+            ) {
                 Ok(executed) => {
                     return Ok(ActionOutcome {
                         backend: BackendKind::WindowsUia,
                         message: executed.message.to_owned(),
                         outputs: executed.outputs,
+                        diagnostic_evidence: Vec::new(),
                     });
                 }
                 Err(error) if attempt == 0 && error.is_element_unavailable() => continue,
@@ -317,119 +363,5 @@ fn optional_element(
         Ok(element) => Ok(Some(element)),
         Err(source) if source.code().0 == 0 => Ok(None),
         Err(source) => Err(UiaError::from_native(UiaOperation::NavigateTree, source)),
-    }
-}
-
-/// 只在 worker thread 生命周期内存在的 COM 元素及稳定去重键。
-struct ResolvedElement {
-    /// UIA COM 元素，不允许穿过 runtime channel。
-    element: IUIAutomationElement,
-    /// provider 返回的 UIA runtime id。
-    runtime_id: Vec<i32>,
-}
-
-/// 统一执行 0/1/多目标解析，只有 first/nth 可提前收窄结果。
-fn resolve_unique(
-    candidates: Vec<ResolvedElement>,
-    query: &str,
-) -> Result<ResolvedElement, AutomationError> {
-    match candidates.len() {
-        0 => Err(AutomationError::TargetNotFound {
-            query: query.to_owned(),
-        }),
-        1 => candidates
-            .into_iter()
-            .next()
-            .ok_or_else(|| AutomationError::TargetNotFound {
-                query: query.to_owned(),
-            }),
-        matches => Err(AutomationError::AmbiguousTarget {
-            query: query.to_owned(),
-            matches,
-        }),
-    }
-}
-
-/// 按 UIA runtime id 去重，同时保留首次出现顺序。
-fn append_unique(
-    destination: &mut Vec<ResolvedElement>,
-    elements: impl IntoIterator<Item = ResolvedElement>,
-) {
-    for element in elements {
-        if !contains_runtime_id(
-            destination
-                .iter()
-                .map(|existing| existing.runtime_id.as_slice()),
-            &element.runtime_id,
-        ) {
-            destination.push(element);
-        }
-    }
-}
-
-/// 判断当前结果集合是否已包含相同 runtime id。
-fn contains_runtime_id<'id>(
-    existing: impl IntoIterator<Item = &'id [i32]>,
-    candidate: &[i32],
-) -> bool {
-    existing
-        .into_iter()
-        .any(|runtime_id| runtime_id == candidate)
-}
-
-/// 安全读取并拥有 provider 返回的一维整数 SAFEARRAY。
-fn runtime_id(element: &IUIAutomationElement) -> Result<Vec<i32>, UiaError> {
-    // SAFETY: element 留在 UIA worker；返回 SAFEARRAY 立即交给本函数的唯一 guard。
-    let array = unsafe { element.GetRuntimeId() }
-        .map_err(|source| UiaError::from_native(UiaOperation::ReadRuntimeId, source))?;
-    if array.is_null() {
-        return Err(UiaError::InvalidRuntimeId);
-    }
-    let array = SafeArrayGuard(array);
-    // SAFETY: guard 持有非空、由 GetRuntimeId 返回且尚未释放的 SAFEARRAY。
-    if unsafe { SafeArrayGetDim(array.0) } != 1 {
-        return Err(UiaError::InvalidRuntimeId);
-    }
-    // SAFETY: 已验证数组是一维，维度索引 1 符合 SAFEARRAY API 约定。
-    let lower = unsafe { SafeArrayGetLBound(array.0, 1) }
-        .map_err(|source| UiaError::from_native(UiaOperation::ReadRuntimeId, source))?;
-    // SAFETY: 已验证数组是一维，维度索引 1 符合 SAFEARRAY API 约定。
-    let upper = unsafe { SafeArrayGetUBound(array.0, 1) }
-        .map_err(|source| UiaError::from_native(UiaOperation::ReadRuntimeId, source))?;
-    if upper < lower {
-        return Err(UiaError::InvalidRuntimeId);
-    }
-    let mut id = Vec::with_capacity((upper - lower + 1) as usize);
-    for index in lower..=upper {
-        let mut value = 0_i32;
-        // SAFETY: index 已被上下界约束，输出指针指向有效且独占的 i32。
-        unsafe { SafeArrayGetElement(array.0, &index, (&mut value as *mut i32).cast::<c_void>()) }
-            .map_err(|source| UiaError::from_native(UiaOperation::ReadRuntimeId, source))?;
-        id.push(value);
-    }
-    Ok(id)
-}
-
-/// 确保 runtime id SAFEARRAY 在同一 apartment 内释放。
-struct SafeArrayGuard(*mut SAFEARRAY);
-
-impl Drop for SafeArrayGuard {
-    fn drop(&mut self) {
-        // SAFETY: 指针来自 GetRuntimeId 且只由本 guard 拥有；释放仍发生在 UIA worker。
-        let _ = unsafe { SafeArrayDestroy(self.0) };
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::contains_runtime_id;
-
-    /// 验证与 COM 元素无关的 runtime id 顺序去重规则。
-    #[test]
-    fn runtime_id_membership_uses_the_complete_identifier() {
-        let ids = [vec![1, 2], vec![3, 4]];
-
-        assert!(contains_runtime_id(ids.iter().map(Vec::as_slice), &[1, 2]));
-        assert!(!contains_runtime_id(ids.iter().map(Vec::as_slice), &[1, 3]));
     }
 }

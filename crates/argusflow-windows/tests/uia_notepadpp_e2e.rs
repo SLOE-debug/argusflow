@@ -4,11 +4,12 @@
 
 mod support;
 
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use argusflow_agent::{
-    AccessibilityContext, ActionBackend, ActionRouter, ExecutionContext, PlanStepKind,
-    RuntimeAvailability, StaticExecutionContext,
+    AccessibilityContext, ActionBackend, ActionRouter, EvidenceCapturePolicy, EvidenceOutcome,
+    EvidenceSettings, ExecutionContext, InMemoryEvidenceSink, PlanStepKind, RuntimeAvailability,
+    StaticExecutionContext,
 };
 use argusflow_core::{AqlQuery, AutomationAction, AutomationError, AutomationTarget, BackendKind};
 use argusflow_query::DiagnosticCode;
@@ -28,7 +29,14 @@ async fn notepadpp_standard_controls_complete_real_uia_e2e() {
     };
     let context_provider = Arc::new(StaticExecutionContext::new(context.clone()));
     let backends: Vec<Arc<dyn ActionBackend>> = vec![Arc::new(UiaBackend::new(runtime.clone()))];
-    let router = ActionRouter::with_context_provider(backends, context_provider);
+    let evidence_sink = Arc::new(InMemoryEvidenceSink::default());
+    let router = ActionRouter::with_context_provider(backends, context_provider).with_evidence(
+        EvidenceSettings {
+            policy: EvidenceCapturePolicy::BranchFailure,
+            sink: evidence_sink.clone(),
+            ..EvidenceSettings::default()
+        },
+    );
 
     // Case 1: compiler、runtime availability 与冻结 Notepad++ HWND 进入同一 PreparedPlan。
     let prepared_action = click(r#"menu_item(name = "搜索(S)")"#);
@@ -45,18 +53,31 @@ async fn notepadpp_standard_controls_complete_real_uia_e2e() {
         .await
         .expect("中文搜索菜单应公开可展开的 UIA 动作能力");
     assert_eq!(search_outcome.backend, BackendKind::WindowsUia);
-    tokio::time::sleep(Duration::from_millis(300)).await;
 
-    // Case 3: 子菜单名称包含快捷键后缀，使用中文前缀定位并打开“查找”对话框。
+    // Case 3: 首分支故意 miss，证据必须先捕获，再由中文名称 fallback 恢复。
     let find_outcome = execute(
         &router,
         &context,
-        click(r#"menu_item(name starts_with "查找(F)...")"#),
+        click(
+            r#"any(menu_item(uia.accelerator_key = "__wrong__"), menu_item(name starts_with "查找(F)..."))"#,
+        ),
     )
     .await
     .expect("中文查找菜单项应公开 UIA 调用能力");
     assert_eq!(find_outcome.backend, BackendKind::WindowsUia);
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    let fallback_evidence = evidence_sink.records();
+    assert_eq!(fallback_evidence.len(), 1);
+    assert!(matches!(
+        fallback_evidence[0].outcome,
+        EvidenceOutcome::RecoveredByFallback { .. }
+    ));
+    assert!(
+        fallback_evidence[0]
+            .bundle
+            .artifacts
+            .iter()
+            .any(|artifact| artifact.kind == argusflow_agent::EvidenceArtifactKind::SelectorTrace)
+    );
 
     // Case 4: 按中文对话框关系定位输入框，写入必须使用 ValuePattern。
     let expected_value = "argusflow-uia-e2e";
@@ -123,7 +144,6 @@ async fn notepadpp_standard_controls_complete_real_uia_e2e() {
         .await
         .expect("Find cancel button should expose InvokePattern");
     assert_eq!(close_outcome.backend, BackendKind::WindowsUia);
-    tokio::time::sleep(Duration::from_millis(300)).await;
 
     let closed_dialog = execute(
         &router,

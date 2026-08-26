@@ -219,6 +219,31 @@ fn uia_class_name_compiles_native() {
 }
 
 #[test]
+fn uia_identity_properties_compile_to_native_string_comparisons() {
+    let query = parse_query(
+        r#"menu_item(uia.accelerator_key = "Ctrl+F", uia.access_key = "Alt+F", uia.framework_id = "Win32")"#,
+    )
+    .expect("UIA identity query should parse");
+    let plan = compile_single(&query);
+    let UiaPlanExpr::Match(matcher) = plan.expression else {
+        panic!("expected matcher plan");
+    };
+
+    assert_eq!(
+        matcher
+            .pushdown
+            .iter()
+            .map(|predicate| predicate.property)
+            .collect::<Vec<_>>(),
+        vec![
+            UiaProperty::AcceleratorKey,
+            UiaProperty::AccessKey,
+            UiaProperty::FrameworkId,
+        ]
+    );
+}
+
+#[test]
 fn row_and_cell_are_not_falsely_reported_native() {
     for source in ["row()", "cell()"] {
         let query = parse_query(source).expect("table role query should parse");

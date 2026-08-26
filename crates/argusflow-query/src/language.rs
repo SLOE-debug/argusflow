@@ -101,7 +101,27 @@ pub fn completions(source: &str, position: EditorPosition) -> Vec<CompletionItem
             (
                 "uia.automation_id",
                 CompletionItemKind::Property,
-                "Windows UIA 属性",
+                "Windows UIA AutomationId",
+            ),
+            (
+                "uia.class_name",
+                CompletionItemKind::Property,
+                "Windows UIA ClassName",
+            ),
+            (
+                "uia.accelerator_key",
+                CompletionItemKind::Property,
+                "Windows UIA 命令快捷键",
+            ),
+            (
+                "uia.access_key",
+                CompletionItemKind::Property,
+                "Windows UIA 助记键",
+            ),
+            (
+                "uia.framework_id",
+                CompletionItemKind::Property,
+                "Windows UIA provider framework",
             ),
             (
                 "dom.test_id",

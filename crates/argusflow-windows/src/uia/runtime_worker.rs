@@ -8,6 +8,7 @@ use std::{
     thread::{self, JoinHandle},
 };
 
+use argusflow_agent::{EvidenceBundle, EvidenceCaptureError};
 use argusflow_core::{ActionOutcome, AutomationError, BackendKind};
 use tokio::sync::oneshot;
 use windows::Win32::{
@@ -21,8 +22,9 @@ use windows::Win32::{
 use super::{
     budget::UiaExecutionBudget,
     error::{UiaError, UiaOperation},
+    evidence::UiaEvidenceCollector,
     executor::UiaExecutor,
-    runtime::{UiaExecuteRequest, UiaRuntimeConfig, UiaRuntimeHealth},
+    runtime::{UiaEvidenceRequest, UiaExecuteRequest, UiaRuntimeConfig, UiaRuntimeHealth},
 };
 
 /// 当前 runtime 唯一接收新请求的 worker generation。
@@ -106,6 +108,17 @@ impl UiaWorkerGeneration {
             .map_err(|_| ())
     }
 
+    /// 提交一次绑定 prepared 状态且不含 COM interface 的证据请求。
+    pub(super) fn send_capture(
+        &self,
+        request: UiaEvidenceRequest,
+        response: oneshot::Sender<Result<EvidenceBundle, EvidenceCaptureError>>,
+    ) -> Result<(), ()> {
+        self.sender
+            .send(UiaWorkerMessage::Capture { request, response })
+            .map_err(|_| ())
+    }
+
     /// 请求在创建 apartment 的线程退出；仍卡住的 provider 线程不会阻塞调用方。
     pub(super) fn shutdown(&mut self) {
         let _ = self.sender.send(UiaWorkerMessage::Shutdown);
@@ -127,6 +140,13 @@ enum UiaWorkerMessage {
         budget: UiaExecutionBudget,
         /// 唯一响应 channel。
         response: oneshot::Sender<Result<ActionOutcome, AutomationError>>,
+    },
+    /// 在当前 apartment 内采集 snapshot DTO。
+    Capture {
+        /// 绑定冻结 candidate 的采集请求。
+        request: UiaEvidenceRequest,
+        /// 唯一响应 channel。
+        response: oneshot::Sender<Result<EvidenceBundle, EvidenceCaptureError>>,
     },
     /// 在创建 apartment 的同一线程退出。
     Shutdown,
@@ -175,7 +195,8 @@ fn worker_main(
         health: health.clone(),
         generation,
     };
-    let executor = UiaExecutor::new(&automation);
+    let executor = UiaExecutor::new(&automation, config.target_wait_policy);
+    let evidence = UiaEvidenceCollector::new(&automation);
     while let Ok(message) = receiver.recv() {
         match message {
             UiaWorkerMessage::Execute {
@@ -188,6 +209,21 @@ fn worker_main(
                 } else {
                     Err(AutomationError::BackendUnavailable {
                         backend: BackendKind::WindowsUia,
+                        message: "UI Automation worker generation was superseded".to_owned(),
+                    })
+                };
+                let _ = response.send(result);
+            }
+            UiaWorkerMessage::Capture { request, response } => {
+                let result = if health.is_ready_generation(generation) {
+                    evidence.capture(
+                        request.window,
+                        &request.plan,
+                        &request.query,
+                        request.capture,
+                    )
+                } else {
+                    Err(EvidenceCaptureError::SourceUnavailable {
                         message: "UI Automation worker generation was superseded".to_owned(),
                     })
                 };

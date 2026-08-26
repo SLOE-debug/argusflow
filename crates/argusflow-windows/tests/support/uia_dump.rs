@@ -8,13 +8,19 @@ use windows::Win32::{
     System::{
         Com::{
             CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx,
-            CoUninitialize,
+            CoUninitialize, SAFEARRAY,
+        },
+        Ole::{
+            SafeArrayDestroy, SafeArrayGetDim, SafeArrayGetElement, SafeArrayGetLBound,
+            SafeArrayGetUBound,
         },
         Variant::VARIANT,
     },
     UI::Accessibility::{
         CUIAutomation8, IUIAutomation, IUIAutomationElement, IUIAutomationTreeWalker,
-        TreeScope_Descendants, TreeScope_Subtree, UIA_ProcessIdPropertyId,
+        TreeScope_Descendants, TreeScope_Subtree, UIA_IsExpandCollapsePatternAvailablePropertyId,
+        UIA_IsInvokePatternAvailablePropertyId, UIA_IsLegacyIAccessiblePatternAvailablePropertyId,
+        UIA_IsValuePatternAvailablePropertyId, UIA_PROPERTY_ID, UIA_ProcessIdPropertyId,
         UIA_ValueValuePropertyId,
     },
 };
@@ -102,6 +108,38 @@ fn dump_element(
     let class_name = unsafe { element.CurrentClassName() }
         .map(|value| value.to_string())
         .unwrap_or_else(|_| "<unavailable>".to_owned());
+    // SAFETY: element 留在创建 apartment，仅同步读取 provider framework。
+    let framework_id = unsafe { element.CurrentFrameworkId() }
+        .map(|value| value.to_string())
+        .unwrap_or_else(|_| "<unavailable>".to_owned());
+    // SAFETY: element 留在创建 apartment，仅同步读取命令快捷键。
+    let accelerator_key = unsafe { element.CurrentAcceleratorKey() }
+        .map(|value| value.to_string())
+        .unwrap_or_else(|_| "<unavailable>".to_owned());
+    // SAFETY: element 留在创建 apartment，仅同步读取助记键。
+    let access_key = unsafe { element.CurrentAccessKey() }
+        .map(|value| value.to_string())
+        .unwrap_or_else(|_| "<unavailable>".to_owned());
+    // SAFETY: element 留在创建 apartment，仅同步读取进程 ID 与屏幕矩形。
+    let process_id = unsafe { element.CurrentProcessId() }.unwrap_or_default();
+    // SAFETY: element 留在创建 apartment，返回结构立即复制为普通数值。
+    let rectangle = unsafe { element.CurrentBoundingRectangle() }.ok();
+    let runtime_id = read_runtime_id(element).unwrap_or_default();
+    let patterns = [
+        ("Invoke", UIA_IsInvokePatternAvailablePropertyId),
+        (
+            "ExpandCollapse",
+            UIA_IsExpandCollapsePatternAvailablePropertyId,
+        ),
+        (
+            "LegacyIAccessible",
+            UIA_IsLegacyIAccessiblePatternAvailablePropertyId,
+        ),
+        ("Value", UIA_IsValuePatternAvailablePropertyId),
+    ]
+    .into_iter()
+    .filter_map(|(name, property)| pattern_available(element, property).then_some(name))
+    .collect::<Vec<_>>();
     // SAFETY: element 留在创建 apartment，仅同步读取当前 IsEnabled。
     let enabled = unsafe { element.CurrentIsEnabled() }
         .map(|value| value.as_bool())
@@ -111,7 +149,7 @@ fn dump_element(
         .map(|value| value.as_bool())
         .unwrap_or(true);
     eprintln!(
-        "{indent}type={control_type} name={name:?} automation_id={automation_id:?} class={class_name:?} enabled={enabled} offscreen={offscreen}"
+        "{indent}pid={process_id} runtime_id={runtime_id:?} type={control_type} name={name:?} automation_id={automation_id:?} accelerator_key={accelerator_key:?} access_key={access_key:?} class={class_name:?} framework={framework_id:?} enabled={enabled} offscreen={offscreen} rectangle={rectangle:?} patterns={patterns:?}"
     );
     if depth >= max_depth {
         return;
@@ -130,6 +168,51 @@ fn dump_element(
             Ok(sibling) => child = sibling,
             Err(_) => break,
         }
+    }
+}
+
+/// 读取 pattern availability；不可用或类型异常都只影响辅助 dump。
+fn pattern_available(element: &IUIAutomationElement, property: UIA_PROPERTY_ID) -> bool {
+    // SAFETY: property 来自固定 UIA pattern availability 集合。
+    unsafe { element.GetCurrentPropertyValue(property) }
+        .ok()
+        .and_then(|value| bool::try_from(&value).ok())
+        .unwrap_or(false)
+}
+
+/// 把 RuntimeId SAFEARRAY 拷贝成只在当前 dump 中使用的普通整数数组。
+fn read_runtime_id(element: &IUIAutomationElement) -> windows::core::Result<Vec<i32>> {
+    // SAFETY: element 留在当前测试 apartment，array 立即交给唯一 guard。
+    let array = unsafe { element.GetRuntimeId() }?;
+    if array.is_null() {
+        return Ok(Vec::new());
+    }
+    let array = TestSafeArray(array);
+    // SAFETY: array 来自 GetRuntimeId 且尚未释放。
+    if unsafe { SafeArrayGetDim(array.0) } != 1 {
+        return Ok(Vec::new());
+    }
+    // SAFETY: 已验证一维数组，维度索引 1 有效。
+    let lower = unsafe { SafeArrayGetLBound(array.0, 1) }?;
+    // SAFETY: 已验证一维数组，维度索引 1 有效。
+    let upper = unsafe { SafeArrayGetUBound(array.0, 1) }?;
+    let mut values = Vec::new();
+    for index in lower..=upper {
+        let mut value = 0_i32;
+        // SAFETY: index 在已读取上下界内，输出指针有效且独占。
+        unsafe { SafeArrayGetElement(array.0, &index, (&mut value as *mut i32).cast()) }?;
+        values.push(value);
+    }
+    Ok(values)
+}
+
+/// 确保测试 RuntimeId SAFEARRAY 在当前 apartment 释放。
+struct TestSafeArray(*mut SAFEARRAY);
+
+impl Drop for TestSafeArray {
+    fn drop(&mut self) {
+        // SAFETY: 指针来自 GetRuntimeId 且只由本 guard 拥有。
+        let _ = unsafe { SafeArrayDestroy(self.0) };
     }
 }
 

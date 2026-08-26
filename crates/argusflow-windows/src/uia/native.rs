@@ -65,6 +65,12 @@ pub enum UiaProperty {
     AutomationId,
     /// 原生窗口类名。
     ClassName,
+    /// 命令快捷键，例如 `Ctrl+F`。
+    AcceleratorKey,
+    /// 菜单或控件助记键。
+    AccessKey,
+    /// provider framework 标识。
+    FrameworkId,
     /// ValuePattern 的 Value 属性。
     Value,
     /// 元素是否可交互。

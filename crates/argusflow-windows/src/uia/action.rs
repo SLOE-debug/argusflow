@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 
+use argusflow_core::ActionCapability;
 use serde_json::Value;
 use windows::{
     Win32::UI::Accessibility::{
@@ -9,8 +10,8 @@ use windows::{
         IUIAutomationLegacyIAccessiblePattern, IUIAutomationValuePattern,
         UIA_ExpandCollapsePatternId, UIA_InvokePatternId,
         UIA_IsExpandCollapsePatternAvailablePropertyId, UIA_IsInvokePatternAvailablePropertyId,
-        UIA_IsLegacyIAccessiblePatternAvailablePropertyId, UIA_LegacyIAccessiblePatternId,
-        UIA_PROPERTY_ID, UIA_ValuePatternId,
+        UIA_IsLegacyIAccessiblePatternAvailablePropertyId, UIA_IsValuePatternAvailablePropertyId,
+        UIA_LegacyIAccessiblePatternId, UIA_PROPERTY_ID, UIA_ValuePatternId,
     },
     core::BSTR,
 };
@@ -20,16 +21,60 @@ use super::{
     plan::UiaActionPlan,
 };
 
-/// 在唯一目标上执行 prepare 阶段冻结的 pattern 策略。
+/// 通过目标实例 pattern availability 解析出的精确执行策略。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum UiaActionStrategy {
+    /// InvokePattern 激活。
+    Invoke,
+    /// ExpandCollapsePattern 展开。
+    Expand,
+    /// LegacyIAccessiblePattern 默认动作。
+    LegacyDefaultAction,
+    /// 可写 ValuePattern。
+    SetValue,
+    /// CurrentName 读取。
+    GetText,
+    /// ValuePattern 读取。
+    GetValue,
+}
+
+/// 返回 prepared action 对目标实例要求的跨后端能力。
+pub(crate) const fn required_capability(action: &UiaActionPlan) -> ActionCapability {
+    match action {
+        UiaActionPlan::Invoke => ActionCapability::Activate,
+        UiaActionPlan::SetValue { .. } => ActionCapability::WriteValue,
+        UiaActionPlan::GetText => ActionCapability::ReadText,
+        UiaActionPlan::GetValue => ActionCapability::ReadValue,
+    }
+}
+
+/// 判断语义候选能否执行当前动作，并冻结其精确 pattern 策略。
+pub(crate) fn resolve_action_strategy(
+    element: &IUIAutomationElement,
+    action: &UiaActionPlan,
+) -> Result<Option<UiaActionStrategy>, UiaError> {
+    match action {
+        UiaActionPlan::Invoke => resolve_invoke_strategy(element),
+        UiaActionPlan::SetValue { .. } => resolve_value_strategy(element, true),
+        UiaActionPlan::GetText => Ok(Some(UiaActionStrategy::GetText)),
+        UiaActionPlan::GetValue => resolve_value_strategy(element, false),
+    }
+}
+
+/// 在唯一且适配后的目标上执行冻结 pattern 策略。
 pub(crate) fn execute_action(
     element: &IUIAutomationElement,
     action: &UiaActionPlan,
+    strategy: UiaActionStrategy,
 ) -> Result<ExecutedUiaAction, UiaError> {
-    match action {
-        UiaActionPlan::Invoke => invoke(element),
-        UiaActionPlan::SetValue { value } => set_value(element, value),
-        UiaActionPlan::GetText => get_text(element),
-        UiaActionPlan::GetValue => get_value(element),
+    match (action, strategy) {
+        (UiaActionPlan::Invoke, strategy) => invoke(element, strategy),
+        (UiaActionPlan::SetValue { value }, UiaActionStrategy::SetValue) => {
+            set_value(element, value)
+        }
+        (UiaActionPlan::GetText, UiaActionStrategy::GetText) => get_text(element),
+        (UiaActionPlan::GetValue, UiaActionStrategy::GetValue) => get_value(element),
+        _ => Err(UiaError::ActionStrategyMismatch),
     }
 }
 
@@ -46,44 +91,89 @@ pub(crate) struct ExecutedUiaAction {
 /// 普通按钮使用 InvokePattern，菜单容器使用 ExpandCollapsePattern；传统 Win32/MSAA
 /// 控件通过 UIA 的 LegacyIAccessiblePattern 执行默认动作。能力由 UIA 属性显式选择，
 /// 不依赖鼠标坐标或应用内部命令 ID。
-fn invoke(element: &IUIAutomationElement) -> Result<ExecutedUiaAction, UiaError> {
+fn invoke(
+    element: &IUIAutomationElement,
+    strategy: UiaActionStrategy,
+) -> Result<ExecutedUiaAction, UiaError> {
+    match strategy {
+        UiaActionStrategy::Invoke => {
+            // SAFETY: availability 属性由同一 element/provider 返回，pattern 留在 worker apartment。
+            let pattern: IUIAutomationInvokePattern =
+                unsafe { element.GetCurrentPatternAs(UIA_InvokePatternId) }
+                    .map_err(|source| pattern_error(source, UiaPattern::Click))?;
+            // SAFETY: typed pattern 没有跨线程传播。
+            unsafe { pattern.Invoke() }
+                .map_err(|source| UiaError::from_native(UiaOperation::Invoke, source))?;
+            return Ok(click_outcome("已通过 UI Automation InvokePattern 调用目标"));
+        }
+        UiaActionStrategy::Expand => {
+            // SAFETY: availability 属性由同一 element/provider 返回，pattern 留在 worker apartment。
+            let pattern: IUIAutomationExpandCollapsePattern =
+                unsafe { element.GetCurrentPatternAs(UIA_ExpandCollapsePatternId) }
+                    .map_err(|source| pattern_error(source, UiaPattern::Click))?;
+            // SAFETY: typed pattern 没有跨线程传播；Expand 是菜单项的语义打开动作。
+            unsafe { pattern.Expand() }
+                .map_err(|source| UiaError::from_native(UiaOperation::Expand, source))?;
+            return Ok(click_outcome(
+                "已通过 UI Automation ExpandCollapsePattern 展开目标",
+            ));
+        }
+        UiaActionStrategy::LegacyDefaultAction => {
+            // SAFETY: LegacyIAccessiblePattern 仍是 UIA 暴露的强类型动作边界。
+            let pattern: IUIAutomationLegacyIAccessiblePattern =
+                unsafe { element.GetCurrentPatternAs(UIA_LegacyIAccessiblePatternId) }
+                    .map_err(|source| pattern_error(source, UiaPattern::Click))?;
+            // SAFETY: 默认动作由 UIA provider 定义，不发送应用私有消息或坐标点击。
+            unsafe { pattern.DoDefaultAction() }.map_err(|source| {
+                UiaError::from_native(UiaOperation::LegacyDefaultAction, source)
+            })?;
+            return Ok(click_outcome(
+                "已通过 UI Automation LegacyIAccessiblePattern 调用目标",
+            ));
+        }
+        _ => {}
+    }
+    Err(UiaError::ActionStrategyMismatch)
+}
+
+/// 按稳定优先级选择语义点击能力，不执行任何动作。
+fn resolve_invoke_strategy(
+    element: &IUIAutomationElement,
+) -> Result<Option<UiaActionStrategy>, UiaError> {
     if pattern_available(element, UIA_IsInvokePatternAvailablePropertyId)? {
-        // SAFETY: availability 属性由同一 element/provider 返回，pattern 留在 worker apartment。
-        let pattern: IUIAutomationInvokePattern =
-            unsafe { element.GetCurrentPatternAs(UIA_InvokePatternId) }
-                .map_err(|source| pattern_error(source, UiaPattern::Click))?;
-        // SAFETY: typed pattern 没有跨线程传播。
-        unsafe { pattern.Invoke() }
-            .map_err(|source| UiaError::from_native(UiaOperation::Invoke, source))?;
-        return Ok(click_outcome("已通过 UI Automation InvokePattern 调用目标"));
+        Ok(Some(UiaActionStrategy::Invoke))
+    } else if pattern_available(element, UIA_IsExpandCollapsePatternAvailablePropertyId)? {
+        Ok(Some(UiaActionStrategy::Expand))
+    } else if pattern_available(element, UIA_IsLegacyIAccessiblePatternAvailablePropertyId)? {
+        Ok(Some(UiaActionStrategy::LegacyDefaultAction))
+    } else {
+        Ok(None)
     }
-    if pattern_available(element, UIA_IsExpandCollapsePatternAvailablePropertyId)? {
-        // SAFETY: availability 属性由同一 element/provider 返回，pattern 留在 worker apartment。
-        let pattern: IUIAutomationExpandCollapsePattern =
-            unsafe { element.GetCurrentPatternAs(UIA_ExpandCollapsePatternId) }
-                .map_err(|source| pattern_error(source, UiaPattern::Click))?;
-        // SAFETY: typed pattern 没有跨线程传播；Expand 是菜单项的语义打开动作。
-        unsafe { pattern.Expand() }
-            .map_err(|source| UiaError::from_native(UiaOperation::Expand, source))?;
-        return Ok(click_outcome(
-            "已通过 UI Automation ExpandCollapsePattern 展开目标",
-        ));
+}
+
+/// 检查 ValuePattern，并在写入动作时额外拒绝只读目标。
+fn resolve_value_strategy(
+    element: &IUIAutomationElement,
+    require_writable: bool,
+) -> Result<Option<UiaActionStrategy>, UiaError> {
+    if !pattern_available(element, UIA_IsValuePatternAvailablePropertyId)? {
+        return Ok(None);
     }
-    if pattern_available(element, UIA_IsLegacyIAccessiblePatternAvailablePropertyId)? {
-        // SAFETY: LegacyIAccessiblePattern 仍是 UIA 暴露的强类型动作边界。
-        let pattern: IUIAutomationLegacyIAccessiblePattern =
-            unsafe { element.GetCurrentPatternAs(UIA_LegacyIAccessiblePatternId) }
-                .map_err(|source| pattern_error(source, UiaPattern::Click))?;
-        // SAFETY: 默认动作由 UIA provider 定义，不发送应用私有消息或坐标点击。
-        unsafe { pattern.DoDefaultAction() }
-            .map_err(|source| UiaError::from_native(UiaOperation::LegacyDefaultAction, source))?;
-        return Ok(click_outcome(
-            "已通过 UI Automation LegacyIAccessiblePattern 调用目标",
-        ));
+    if require_writable {
+        // SAFETY: availability 属性已由同一 provider 返回，pattern 不离开 worker apartment。
+        let pattern: IUIAutomationValuePattern =
+            unsafe { element.GetCurrentPatternAs(UIA_ValuePatternId) }
+                .map_err(|source| pattern_error(source, UiaPattern::Value))?;
+        // SAFETY: typed pattern 留在创建它的 UIA worker apartment。
+        let is_read_only = unsafe { pattern.CurrentIsReadOnly() }
+            .map_err(|source| UiaError::from_native(UiaOperation::GetPattern, source))?;
+        if is_read_only.as_bool() {
+            return Ok(None);
+        }
+        Ok(Some(UiaActionStrategy::SetValue))
+    } else {
+        Ok(Some(UiaActionStrategy::GetValue))
     }
-    Err(UiaError::RequiredPatternUnavailable {
-        pattern: UiaPattern::Click,
-    })
 }
 
 /// 读取 UIA pattern availability 布尔属性，并拒绝 provider 返回的意外 VARIANT 类型。

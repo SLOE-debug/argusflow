@@ -238,6 +238,21 @@ pub struct ActionOutcome {
     pub message: String,
     /// 由读取动作产生的结构化值输出；点击和写入动作返回空映射。
     pub outputs: BTreeMap<String, Value>,
+    /// 本次成功动作之前由失败候选产生、已持久化的 evidence 引用。
+    pub diagnostic_evidence: Vec<DiagnosticEvidenceReference>,
+}
+
+/// 可安全进入 ExecutionEvent 的 Failure Evidence 小型引用。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiagnosticEvidenceReference {
+    /// artifact sink 生成的稳定 evidence 标识。
+    pub evidence_id: uuid::Uuid,
+    /// 产生失败证据的后端。
+    pub backend: BackendKind,
+    /// 失败 candidate 的完整 AQL fallback 路径。
+    pub branch_path: Vec<usize>,
+    /// 是否由更晚 candidate 恢复成功。
+    pub recovered_by_fallback: bool,
 }
 
 /// Runtime 解析资源引用后传给 ActionDispatcher 的瞬时执行作用域。

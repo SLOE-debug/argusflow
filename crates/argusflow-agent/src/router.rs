@@ -11,9 +11,9 @@ use argusflow_runtime::ActionDispatcher;
 use async_trait::async_trait;
 
 use crate::{
-    ActionBackend, ContextFitness, ExecutionContext, ExecutionContextProvider, PlanExplain,
-    PlanRejection, PlanningReport, PreparedCandidate, PreparedPlan, RuntimeAvailability,
-    StaticExecutionContext, WindowContext,
+    ActionBackend, ContextFitness, EvidenceSettings, ExecutionContext, ExecutionContextProvider,
+    PlanExplain, PlanRejection, PlanningReport, PreparedCandidate, PreparedPlan,
+    RuntimeAvailability, StaticExecutionContext, WindowContext,
 };
 
 /// 能力、可用性、上下文和成本相同时使用的稳定兜底顺序。
@@ -33,6 +33,8 @@ pub struct ActionRouter {
     backends: Vec<Arc<dyn ActionBackend>>,
     /// 每次 prepare 前捕获最新上下文的提供器。
     context_provider: Arc<dyn ExecutionContextProvider>,
+    /// PreparedPlan 使用的失败证据策略与 sink。
+    evidence: EvidenceSettings,
 }
 
 impl ActionRouter {
@@ -41,6 +43,7 @@ impl ActionRouter {
         Self {
             backends,
             context_provider: Arc::new(StaticExecutionContext::default()),
+            evidence: EvidenceSettings::default(),
         }
     }
 
@@ -52,7 +55,14 @@ impl ActionRouter {
         Self {
             backends,
             context_provider,
+            evidence: EvidenceSettings::default(),
         }
+    }
+
+    /// 为随后生成的 PreparedPlan 注入证据策略与宿主持久化边界。
+    pub fn with_evidence(mut self, evidence: EvidenceSettings) -> Self {
+        self.evidence = evidence;
+        self
     }
 
     /// 返回稳定 tie-break 顺序，供开发者 Explain 展示。
@@ -116,7 +126,7 @@ impl ActionRouter {
         if candidates.is_empty() {
             return Err(AutomationError::NoBackendAvailable);
         }
-        Ok(PreparedPlan::new(candidates))
+        Ok(PreparedPlan::new(candidates, self.evidence.clone()))
     }
 
     /// 逐 backend prepare，用户约束在任何能力排序之前过滤候选。

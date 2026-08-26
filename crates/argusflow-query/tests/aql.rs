@@ -64,6 +64,30 @@ fn parses_relations_regex_and_explicit_namespaces() {
 }
 
 #[test]
+fn parses_stable_uia_identity_properties() {
+    let query = parse_query(
+        r#"menu_item(uia.accelerator_key = "Ctrl+F", uia.access_key = "Alt+F", uia.framework_id = "Win32")"#,
+    )
+    .expect("UIA identity properties should parse");
+    let QueryExpr::Match { matcher } = query.expression else {
+        panic!("expected a single matcher");
+    };
+
+    assert_eq!(
+        matcher
+            .predicates
+            .iter()
+            .map(|predicate| predicate.attribute)
+            .collect::<Vec<_>>(),
+        vec![
+            SelectorAttribute::Uia(UiaAttribute::AcceleratorKey),
+            SelectorAttribute::Uia(UiaAttribute::AccessKey),
+            SelectorAttribute::Uia(UiaAttribute::FrameworkId),
+        ]
+    );
+}
+
+#[test]
 fn parses_any_not_first_nth_and_css() {
     let fallback = parse_query(
         r##"any(

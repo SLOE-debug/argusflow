@@ -71,6 +71,9 @@ fn read_current_value(
         UiaProperty::Name
         | UiaProperty::AutomationId
         | UiaProperty::ClassName
+        | UiaProperty::AcceleratorKey
+        | UiaProperty::AccessKey
+        | UiaProperty::FrameworkId
         | UiaProperty::Value => BSTR::try_from(&value)
             .map(|value| UiaNativeValue::Text(value.to_string()))
             .map_err(|_| UiaError::PropertyTypeMismatch { property }),

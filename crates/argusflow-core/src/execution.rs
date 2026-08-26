@@ -55,6 +55,17 @@ pub enum ExecutionEventPayload {
         /// 子进程退出代码。
         exit_code: i32,
     },
+    /// 已持久化 Failure Evidence，只报告稳定引用和分支摘要。
+    DiagnosticEvidenceCaptured {
+        /// artifact sink 生成的 evidence 标识。
+        evidence_id: Uuid,
+        /// 产生证据的自动化后端。
+        backend: crate::BackendKind,
+        /// 失败 candidate 的 AQL fallback 路径。
+        branch_path: Vec<usize>,
+        /// 是否由更晚 candidate 恢复成功。
+        recovered_by_fallback: bool,
+    },
 }
 
 /// 工作流和节点生命周期中可观察的事件类别。
@@ -75,6 +86,8 @@ pub enum ExecutionEventKind {
     BackendSelected,
     /// Command 子进程已经以可接受的退出代码结束。
     CommandExited,
+    /// 自动化候选失败现场已写入 artifact store。
+    DiagnosticEvidenceCaptured,
     /// 某个节点执行成功。
     NodeSucceeded,
     /// 运行时已选择并进入一条连线。

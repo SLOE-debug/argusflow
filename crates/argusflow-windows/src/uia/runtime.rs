@@ -9,11 +9,14 @@ use std::{
     time::Duration,
 };
 
+use argusflow_agent::{EvidenceBundle, EvidenceCaptureError, EvidenceCaptureRequest};
 use argusflow_core::{ActionOutcome, AutomationError, BackendKind};
 use tokio::sync::oneshot;
 
 use super::{
-    budget::UiaExecutionBudget, plan::UiaPreparedPlan, runtime_worker::UiaWorkerGeneration,
+    budget::UiaExecutionBudget,
+    plan::{TargetWaitPolicy, UiaPreparedPlan},
+    runtime_worker::UiaWorkerGeneration,
 };
 
 /// prepare 阶段冻结、execute 阶段重新校验的窗口身份。
@@ -34,6 +37,19 @@ pub(crate) struct UiaExecuteRequest {
     pub(crate) plan: UiaPreparedPlan,
     /// 规范化查询，仅用于公共错误复现。
     pub(crate) query: String,
+}
+
+/// 不携带 COM interface、只绑定 prepared 状态的 UIA evidence 请求。
+#[derive(Debug)]
+pub(crate) struct UiaEvidenceRequest {
+    /// prepare 阶段冻结的窗口身份。
+    pub(crate) window: PreparedWindowTarget,
+    /// 与失败 candidate 完全相同的查询和动作计划。
+    pub(crate) plan: UiaPreparedPlan,
+    /// 规范化查询。
+    pub(crate) query: String,
+    /// PreparedPlan 分类后的通用采集请求。
+    pub(crate) capture: EvidenceCaptureRequest,
 }
 
 /// UIA worker 的可观察生命周期状态。
@@ -180,6 +196,20 @@ impl UiaRuntime {
     /// 启动第一代名为 `argusflow-uia-0` 的专用 MTA worker。
     pub fn start() -> Self {
         let config = UiaRuntimeConfig::default();
+        Self::start_with_config(config)
+    }
+
+    /// 启动使用显式目标等待策略的 UIA runtime。
+    pub fn start_with_wait_policy(target_wait_policy: TargetWaitPolicy) -> Self {
+        let config = UiaRuntimeConfig {
+            target_wait_policy,
+            ..UiaRuntimeConfig::default()
+        };
+        Self::start_with_config(config)
+    }
+
+    /// 使用完整内部配置启动第一代 worker。
+    fn start_with_config(config: UiaRuntimeConfig) -> Self {
         let health = Arc::new(UiaRuntimeHealth::default());
         health.begin_generation(0);
         let worker = UiaWorkerGeneration::start(0, health.clone(), config);
@@ -245,6 +275,52 @@ impl UiaRuntime {
         }
     }
 
+    /// 在同一 UIA worker apartment 中采集冻结 candidate 的普通 Rust snapshot。
+    pub(crate) async fn capture(
+        &self,
+        request: UiaEvidenceRequest,
+    ) -> Result<EvidenceBundle, EvidenceCaptureError> {
+        if !self.health.is_ready() {
+            return Err(evidence_unavailable(runtime_state_message(
+                self.health.snapshot(),
+            )));
+        }
+        let capture_timeout = request.capture.budget.deadline;
+        let (response_sender, response_receiver) = oneshot::channel();
+        let generation = {
+            let worker = self
+                .worker
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let generation = worker.generation();
+            if !self.health.is_ready_generation(generation) {
+                return Err(evidence_unavailable(runtime_state_message(
+                    self.health.snapshot(),
+                )));
+            }
+            if worker.send_capture(request, response_sender).is_err() {
+                return Err(evidence_unavailable(
+                    "UI Automation worker evidence channel is closed".to_owned(),
+                ));
+            }
+            generation
+        };
+
+        match tokio::time::timeout(capture_timeout, response_receiver).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(_)) => {
+                self.recover_worker(generation);
+                Err(evidence_unavailable(
+                    "UI Automation worker stopped before returning evidence".to_owned(),
+                ))
+            }
+            Err(_) => {
+                self.recover_worker(generation);
+                Err(EvidenceCaptureError::DeadlineExceeded)
+            }
+        }
+    }
+
     /// 只允许触发故障的当前 generation 启动下一代，避免并发 timeout 重复恢复。
     fn recover_worker(&self, expected_generation: u64) {
         let mut worker = self
@@ -295,6 +371,8 @@ pub(super) struct UiaRuntimeConfig {
     pub(super) transaction_timeout: Duration,
     /// 包含 worker 排队时间的 ArgusFlow 请求总时限。
     pub(super) execution_timeout: Duration,
+    /// 同一冻结查询等待短暂 UI 出现的策略。
+    pub(super) target_wait_policy: TargetWaitPolicy,
     /// 单次请求允许由进程查询返回或通过 RawView TreeWalker 访问的节点总数。
     pub(super) max_traversal_nodes: usize,
     /// 单次请求允许展开的关系根总数。
@@ -309,6 +387,7 @@ impl Default for UiaRuntimeConfig {
             connection_timeout: Duration::from_secs(2),
             transaction_timeout: Duration::from_secs(20),
             execution_timeout: Duration::from_secs(25),
+            target_wait_policy: TargetWaitPolicy::default(),
             max_traversal_nodes: 10_000,
             max_relation_roots: 256,
             max_recovery_attempts: 3,
@@ -334,6 +413,11 @@ fn unavailable(message: String) -> AutomationError {
         backend: BackendKind::WindowsUia,
         message,
     }
+}
+
+/// 创建不会覆盖主 AutomationError 的采集不可用错误。
+fn evidence_unavailable(message: String) -> EvidenceCaptureError {
+    EvidenceCaptureError::SourceUnavailable { message }
 }
 
 /// 把 generation 和状态编码进单个原子值。

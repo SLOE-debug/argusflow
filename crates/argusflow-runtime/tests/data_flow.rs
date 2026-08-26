@@ -4,9 +4,9 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use argusflow_core::{
     ActionOutcome, AqlQuery, AutomationAction, AutomationError, AutomationExecutionScope,
-    AutomationTarget, BackendKind, ExecutionEvent, ExecutionEventKind, ExecutionEventPayload,
-    Position, RunInputs, UiOperation, ValueExpr, WorkflowDefinition, WorkflowEdge, WorkflowNode,
-    WorkflowNodeKind, WorkflowPermissions,
+    AutomationTarget, BackendKind, DiagnosticEvidenceReference, ExecutionEvent, ExecutionEventKind,
+    ExecutionEventPayload, Position, RunInputs, UiOperation, ValueExpr, WorkflowDefinition,
+    WorkflowEdge, WorkflowNode, WorkflowNodeKind, WorkflowPermissions,
 };
 use argusflow_runtime::{ActionDispatcher, ExecutionEventSink, WorkflowEngine};
 use async_trait::async_trait;
@@ -41,6 +41,12 @@ impl ActionDispatcher for CapturingDispatcher {
             backend: BackendKind::WindowsUia,
             message: "captured".to_owned(),
             outputs,
+            diagnostic_evidence: vec![DiagnosticEvidenceReference {
+                evidence_id: Uuid::nil(),
+                backend: BackendKind::WindowsUia,
+                branch_path: vec![0],
+                recovered_by_fallback: true,
+            }],
         })
     }
 }
@@ -92,6 +98,16 @@ async fn read_output_is_resolved_for_debug_and_the_following_set_value() {
             && event.payload
                 == Some(ExecutionEventPayload::NodeOutputsProduced {
                     output_names: vec!["text".to_owned()],
+                })
+    }));
+    assert!(events.iter().any(|event| {
+        event.kind == ExecutionEventKind::DiagnosticEvidenceCaptured
+            && event.payload
+                == Some(ExecutionEventPayload::DiagnosticEvidenceCaptured {
+                    evidence_id: Uuid::nil(),
+                    backend: BackendKind::WindowsUia,
+                    branch_path: vec![0],
+                    recovered_by_fallback: true,
                 })
     }));
     assert!(events.iter().any(|event| {

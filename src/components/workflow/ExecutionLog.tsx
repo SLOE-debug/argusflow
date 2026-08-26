@@ -22,6 +22,7 @@ const eventTone = {
   resource_acquired: 'text-indigo-700',
   backend_selected: 'text-cyan-700',
   command_exited: 'text-slate-700',
+  diagnostic_evidence_captured: 'text-amber-700',
   node_succeeded: 'text-emerald-700',
   edge_traversed: 'text-blue-600',
   node_failed: 'text-rose-700',

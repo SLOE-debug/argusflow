@@ -1,11 +1,14 @@
 use std::{fmt, sync::Arc};
 
-use argusflow_core::{ActionOutcome, AutomationError, BackendKind};
+use argusflow_core::{ActionOutcome, AutomationError, BackendKind, DiagnosticEvidenceReference};
 use argusflow_query::{BranchPath, Diagnostic, QueryCost, QueryPortability, SupportLevel};
 use async_trait::async_trait;
 use serde::Serialize;
 
-use crate::ContextFitness;
+use crate::{
+    ContextFitness, EvidenceBundle, EvidenceCapturePolicy, EvidenceCaptureRequest, EvidenceOutcome,
+    EvidenceRecord, EvidenceSettings, EvidenceTrigger, PreparedDiagnostics,
+};
 
 /// 查询语义支持之外的 executor 与运行环境状态。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
@@ -139,12 +142,25 @@ pub struct PreparedCandidate {
     explain: PlanExplain,
     /// 后端已准备的可执行实例。
     execution: Arc<dyn PreparedExecution>,
+    /// 与当前冻结候选绑定的可选后端诊断对象。
+    diagnostics: Option<Arc<dyn PreparedDiagnostics>>,
 }
 
 impl PreparedCandidate {
     /// 创建一个由 backend compiler 完整证明的候选计划。
     pub fn new(explain: PlanExplain, execution: Arc<dyn PreparedExecution>) -> Self {
-        Self { explain, execution }
+        Self {
+            explain,
+            execution,
+            diagnostics: None,
+        }
+    }
+
+    /// 为候选绑定使用同一份冻结计划和执行上下文的诊断对象。
+    pub fn with_diagnostics(mut self, diagnostics: Arc<dyn PreparedDiagnostics>) -> Self {
+        debug_assert_eq!(self.backend(), diagnostics.backend());
+        self.diagnostics = Some(diagnostics);
+        self
     }
 
     /// 返回候选后端。
@@ -161,6 +177,32 @@ impl PreparedCandidate {
     async fn execute(&self) -> Result<ActionOutcome, AutomationError> {
         self.execution.execute().await
     }
+
+    /// 在 fallback 改变现场前执行 best-effort 采集。
+    async fn capture(
+        &self,
+        trigger: EvidenceTrigger,
+        settings: &EvidenceSettings,
+    ) -> Option<EvidenceBundle> {
+        let diagnostics = self.diagnostics.as_ref()?;
+        if diagnostics.backend() != self.backend() {
+            return None;
+        }
+        let bundle = diagnostics
+            .capture(EvidenceCaptureRequest {
+                trigger,
+                explain: self.explain.clone(),
+                budget: settings.budget,
+                retention: effective_retention(settings),
+            })
+            .await
+            .ok()?;
+        let expected_branch = self.explain.branch_path.as_ref().cloned().unwrap_or_default();
+        if bundle.backend != self.backend() || bundle.branch_path != expected_branch {
+            return None;
+        }
+        Some(bundle)
+    }
 }
 
 impl fmt::Debug for PreparedCandidate {
@@ -168,6 +210,7 @@ impl fmt::Debug for PreparedCandidate {
         formatter
             .debug_struct("PreparedCandidate")
             .field("explain", &self.explain)
+            .field("has_diagnostics", &self.diagnostics.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -177,13 +220,18 @@ impl fmt::Debug for PreparedCandidate {
 pub struct PreparedPlan {
     /// 只有 Ready 候选会进入此列表，第一项是 Planner 选择结果。
     candidates: Vec<PreparedCandidate>,
+    /// 不参与候选排序与 fallback 判定的证据配置。
+    evidence: EvidenceSettings,
 }
 
 impl PreparedPlan {
     /// 从至少一个已排序 Ready 候选创建计划。
-    pub(crate) fn new(candidates: Vec<PreparedCandidate>) -> Self {
+    pub(crate) fn new(candidates: Vec<PreparedCandidate>, evidence: EvidenceSettings) -> Self {
         debug_assert!(!candidates.is_empty());
-        Self { candidates }
+        Self {
+            candidates,
+            evidence,
+        }
     }
 
     /// 返回本次实际选择的后端。
@@ -206,7 +254,8 @@ impl PreparedPlan {
     pub async fn execute(self) -> Result<ActionOutcome, AutomationError> {
         let mut fallback_error = None;
         let mut exhausted_branch: Option<BranchPath> = None;
-        for candidate in self.candidates {
+        let mut captured = Vec::new();
+        for candidate in &self.candidates {
             let branch_path = candidate.explain().branch_path.clone().unwrap_or_default();
             if exhausted_branch
                 .as_ref()
@@ -215,17 +264,117 @@ impl PreparedPlan {
                 continue;
             }
             match candidate.execute().await {
-                Ok(outcome) => return Ok(outcome),
+                Ok(mut outcome) => {
+                    if self.evidence.policy == EvidenceCapturePolicy::BranchFailure {
+                        let evidence = self
+                            .persist_captured(
+                                captured,
+                                EvidenceOutcome::RecoveredByFallback {
+                                    recovered_branch: branch_path,
+                                },
+                            )
+                            .await;
+                        outcome.diagnostic_evidence.extend(evidence);
+                    }
+                    return Ok(outcome);
+                }
                 Err(error @ AutomationError::BackendUnavailable { .. }) => {
+                    self.capture_if_configured(candidate, &error, &mut captured)
+                        .await;
                     fallback_error = Some(error)
                 }
                 Err(error @ AutomationError::TargetNotFound { .. }) => {
                     exhausted_branch = Some(branch_path);
+                    self.capture_if_configured(candidate, &error, &mut captured)
+                        .await;
                     fallback_error = Some(error);
                 }
-                Err(error) => return Err(error),
+                Err(error) => {
+                    self.capture_if_configured(candidate, &error, &mut captured)
+                        .await;
+                    let _ = self
+                        .persist_captured(captured, EvidenceOutcome::FinalFailure)
+                        .await;
+                    return Err(error);
+                }
             }
         }
+        let _ = self
+            .persist_captured(captured, EvidenceOutcome::FinalFailure)
+            .await;
         Err(fallback_error.unwrap_or(AutomationError::NoBackendAvailable))
+    }
+
+    /// 根据策略在 fallback 前暂存现场；是否落盘由整份计划的最终结局决定。
+    async fn capture_if_configured(
+        &self,
+        candidate: &PreparedCandidate,
+        error: &AutomationError,
+        captured: &mut Vec<EvidenceBundle>,
+    ) {
+        if self.evidence.policy == EvidenceCapturePolicy::Off {
+            return;
+        }
+        let Some(trigger) = evidence_trigger(error) else {
+            return;
+        };
+        if let Some(bundle) = candidate.capture(trigger, &self.evidence).await {
+            captured.push(bundle);
+        }
+    }
+
+    /// 证据持久化同样是 best-effort，不得改变业务动作结果。
+    async fn persist_captured(
+        &self,
+        captured: Vec<EvidenceBundle>,
+        outcome: EvidenceOutcome,
+    ) -> Vec<DiagnosticEvidenceReference> {
+        let mut references = Vec::new();
+        for bundle in captured {
+            let backend = bundle.backend;
+            let branch_path = bundle.branch_path.as_slice().to_vec();
+            let recovered_by_fallback =
+                matches!(&outcome, EvidenceOutcome::RecoveredByFallback { .. });
+            if let Ok(reference) = self
+                .evidence
+                .sink
+                .persist(EvidenceRecord {
+                    bundle,
+                    outcome: outcome.clone(),
+                    retention: effective_retention(&self.evidence),
+                })
+                .await
+            {
+                references.push(DiagnosticEvidenceReference {
+                    evidence_id: reference.evidence_id,
+                    backend,
+                    branch_path,
+                    recovered_by_fallback,
+                });
+            }
+        }
+        references
+    }
+}
+
+/// 同时应用 capture budget 与宿主持久化上限。
+fn effective_retention(settings: &EvidenceSettings) -> crate::EvidenceRetentionPolicy {
+    crate::EvidenceRetentionPolicy {
+        max_total_bytes: settings
+            .retention
+            .max_total_bytes
+            .min(settings.budget.max_bytes),
+        ..settings.retention
+    }
+}
+
+/// 只允许具备现场诊断价值的公共错误触发采集。
+fn evidence_trigger(error: &AutomationError) -> Option<EvidenceTrigger> {
+    match error {
+        AutomationError::TargetNotFound { .. } => Some(EvidenceTrigger::TargetNotFound),
+        AutomationError::AmbiguousTarget { .. } => Some(EvidenceTrigger::AmbiguousTarget),
+        AutomationError::ActionUnsupported { .. } => Some(EvidenceTrigger::ActionUnsupported),
+        AutomationError::BackendUnavailable { .. } => Some(EvidenceTrigger::BackendUnavailable),
+        AutomationError::NoBackendAvailable | AutomationError::BackendFailed { .. } => None,
     }
 }

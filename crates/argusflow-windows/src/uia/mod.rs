@@ -8,7 +8,9 @@ mod cache;
 mod compiler;
 mod condition;
 mod current_match;
+mod element_identity;
 mod error;
+mod evidence;
 mod executor;
 mod explain;
 mod native;
@@ -17,6 +19,8 @@ mod process_search;
 mod property;
 mod runtime;
 mod runtime_worker;
+mod selector_trace;
+mod target_selection;
 
 pub use action_compiler::{UiaActionCompileError, compile_uia_action};
 pub use backend::UiaBackend;
@@ -27,6 +31,7 @@ pub use native::{
     UiaRoleConstraint,
 };
 pub use plan::{
-    UiaActionPlan, UiaActionSupport, UiaMatcherPlan, UiaPlanExpr, UiaPreparedPlan, UiaQueryPlan,
+    TargetResolutionFailure, TargetWaitPolicy, UiaActionPlan, UiaActionSupport, UiaMatcherPlan,
+    UiaPlanExpr, UiaPreparedPlan, UiaQueryPlan,
 };
 pub use runtime::{UiaRuntime, UiaRuntimeHealth, UiaRuntimeState};

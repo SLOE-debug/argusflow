@@ -17,15 +17,15 @@ mod workflow;
 pub use application::{AcquirePolicy, ActivationPolicy, ApplicationSpec, CleanupPolicy};
 pub use automation::{
     ActionOutcome, AutomationAction, AutomationExecutionScope, AutomationTarget, BackendKind,
-    BackendPreference, ScreenPoint, TargetLocator, TargetScope, UiOperation, VisualQuery,
-    WindowTitleMatcher,
+    BackendPreference, DiagnosticEvidenceReference, ScreenPoint, TargetLocator, TargetScope,
+    UiOperation, VisualQuery, WindowTitleMatcher,
 };
 pub use command::{
     CommandOperation, CommandRunner, EnvironmentBinding, WorkflowCapability, WorkflowPermissions,
     required_command_capability,
 };
 pub use condition::{ConditionEvaluationError, ConditionOperator, ConditionPredicate};
-pub use error::AutomationError;
+pub use error::{ActionCapability, AutomationError};
 pub use execution::{ExecutionEvent, ExecutionEventKind, ExecutionEventPayload, RunStarted};
 pub use input::{RunInputs, WorkflowInputDefinition, WorkflowInputType};
 pub use query::{

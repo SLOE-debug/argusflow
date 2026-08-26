@@ -44,6 +44,12 @@ fn read_cached_property(
         UiaProperty::ClassName => unsafe { element.CachedClassName() }
             .map(bstr_value)
             .map_err(|source| UiaError::from_native(UiaOperation::ReadProperty, source)),
+        UiaProperty::AcceleratorKey | UiaProperty::AccessKey | UiaProperty::FrameworkId => {
+            // SAFETY: property 已由 compiler 加入 CacheRequest，element 未跨 apartment。
+            let variant = unsafe { element.GetCachedPropertyValue(property_id(property)) }
+                .map_err(|source| UiaError::from_native(UiaOperation::ReadProperty, source))?;
+            variant_value(property, &variant)
+        }
         UiaProperty::Value => {
             // SAFETY: property 已由 compiler 加入 CacheRequest，element 未跨 apartment。
             let variant = unsafe { element.GetCachedPropertyValue(property_id(property)) }
@@ -67,7 +73,10 @@ fn bstr_value(value: BSTR) -> String {
 /// 按 compiler 证明的 property 类型转换 VARIANT。
 fn variant_value(property: UiaProperty, value: &VARIANT) -> Result<String, UiaError> {
     match property {
-        UiaProperty::Value => BSTR::try_from(value)
+        UiaProperty::Value
+        | UiaProperty::AcceleratorKey
+        | UiaProperty::AccessKey
+        | UiaProperty::FrameworkId => BSTR::try_from(value)
             .map(bstr_value)
             .map_err(|_| UiaError::PropertyTypeMismatch { property }),
         _ => Err(UiaError::PropertyTypeMismatch { property }),

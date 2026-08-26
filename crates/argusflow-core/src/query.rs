@@ -281,6 +281,9 @@ impl fmt::Display for SelectorAttribute {
             Self::Selected => "selected",
             Self::Uia(UiaAttribute::AutomationId) => "uia.automation_id",
             Self::Uia(UiaAttribute::ClassName) => "uia.class_name",
+            Self::Uia(UiaAttribute::AcceleratorKey) => "uia.accelerator_key",
+            Self::Uia(UiaAttribute::AccessKey) => "uia.access_key",
+            Self::Uia(UiaAttribute::FrameworkId) => "uia.framework_id",
             Self::Dom(DomAttribute::TestId) => "dom.test_id",
             Self::Dom(DomAttribute::Class) => "dom.class",
         })
@@ -295,6 +298,12 @@ pub enum UiaAttribute {
     AutomationId,
     /// UI Automation ClassName。
     ClassName,
+    /// UI Automation AcceleratorKey，例如命令快捷键 `Ctrl+F`。
+    AcceleratorKey,
+    /// UI Automation AccessKey，例如菜单助记键。
+    AccessKey,
+    /// UI Automation provider framework 标识。
+    FrameworkId,
 }
 
 /// AQL v1 显式开放的 DOM 属性。

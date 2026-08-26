@@ -1,4 +1,6 @@
-use argusflow_core::UiQuery;
+use std::time::Duration;
+
+use argusflow_core::{ActionCapability, UiQuery};
 use argusflow_query::{BackendQueryCapability, Diagnostic};
 
 use super::native::{
@@ -99,4 +101,74 @@ pub struct UiaPreparedPlan {
     pub action_support: UiaActionSupport,
     /// 查询支持与动作支持合并后的 Planner 能力摘要。
     pub capability: BackendQueryCapability,
+}
+
+/// UIA semantic candidates 经过动作适配与唯一性解析后的稳定失败。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TargetResolutionFailure {
+    /// 查询没有找到任何语义候选。
+    NotFound,
+    /// 动作适配后仍存在多个候选。
+    Ambiguous {
+        /// 具备动作能力的候选数量。
+        matches: usize,
+    },
+    /// 查询找到了候选，但没有候选支持当前动作。
+    ActionUnsupported {
+        /// suitability filter 之前的语义候选数量。
+        semantic_matches: usize,
+        /// 当前动作要求的跨后端能力。
+        required: ActionCapability,
+    },
+}
+
+/// 同一冻结 UIA candidate 等待目标出现的有界 polling 策略。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TargetWaitPolicy {
+    /// 首次 miss 后允许继续 materialize 的总时长。
+    timeout: Duration,
+    /// 两次 materialize 之间的最短间隔。
+    poll_interval: Duration,
+}
+
+impl TargetWaitPolicy {
+    /// 创建策略；零间隔会收敛为 1ms，避免 worker 忙循环。
+    pub fn new(timeout: Duration, poll_interval: Duration) -> Self {
+        Self {
+            timeout,
+            poll_interval: poll_interval.max(Duration::from_millis(1)),
+        }
+    }
+
+    /// 返回总等待时长。
+    pub const fn timeout(self) -> Duration {
+        self.timeout
+    }
+
+    /// 返回 polling 间隔。
+    pub const fn poll_interval(self) -> Duration {
+        self.poll_interval
+    }
+}
+
+impl Default for TargetWaitPolicy {
+    fn default() -> Self {
+        Self::new(Duration::from_secs(2), Duration::from_millis(75))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::TargetWaitPolicy;
+
+    /// 零 polling 间隔会被规范化，确保 UIA worker 不会忙循环。
+    #[test]
+    fn wait_policy_enforces_a_minimum_poll_interval() {
+        let policy = TargetWaitPolicy::new(Duration::ZERO, Duration::ZERO);
+
+        assert_eq!(policy.timeout(), Duration::ZERO);
+        assert_eq!(policy.poll_interval(), Duration::from_millis(1));
+    }
 }

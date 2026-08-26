@@ -2,7 +2,9 @@
 
 use std::sync::Arc;
 
-use argusflow_agent::{ActionBackend, ActionRouter};
+use argusflow_agent::{
+    ActionBackend, ActionRouter, EvidenceCapturePolicy, EvidenceSettings, FileSystemEvidenceSink,
+};
 use argusflow_browser::CdpBackend;
 use argusflow_runtime::WorkflowEngine;
 use argusflow_vision::UnavailableVisionBackend;
@@ -37,10 +39,17 @@ impl AppState {
             Arc::new(SendInputBackend),
         ];
         let context_provider = Arc::new(WindowsExecutionContextProvider::new(uia_runtime.health()));
-        let router = Arc::new(ActionRouter::with_context_provider(
-            backends,
-            context_provider,
-        ));
+        let router = Arc::new(
+            ActionRouter::with_context_provider(backends, context_provider).with_evidence(
+                EvidenceSettings {
+                    policy: EvidenceCapturePolicy::FinalFailure,
+                    sink: Arc::new(FileSystemEvidenceSink::new(
+                        ".argusflow/runs/local/evidence",
+                    )),
+                    ..EvidenceSettings::default()
+                },
+            ),
+        );
 
         Self {
             engine: Arc::new(WorkflowEngine::with_application_provider(

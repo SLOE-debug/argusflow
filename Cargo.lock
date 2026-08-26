@@ -56,7 +56,10 @@ dependencies = [
  "argusflow-runtime",
  "async-trait",
  "serde",
+ "serde_json",
+ "thiserror 2.0.20",
  "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -154,6 +157,7 @@ dependencies = [
  "argusflow-runtime",
  "async-trait",
  "regex",
+ "serde",
  "serde_json",
  "thiserror 2.0.20",
  "tokio",

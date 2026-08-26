@@ -5,6 +5,7 @@
 /.vite/
 /coverage/
 /logs/
+/.argusflow/
 /src-tauri/gen/schemas/
 /public/aql-wasm/
 /src/features/aql-editor/generated/

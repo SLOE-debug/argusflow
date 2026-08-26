@@ -158,6 +158,7 @@ impl PreparedExecution for TestExecution {
                 backend: self.backend,
                 message: "prepared backend executed".to_owned(),
                 outputs: Default::default(),
+                diagnostic_evidence: Vec::new(),
             }),
             ExecutionResult::Unavailable => Err(AutomationError::BackendUnavailable {
                 backend: self.backend,

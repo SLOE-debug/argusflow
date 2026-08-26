@@ -172,13 +172,28 @@ impl WorkflowNodeExecutor {
         };
         let action_outcome = self.dispatcher.execute(&action, scope).await?;
         let output_names = action_outcome.outputs.keys().cloned().collect::<Vec<_>>();
-        let mut events = vec![NodeEvent {
+        // 失败现场在 fallback 前产生，因此事件顺序也先于最终成功后端。
+        let mut events = action_outcome
+            .diagnostic_evidence
+            .into_iter()
+            .map(|evidence| NodeEvent {
+                kind: ExecutionEventKind::DiagnosticEvidenceCaptured,
+                message: Some("自动化失败现场已保存".to_owned()),
+                payload: Some(ExecutionEventPayload::DiagnosticEvidenceCaptured {
+                    evidence_id: evidence.evidence_id,
+                    backend: evidence.backend,
+                    branch_path: evidence.branch_path,
+                    recovered_by_fallback: evidence.recovered_by_fallback,
+                }),
+            })
+            .collect::<Vec<_>>();
+        events.push(NodeEvent {
             kind: ExecutionEventKind::BackendSelected,
             message: Some(action_outcome.message),
             payload: Some(ExecutionEventPayload::BackendSelected {
                 backend: action_outcome.backend,
             }),
-        }];
+        });
         if !output_names.is_empty() {
             events.push(NodeEvent {
                 kind: ExecutionEventKind::NodeOutputProduced,

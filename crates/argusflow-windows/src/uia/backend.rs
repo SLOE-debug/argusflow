@@ -3,7 +3,8 @@
 use std::sync::Arc;
 
 use argusflow_agent::{
-    ActionBackend, ContextFitness, ExecutionContext, PlanExplain, PlanRejection, PreparedCandidate,
+    ActionBackend, ContextFitness, EvidenceBundle, EvidenceCaptureError, EvidenceCaptureRequest,
+    ExecutionContext, PlanExplain, PlanRejection, PreparedCandidate, PreparedDiagnostics,
     PreparedExecution, RuntimeAvailability,
 };
 use argusflow_core::{
@@ -20,7 +21,9 @@ use super::{
     compiler::compile_uia_query,
     explain::{explain_uia_action, explain_uia_plan},
     plan::UiaPreparedPlan,
-    runtime::{PreparedWindowTarget, UiaExecuteRequest, UiaRuntime, UiaRuntimeState},
+    runtime::{
+        PreparedWindowTarget, UiaEvidenceRequest, UiaExecuteRequest, UiaRuntime, UiaRuntimeState,
+    },
 };
 
 /// 使用共享 `UiaRuntime` 操作原生 Windows UIA provider 的后端。
@@ -105,10 +108,19 @@ impl ActionBackend for UiaBackend {
             let execution = UiaPreparedExecution {
                 runtime: self.runtime.clone(),
                 window,
+                plan: prepared_plan.clone(),
+                query: query.clone(),
+            };
+            let diagnostics = UiaPreparedDiagnostics {
+                runtime: self.runtime.clone(),
+                window,
                 plan: prepared_plan,
                 query: query.clone(),
             };
-            candidates.push(PreparedCandidate::new(explain, Arc::new(execution)));
+            candidates.push(
+                PreparedCandidate::new(explain, Arc::new(execution))
+                    .with_diagnostics(Arc::new(diagnostics)),
+            );
         }
         if candidates.is_empty() {
             Err(PlanRejection::Unsupported {
@@ -117,6 +129,45 @@ impl ActionBackend for UiaBackend {
         } else {
             Ok(candidates)
         }
+    }
+}
+
+/// 已绑定冻结查询、动作与窗口上下文的 UIA 诊断对象。
+#[derive(Debug)]
+struct UiaPreparedDiagnostics {
+    /// 与 execution 共用、保证 COM apartment 的 UIA runtime。
+    runtime: Arc<UiaRuntime>,
+    /// prepare 时冻结的 HWND/PID。
+    window: Option<PreparedWindowTarget>,
+    /// 失败 candidate 的完整 UIA prepared plan。
+    plan: UiaPreparedPlan,
+    /// 规范化查询。
+    query: String,
+}
+
+#[async_trait]
+impl PreparedDiagnostics for UiaPreparedDiagnostics {
+    fn backend(&self) -> BackendKind {
+        BackendKind::WindowsUia
+    }
+
+    async fn capture(
+        &self,
+        request: EvidenceCaptureRequest,
+    ) -> Result<EvidenceBundle, EvidenceCaptureError> {
+        let window = self
+            .window
+            .ok_or_else(|| EvidenceCaptureError::SourceUnavailable {
+                message: "prepared UIA diagnostics has no window context".to_owned(),
+            })?;
+        self.runtime
+            .capture(UiaEvidenceRequest {
+                window,
+                plan: self.plan.clone(),
+                query: self.query.clone(),
+                capture: request,
+            })
+            .await
     }
 }
 

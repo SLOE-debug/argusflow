@@ -5,6 +5,8 @@ compile_error!("ArgusFlow only supports Windows targets.");
 
 mod backend;
 mod context;
+mod evidence;
+mod evidence_sink;
 mod plan;
 mod router;
 
@@ -13,6 +15,15 @@ pub use context::{
     AccessibilityContext, BrowserSessionContext, ContextFitness, ExecutionContext,
     ExecutionContextProvider, ProcessContext, StaticExecutionContext, VisualCacheContext,
     WindowContext,
+};
+pub use evidence::{
+    EvidenceArtifact, EvidenceArtifactData, EvidenceArtifactKind, EvidenceBudget, EvidenceBundle,
+    EvidenceCaptureError, EvidenceCapturePolicy, EvidenceCaptureRequest, EvidenceOutcome,
+    EvidenceRecord, EvidenceRetentionPolicy, EvidenceTrigger, PreparedDiagnostics,
+};
+pub use evidence_sink::{
+    DiscardEvidenceSink, EvidenceReference, EvidenceSettings, EvidenceSink, EvidenceSinkError,
+    FileSystemEvidenceSink, InMemoryEvidenceSink,
 };
 pub use plan::{
     PlanExplain, PlanRejection, PlanStepExplain, PlanStepKind, PlanningReport, PreparedCandidate,

@@ -365,7 +365,8 @@ export type RunStarted = { run_id: string };
 
 export type ExecutionEventKind =
   | 'workflow_started' | 'node_started' | 'log' | 'node_output_produced'
-  | 'resource_acquired' | 'backend_selected' | 'command_exited' | 'node_succeeded'
+  | 'resource_acquired' | 'backend_selected' | 'command_exited'
+  | 'diagnostic_evidence_captured' | 'node_succeeded'
   | 'edge_traversed' | 'node_failed' | 'workflow_completed' | 'workflow_failed';
 
 export type ExecutionEvent = {
@@ -391,7 +392,14 @@ export type ExecutionEventPayload =
   | { type: 'node_outputs_produced'; output_names: string[] }
   | { type: 'resource_acquired'; output_name: string; resource_type: string }
   | { type: 'backend_selected'; backend: BackendKind }
-  | { type: 'command_exited'; exit_code: number };
+  | { type: 'command_exited'; exit_code: number }
+  | {
+      type: 'diagnostic_evidence_captured';
+      evidence_id: string;
+      backend: BackendKind;
+      branch_path: number[];
+      recovered_by_fallback: boolean;
+    };
 
 /** Rust `CommandErrorCode` 的完整序列化取值。 */
 export const COMMAND_ERROR_CODES = [

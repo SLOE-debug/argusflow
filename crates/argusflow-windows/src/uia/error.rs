@@ -141,6 +141,9 @@ pub(crate) enum UiaError {
     /// ValuePattern 存在但目标只读。
     #[error("target ValuePattern is read-only")]
     ReadOnlyValue,
+    /// resolved strategy 与 prepared action 不一致，表示内部执行不变量被破坏。
+    #[error("resolved UI Automation action strategy does not match the prepared action")]
+    ActionStrategyMismatch,
     /// provider 返回了无效的 runtime id SAFEARRAY。
     #[error("target returned an invalid UI Automation runtime id")]
     InvalidRuntimeId,
@@ -190,6 +193,7 @@ impl UiaError {
             | Self::PatternAvailabilityTypeMismatch { .. }
             | Self::RequiredPatternUnavailable { .. }
             | Self::ReadOnlyValue
+            | Self::ActionStrategyMismatch
             | Self::InvalidRuntimeId => false,
         }
     }

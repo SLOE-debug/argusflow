@@ -316,6 +316,9 @@ const fn compile_property(
         SelectorAttribute::Checked => UiaProperty::ToggleState,
         SelectorAttribute::Selected => UiaProperty::IsSelected,
         SelectorAttribute::Uia(UiaAttribute::ClassName) => UiaProperty::ClassName,
+        SelectorAttribute::Uia(UiaAttribute::AcceleratorKey) => UiaProperty::AcceleratorKey,
+        SelectorAttribute::Uia(UiaAttribute::AccessKey) => UiaProperty::AccessKey,
+        SelectorAttribute::Uia(UiaAttribute::FrameworkId) => UiaProperty::FrameworkId,
         SelectorAttribute::Dom(_) => return Err(UiaQueryCompileError::UnsupportedQuery),
     })
 }
@@ -351,7 +354,13 @@ fn compile_native_value(
 const fn is_string_property(property: UiaProperty) -> bool {
     matches!(
         property,
-        UiaProperty::Name | UiaProperty::AutomationId | UiaProperty::ClassName | UiaProperty::Value
+        UiaProperty::Name
+            | UiaProperty::AutomationId
+            | UiaProperty::ClassName
+            | UiaProperty::AcceleratorKey
+            | UiaProperty::AccessKey
+            | UiaProperty::FrameworkId
+            | UiaProperty::Value
     )
 }
 
