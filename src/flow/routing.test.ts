@@ -2,7 +2,36 @@ import { describe, expect, it } from 'vitest';
 
 import { previewEdgeRoute, routeEdge } from './routing';
 import { rectsIntersect } from './geometry';
-import type { FlowEdge, FlowNode, FlowPoint } from './types';
+import { ROUTING_OBSTACLE_GAP } from './obstacleIndex';
+import { ENDPOINT_CLEARANCE } from './routingPort';
+import type { FlowEdge, FlowNode, FlowPoint, FlowRect } from './types';
+
+/** 返回节点路由主体不得进入的膨胀安全区。 */
+function nodeKeepOutRect(node: FlowNode): FlowRect {
+  return {
+    x: node.position.x - ROUTING_OBSTACLE_GAP,
+    y: node.position.y - ROUTING_OBSTACLE_GAP,
+    width: node.size.width + ROUTING_OBSTACLE_GAP * 2,
+    height: node.size.height + ROUTING_OBSTACLE_GAP * 2,
+  };
+}
+
+/** 只检查两个端口 tunnel 之间的主体线段是否进入指定安全区。 */
+function routeBodyIntersects(
+  points: ReadonlyArray<FlowPoint>,
+  keepOutRect: FlowRect,
+): boolean {
+  const bodyPoints = points.slice(1, -1);
+  return bodyPoints.slice(1).some((point, index) => {
+    const previous = bodyPoints[index];
+    return rectsIntersect({
+      x: Math.min(previous.x, point.x),
+      y: Math.min(previous.y, point.y),
+      width: Math.abs(previous.x - point.x),
+      height: Math.abs(previous.y - point.y),
+    }, keepOutRect);
+  });
+}
 
 describe('orthogonal router', () => {
   it('routes around an inflated obstacle', () => {
@@ -15,6 +44,7 @@ describe('orthogonal router', () => {
     const route = routeEdge(edge, nodes);
     expect(route).not.toBeNull();
     expect(route!.route.points.length).toBeGreaterThan(2);
+    expect(route!.route.points.length).toBeLessThanOrEqual(8);
     expect(route!.route.path).toContain('Q');
   });
 
@@ -61,13 +91,19 @@ describe('orthogonal router', () => {
 
     expect(exact.points.slice(0, 2)).toEqual([
       { x: 80, y: 30 },
-      { x: 94, y: 30 },
+      { x: 80 + ENDPOINT_CLEARANCE, y: 30 },
     ]);
     expect(exact.points.slice(-2)).toEqual([
-      { x: 94, y: 230 },
+      { x: 80 + ENDPOINT_CLEARANCE, y: 230 },
       { x: 80, y: 230 },
     ]);
     expect(preview?.points).toEqual(exact.points);
+    for (const route of [exact, preview!]) {
+      expect(routeBodyIntersects(route.points, nodeKeepOutRect(nodes[0])))
+        .toBe(false);
+      expect(routeBodyIntersects(route.points, nodeKeepOutRect(nodes[1])))
+        .toBe(false);
+    }
   });
 
   it('routes a backward connection around intervening nodes', () => {
@@ -103,8 +139,14 @@ describe('orthogonal router', () => {
       }, blockerRect);
     });
 
-    expect(preview.points[1]).toEqual({ x: 534, y: 30 });
-    expect(preview.points.at(-2)).toEqual({ x: 186, y: 210 });
+    expect(preview.points[1]).toEqual({
+      x: 520 + ENDPOINT_CLEARANCE,
+      y: 30,
+    });
+    expect(preview.points.at(-2)).toEqual({
+      x: 200 - ENDPOINT_CLEARANCE,
+      y: 210,
+    });
     expect(preview.targetSide).toBe('left');
     const targetApproach = preview.points.at(-2)!;
     const targetAnchor = preview.points.at(-1)!;

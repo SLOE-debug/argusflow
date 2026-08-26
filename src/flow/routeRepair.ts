@@ -3,7 +3,7 @@ import {
   type RouteCollisionContext,
 } from './routeCollision';
 import {
-  orthogonalPathLength,
+  orthogonalRoutePreferenceCost,
   simplifyOrthogonalPoints,
 } from './routingGeometry';
 import type { FlowPoint, RoutedEdge } from './types';
@@ -31,7 +31,7 @@ export function repairRouteCore(
   );
   /** 最短可行修补会在候选评分中胜出，避免首个命中产生多余折点。 */
   let best: ReadonlyArray<FlowPoint> | null = null;
-  let bestLength = Number.POSITIVE_INFINITY;
+  let bestPreferenceCost = Number.POSITIVE_INFINITY;
 
   for (let sourceIndex = 0; sourceIndex <= sourceLimit; sourceIndex += 1) {
     const minimumTargetIndex = Math.max(sourceIndex, previousCore.length - 1
@@ -56,10 +56,10 @@ export function repairRouteCore(
             ...targetConnector.slice(1),
           ]);
           if (!isRouteCoreClear(candidate, collision)) continue;
-          const length = orthogonalPathLength(candidate);
-          if (length >= bestLength) continue;
+          const preferenceCost = orthogonalRoutePreferenceCost(candidate);
+          if (preferenceCost >= bestPreferenceCost) continue;
           best = candidate;
-          bestLength = length;
+          bestPreferenceCost = preferenceCost;
         }
       }
     }

@@ -9,6 +9,7 @@ import { orthogonalConnectors } from './routeRepair';
 import {
   inflateRect,
   manhattanDistance,
+  ROUTING_BEND_PENALTY,
   simplifyOrthogonalPoints,
   unionRects,
 } from './routingGeometry';
@@ -18,8 +19,6 @@ import type { FlowPoint, FlowRect, RoutedEdge } from './types';
 const CORRIDOR_EXPANSIONS = [96, 192, 384] as const;
 /** 障碍物角点向外移动一像素，保证可见线段不接触禁止边界。 */
 const PORTAL_OFFSET = 1;
-/** 每次转弯的额外代价，用于稳定偏好少折点路径。 */
-const BEND_PENALTY = 20;
 /** 单条局部图搜索最多展开的方向状态数。 */
 const MAX_EXPANDED_STATES = 20_000;
 
@@ -55,13 +54,13 @@ export function findLocalOrthogonalRoute(
   for (const expansion of CORRIDOR_EXPANSIONS) {
     const corridor = inflateRect(baseBounds, expansion);
     const nearby = obstacleIndex.query(corridor).filter((obstacle) => (
-      !collision.excludedNodeIds.has(obstacle.nodeId)
+      !collision.endpointNodeIds.has(obstacle.nodeId)
     ));
     const route = searchVisibilityGraph(start, end, nearby, collision);
     if (route) return { ...route, nearbyObstacleCount: nearby.length };
   }
   const globalObstacles = obstacleIndex.all().filter((obstacle) => (
-    !collision.excludedNodeIds.has(obstacle.nodeId)
+    !collision.endpointNodeIds.has(obstacle.nodeId)
   ));
   const globalRoute = searchVisibilityGraph(
     start,
@@ -93,7 +92,7 @@ function searchVisibilityGraph(
 
   const graphObstacles = [
     ...obstacles.map((obstacle) => obstacle.rect),
-    ...collision.endpointRects,
+    ...collision.endpointKeepOutRects,
   ];
   const points = buildGraphPoints(start, end, graphObstacles, collision);
   const startIndex = points.findIndex((point) => samePoint(point, start));
@@ -257,7 +256,7 @@ function searchDirectionAwareAStar(
     for (const neighbor of adjacency[current.vertexIndex]) {
       const turnCost = current.incomingDirection
         && current.incomingDirection !== neighbor.direction
-        ? BEND_PENALTY
+        ? ROUTING_BEND_PENALTY
         : 0;
       const g = current.g + neighbor.cost + turnCost;
       const neighborKey = stateKey(neighbor.vertexIndex, neighbor.direction);

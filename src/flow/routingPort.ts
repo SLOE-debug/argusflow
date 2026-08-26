@@ -1,4 +1,5 @@
 import { anchorPoint } from './geometry';
+import { ROUTING_OBSTACLE_GAP } from './obstacleIndex';
 import type {
   FlowAnchorSide,
   FlowEdge,
@@ -9,8 +10,8 @@ import type {
 } from './types';
 import type { RoutingPort } from './routingTypes';
 
-/** 节点安全区与端口出口之间保留的直线距离。 */
-export const ENDPOINT_CLEARANCE = 14;
+/** 端口出口位于节点膨胀安全区外一像素，避免主体接触禁止边界。 */
+export const ENDPOINT_CLEARANCE = ROUTING_OBSTACLE_GAP + 1;
 
 /** 自动端口选择时允许评估的稳定方向顺序。 */
 const ROUTING_SIDES = [

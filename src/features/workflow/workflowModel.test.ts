@@ -256,6 +256,9 @@ describe('workflow model', () => {
     const waitSetEdgeIndex = DEFAULT_EDGES.findIndex(
       (edge) => edge.id === 'edge_wait_set',
     );
+    const setCountEdgeIndex = DEFAULT_EDGES.findIndex(
+      (edge) => edge.id === 'edge_set_count',
+    );
     const routeGroups = [
       ['exact', exactRoutes],
       ['preview', previewRoutes],
@@ -286,6 +289,13 @@ describe('workflow model', () => {
       sourceSide: 'left',
       targetSide: 'right',
     });
+    /** 截图复现边不得再暴露 OVG 的连续短距离阶梯折点。 */
+    expect(exactRoutes[waitSetEdgeIndex]!.points.length)
+      .toBeLessThanOrEqual(6);
+    expect(previewRoutes[waitSetEdgeIndex]!.points.length)
+      .toBeLessThanOrEqual(6);
+    expect(exactRoutes[setCountEdgeIndex]!.points.length)
+      .toBeLessThanOrEqual(6);
   });
 
   it('applies the complete execution state lifecycle', () => {

@@ -1,6 +1,7 @@
 import { rectsIntersect } from './geometry';
-import type { ObstacleIndex } from './obstacleIndex';
+import { indexedObstacle, type ObstacleIndex } from './obstacleIndex';
 import { findLocalOrthogonalRoute } from './orthogonalVisibilityGraph';
+import { compactRouteCore } from './routeCompaction';
 import {
   isRouteCoreClear,
   isRoutePointBlocked,
@@ -10,7 +11,7 @@ import {
 import { repairRouteCore, orthogonalConnectors } from './routeRepair';
 import {
   createRoutedEdge,
-  orthogonalPathLength,
+  orthogonalRoutePreferenceCost,
 } from './routingGeometry';
 import {
   buildRoutingPort,
@@ -79,13 +80,11 @@ export function planEdgeRoute(
     );
     if (
       !isRoutingPortTunnelClear(
-        sourcePort.anchor,
-        sourcePort.escape,
+        sourcePort,
         collision,
       )
       || !isRoutingPortTunnelClear(
-        targetPort.anchor,
-        targetPort.escape,
+        targetPort,
         collision,
       )
     ) continue;
@@ -129,6 +128,7 @@ export function planEdgeRoute(
       }
     }
     if (!corePoints) continue;
+    corePoints = compactRouteCore(corePoints, collision);
 
     const route = createRoutedEdge(
       edge.id,
@@ -142,7 +142,7 @@ export function planEdgeRoute(
         previous.sourceSide !== candidate.sourceSide
         || previous.targetSide !== candidate.targetSide
       );
-    const score = orthogonalPathLength(route.points)
+    const score = orthogonalRoutePreferenceCost(route.points)
       + (changedSide ? ROUTE_SIDE_CHANGE_PENALTY : 0);
     if (score >= bestScore) continue;
     bestRoute = route;
@@ -174,12 +174,10 @@ export function planEdgeRoute(
     targetNode,
   );
   const portTunnelBlocked = !isRoutingPortTunnelClear(
-    sourcePort.anchor,
-    sourcePort.escape,
+    sourcePort,
     collision,
   ) || !isRoutingPortTunnelClear(
-    targetPort.anchor,
-    targetPort.escape,
+    targetPort,
     collision,
   );
   const reason = rectsIntersect(nodeRect(sourceNode), nodeRect(targetNode))
@@ -217,7 +215,7 @@ export function planEdgeRoute(
   };
 }
 
-/** 构造只允许主体在两端真实节点体外行走的碰撞上下文。 */
+/** 构造仅允许端口 tunnel 进入自身端点安全区的碰撞上下文。 */
 function createCollisionContext(
   obstacles: ObstacleIndex,
   source: FlowNode,
@@ -225,8 +223,11 @@ function createCollisionContext(
 ): RouteCollisionContext {
   return {
     obstacles,
-    excludedNodeIds: new Set([source.id, target.id]),
-    endpointRects: [nodeRect(source), nodeRect(target)],
+    endpointNodeIds: new Set([source.id, target.id]),
+    endpointKeepOutRects: [
+      indexedObstacle(source).rect,
+      indexedObstacle(target).rect,
+    ],
   };
 }
 
@@ -240,7 +241,8 @@ function findSimpleCore(
     .filter((points) => isRouteCoreClear(points, collision));
   if (candidates.length === 0) return null;
   return candidates.reduce((best, candidate) => (
-    orthogonalPathLength(candidate) < orthogonalPathLength(best)
+    orthogonalRoutePreferenceCost(candidate)
+      < orthogonalRoutePreferenceCost(best)
       ? candidate
       : best
   ));

@@ -1,6 +1,9 @@
 import { pointsBounds, rectsIntersect } from './geometry';
 import type { FlowPoint, FlowRect, RoutedEdge } from './types';
 
+/** 单次转弯等价的世界像素代价，避免用短距离收益交换视觉碎折点。 */
+export const ROUTING_BEND_PENALTY = 64;
+
 /** 删除重复点与共线中间点，保持正交折线的最小表达。 */
 export function simplifyOrthogonalPoints(
   points: ReadonlyArray<FlowPoint>,
@@ -36,6 +39,14 @@ export function orthogonalPathLength(points: ReadonlyArray<FlowPoint>): number {
   return points.slice(1).reduce((sum, point, index) => (
     sum + manhattanDistance(points[index], point)
   ), 0);
+}
+
+/** 使用曼哈顿长度与折点数量计算编辑器视觉路线的统一偏好代价。 */
+export function orthogonalRoutePreferenceCost(
+  points: ReadonlyArray<FlowPoint>,
+): number {
+  const bendCount = Math.max(0, points.length - 2);
+  return orthogonalPathLength(points) + bendCount * ROUTING_BEND_PENALTY;
 }
 
 /** 计算两点的曼哈顿距离。 */

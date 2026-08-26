@@ -2,15 +2,19 @@ import { rectsIntersect } from './geometry';
 import type { ObstacleIndex } from './obstacleIndex';
 import { segmentBounds, segmentIntersectsRect } from './routingGeometry';
 import type { FlowPoint, FlowRect } from './types';
+import type { RoutingPort } from './routingTypes';
 
 /** 单条边主体碰撞检测所需的稳定上下文。 */
 export type RouteCollisionContext = Readonly<{
+  /** 包含普通节点与两个端点膨胀安全区的长期空间索引。 */
   obstacles: ObstacleIndex;
-  excludedNodeIds: ReadonlySet<string>;
-  endpointRects: ReadonlyArray<FlowRect>;
+  /** 两个端点节点 ID；仅用于可见图避免重复加入同一障碍物。 */
+  endpointNodeIds: ReadonlySet<string>;
+  /** 两个端点的膨胀安全区，供局部可见图生成绕行 portal。 */
+  endpointKeepOutRects: ReadonlyArray<FlowRect>;
 }>;
 
-/** 判断一条正交折线是否避开普通障碍物及源目标真实节点体。 */
+/** 判断一条正交折线是否避开包括源、目标在内的全部节点安全区。 */
 export function isRouteCoreClear(
   points: ReadonlyArray<FlowPoint>,
   context: RouteCollisionContext,
@@ -31,26 +35,24 @@ export function isRouteSegmentClear(
 ): boolean {
   if (start.x !== end.x && start.y !== end.y) return false;
   const bounds = segmentBounds(start, end);
-  const crossesObstacle = context.obstacles.query(bounds).some((obstacle) => (
-    !context.excludedNodeIds.has(obstacle.nodeId)
-    && segmentIntersectsRect(start, end, obstacle.rect)
-  ));
-  if (crossesObstacle) return false;
-  return !context.endpointRects.some((rect) => (
-    segmentIntersectsRect(start, end, rect)
+  return !context.obstacles.query(bounds).some((obstacle) => (
+    segmentIntersectsRect(start, end, obstacle.rect)
   ));
 }
 
-/** 判断强制端口直线段是否避开源目标之外的节点安全区。 */
+/**
+ * 判断强制端口直线段是否避开所属端点之外的全部节点安全区。
+ *
+ * 只有 port.nodeId 对应的安全区可被 tunnel 穿过；另一端点仍是普通障碍物。
+ */
 export function isRoutingPortTunnelClear(
-  anchor: FlowPoint,
-  escape: FlowPoint,
+  port: RoutingPort,
   context: RouteCollisionContext,
 ): boolean {
-  const bounds = segmentBounds(anchor, escape);
+  const bounds = segmentBounds(port.anchor, port.escape);
   return !context.obstacles.query(bounds).some((obstacle) => (
-    !context.excludedNodeIds.has(obstacle.nodeId)
-    && segmentIntersectsRect(anchor, escape, obstacle.rect)
+    obstacle.nodeId !== port.nodeId
+    && segmentIntersectsRect(port.anchor, port.escape, obstacle.rect)
   ));
 }
 
@@ -60,11 +62,7 @@ export function isRoutePointBlocked(
   context: RouteCollisionContext,
 ): boolean {
   const pointRect = { x: point.x, y: point.y, width: 0, height: 0 };
-  const insideObstacle = context.obstacles.query(pointRect).some((obstacle) => (
-    !context.excludedNodeIds.has(obstacle.nodeId)
-    && rectsIntersect(pointRect, obstacle.rect)
-  ));
-  return insideObstacle || context.endpointRects.some((rect) => (
-    rectsIntersect(pointRect, rect)
+  return context.obstacles.query(pointRect).some((obstacle) => (
+    rectsIntersect(pointRect, obstacle.rect)
   ));
 }
