@@ -45,9 +45,10 @@ export const FlowEdges = memo(function FlowEdges({
   const selectedEdgeId = useFlowStore((state) => state.selectedEdgeId);
   const hoveredEdgeId = useFlowStore((state) => state.hoveredEdgeId);
   const activeEdgeIds = useFlowStore((state) => state.activeEdgeIds);
+  const routingInteraction = useFlowStore((state) => state.routingInteraction);
   const selectEdge = useFlowStore((state) => state.selectEdge);
   const setHoveredEdge = useFlowStore((state) => state.setHoveredEdge);
-  const routedEdges = useEdgeRoutes(nodes, edges);
+  const routedEdges = useEdgeRoutes(nodes, edges, routingInteraction);
   const edgeById = new Map(edges.map((edge) => [edge.id, edge]));
   const nodesById = getFlowNodeLookup(nodes);
   const visibleRoutes = routedEdges.flatMap((route): VisibleRoute[] => {

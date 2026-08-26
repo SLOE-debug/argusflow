@@ -14,8 +14,8 @@ describe('orthogonal router', () => {
     const edge: FlowEdge = { id: 'edge', source: { nodeId: 'a' }, target: { nodeId: 'b' }, data: null };
     const route = routeEdge(edge, nodes);
     expect(route).not.toBeNull();
-    expect(route!.points.length).toBeGreaterThan(2);
-    expect(route!.path).toContain('Q');
+    expect(route!.route.points.length).toBeGreaterThan(2);
+    expect(route!.route.path).toContain('Q');
   });
 
   it('keeps an orthogonal preview attached to moving endpoints', () => {
@@ -29,12 +29,12 @@ describe('orthogonal router', () => {
       target: { nodeId: 'b', side: 'left' },
       data: null,
     };
-    const exact = routeEdge(edge, nodes)!;
+    const exact = routeEdge(edge, nodes)!.route;
     const movedNodes = nodes.map((node) => node.id === 'a'
       ? { ...node, position: { x: 40, y: 80 } }
       : node);
 
-    const preview = previewEdgeRoute(edge, movedNodes, exact)!;
+    const preview = previewEdgeRoute(edge, movedNodes, exact)!.route;
 
     expect(preview.points[0]).toEqual({ x: 120, y: 110 });
     expect(preview.points.at(-1)).toEqual({ x: 280, y: 30 });
@@ -56,8 +56,8 @@ describe('orthogonal router', () => {
       data: null,
     };
 
-    const exact = routeEdge(edge, nodes)!;
-    const preview = previewEdgeRoute(edge, nodes);
+    const exact = routeEdge(edge, nodes)!.route;
+    const preview = previewEdgeRoute(edge, nodes)?.route;
 
     expect(exact.points.slice(0, 2)).toEqual([
       { x: 80, y: 30 },
@@ -90,8 +90,8 @@ describe('orthogonal router', () => {
       data: null,
     };
 
-    const exact = routeEdge(edge, nodes)!;
-    const preview = previewEdgeRoute(edge, nodes)!;
+    const exact = routeEdge(edge, nodes)!.route;
+    const preview = previewEdgeRoute(edge, nodes)!.route;
     const blockerRect = { ...blocker.position, ...blocker.size };
     const crossesBlocker = (points: ReadonlyArray<FlowPoint>) => points.slice(1).some((point, index) => {
       const previous = points[index];
@@ -105,7 +105,34 @@ describe('orthogonal router', () => {
 
     expect(preview.points[1]).toEqual({ x: 534, y: 30 });
     expect(preview.points.at(-2)).toEqual({ x: 186, y: 210 });
+    expect(preview.targetSide).toBe('left');
+    const targetApproach = preview.points.at(-2)!;
+    const targetAnchor = preview.points.at(-1)!;
+    expect(targetApproach.y).toBe(targetAnchor.y);
+    expect(targetApproach.x).toBeLessThan(targetAnchor.x);
     expect(crossesBlocker(exact.points)).toBe(false);
     expect(crossesBlocker(preview.points)).toBe(false);
+  });
+
+  it('returns an emergency route instead of disappearing for overlapping nodes', () => {
+    const nodes: FlowNode[] = [
+      { id: 'a', kind: 'test', position: { x: 0, y: 0 }, size: { width: 80, height: 60 }, data: null },
+      { id: 'b', kind: 'test', position: { x: 20, y: 10 }, size: { width: 80, height: 60 }, data: null },
+    ];
+    const edge: FlowEdge = {
+      id: 'edge',
+      source: { nodeId: 'a', side: 'right' },
+      target: { nodeId: 'b', side: 'left' },
+      data: null,
+    };
+
+    const result = routeEdge(
+      edge,
+      nodes,
+    );
+
+    expect(result?.kind).toBe('degraded');
+    expect(result?.quality).toBe('emergency');
+    expect(result?.route.path).not.toBe('');
   });
 });

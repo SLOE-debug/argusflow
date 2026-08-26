@@ -244,9 +244,11 @@ describe('workflow model', () => {
   });
 
   it('keeps every default workflow connection visible', () => {
-    const exactRoutes = DEFAULT_EDGES.map((edge) => routeEdge(edge, DEFAULT_NODES));
+    const exactRoutes = DEFAULT_EDGES.map((edge) => (
+      routeEdge(edge, DEFAULT_NODES)?.route ?? null
+    ));
     const previewRoutes = DEFAULT_EDGES.map((edge) => (
-      previewEdgeRoute(edge, DEFAULT_NODES)
+      previewEdgeRoute(edge, DEFAULT_NODES)?.route ?? null
     ));
     const waitReadEdgeIndex = DEFAULT_EDGES.findIndex(
       (edge) => edge.id === 'edge_wait_read',

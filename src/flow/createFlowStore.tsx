@@ -35,6 +35,7 @@ export function createFlowStore<TData = unknown, TEdgeData = unknown>(
     hoveredEdgeId: null,
     selectionBox: null,
     connectionDraft: null,
+    routingInteraction: { kind: 'idle' },
     activeEdgeIds: {},
     past: [],
     future: [],
@@ -105,6 +106,7 @@ export function createFlowStore<TData = unknown, TEdgeData = unknown>(
     setHoveredEdge: (hoveredEdgeId) => set({ hoveredEdgeId }),
     setSelectionBox: (selectionBox) => set({ selectionBox }),
     setConnectionDraft: (connectionDraft) => set({ connectionDraft }),
+    setRoutingInteraction: (routingInteraction) => set({ routingInteraction }),
 
     moveSelected: (delta, record = false, historyGroup) => {
       if (delta.x === 0 && delta.y === 0) return;

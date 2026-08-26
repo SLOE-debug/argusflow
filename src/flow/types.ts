@@ -11,6 +11,21 @@ export type FlowEndpoint = { /** 端点所属节点。 */ nodeId: string; /** �
 /** 当前视口的平移和缩放。 */
 export type ViewportTransform = { /** 水平平移。 */ x: number; /** 垂直平移。 */ y: number; /** 缩放倍率。 */ zoom: number };
 
+/** 路由器当前所处的画布交互阶段。 */
+export type RoutingInteraction =
+  | Readonly<{
+      /** 空闲阶段允许把本轮脏边提交给 Worker 精修。 */
+      kind: 'idle';
+    }>
+  | Readonly<{
+      /** 节点拖拽阶段只执行主线程增量预览。 */
+      kind: 'node-drag';
+      /** 本次拖拽涉及的节点 ID；路由索引据此避免扫描全部节点。 */
+      nodeIds: ReadonlyArray<string>;
+      /** 区分相邻两次拖拽的单调递增标识。 */
+      interactionId: number;
+    }>;
+
 /** 与具体业务数据解耦的通用 Flow 节点。 */
 export type FlowNode<TData = unknown> = {
   /** 文档内唯一节点 ID。 */
@@ -71,7 +86,7 @@ export type RoutedEdge = {
   /** 对应的业务连线 ID。 */
   edgeId: string;
   /** 简化后的正交折点。 */
-  points: FlowPoint[];
+  points: ReadonlyArray<FlowPoint>;
   /** 可直接渲染的圆角 SVG path。 */
   path: string;
   /** 路由器最终选择的源侧。 */

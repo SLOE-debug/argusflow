@@ -4,6 +4,7 @@ import type {
   FlowEdge,
   FlowNode,
   FlowPoint,
+  RoutingInteraction,
   ViewportTransform,
 } from './types';
 
@@ -66,6 +67,8 @@ export type FlowState<TData = unknown, TEdgeData = unknown> = {
   selectionBox: SelectionBox | null;
   /** 当前连线手势；不存在手势时为 null。 */
   connectionDraft: ConnectionDraft | null;
+  /** 路由器当前所处的空闲或节点拖拽阶段。 */
+  routingInteraction: RoutingInteraction;
   /** 运行态连线 ID 到过期时间戳的映射。 */
   activeEdgeIds: Record<string, number>;
   /** 可撤销的文档快照。 */
@@ -112,6 +115,8 @@ export type FlowState<TData = unknown, TEdgeData = unknown> = {
   setSelectionBox: (box: SelectionBox | null) => void;
   /** 更新连线手势。 */
   setConnectionDraft: (draft: ConnectionDraft | null) => void;
+  /** 更新瞬时路由交互阶段；该状态不进入文档历史。 */
+  setRoutingInteraction: (interaction: RoutingInteraction) => void;
   /** 移动所有选中节点，并可选择是否记录或合并历史。 */
   moveSelected: (
     delta: FlowPoint,

@@ -116,6 +116,8 @@ export function useCanvasPointerInteractions({
   const wheelPoint = useRef<FlowPoint | null>(null);
   /** 等待应用滚轮缩放的动画帧 ID。 */
   const wheelFrame = useRef<number | null>(null);
+  /** 节点拖拽交互使用的单调递增标识。 */
+  const routingInteractionId = useRef(0);
 
   const pointerWorld = useCallback((pointer: Pick<PointerEvent, 'clientX' | 'clientY'>) => {
     const element = containerRef.current;
@@ -179,6 +181,11 @@ export function useCanvasPointerInteractions({
     const initialEdges = initialDocument.edges;
     const initialDraggedNode = findFlowNode(initialNodes, nodeId);
     if (!initialDraggedNode) return;
+    store.getState().setRoutingInteraction({
+      kind: 'node-drag',
+      nodeIds: [...store.getState().selectedNodeIds],
+      interactionId: ++routingInteractionId.current,
+    });
 
     /** 按当前帧最后一个指针位置更新节点与吸附线。 */
     const applyDragFrame = (pointerEvent: PointerEvent) => {
@@ -244,6 +251,7 @@ export function useCanvasPointerInteractions({
               },
             ],
           });
+      store.getState().setRoutingInteraction({ kind: 'idle' });
     };
 
     bindPointerGesture({
@@ -253,6 +261,7 @@ export function useCanvasPointerInteractions({
         dragFrames.cancel();
         setGuides([]);
         store.getState().setNodes(initialNodes, false);
+        store.getState().setRoutingInteraction({ kind: 'idle' });
       },
     });
   }, [pointerWorld, store]);

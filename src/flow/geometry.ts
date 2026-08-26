@@ -52,7 +52,7 @@ export function isRectVisible(rect: FlowRect, viewport: ViewportTransform, width
 }
 
 /** 计算一组点的包围盒。 */
-export function pointsBounds(points: FlowPoint[]): FlowRect {
+export function pointsBounds(points: ReadonlyArray<FlowPoint>): FlowRect {
   const xs = points.map((point) => point.x);
   const ys = points.map((point) => point.y);
   const minX = Math.min(...xs);
