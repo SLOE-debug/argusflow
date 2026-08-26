@@ -12,12 +12,31 @@ import {
 } from './defaultWorkflowTemplate';
 import {
   WORKFLOW_NODE_SIZES,
+  applyExecutionEventToNodes,
   canConnect,
   createEdge,
   createNode,
   toWorkflowDefinition,
   type EditableNodeKind,
+  type NodeRunState,
 } from './workflowModel';
+
+/** 创建状态转换测试所需的最小执行事件。 */
+function createExecutionEvent(
+  kind: import('./contracts').ExecutionEventKind,
+  nodeId: string | null = null,
+): import('./contracts').ExecutionEvent {
+  return {
+    run_id: 'run-1',
+    workflow_id: 'workflow-1',
+    sequence: 1,
+    node_id: nodeId,
+    edge_id: null,
+    kind,
+    message: null,
+    payload: null,
+  };
+}
 
 describe('workflow model', () => {
   it('maps the empty canvas to the schema v5 Rust contract', () => {
@@ -219,6 +238,53 @@ describe('workflow model', () => {
     const second = createEdge(condition.id, secondTarget.id, nodes, [first]);
     expect([first.data.branch, second.data.branch]).toEqual(['true', 'false']);
     expect(canConnect(nodes, [first, second], condition.id, thirdTarget.id)).toBe(false);
+    vi.unstubAllGlobals();
+  });
+
+  it('applies the complete execution state lifecycle', () => {
+    vi.stubGlobal('crypto', { randomUUID: () => 'node-id' });
+    let nodes = [createNode('log')];
+
+    nodes = applyExecutionEventToNodes(
+      nodes,
+      createExecutionEvent('workflow_started'),
+    );
+    expect(nodes[0]?.data.runState).toBe('pending');
+
+    nodes = applyExecutionEventToNodes(
+      nodes,
+      createExecutionEvent('node_started', nodes[0]!.id),
+    );
+    expect(nodes[0]?.data.runState).toBe('running');
+
+    nodes = applyExecutionEventToNodes(
+      nodes,
+      createExecutionEvent('node_succeeded', nodes[0]!.id),
+    );
+    expect(nodes[0]?.data.runState).toBe('success');
+    vi.unstubAllGlobals();
+  });
+
+  it('marks pending branches as skipped when the workflow finishes', () => {
+    vi.stubGlobal('crypto', { randomUUID: () => 'node-id' });
+    const node = createNode('condition');
+    const states: ReadonlyArray<NodeRunState> = ['pending', 'success', 'error'];
+    const nodes = states.map((runState, index) => ({
+      ...node,
+      id: `node-${index}`,
+      data: { ...node.data, runState },
+    }));
+
+    const completed = applyExecutionEventToNodes(
+      nodes,
+      createExecutionEvent('workflow_completed'),
+    );
+
+    expect(completed.map((item) => item.data.runState)).toEqual([
+      'skipped',
+      'success',
+      'error',
+    ]);
     vi.unstubAllGlobals();
   });
 });

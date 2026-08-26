@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 
 import type { ExecutionEvent, ValidationReport } from '../../features/workflow/contracts';
+import type { WorkflowCanvasNode } from '../../features/workflow/workflowModel';
 import { WorkflowConsolePanel } from './WorkflowConsolePanel';
 
 type WorkflowWorkspaceProps = Readonly<{
@@ -10,6 +11,8 @@ type WorkflowWorkspaceProps = Readonly<{
   open: boolean;
   /** 当前运行事件。 */
   events: ReadonlyArray<ExecutionEvent>;
+  /** 当前工作流节点，用于底部日志显示用户定义名称。 */
+  nodes: ReadonlyArray<WorkflowCanvasNode>;
   /** 最近一次结构校验结果。 */
   report: ValidationReport | null;
   /** 切换任务面板。 */
@@ -21,6 +24,7 @@ export function WorkflowWorkspace({
   canvas,
   open,
   events,
+  nodes,
   report,
   onToggle,
 }: WorkflowWorkspaceProps) {
@@ -37,6 +41,7 @@ export function WorkflowWorkspace({
       <WorkflowConsolePanel
         open={open}
         events={events}
+        nodes={nodes}
         report={report}
         onToggle={onToggle}
       />

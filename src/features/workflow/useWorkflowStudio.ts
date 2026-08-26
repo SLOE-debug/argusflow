@@ -71,6 +71,7 @@ export function useWorkflowStudio() {
     flowStore,
     (state) => state.metadata.permissions as WorkflowPermissions,
   );
+  const nodes = useStore(flowStore, (state) => state.nodes);
   const workflowInputs = useWorkflowInputs(flowStore);
   const [variablesDraft, setVariablesDraft] = useState(
     JSON.stringify(DEFAULT_WORKFLOW_VARIABLES, null, 2),
@@ -194,6 +195,11 @@ export function useWorkflowStudio() {
       return;
     }
 
+    const validatedState = flowStore.getState();
+    validatedState.setNodes(validatedState.nodes.map((node) => ({
+      ...node,
+      data: { ...node.data, runState: 'pending', invalid: false },
+    })), false);
     setRunning(true);
     try {
       const started = await runWorkflow(currentWorkflow(), {
@@ -204,6 +210,16 @@ export function useWorkflowStudio() {
       const commandError = normalizeCommandError(error);
       setErrorMessage(commandError.message);
       setRunning(false);
+      const failedState = flowStore.getState();
+      failedState.setNodes(failedState.nodes.map((node) => ({
+        ...node,
+        data: {
+          ...node.data,
+          runState: node.data.runState === 'pending'
+            ? 'skipped'
+            : node.data.runState,
+        },
+      })), false);
     }
   }, [currentWorkflow, flowStore, validate, workflowInputs]);
 
@@ -394,6 +410,7 @@ export function useWorkflowStudio() {
 
   return {
     flowStore,
+    nodes,
     workflowName,
     setWorkflowName,
     permissions,

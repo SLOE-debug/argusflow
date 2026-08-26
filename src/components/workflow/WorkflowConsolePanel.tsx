@@ -8,6 +8,7 @@ import {
 import { useState } from 'react';
 
 import type { ExecutionEvent, ValidationReport } from '../../features/workflow/contracts';
+import type { WorkflowCanvasNode } from '../../features/workflow/workflowModel';
 import { ExecutionLog } from './ExecutionLog';
 import { WorkflowTaskTable } from './WorkflowTaskTable';
 
@@ -16,6 +17,8 @@ type WorkflowConsolePanelProps = Readonly<{
   open: boolean;
   /** 当前执行事件。 */
   events: ReadonlyArray<ExecutionEvent>;
+  /** 当前工作流节点，用于执行日志解析可读名称。 */
+  nodes: ReadonlyArray<WorkflowCanvasNode>;
   /** 最近一次校验结果。 */
   report: ValidationReport | null;
   /** 切换面板展开状态。 */
@@ -33,7 +36,13 @@ const CONSOLE_TABS = [
 ] as const satisfies ReadonlyArray<Readonly<{ id: ConsoleTab; label: string }>>;
 
 /** 可折叠的任务、运行与校验面板。 */
-export function WorkflowConsolePanel({ open, events, report, onToggle }: WorkflowConsolePanelProps) {
+export function WorkflowConsolePanel({
+  open,
+  events,
+  nodes,
+  report,
+  onToggle,
+}: WorkflowConsolePanelProps) {
   const [activeTab, setActiveTab] = useState<ConsoleTab>('tasks');
   const ToggleIcon = open ? ChevronDown : ChevronUp;
 
@@ -65,7 +74,7 @@ export function WorkflowConsolePanel({ open, events, report, onToggle }: Workflo
           <ToggleIcon className="size-3.5" aria-hidden="true" />
         </button>
       </header>
-      {open ? resolveConsoleContent(activeTab, events, report) : null}
+      {open ? resolveConsoleContent(activeTab, events, nodes, report) : null}
     </section>
   );
 }
@@ -74,13 +83,14 @@ export function WorkflowConsolePanel({ open, events, report, onToggle }: Workflo
 function resolveConsoleContent(
   activeTab: ConsoleTab,
   events: ReadonlyArray<ExecutionEvent>,
+  nodes: ReadonlyArray<WorkflowCanvasNode>,
   report: ValidationReport | null,
 ) {
   switch (activeTab) {
     case 'tasks':
       return <WorkflowTaskTable />;
     case 'logs':
-      return <ExecutionLog events={events} report={report} />;
+      return <ExecutionLog events={events} nodes={nodes} report={report} />;
     case 'runs':
       return (
         <ConsolePlaceholder

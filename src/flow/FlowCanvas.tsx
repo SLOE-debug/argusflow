@@ -12,6 +12,7 @@ import { useCanvasPointerInteractions } from './useCanvasPointerInteractions';
 import { useCanvasSize } from './useCanvasSize';
 import { useFlowStoreApi } from './store';
 import type { FlowAnchorSide, FlowPoint, NodeRegistry } from './types';
+import { MAX_CANVAS_ZOOM } from './viewport';
 
 type FlowCanvasProps = Readonly<{
   registry: Readonly<NodeRegistry>;
@@ -36,9 +37,6 @@ type FlowCanvasProps = Readonly<{
     side?: FlowAnchorSide,
   ) => boolean;
 }>;
-
-/** 画布允许的最大放大倍率；缩小不设置业务下限。 */
-export const MAX_CANVAS_ZOOM = 2.5;
 
 /** 自研 Flow 画布入口，仅装配交互、渲染图层与顶部浮层工具。 */
 export function FlowCanvas({
@@ -113,6 +111,7 @@ export function FlowCanvas({
         toolMode={toolMode}
       />
       <FlowCanvasTools
+        canvasSize={canvasSize}
         mode={toolMode}
         onModeChange={setToolMode}
       />

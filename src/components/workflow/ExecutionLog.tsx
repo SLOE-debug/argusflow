@@ -1,39 +1,51 @@
 import { CircleCheck, Copy } from 'lucide-react';
 
+import type { ExecutionEvent, ValidationReport } from '../../features/workflow/contracts';
+import {
+  formatExecutionLogEntry,
+  resolveExecutionLogEntry,
+  type ExecutionLogSeverity,
+} from '../../features/workflow/executionEventPresentation';
 import type {
-  ExecutionEvent,
-  ExecutionEventKind,
-  ValidationReport,
-} from '../../features/workflow/contracts';
+  WorkflowCanvasNode,
+  WorkflowNodeData,
+} from '../../features/workflow/workflowModel';
 
 type ExecutionLogProps = {
   /** 按后端 sequence 顺序排列的实时执行事件。 */
   events: ReadonlyArray<ExecutionEvent>;
+  /** 当前工作流节点，用于把协议 node_id 解析成用户名称和节点身份色。 */
+  nodes: ReadonlyArray<WorkflowCanvasNode>;
   /** 最近一次工作流结构校验结果。 */
   report: ValidationReport | null;
 };
 
-/** 为不同事件类型配置日志文字颜色，便于区分生命周期和错误。 */
-const eventTone = {
-  workflow_started: 'text-blue-600',
-  node_started: 'text-slate-500',
-  log: 'text-teal-700',
-  node_output_produced: 'text-cyan-700',
-  resource_acquired: 'text-indigo-700',
-  backend_selected: 'text-cyan-700',
-  command_exited: 'text-slate-700',
-  diagnostic_evidence_captured: 'text-amber-700',
-  node_succeeded: 'text-emerald-700',
-  edge_traversed: 'text-blue-600',
-  node_failed: 'text-rose-700',
-  workflow_completed: 'text-emerald-700',
-  workflow_failed: 'text-rose-700',
-} satisfies Readonly<Record<ExecutionEventKind, string>>;
+/** 节点类型与画布左侧强调色保持一致，形成跨视图身份提示。 */
+const NODE_LOG_TONES = {
+  start: 'border-emerald-500 text-emerald-700',
+  log: 'border-blue-500 text-blue-700',
+  debug: 'border-fuchsia-500 text-fuchsia-700',
+  delay: 'border-amber-500 text-amber-700',
+  condition: 'border-violet-500 text-violet-700',
+  application: 'border-indigo-500 text-indigo-700',
+  ui: 'border-cyan-500 text-cyan-700',
+  command: 'border-slate-600 text-slate-700',
+  end: 'border-rose-500 text-rose-700',
+} satisfies Readonly<Record<WorkflowNodeData['kind'], string>>;
+
+/** 事件状态颜色只表达成功、警告和失败，不覆盖节点身份色。 */
+const EVENT_SEVERITY_TONES = {
+  normal: 'text-slate-600',
+  success: 'text-emerald-700',
+  warning: 'text-amber-700',
+  error: 'font-semibold text-rose-700',
+} satisfies Readonly<Record<ExecutionLogSeverity, string>>;
 
 /** 展示执行事件流及结构校验问题。 */
-export function ExecutionLog({ events, report }: ExecutionLogProps) {
-  /** 复制时保留序号、事件类别、节点和完整消息，便于直接提交故障信息。 */
-  const completeLog = events.map(formatEvent).join('\n');
+export function ExecutionLog({ events, nodes, report }: ExecutionLogProps) {
+  const entries = events.map((event) => resolveExecutionLogEntry(event, nodes));
+  /** 默认复制本地化可读日志；原始协议仍保留在事件状态中供后续开发者模式使用。 */
+  const completeLog = entries.map(formatExecutionLogEntry).join('\n');
 
   return (
     <section
@@ -48,7 +60,7 @@ export function ExecutionLog({ events, report }: ExecutionLogProps) {
             执行日志
           </h2>
           <div className="flex items-center gap-1.5">
-            <span className="text-[11px] text-slate-400">{events.length} events</span>
+            <span className="text-[11px] text-slate-400">{events.length} 条事件</span>
             <button
               type="button"
               aria-label="复制完整执行日志"
@@ -65,23 +77,34 @@ export function ExecutionLog({ events, report }: ExecutionLogProps) {
           {events.length === 0 && (
             <p className="text-slate-400">运行工作流后，事件会显示在这里。</p>
           )}
-          {events.map((event) => (
-            <div
-              key={`${event.run_id}-${event.sequence}`}
-              className="flex items-start gap-2"
-            >
-              <span className="w-6 shrink-0 text-right text-slate-400">
-                {String(event.sequence).padStart(2, '0')}
-              </span>
-              <span className={`w-[124px] shrink-0 ${eventTone[event.kind]}`}>
-                {event.kind}
-              </span>
-              <span className="min-w-0 select-text whitespace-pre-wrap break-all text-slate-600">
-                {event.node_id ? `[${event.node_id}] ` : ''}
-                {event.message ?? ''}
-              </span>
-            </div>
-          ))}
+          {entries.map((entry) => {
+            const nodeTone = entry.nodeKind
+              ? NODE_LOG_TONES[entry.nodeKind]
+              : 'border-blue-400 text-blue-700';
+            return (
+              <div
+                key={entry.sequence}
+                className={`grid grid-cols-[24px_minmax(92px,124px)_72px_minmax(0,1fr)] items-start gap-2 border-l-2 pl-1.5 ${nodeTone}`}
+                data-node-tone={entry.nodeKind ?? 'workflow'}
+              >
+                <span className="w-6 shrink-0 text-right text-slate-400">
+                  {String(entry.sequence).padStart(2, '0')}
+                </span>
+                <span
+                  className="truncate font-sans font-medium"
+                  title={entry.nodeId ? `节点 ID：${entry.nodeId}` : undefined}
+                >
+                  {entry.nodeLabel ?? (entry.nodeId ? `节点 ${entry.nodeId}` : '工作流')}
+                </span>
+                <span className={EVENT_SEVERITY_TONES[entry.severity]}>
+                  {entry.eventLabel}
+                </span>
+                <span className="min-w-0 select-text whitespace-pre-wrap break-all text-slate-600">
+                  {entry.detail}
+                </span>
+              </div>
+            );
+          })}
         </div>
       </div>
       <div className="min-w-0 overflow-auto border-l border-slate-200 px-2 py-1.5">
@@ -109,11 +132,4 @@ export function ExecutionLog({ events, report }: ExecutionLogProps) {
       </div>
     </section>
   );
-}
-
-/** 把单条事件格式化为不丢字段的可复制文本行。 */
-function formatEvent(event: ExecutionEvent): string {
-  const sequence = String(event.sequence).padStart(2, '0');
-  const node = event.node_id ? `[${event.node_id}] ` : '';
-  return `${sequence} ${event.kind} ${node}${event.message ?? ''}`;
 }

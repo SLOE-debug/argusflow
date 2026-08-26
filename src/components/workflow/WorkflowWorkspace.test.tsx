@@ -10,6 +10,7 @@ describe('WorkflowWorkspace', () => {
         canvas={<div>画布内容</div>}
         open={false}
         events={[]}
+        nodes={[]}
         report={null}
         onToggle={vi.fn()}
       />,

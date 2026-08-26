@@ -18,7 +18,14 @@ import { createDefaultUiOperation } from './workflowAction';
 import { createDefaultApplicationSpec } from './workflowApplication';
 import { createDefaultCommandOperation } from './workflowCommand';
 
-export type NodeRunState = 'idle' | 'running' | 'success' | 'error';
+/** 节点在单次工作流运行中的展示状态。 */
+export type NodeRunState =
+  | 'idle'
+  | 'pending'
+  | 'running'
+  | 'success'
+  | 'error'
+  | 'skipped';
 
 /** 所有工作流节点共享的编辑器状态。 */
 type WorkflowNodeDataBase = {
@@ -118,7 +125,32 @@ export function toWorkflowDefinition(
 
 /** 根据后端事件更新对应节点状态。 */
 export function applyExecutionEventToNodes(nodes: ReadonlyArray<WorkflowCanvasNode>, event: ExecutionEvent): WorkflowCanvasNode[] {
-  if (event.kind === 'workflow_started') return nodes.map((node) => ({ ...node, data: { ...node.data, runState: 'idle', invalid: false } }));
+  if (event.kind === 'workflow_started') {
+    return nodes.map((node) => ({
+      ...node,
+      data: {
+        ...node.data,
+        runState: !node.data.runState || node.data.runState === 'idle'
+          ? 'pending'
+          : node.data.runState,
+        invalid: false,
+      },
+    }));
+  }
+  if (
+    event.kind === 'workflow_completed'
+    || event.kind === 'workflow_failed'
+  ) {
+    return nodes.map((node) => ({
+      ...node,
+      data: {
+        ...node.data,
+        runState: node.data.runState === 'pending'
+          ? 'skipped'
+          : node.data.runState,
+      },
+    }));
+  }
   const runState = event.kind === 'node_started' ? 'running' : event.kind === 'node_succeeded' ? 'success' : event.kind === 'node_failed' ? 'error' : null;
   if (!event.node_id || !runState) return [...nodes];
   return nodes.map((node) => node.id === event.node_id ? { ...node, data: { ...node.data, runState } } : node);

@@ -12,11 +12,19 @@ import type {
 import { useState } from 'react';
 
 import { useFlowStore } from './store';
+import {
+  MAX_CANVAS_ZOOM,
+  centerBoundsInViewport,
+  fitBoundsToViewport,
+  getNodesBounds,
+} from './viewport';
 
 /** 画布指针工具的互斥模式。 */
 export type CanvasToolMode = 'select' | 'pan';
 
 type FlowCanvasToolsProps = Readonly<{
+  /** 当前可见画布的屏幕尺寸。 */
+  canvasSize: Readonly<{ width: number; height: number }>;
   /** 当前画布指针工具。 */
   mode: CanvasToolMode;
   /** 请求切换画布指针工具。 */
@@ -37,11 +45,35 @@ const TOOL_BUTTON_CLASS_NAME = [
 ].join(' ');
 
 /** 画布右上角的模式和视口工具。 */
-export function FlowCanvasTools({ mode, onModeChange }: FlowCanvasToolsProps) {
+export function FlowCanvasTools({
+  canvasSize,
+  mode,
+  onModeChange,
+}: FlowCanvasToolsProps) {
+  const nodes = useFlowStore((state) => state.nodes);
+  const selectedNodeIds = useFlowStore((state) => state.selectedNodeIds);
+  const viewport = useFlowStore((state) => state.viewport);
   const setViewport = useFlowStore((state) => state.setViewport);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
-  const resetViewport = () => setViewport({ x: 0, y: 42, zoom: 1 });
+  /** 优先定位选中节点；没有选择时定位全部内容，并保持当前缩放。 */
+  const locate = () => {
+    const selectedNodes = nodes.filter((node) => selectedNodeIds.has(node.id));
+    const bounds = getNodesBounds(selectedNodes.length > 0 ? selectedNodes : nodes);
+    if (!bounds) return;
+
+    setViewport(centerBoundsInViewport(bounds, canvasSize, viewport.zoom));
+  };
+  /** 自动计算缩放和平移，使全部节点完整进入当前画布。 */
+  const fitContent = () => {
+    const bounds = getNodesBounds(nodes);
+    if (!bounds) return;
+
+    setViewport(fitBoundsToViewport(bounds, canvasSize, {
+      padding: 72,
+      maxZoom: MAX_CANVAS_ZOOM,
+    }));
+  };
   /** 工具栏本身不得触发画布框选或平移手势。 */
   const stopCanvasGesture = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.stopPropagation();
@@ -69,10 +101,10 @@ export function FlowCanvasTools({ mode, onModeChange }: FlowCanvasToolsProps) {
         </ToolButton>
       </div>
       <div className={TOOL_GROUP_CLASS_NAME}>
-        <ToolButton label="居中画布" onClick={resetViewport}>
+        <ToolButton label="定位" onClick={locate}>
           <Crosshair />
         </ToolButton>
-        <ToolButton label="适应内容" onClick={resetViewport}>
+        <ToolButton label="适应内容" onClick={fitContent}>
           <Maximize2 />
         </ToolButton>
         <ToolButton

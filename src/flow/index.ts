@@ -1,5 +1,11 @@
 export { FlowCanvas } from './FlowCanvas';
 export {
+  MAX_CANVAS_ZOOM,
+  centerBoundsInViewport,
+  fitBoundsToViewport,
+  getNodesBounds,
+} from './viewport';
+export {
   FLOW_NODE_KIND_DRAG_TYPE,
   readFlowNodeKindDragData,
   writeFlowNodeKindDragData,

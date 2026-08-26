@@ -136,4 +136,31 @@ describe('WindowTitleBar', () => {
     expect(onOpenHome).toHaveBeenCalledOnce();
     expect(onOpenWorkflow).toHaveBeenCalledOnce();
   });
+
+  it('hosts editor commands without turning button clicks into window drags', () => {
+    const onRun = vi.fn();
+    render(
+      <WindowTitleBar
+        workflowName="测试流程"
+        running={false}
+        report={null}
+        errorMessage={null}
+        homeActive={false}
+        editorCommands={<button type="button">撤销</button>}
+        editorActions={<button type="button" onClick={onRun}>运行</button>}
+        onOpenHome={vi.fn()}
+        onOpenWorkflow={vi.fn()}
+      />,
+    );
+
+    fireEvent.mouseDown(screen.getByRole('button', { name: '运行' }), {
+      button: 0,
+      detail: 1,
+    });
+    fireEvent.click(screen.getByRole('button', { name: '运行' }));
+
+    expect(screen.getByRole('button', { name: '撤销' })).toBeVisible();
+    expect(onRun).toHaveBeenCalledOnce();
+    expect(windowMock.startDragging).not.toHaveBeenCalled();
+  });
 });

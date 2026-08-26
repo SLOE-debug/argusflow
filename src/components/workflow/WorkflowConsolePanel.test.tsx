@@ -9,6 +9,7 @@ describe('WorkflowConsolePanel', () => {
       <WorkflowConsolePanel
         open
         events={[]}
+        nodes={[]}
         report={null}
         onToggle={vi.fn()}
       />,

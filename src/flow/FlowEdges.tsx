@@ -32,10 +32,7 @@ type VisibleRoute = Readonly<{
   route: RoutedEdge;
 }>;
 
-/** 运行粒子的固定数量；错开启动以表现沿线流动。 */
-const ACTIVE_PARTICLES = [0, 1, 2, 3] as const;
-
-/** 渲染正交避障连线、透明命中区、分支标签和运行粒子。 */
+/** 渲染正交避障连线、透明命中区、分支标签和运行脉冲。 */
 export const FlowEdges = memo(function FlowEdges({
   width,
   height,
@@ -126,7 +123,7 @@ type FlowEdgePathProps = Readonly<{
   zoom: ViewportTransform['zoom'];
 }>;
 
-/** 渲染单条边及其命中区、标签、粒子和重连锚点。 */
+/** 渲染单条边及其命中区、标签、运行脉冲和重连锚点。 */
 const FlowEdgePath = memo(function FlowEdgePath({
   active,
   edge,
@@ -213,7 +210,7 @@ const FlowEdgePath = memo(function FlowEdgePath({
         />
       ) : null}
       {active ? (
-        <ActiveEdgeParticles path={route.path} />
+        <ActiveEdgePulse edgeId={edge.id} path={route.path} />
       ) : null}
       {(hovered || selected) && !panActive ? (
         <ReconnectAnchors
@@ -268,26 +265,30 @@ function EdgeBranchLabel({
   );
 }
 
-/** 绘制一次性沿边运动的运行态粒子。 */
-function ActiveEdgeParticles({ path }: Readonly<{ path: string }>) {
-  return ACTIVE_PARTICLES.map((particle) => (
-    <circle
-      key={particle}
-      className="motion-reduce:hidden"
-      fill="#60a5fa"
-      r="3.5"
+/** 绘制从 source 指向 target 的连续电流脉冲。 */
+function ActiveEdgePulse({
+  edgeId,
+  path,
+}: Readonly<{ edgeId: string; path: string }>) {
+  return (
+    <path
+      className="pointer-events-none animate-[argus-edge-current_650ms_linear_infinite] motion-reduce:hidden"
+      data-flow-edge-runtime={edgeId}
+      d={path}
+      fill="none"
+      stroke="#60a5fa"
+      strokeDasharray="2 11"
+      strokeLinecap="round"
+      strokeWidth="3.2"
       style={{
-        animationDelay: `${particle * 120}ms`,
-        filter: 'drop-shadow(0 0 4px #3b82f6)',
+        filter: [
+          'drop-shadow(0 0 3px rgba(59,130,246,.95))',
+          'drop-shadow(0 0 7px rgba(96,165,250,.5))',
+        ].join(' '),
       }}
-    >
-      <animateMotion
-        dur="900ms"
-        path={path}
-        repeatCount="1"
-      />
-    </circle>
-  ));
+      vectorEffect="non-scaling-stroke"
+    />
+  );
 }
 
 type ReconnectAnchorsProps = Readonly<{

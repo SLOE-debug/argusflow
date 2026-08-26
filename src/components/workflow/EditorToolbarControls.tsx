@@ -1,17 +1,13 @@
 import {
-  ChevronDown,
   ClipboardPaste,
   Copy,
   CopyPlus,
   PanelBottom,
   PanelLeft,
   PanelRight,
-  Play,
   Redo2,
-  ShieldCheck,
   Trash2,
   Undo2,
-  Upload,
   type LucideIcon,
 } from 'lucide-react';
 import { useStore, type StoreApi } from 'zustand';
@@ -24,21 +20,15 @@ import type {
 
 type WorkflowFlowStore = StoreApi<FlowState<WorkflowNodeData, WorkflowEdgeData>>;
 
-type EditorCommandBarProps = Readonly<{
+type EditorToolbarControlsProps = Readonly<{
   /** 当前工作流画布 Store。 */
   store: WorkflowFlowStore;
-  /** 后端运行是否正在进行。 */
-  running: boolean;
   /** 左侧节点库是否可见。 */
   libraryOpen: boolean;
   /** 右侧检查器是否可见。 */
   inspectorOpen: boolean;
   /** 底部运行面板是否可见。 */
   consoleOpen: boolean;
-  /** 请求结构校验。 */
-  onValidate: () => void;
-  /** 请求运行当前工作流。 */
-  onRun: () => void;
   /** 切换节点库。 */
   onToggleLibrary: () => void;
   /** 切换检查器。 */
@@ -68,7 +58,7 @@ const SINGLETON_NODE_KINDS: ReadonlyArray<WorkflowNodeData['kind']> = [
   'end',
 ];
 
-/** 统一的 28px 桌面命令按钮样式。 */
+/** 标题栏中的统一高密度图标按钮样式。 */
 const COMMAND_BUTTON_CLASS_NAME = [
   'flex size-7 items-center justify-center rounded-[4px] border-0',
   'bg-transparent text-slate-600 outline-none hover:bg-slate-100',
@@ -76,19 +66,16 @@ const COMMAND_BUTTON_CLASS_NAME = [
   'disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent',
 ].join(' ');
 
-/** 接入 Flow Store 现有编辑能力的高密度命令栏。 */
-export function EditorCommandBar({
+/** 可直接插入标题栏的编辑和面板命令，不承担任何整行布局。 */
+export function EditorToolbarControls({
   store,
-  running,
   libraryOpen,
   inspectorOpen,
   consoleOpen,
-  onValidate,
-  onRun,
   onToggleLibrary,
   onToggleInspector,
   onToggleConsole,
-}: EditorCommandBarProps) {
+}: EditorToolbarControlsProps) {
   const pastCount = useStore(store, (state) => state.past.length);
   const futureCount = useStore(store, (state) => state.future.length);
   const selectedNodeCount = useStore(store, (state) => state.selectedNodeIds.size);
@@ -100,23 +87,23 @@ export function EditorCommandBar({
   return (
     <nav
       aria-label="编辑命令"
-      className="z-20 grid h-10 grid-cols-[1fr_auto_1fr] items-center border-b border-slate-200 bg-white px-3"
+      className="flex min-w-0 items-center gap-0.5"
     >
-      <div className="col-start-2 flex items-center gap-0.5">
-        <CommandIconButton
-          label="撤销"
-          shortcut="Ctrl+Z"
-          icon={Undo2}
-          disabled={pastCount === 0}
-          onClick={() => store.getState().undo()}
-        />
-        <CommandIconButton
-          label="重做"
-          shortcut="Ctrl+Y"
-          icon={Redo2}
-          disabled={futureCount === 0}
-          onClick={() => store.getState().redo()}
-        />
+      <CommandIconButton
+        label="撤销"
+        shortcut="Ctrl+Z"
+        icon={Undo2}
+        disabled={pastCount === 0}
+        onClick={() => store.getState().undo()}
+      />
+      <CommandIconButton
+        label="重做"
+        shortcut="Ctrl+Y"
+        icon={Redo2}
+        disabled={futureCount === 0}
+        onClick={() => store.getState().redo()}
+      />
+      <span className="hidden items-center min-[1180px]:flex">
         <CommandSeparator />
         <CommandIconButton
           label="复制"
@@ -146,6 +133,8 @@ export function EditorCommandBar({
           disabled={!hasSelection}
           onClick={() => store.getState().deleteSelection()}
         />
+      </span>
+      <span className="hidden items-center min-[1480px]:flex">
         <CommandSeparator />
         <CommandIconButton
           label="切换节点库"
@@ -165,35 +154,12 @@ export function EditorCommandBar({
           pressed={inspectorOpen}
           onClick={onToggleInspector}
         />
-      </div>
-      <div className="col-start-3 flex items-center gap-2 justify-self-end">
-        <button
-          type="button"
-          className="flex h-[26px] items-center gap-1.5 rounded-md border border-slate-300 bg-white px-2.5 text-[12px] leading-none font-medium text-slate-700 outline-none hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-40"
-          onClick={onValidate}
-          disabled={running}
-          aria-label="校验"
-        >
-          <ShieldCheck className="size-3" aria-hidden="true" />
-          校验
-        </button>
-        <SplitActionButton
-          label={running ? '运行中…' : '运行'}
-          icon={Play}
-          disabled={running}
-          onClick={onRun}
-        />
-        <SplitActionButton
-          label="发布"
-          icon={Upload}
-          onClick={() => undefined}
-        />
-      </div>
+      </span>
     </nav>
   );
 }
 
-/** 桌面命令栏中的统一图标操作。 */
+/** 标题栏中的统一图标操作。 */
 function CommandIconButton({
   label,
   shortcut,
@@ -223,46 +189,4 @@ function CommandIconButton({
 /** 命令分组之间的细分隔线。 */
 function CommandSeparator() {
   return <span className="mx-1.5 h-5 w-px bg-slate-200" />;
-}
-
-type SplitActionButtonProps = Readonly<{
-  /** 主按钮文字，同时作为可访问名称。 */
-  label: string;
-  /** 主按钮 Lucide 图标。 */
-  icon: LucideIcon;
-  /** 当前是否不可用。 */
-  disabled?: boolean;
-  /** 主操作回调。 */
-  onClick: () => void;
-}>;
-
-/** 参考图右侧带下拉分区的蓝色主操作。 */
-function SplitActionButton({
-  label,
-  icon: Icon,
-  disabled = false,
-  onClick,
-}: SplitActionButtonProps) {
-  return (
-    <div className="flex h-[26px] overflow-hidden rounded-md bg-blue-600 text-white shadow-sm">
-      <button
-        type="button"
-        className="flex h-[26px] items-center gap-1.5 px-2.5 text-[12px] leading-none font-semibold outline-none hover:bg-blue-700 disabled:cursor-default disabled:opacity-45"
-        onClick={onClick}
-        disabled={disabled}
-        aria-label={label}
-      >
-        <Icon className="size-3" aria-hidden="true" />
-        {label}
-      </button>
-      <button
-        type="button"
-        aria-label={`${label}选项`}
-        disabled={disabled}
-        className="flex h-[26px] w-[26px] items-center justify-center border-l border-blue-500 hover:bg-blue-700 disabled:opacity-45"
-      >
-        <ChevronDown className="size-2.5" aria-hidden="true" />
-      </button>
-    </div>
-  );
 }

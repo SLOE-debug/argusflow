@@ -1,7 +1,8 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 
 import { WindowTitleBar } from './components/shell/WindowTitleBar';
-import { EditorCommandBar } from './components/workflow/EditorCommandBar';
+import { EditorPrimaryActions } from './components/workflow/EditorPrimaryActions';
+import { EditorToolbarControls } from './components/workflow/EditorToolbarControls';
 import { NodeInspector } from './components/workflow/NodeInspector';
 import { NodePalette } from './components/workflow/NodePalette';
 import { WorkflowCanvas } from './components/workflow/WorkflowCanvas';
@@ -72,10 +73,8 @@ export default function App() {
     <main
       data-theme="daylight"
       className={
-        'grid h-full w-full bg-slate-50 text-slate-800 ' +
-        (appView === 'home'
-          ? 'grid-rows-[40px_minmax(0,1fr)_40px]'
-          : 'grid-rows-[40px_40px_minmax(0,1fr)_40px]')
+        'grid h-full w-full grid-rows-[40px_minmax(0,1fr)_40px] ' +
+        'bg-slate-50 text-slate-800'
       }
     >
       <WindowTitleBar
@@ -86,6 +85,25 @@ export default function App() {
         homeActive={appView === 'home'}
         onOpenHome={() => setAppView('home')}
         onOpenWorkflow={() => setAppView('editor')}
+        editorCommands={appView === 'editor' ? (
+          <EditorToolbarControls
+            store={studio.flowStore}
+            libraryOpen={libraryOpen}
+            inspectorOpen={inspectorOpen}
+            consoleOpen={consoleOpen}
+            onToggleLibrary={toggleLibrary}
+            onToggleInspector={toggleInspector}
+            onToggleConsole={toggleConsole}
+          />
+        ) : null}
+        editorActions={appView === 'editor' ? (
+          <EditorPrimaryActions
+            running={studio.running}
+            onValidate={() => void studio.validate()}
+            onRun={() => void studio.run()}
+            onPublish={() => undefined}
+          />
+        ) : null}
       />
       {appView === 'home' ? (
         <>
@@ -104,18 +122,6 @@ export default function App() {
         </>
       ) : (
         <>
-          <EditorCommandBar
-            store={studio.flowStore}
-            running={studio.running}
-            libraryOpen={libraryOpen}
-            inspectorOpen={inspectorOpen}
-            consoleOpen={consoleOpen}
-            onValidate={() => void studio.validate()}
-            onRun={() => void studio.run()}
-            onToggleLibrary={toggleLibrary}
-            onToggleInspector={toggleInspector}
-            onToggleConsole={toggleConsole}
-          />
           <div
             className="grid min-h-0"
             style={mainGridStyle}
@@ -139,6 +145,7 @@ export default function App() {
             <WorkflowWorkspace
               open={consoleOpen}
               events={studio.events}
+              nodes={studio.nodes}
               report={studio.report}
               onToggle={toggleConsole}
               canvas={(

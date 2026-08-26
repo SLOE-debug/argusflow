@@ -80,4 +80,32 @@ describe('WorkflowNodeCard', () => {
 
     expect(screen.getByText('read-title.text')).toBeVisible();
   });
+
+  it.each([
+    ['pending', '待运行'],
+    ['running', '正在运行'],
+    ['success', '已完成'],
+    ['error', '失败'],
+    ['skipped', '未执行'],
+  ] as const)('renders the %s runtime state', (runState, label) => {
+    const node: WorkflowCanvasNode = {
+      id: `log-${runState}`,
+      kind: 'log',
+      position: { x: 0, y: 0 },
+      size: { width: 142, height: 52 },
+      data: {
+        kind: 'log',
+        label: '写入日志',
+        message: '记录结果',
+        runState,
+      },
+    };
+
+    const { container } = render(
+      <WorkflowNodeCard node={node} selected={false} />,
+    );
+
+    expect(container.querySelector(`[data-run-state="${runState}"]`)).not.toBeNull();
+    expect(screen.getByText(label)).toBeVisible();
+  });
 });

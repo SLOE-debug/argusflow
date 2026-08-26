@@ -11,6 +11,27 @@
 
 html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
 
+/** 正在运行的节点只呼吸外环，卡片本体和画布位置保持稳定。 */
+@keyframes argus-node-running {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.9;
+    transform: scale(1.015);
+  }
+}
+
+/** 负偏移沿有向 SVG path 推进短划线，形成 source 到 target 的电流效果。 */
+@keyframes argus-edge-current {
+  to {
+    stroke-dashoffset: -26;
+  }
+}
+
 @layer base {
   button, input, textarea, select { font: inherit; }
 
