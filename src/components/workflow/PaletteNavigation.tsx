@@ -48,7 +48,7 @@ type PaletteNavigationProps = Readonly<{
   onModuleChange: (module: PaletteModule) => void;
 }>;
 
-/** 节点库底部的五项模块导航。 */
+/** 节点库底部的工作台模块导航。 */
 export function PaletteNavigation({
   activeModule,
   onModuleChange,
@@ -56,7 +56,7 @@ export function PaletteNavigation({
   return (
     <nav
       aria-label="工作台模块"
-      className="flex h-10 shrink-0 items-center justify-around border-t border-slate-200 bg-white"
+      className="flex h-10 shrink-0 items-center border-t border-slate-200 bg-white"
     >
       {PALETTE_MODULES.map((module) => {
         const Icon = module.icon;
@@ -70,13 +70,13 @@ export function PaletteNavigation({
             className={
               'relative flex h-10 flex-1 items-center justify-center ' +
               (active
-                ? 'text-blue-600 after:absolute after:bottom-0 after:h-0.5 after:w-6 after:bg-blue-600'
-                : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800')
+                ? 'text-blue-700 after:absolute after:bottom-0 after:h-0.5 after:w-5 after:bg-blue-600'
+                : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900')
             }
             title={module.label}
             onClick={() => onModuleChange(module.id)}
           >
-            <Icon className="size-3.5" aria-hidden="true" />
+            <Icon className="size-4" aria-hidden="true" />
           </button>
         );
       })}
@@ -92,7 +92,7 @@ export function PaletteModulePlaceholder({
   const Icon = module.icon;
   return (
     <div className="flex min-h-0 flex-1 items-start justify-center p-3 pt-6">
-      <div className="w-full rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center">
+      <div className="w-full border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center">
         <Icon className="mx-auto size-5 text-slate-400" aria-hidden="true" />
         <h3 className="mt-2 text-[12px] font-semibold text-slate-700">{module.label}</h3>
         <p className="mt-1 text-[11px] leading-[18px] text-slate-500">

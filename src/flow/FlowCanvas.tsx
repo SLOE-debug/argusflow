@@ -1,6 +1,8 @@
 import { useRef, useState, type DragEvent as ReactDragEvent } from 'react';
 
-import { FLOW_NODE_KIND_DRAG_TYPE } from './dragDrop';
+import {
+  readFlowNodeKindDragData,
+} from './dragDrop';
 import { FlowCanvasLayers } from './FlowCanvasLayers';
 import { FlowCanvasTools, type CanvasToolMode } from './FlowCanvasTools';
 import { FlowContextMenu } from './FlowContextMenu';
@@ -64,15 +66,14 @@ export function FlowCanvas({
   const cursorClassName = panActive
     ? 'cursor-grab'
     : 'cursor-crosshair';
-  /** 仅允许画布注册的节点拖放数据触发浏览器 Drop。 */
+  /** 始终声明画布为可放置区域；节点注册键在实际 Drop 时再进行严格校验。 */
   const handleDragOver = (event: ReactDragEvent<HTMLDivElement>) => {
-    if (!event.dataTransfer.types.includes(FLOW_NODE_KIND_DRAG_TYPE)) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = 'copy';
   };
   /** 将节点库拖放位置转换为世界坐标，并以节点中心对准落点。 */
   const handleDrop = (event: ReactDragEvent<HTMLDivElement>) => {
-    const nodeKind = event.dataTransfer.getData(FLOW_NODE_KIND_DRAG_TYPE);
+    const nodeKind = readFlowNodeKindDragData(event.dataTransfer);
     const definition = registry[nodeKind];
     if (!definition) return;
 
@@ -95,6 +96,7 @@ export function FlowCanvas({
       ref={containerRef}
       className={`absolute inset-0 touch-none select-none overflow-hidden bg-white ${cursorClassName}`}
       onContextMenu={interactions.handleContextMenu}
+      onDragEnter={handleDragOver}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
       onPointerDown={interactions.handlePanePointerDown}

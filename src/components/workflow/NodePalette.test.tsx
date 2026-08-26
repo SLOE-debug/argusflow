@@ -26,18 +26,19 @@ describe('NodePalette', () => {
 
     const actionNode = screen.getByRole('button', { name: '界面操作' });
     fireEvent.dragStart(actionNode, { dataTransfer });
-    expect(setData).toHaveBeenLastCalledWith(FLOW_NODE_KIND_DRAG_TYPE, 'ui');
+    expect(setData).toHaveBeenCalledWith(FLOW_NODE_KIND_DRAG_TYPE, 'ui');
 
     const debugNode = screen.getByRole('button', { name: '调试输出' });
     fireEvent.dragStart(debugNode, { dataTransfer });
-    expect(setData).toHaveBeenLastCalledWith(FLOW_NODE_KIND_DRAG_TYPE, 'debug');
+    expect(setData).toHaveBeenCalledWith(FLOW_NODE_KIND_DRAG_TYPE, 'debug');
+    expect(setData).toHaveBeenCalledWith('text/plain', 'argusflow-node:debug');
   });
 
   it('collapses and expands node groups', () => {
     const store = createFlowStore<WorkflowNodeData, WorkflowEdgeData>();
     render(<NodePalette store={store} onResetWidth={vi.fn()} />);
 
-    const triggerGroup = screen.getByRole('button', { name: /触发/ });
+    const triggerGroup = screen.getByRole('button', { name: /^触发/ });
     fireEvent.click(triggerGroup);
     expect(screen.queryByRole('button', { name: '手动触发' })).not.toBeInTheDocument();
     expect(triggerGroup).toHaveAttribute('aria-expanded', 'false');
@@ -47,13 +48,20 @@ describe('NodePalette', () => {
     expect(triggerGroup).toHaveAttribute('aria-expanded', 'true');
   });
 
-  it('opens functional filters, resets width and shows module placeholders', () => {
+  it('shows only creatable nodes, resets width and opens module placeholders', () => {
     const store = createFlowStore<WorkflowNodeData, WorkflowEdgeData>();
     const onResetWidth = vi.fn();
     render(<NodePalette store={store} onResetWidth={onResetWidth} />);
 
-    fireEvent.click(screen.getByRole('button', { name: '节点库筛选' }));
-    expect(screen.getByRole('checkbox', { name: '仅显示可用节点' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: '定时触发' })).not.toBeInTheDocument();
+    expect(screen.getByText('界面操作', { selector: 'strong' })).toHaveAttribute(
+      'title',
+      '界面操作',
+    );
+    expect(screen.getByText('点击、填写或读取控件')).toHaveAttribute(
+      'title',
+      '点击、填写或读取控件',
+    );
     fireEvent.click(screen.getByRole('button', { name: '恢复节点库默认宽度' }));
     expect(onResetWidth).toHaveBeenCalledOnce();
 

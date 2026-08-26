@@ -14,8 +14,8 @@ import { useWorkflowStudio } from './features/workflow/useWorkflowStudio';
 
 /** 左侧节点库的默认与可调整宽度边界。 */
 const LIBRARY_PANEL_WIDTH = {
-  default: 216,
-  min: 176,
+  default: 248,
+  min: 208,
   max: 360,
 } as const;
 

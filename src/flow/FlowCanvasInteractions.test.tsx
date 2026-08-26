@@ -89,6 +89,42 @@ describe('FlowCanvas interactions', () => {
     expect(removeAllRanges).toHaveBeenCalledOnce();
   });
 
+  it('accepts a palette node when WebView hides drag types until drop', () => {
+    const store = createFlowStore({ nodes: [], edges: [] });
+    const onAddNode = vi.fn();
+    /** 模拟 WebView 在 dragover 阶段隐藏类型、在 drop 阶段才允许读取的负载。 */
+    const dragPayload = new Map([
+      ['text/plain', 'argusflow-node:test'],
+    ]);
+    const dataTransfer = {
+      types: [],
+      dropEffect: 'none',
+      getData: (type: string) => dragPayload.get(type) ?? '',
+    } as unknown as DataTransfer;
+    const { container } = render(
+      <FlowProvider store={store}>
+        <FlowCanvas
+          registry={registry}
+          onAddNode={onAddNode}
+          onAddConnectedNode={() => true}
+          onConnect={() => true}
+          onReconnect={() => true}
+        />
+      </FlowProvider>,
+    );
+    const canvas = container.querySelector('.touch-none');
+
+    expect(fireEvent.dragOver(canvas!, { dataTransfer })).toBe(false);
+    expect(dataTransfer.dropEffect).toBe('copy');
+    fireEvent.drop(canvas!, {
+      clientX: 120,
+      clientY: 110,
+      dataTransfer,
+    });
+
+    expect(onAddNode).toHaveBeenCalledWith('test', expect.any(Object));
+  });
+
   it('pans from a selected node while Space is pressed', () => {
     const nodes = [createNode('a', 20), createNode('b', 160)];
     const store = createFlowStore({ nodes, edges: [] });
