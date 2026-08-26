@@ -2,10 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::{
-    ApplicationSpec, BrowserSpec, CommandOperation, ConditionPredicate, UiOperation, ValueExpr,
-    WorkflowInputDefinition, WorkflowPermissions,
-};
+use crate::{WorkflowInputDefinition, WorkflowPermissions};
 
 /// 可序列化的完整工作流定义。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -35,9 +32,9 @@ pub struct WorkflowNode {
     pub id: String,
     /// 节点在编辑器画布中的位置，单位由客户端画布约定。
     pub position: Position,
-    /// 节点的可执行类型及其参数；序列化时字段会被展开到节点对象中。
+    /// 开放节点定义；序列化时类型、版本和 payload 会被展开到节点对象中。
     #[serde(flatten)]
-    pub kind: WorkflowNodeKind,
+    pub definition: NodeEnvelope,
 }
 
 /// 编辑器画布中的二维位置。
@@ -49,54 +46,62 @@ pub struct Position {
     pub y: f64,
 }
 
-/// 节点的具体执行语义。
+/// Definition registry 使用的稳定开放节点类型标识。
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct NodeTypeId(String);
+
+impl NodeTypeId {
+    /// 创建由注册提供器拥有的稳定节点类型 ID。
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
+    /// 返回持久化和注册表查找使用的完整类型名称。
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// 工作流持久化层中的开放节点定义。
+///
+/// 动态 JSON 只存在于加载与编译边界。Runtime 必须先通过 `NodeTypeRegistry` 把它
+/// 解码为强类型 `PreparedNode`，执行热路径不会反复查 schema 或读取 payload。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum WorkflowNodeKind {
-    /// 线性执行链的唯一入口节点。
-    Start,
-    /// 向执行事件流写入一条消息。
-    Log {
-        /// 执行时写入事件流的消息。
-        message: String,
-    },
-    /// 显式把一个运行时文本值写入调试日志。
-    Debug {
-        /// 在节点执行时解析并展示的文本表达式。
-        value: ValueExpr,
-    },
-    /// 在继续执行下一节点前等待指定时长。
-    Delay {
-        /// 暂停时长，单位为毫秒；运行时校验范围为 1 到 60000。
-        milliseconds: u64,
-    },
-    /// 根据结构化谓词选择 True 或 False 分支。
-    Condition {
-        /// 在只读工作流变量上执行的安全条件。
-        predicate: ConditionPredicate,
-    },
-    /// 获取一个可被后续界面节点复用的应用会话资源。
-    Application {
-        /// 应用身份、获取策略和生命周期策略。
-        spec: ApplicationSpec,
-    },
-    /// 启动隔离 Chromium 实例并获取可复用的 CDP 页面会话。
-    Browser {
-        /// 浏览器可执行文件、初始 URL 和启动时限。
-        spec: BrowserSpec,
-    },
-    /// 将语义界面操作交给 Planner 选择等价后端执行。
-    Ui {
-        /// 包含资源作用域和数据表达式的界面操作。
-        operation: UiOperation,
-    },
-    /// 执行 Direct、PowerShell 或 CMD 命令并产生结构化输出。
-    Command {
-        /// 命令运行方式、输入输出边界和超时。
-        operation: CommandOperation,
-    },
-    /// 线性执行链的唯一出口节点。
-    End,
+pub struct NodeEnvelope {
+    /// 指向唯一注册编译器的稳定节点类型。
+    pub type_id: NodeTypeId,
+    /// 该节点类型自己的 payload 契约版本，与工作流 schema 独立演进。
+    pub version: u16,
+    /// 仅供对应类型编译器解码的节点参数。
+    pub payload: Value,
+}
+
+impl NodeEnvelope {
+    /// 从已经构造的 JSON payload 创建开放节点定义。
+    pub fn new(type_id: impl Into<String>, version: u16, payload: Value) -> Self {
+        Self {
+            type_id: NodeTypeId::new(type_id),
+            version,
+            payload,
+        }
+    }
+
+    /// 从可序列化的强类型 payload 创建持久化定义。
+    pub fn from_payload<T>(
+        type_id: impl Into<String>,
+        version: u16,
+        payload: &T,
+    ) -> Result<Self, serde_json::Error>
+    where
+        T: Serialize,
+    {
+        Ok(Self {
+            type_id: NodeTypeId::new(type_id),
+            version,
+            payload: serde_json::to_value(payload)?,
+        })
+    }
 }
 
 /// 描述一个节点到下一个节点的有向连线。
@@ -109,15 +114,25 @@ pub struct WorkflowEdge {
     /// 目标节点 ID。
     pub target: String,
     /// Condition 源节点的分支标签；其他节点的连线必须为空。
-    pub branch: Option<ConditionBranch>,
+    pub branch: Option<ControlPortId>,
 }
 
-/// Condition 节点的两个互斥出口。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ConditionBranch {
-    /// 条件成立时选择的出口。
-    True,
-    /// 条件不成立时选择的出口。
-    False,
+/// 分支节点公开的开放控制流端口标识。
+///
+/// 内置 Condition 使用 `true`/`false`，注册节点可以声明任意稳定端口集合，Validator
+/// 会根据 PreparedNode 的端口描述检查边，而不需要修改中央枚举。
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ControlPortId(String);
+
+impl ControlPortId {
+    /// 创建由节点类型拥有的稳定控制流端口。
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
+    /// 返回边契约和注册节点共享的稳定端口名称。
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
 }

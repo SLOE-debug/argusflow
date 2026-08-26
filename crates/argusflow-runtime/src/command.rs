@@ -69,7 +69,7 @@ impl CommandExecutor {
     pub async fn execute(
         &self,
         operation: &CommandOperation,
-        permissions: WorkflowPermissions,
+        permissions: &WorkflowPermissions,
         context: &RunContext,
     ) -> Result<NodeOutcome, RuntimeError> {
         ensure_permissions(operation.runner, permissions)?;
@@ -245,10 +245,10 @@ fn terminate_command(job: &CommandJob, child: &mut tokio::process::Child) {
 /// 检查 WorkflowPermissions 是否覆盖命令运行器要求。
 fn ensure_permissions(
     runner: CommandRunner,
-    permissions: WorkflowPermissions,
+    permissions: &WorkflowPermissions,
 ) -> Result<(), CommandError> {
     let capability = required_command_capability(runner);
-    if !permissions.allows(capability) {
+    if !permissions.allows(&capability) {
         return Err(CommandError::PermissionDenied {
             message: format!("{} permission is required", capability.as_str()),
         });

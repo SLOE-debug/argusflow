@@ -41,7 +41,7 @@ function createExecutionEvent(
 }
 
 describe('workflow model', () => {
-  it('maps the empty canvas to the schema v6 Rust contract', () => {
+  it('maps the empty canvas to the schema v7 Rust contract', () => {
     const workflow = toWorkflowDefinition(
       '6d7d7a91-4e19-42c9-b1d8-011d4cf94330',
       'Demo',
@@ -51,7 +51,7 @@ describe('workflow model', () => {
       [],
       [],
     );
-    expect(workflow.schema_version).toBe(6);
+    expect(workflow.schema_version).toBe(7);
     expect(workflow.variables).toEqual({ enabled: true });
     expect(workflow.nodes).toEqual([]);
   });
@@ -80,16 +80,19 @@ describe('workflow model', () => {
     );
 
     expect(workflow.nodes[0]).toMatchObject({
-      type: 'ui',
-      operation: {
-        type: 'click',
-        target: {
-          scope: { type: 'current' },
-          locator: {
-            type: 'query',
-            query: { language_version: 1 },
+      type_id: 'argus.ui',
+      version: 1,
+      payload: {
+        operation: {
+          type: 'click',
+          target: {
+            scope: { type: 'current' },
+            locator: {
+              type: 'query',
+              query: { language_version: 1 },
+            },
+            backend_policy: { allow: [], deny: [], prefer: [] },
           },
-          backend_preference: 'auto',
         },
       },
     });
@@ -110,51 +113,61 @@ describe('workflow model', () => {
     expect(workflow.name).toBe('采集百度热搜并写入桌面文本');
     expect(workflow.inputs).toEqual([]);
     expect(DEFAULT_RUN_INPUT_VALUES).toEqual({});
-    expect(workflow.nodes.some((node) => node.type === 'condition')).toBe(false);
+    expect(workflow.nodes.some((node) => node.type_id === 'argus.condition')).toBe(false);
     expect(workflow.edges).toHaveLength(6);
     expect(workflow.edges.every((edge) => edge.branch === null)).toBe(true);
     expect(workflow.nodes).toContainEqual(expect.objectContaining({
       id: 'baidu_browser_1',
-      type: 'browser',
-      spec: expect.objectContaining({
-        initial_url: 'https://www.baidu.com/',
-      }),
-    }));
-    expect(workflow.nodes).toContainEqual(expect.objectContaining({
-      id: 'collect_baidu_news_1',
-      type: 'ui',
-      operation: {
-        type: 'collect_links',
-        target: expect.objectContaining({
-          scope: {
-            type: 'browser',
-            resource: {
-              producer_node_id: 'baidu_browser_1',
-              output_name: 'session',
-            },
-          },
-          backend_preference: 'browser_cdp',
-          locator: {
-            type: 'query',
-            query: {
-              language_version: 1,
-              source: 'css("#hotsearch-content-wrapper a.title-content .title-content-title")',
-            },
-          },
+      type_id: 'argus.browser',
+      payload: {
+        spec: expect.objectContaining({
+          initial_url: 'https://www.baidu.com/',
         }),
       },
     }));
     expect(workflow.nodes).toContainEqual(expect.objectContaining({
-      id: 'write_baidu_news_1',
-      type: 'command',
-      operation: expect.objectContaining({
-        runner: 'power_shell',
-        stdin: {
-          type: 'node_output',
-          node_id: 'collect_baidu_news_1',
-          output: 'text',
+      id: 'collect_baidu_news_1',
+      type_id: 'argus.ui',
+      payload: {
+        operation: {
+          type: 'collect_links',
+          target: expect.objectContaining({
+            scope: {
+              type: 'browser',
+              resource: {
+                producer_node_id: 'baidu_browser_1',
+                output_name: 'session',
+              },
+            },
+            backend_policy: {
+              allow: ['browser_cdp'],
+              deny: [],
+              prefer: ['browser_cdp'],
+            },
+            locator: {
+              type: 'query',
+              query: {
+                language_version: 1,
+                source: 'css("#hotsearch-content-wrapper a.title-content .title-content-title")',
+              },
+            },
+          }),
         },
-      }),
+      },
+    }));
+    expect(workflow.nodes).toContainEqual(expect.objectContaining({
+      id: 'write_baidu_news_1',
+      type_id: 'argus.command',
+      payload: {
+        operation: expect.objectContaining({
+          runner: 'power_shell',
+          stdin: {
+            type: 'node_output',
+            node_id: 'collect_baidu_news_1',
+            output: 'text',
+          },
+        }),
+      },
     }));
   });
 

@@ -3,7 +3,7 @@ import type {
   ApplicationSpec,
   BrowserSpec,
   CommandOperation,
-  ConditionBranch,
+  ControlPortId,
   ConditionOperator,
   ExecutionEvent,
   JsonObject,
@@ -12,13 +12,13 @@ import type {
   ValueExpr,
   WorkflowDefinition,
   WorkflowInputDefinition,
-  WorkflowNodeKind,
   WorkflowPermissions,
 } from './contracts';
-import { createDefaultUiOperation } from './workflowAction';
-import { createDefaultApplicationSpec } from './workflowApplication';
-import { createDefaultBrowserSpec } from './workflowBrowser';
-import { createDefaultCommandOperation } from './workflowCommand';
+import {
+  createRegisteredNodeData,
+  encodeNodeDefinition,
+  isUnaryCondition,
+} from './workflowNodeDefinitions';
 
 /** 节点在单次工作流运行中的展示状态。 */
 export type NodeRunState =
@@ -60,7 +60,7 @@ export type EditableNodeKind = WorkflowNodeData['kind'];
 /** 以不可变方式更新一个节点判别联合。 */
 export type WorkflowNodeUpdater = (current: WorkflowNodeData) => WorkflowNodeData;
 
-export type WorkflowEdgeData = { branch: ConditionBranch | null };
+export type WorkflowEdgeData = { branch: ControlPortId | null };
 export type WorkflowCanvasNode = FlowNode<WorkflowNodeData>;
 export type WorkflowCanvasEdge = FlowEdge<WorkflowEdgeData>;
 
@@ -97,7 +97,7 @@ export function createNode(kind: EditableNodeKind, position: FlowPoint = { x: 20
 /** 新增边并根据 Condition 已占分支自动分配 true/false。 */
 export function createEdge(source: string, target: string, nodes: ReadonlyArray<WorkflowCanvasNode>, edges: ReadonlyArray<WorkflowCanvasEdge>, sourceSide?: WorkflowCanvasEdge['source']['side'], targetSide?: WorkflowCanvasEdge['target']['side']): WorkflowCanvasEdge {
   const sourceNode = nodes.find((node) => node.id === source);
-  let branch: ConditionBranch | null = null;
+  let branch: ControlPortId | null = null;
   if (sourceNode?.kind === 'condition') {
     const used = new Set(edges.filter((edge) => edge.source.nodeId === source).map((edge) => edge.data.branch));
     branch = used.has('true') ? 'false' : 'true';
@@ -105,7 +105,7 @@ export function createEdge(source: string, target: string, nodes: ReadonlyArray<
   return { id: `edge-${crypto.randomUUID()}`, source: { nodeId: source, side: sourceSide }, target: { nodeId: target, side: targetSide }, data: { branch } };
 }
 
-/** 将画布状态转换为后端 schema v6 契约。 */
+/** 将画布状态转换为后端 schema v7 开放节点契约。 */
 export function toWorkflowDefinition(
   workflowId: string,
   name: string,
@@ -116,13 +116,17 @@ export function toWorkflowDefinition(
   edges: ReadonlyArray<WorkflowCanvasEdge>,
 ): WorkflowDefinition {
   return {
-    schema_version: 6,
+    schema_version: 7,
     id: workflowId,
     name,
     inputs: [...inputs],
     variables,
     permissions,
-    nodes: nodes.map((node) => ({ id: node.id, position: node.position, ...toNodeKind(node.data) })),
+    nodes: nodes.map((node) => ({
+      id: node.id,
+      position: node.position,
+      ...encodeNodeDefinition(node.data),
+    })),
     edges: edges.map((edge) => ({ id: edge.id, source: edge.source.nodeId, target: edge.target.nodeId, branch: edge.data.branch })),
   };
 }
@@ -182,77 +186,9 @@ export function canConnect(nodes: ReadonlyArray<WorkflowCanvasNode>, edges: Read
   return true;
 }
 
-function toNodeKind(data: WorkflowNodeData): WorkflowNodeKind {
-  switch (data.kind) {
-    case 'start': return { type: 'start' };
-    case 'log': return { type: 'log', message: data.message };
-    case 'debug': return { type: 'debug', value: data.value };
-    case 'delay': return { type: 'delay', milliseconds: data.milliseconds };
-    case 'condition': return { type: 'condition', predicate: { pointer: data.pointer, operator: data.operator, operand: isUnary(data.operator) ? null : data.operand } };
-    case 'application': return { type: 'application', spec: data.spec };
-    case 'browser': return { type: 'browser', spec: data.spec };
-    case 'ui': return { type: 'ui', operation: data.operation };
-    case 'command': return { type: 'command', operation: data.operation };
-    case 'end': return { type: 'end' };
-  }
-}
-
-export const isUnary = (operator?: ConditionOperator): boolean => operator === 'exists' || operator === 'not_exists' || operator === 'is_empty' || operator === 'not_empty';
+export const isUnary = isUnaryCondition;
 
 /** 为每种节点建立字段完整且立即可编辑的默认数据。 */
 function createNodeData(kind: EditableNodeKind): WorkflowNodeData {
-  switch (kind) {
-    case 'start':
-      return { kind, label: '开始', runState: 'idle' };
-    case 'log':
-      return { kind, label: '日志', message: '记录一条运行信息', runState: 'idle' };
-    case 'debug':
-      return {
-        kind,
-        label: '调试输出',
-        value: { type: 'literal', value: '' },
-        runState: 'idle',
-      };
-    case 'delay':
-      return { kind, label: '等待', milliseconds: 500, runState: 'idle' };
-    case 'condition':
-      return {
-        kind,
-        label: '条件',
-        pointer: '/enabled',
-        operator: 'equal',
-        operand: true,
-        runState: 'idle',
-      };
-    case 'application':
-      return {
-        kind,
-        label: '打开或连接应用',
-        spec: createDefaultApplicationSpec(),
-        runState: 'idle',
-      };
-    case 'browser':
-      return {
-        kind,
-        label: '打开浏览器',
-        spec: createDefaultBrowserSpec(),
-        runState: 'idle',
-      };
-    case 'ui':
-      return {
-        kind,
-        label: '界面操作',
-        operation: createDefaultUiOperation(),
-        runState: 'idle',
-      };
-    case 'command':
-      return {
-        kind,
-        label: '执行命令',
-        operation: createDefaultCommandOperation(),
-        runState: 'idle',
-      };
-    case 'end':
-      return { kind, label: '结束', runState: 'idle' };
-  }
+  return createRegisteredNodeData(kind);
 }

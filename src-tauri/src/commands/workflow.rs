@@ -69,8 +69,6 @@ pub struct CommandError {
 pub enum CommandErrorCode {
     /// 工作流定义未通过运行前校验。
     ValidationFailed,
-    /// 同一个运行时引擎已有活动任务。
-    RunInProgress,
     /// 执行事件无法投递给前端。
     EventDeliveryFailed,
     /// 校验后依赖的结构约束在执行期间失效。
@@ -100,11 +98,6 @@ impl From<RuntimeError> for CommandError {
                 message,
                 issues: Vec::new(),
             },
-            RuntimeError::RunInProgress { run_id } => Self {
-                code: CommandErrorCode::RunInProgress,
-                message: format!("工作流运行 {run_id} 尚未结束"),
-                issues: Vec::new(),
-            },
             RuntimeError::EventSink(message) => Self {
                 code: CommandErrorCode::EventDeliveryFailed,
                 message,
@@ -112,6 +105,11 @@ impl From<RuntimeError> for CommandError {
             },
             RuntimeError::ExecutionInvariant(message) => Self {
                 code: CommandErrorCode::ExecutionInvariantFailed,
+                message,
+                issues: Vec::new(),
+            },
+            RuntimeError::NodeExecution { message } => Self {
+                code: CommandErrorCode::RuntimeDataFailed,
                 message,
                 issues: Vec::new(),
             },

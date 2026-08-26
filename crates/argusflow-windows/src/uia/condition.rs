@@ -11,25 +11,52 @@ use windows::Win32::{
         UIA_ImageControlTypeId, UIA_IsDialogPropertyId, UIA_IsEnabledPropertyId,
         UIA_IsOffscreenPropertyId, UIA_ListControlTypeId, UIA_ListItemControlTypeId,
         UIA_MenuControlTypeId, UIA_MenuItemControlTypeId, UIA_NamePropertyId, UIA_PROPERTY_ID,
-        UIA_PaneControlTypeId, UIA_RadioButtonControlTypeId, UIA_SelectionItemIsSelectedPropertyId,
-        UIA_TabControlTypeId, UIA_TabItemControlTypeId, UIA_TableControlTypeId,
-        UIA_TextControlTypeId, UIA_ToggleToggleStatePropertyId, UIA_TreeControlTypeId,
-        UIA_TreeItemControlTypeId, UIA_ValueValuePropertyId, UIA_WindowControlTypeId,
+        UIA_PaneControlTypeId, UIA_ProcessIdPropertyId, UIA_RadioButtonControlTypeId,
+        UIA_SelectionItemIsSelectedPropertyId, UIA_TabControlTypeId, UIA_TabItemControlTypeId,
+        UIA_TableControlTypeId, UIA_TextControlTypeId, UIA_ToggleToggleStatePropertyId,
+        UIA_TreeControlTypeId, UIA_TreeItemControlTypeId, UIA_ValueValuePropertyId,
+        UIA_WindowControlTypeId,
     },
 };
 
 use super::{
     error::{UiaError, UiaOperation},
-    native::{UiaControlType, UiaProperty, UiaRoleConstraint},
+    native::{
+        UiaControlType, UiaNativeComparison, UiaNativePredicate, UiaNativeValue, UiaProperty,
+        UiaRoleConstraint,
+    },
     plan::UiaMatcherPlan,
 };
 
-/// 仅通过数值型 ControlType 条件发现候选，字符串等值由 Rust 读取 Current property 复验。
-pub(crate) fn build_discovery_condition(
+/// 创建完整 matcher 的 Control View 原生条件。
+pub(crate) fn build_match_condition(
     automation: &IUIAutomation,
     matcher: &UiaMatcherPlan,
 ) -> Result<IUIAutomationCondition, UiaError> {
-    role_condition(automation, matcher.role)
+    let control_view = unsafe { automation.ControlViewCondition() }
+        .map_err(|source| UiaError::from_native(UiaOperation::CreateCondition, source))?;
+    let role = role_condition(automation, matcher.role)?;
+    let mut condition = and_condition(automation, &control_view, &role)?;
+    for predicate in &matcher.pushdown {
+        let predicate = predicate_condition(automation, predicate)?;
+        condition = and_condition(automation, &condition, &predicate)?;
+    }
+    Ok(condition)
+}
+
+/// 创建带冻结 ProcessId 硬边界的完整 matcher 原生条件。
+pub(crate) fn build_process_match_condition(
+    automation: &IUIAutomation,
+    process_id: i32,
+    matcher: &UiaMatcherPlan,
+) -> Result<IUIAutomationCondition, UiaError> {
+    let matcher = build_match_condition(automation, matcher)?;
+    let process_value = VARIANT::from(process_id);
+    // SAFETY: ProcessId property 接受 VT_I4，VARIANT 在同步调用期间有效。
+    let process =
+        unsafe { automation.CreatePropertyCondition(UIA_ProcessIdPropertyId, &process_value) }
+            .map_err(|source| UiaError::from_native(UiaOperation::CreateCondition, source))?;
+    and_condition(automation, &process, &matcher)
 }
 
 /// 物化对话框的复合约束或普通 ControlType 条件。
@@ -41,9 +68,61 @@ fn role_condition(
         UiaRoleConstraint::ControlType(control_type) => {
             control_type_condition(automation, control_type)
         }
-        // Window ControlType 负责发现候选，IsDialog 在 Rust 强类型复验阶段检查。
-        UiaRoleConstraint::Dialog => control_type_condition(automation, UiaControlType::Window),
+        UiaRoleConstraint::Dialog => {
+            let window = control_type_condition(automation, UiaControlType::Window)?;
+            let is_dialog = property_condition(
+                automation,
+                UiaProperty::IsDialog,
+                &UiaNativeValue::Boolean(true),
+            )?;
+            and_condition(automation, &window, &is_dialog)
+        }
     }
+}
+
+/// 把强类型原生谓词物化为 PropertyCondition 或 NotCondition。
+fn predicate_condition(
+    automation: &IUIAutomation,
+    predicate: &UiaNativePredicate,
+) -> Result<IUIAutomationCondition, UiaError> {
+    match &predicate.comparison {
+        UiaNativeComparison::Equal(value) => {
+            property_condition(automation, predicate.property, value)
+        }
+        UiaNativeComparison::NotEqual(value) => {
+            let equal = property_condition(automation, predicate.property, value)?;
+            // SAFETY: equal condition 与 automation 由同一 worker apartment 创建。
+            unsafe { automation.CreateNotCondition(&equal) }
+                .map_err(|source| UiaError::from_native(UiaOperation::CreateCondition, source))
+        }
+    }
+}
+
+/// 创建一个属性等值条件，值类型由 compiler 的原生 IR 保证正确。
+fn property_condition(
+    automation: &IUIAutomation,
+    property: UiaProperty,
+    value: &UiaNativeValue,
+) -> Result<IUIAutomationCondition, UiaError> {
+    let value = match value {
+        UiaNativeValue::Text(value) => VARIANT::from(value.as_str()),
+        UiaNativeValue::Boolean(value) => VARIANT::from(*value),
+        UiaNativeValue::Integer(value) => VARIANT::from(*value),
+    };
+    // SAFETY: property id 和 VARIANT 来自 compiler 证明过的封闭强类型映射。
+    unsafe { automation.CreatePropertyCondition(property_id(property), &value) }
+        .map_err(|source| UiaError::from_native(UiaOperation::CreateCondition, source))
+}
+
+/// 合并两个同 apartment 原生条件。
+fn and_condition(
+    automation: &IUIAutomation,
+    left: &IUIAutomationCondition,
+    right: &IUIAutomationCondition,
+) -> Result<IUIAutomationCondition, UiaError> {
+    // SAFETY: 两个 condition 与 automation 均由当前 UIA worker apartment 创建。
+    unsafe { automation.CreateAndCondition(left, right) }
+        .map_err(|source| UiaError::from_native(UiaOperation::CreateCondition, source))
 }
 
 /// 创建单个 ControlType PropertyCondition。

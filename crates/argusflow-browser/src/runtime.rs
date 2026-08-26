@@ -187,6 +187,14 @@ async fn acquire_page_session(
     let connection = CdpConnection::connect(&web_socket_url)
         .await
         .map_err(protocol_launch_error)?;
+    connection
+        .command(
+            None,
+            "Target.setDiscoverTargets",
+            json!({ "discover": true }),
+        )
+        .await
+        .map_err(protocol_launch_error)?;
     let target_id = wait_for_page_target(
         &connection,
         &spec.initial_url,

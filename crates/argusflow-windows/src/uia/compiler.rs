@@ -119,7 +119,7 @@ fn compile_expression(
                 .map(|compiled| CompiledExpression {
                     expression: UiaPlanExpr::Nth {
                         query: Box::new(compiled.expression),
-                        index: index.get(),
+                        index: *index,
                     },
                     support: max_support(compiled.support, SupportLevel::Hybrid),
                     cost: max_cost(compiled.cost, QueryCost::Medium),

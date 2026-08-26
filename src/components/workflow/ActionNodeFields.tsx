@@ -1,17 +1,18 @@
 import type {
-  BackendPreference,
   TargetScope,
   TargetLocatorKind,
   UiOperation,
   UiOperationKind,
 } from '../../features/workflow/contracts';
 import {
-  changeBackendPreference,
+  changeBackendPolicy,
   changeSetValue,
   changeTargetLocator,
   changeTargetLocatorKind,
   changeTargetScope,
   changeUiOperationKind,
+  resolveBackendPolicyPreset,
+  type BackendPolicyPreset,
 } from '../../features/workflow/workflowAction';
 import { Input, Select } from '../ui';
 import {
@@ -179,12 +180,12 @@ function QueryTargetFields({
         </summary>
         <div className="mt-2">
           <InspectorField label="执行方式约束">
-            <Select<BackendPreference>
-              value={operation.target.backend_preference}
+            <Select<BackendPolicyPreset>
+              value={resolveBackendPolicyPreset(operation.target.backend_policy)}
               options={BACKEND_OPTIONS}
               containerClassName="border-slate-300 bg-white"
               onValueChange={(preference) => (
-                onChange(changeBackendPreference(operation, preference))
+                onChange(changeBackendPolicy(operation, preference))
               )}
             />
           </InspectorField>

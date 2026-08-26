@@ -68,7 +68,11 @@ describe('AqlEditor', () => {
         target={{
           scope: { type: 'current' },
           locator: { type: 'query', query },
-          backend_preference: 'windows_uia',
+          backend_policy: {
+            allow: ['windows_uia'],
+            deny: [],
+            prefer: ['windows_uia'],
+          },
         }}
         onChange={onChange}
       />,
@@ -93,7 +97,7 @@ describe('AqlEditor', () => {
         target={{
           scope: { type: 'current' },
           locator: { type: 'query', query },
-          backend_preference: 'auto',
+          backend_policy: { allow: [], deny: [], prefer: [] },
         }}
         onChange={onChange}
       />,
@@ -118,7 +122,7 @@ describe('AqlEditor', () => {
           target={{
             scope: { type: 'current' },
             locator: { type: 'query', query },
-            backend_preference: 'auto',
+            backend_policy: { allow: [], deny: [], prefer: [] },
           }}
           onChange={setQuery}
         />

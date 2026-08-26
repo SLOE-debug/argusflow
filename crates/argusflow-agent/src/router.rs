@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use argusflow_core::{
     ActionOutcome, AutomationAction, AutomationError, AutomationExecutionScope, BackendKind,
-    BackendPreference, TargetScope,
+    CapabilityId, TargetScope,
 };
 use argusflow_query::{
     Diagnostic, DiagnosticCode, DiagnosticSeverity, QueryCost, QueryPortability, SupportLevel,
@@ -83,7 +83,7 @@ impl ActionRouter {
                 Err(rejection) => vec![rejected_explain(rejection)],
             })
             .collect::<Vec<_>>();
-        explains.sort_by_key(explain_rank);
+        explains.sort_by_key(|explain| explain_rank(explain, &action.target().backend_policy));
         let selected_backend = explains
             .iter()
             .find(|explain| explain.support.is_supported() && explain.availability.is_ready())
@@ -122,7 +122,8 @@ impl ActionRouter {
                     && candidate.explain().availability.is_ready()
             })
             .collect::<Vec<_>>();
-        candidates.sort_by_key(candidate_rank);
+        candidates
+            .sort_by_key(|candidate| candidate_rank(candidate, &action.target().backend_policy));
         if candidates.is_empty() {
             return Err(AutomationError::NoBackendAvailable);
         }
@@ -137,7 +138,7 @@ impl ActionRouter {
     ) -> Vec<Result<Vec<PreparedCandidate>, PlanRejection>> {
         self.backends
             .iter()
-            .filter(|backend| preference_allows(action.target().backend_preference, backend.kind()))
+            .filter(|backend| action.target().backend_policy.allows(backend.kind()))
             .map(|backend| backend.prepare(action, context))
             .collect()
     }
@@ -163,7 +164,7 @@ impl ActionDispatcher for ActionRouter {
             context.browser_session = None;
             // 当前视觉缓存属于宿主捕获的前台画面，不能冒充显式应用窗口缓存。
             context.visual_cache.ready = false;
-            if !capabilities.windows_uia {
+            if !capabilities.contains(&CapabilityId::WINDOWS_UIA) {
                 context.accessibility.ready = false;
             }
         } else if let AutomationExecutionScope::Browser {
@@ -185,25 +186,18 @@ impl ActionDispatcher for ActionRouter {
     }
 }
 
-/// 判断显式 backend constraint 是否允许候选参与 Planner。
-const fn preference_allows(preference: BackendPreference, backend: BackendKind) -> bool {
-    match preference {
-        BackendPreference::Auto => true,
-        BackendPreference::WindowsUia => matches!(backend, BackendKind::WindowsUia),
-        BackendPreference::BrowserCdp => matches!(backend, BackendKind::BrowserCdp),
-    }
-}
-
 /// 返回真实候选的完整 Planner 排序键；完整分支路径优先于后端能力评分。
 fn candidate_rank(
     candidate: &PreparedCandidate,
-) -> (argusflow_query::BranchPath, u8, u8, u8, usize) {
+    policy: &argusflow_core::BackendPolicy,
+) -> (argusflow_query::BranchPath, u8, u8, u8, usize, usize) {
     let explain = candidate.explain();
     (
         explain.branch_path.clone().unwrap_or_default(),
         explain.support.rank(),
         explain.context_fitness.rank(),
         explain.cost.rank(),
+        policy.preference_rank(explain.backend),
         route_tie_break_rank(explain.backend),
     )
 }
@@ -211,7 +205,16 @@ fn candidate_rank(
 /// Explain 沿用完整分支路径、语义支持、availability、上下文、成本和 tie-break 顺序。
 fn explain_rank(
     explain: &PlanExplain,
-) -> ((bool, argusflow_query::BranchPath), u8, u8, u8, u8, usize) {
+    policy: &argusflow_core::BackendPolicy,
+) -> (
+    (bool, argusflow_query::BranchPath),
+    u8,
+    u8,
+    u8,
+    u8,
+    usize,
+    usize,
+) {
     let branch_rank = explain
         .branch_path
         .clone()
@@ -223,6 +226,7 @@ fn explain_rank(
         explain.availability.rank(),
         explain.context_fitness.rank(),
         explain.cost.rank(),
+        policy.preference_rank(explain.backend),
         route_tie_break_rank(explain.backend),
     )
 }

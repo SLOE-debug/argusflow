@@ -1,82 +1,100 @@
 //! 核心工作流数据契约的序列化回归测试。
 //!
-//! 通过 JSON 往返确认编辑器与运行时共享的结构能够无损持久化和恢复。
+//! 通过 JSON 往返确认开放节点 envelope、资源引用和强类型 payload 能无损持久化。
 
 use argusflow_core::{
-    AcquirePolicy, ActivationPolicy, ApplicationSpec, AqlQuery, AutomationTarget,
-    BackendPreference, CleanupPolicy, CommandOperation, CommandRunner, Position, ResourceRef,
-    TargetLocator, TargetScope, UiOperation, ValueExpr, WindowTitleMatcher, WorkflowDefinition,
-    WorkflowEdge, WorkflowInputDefinition, WorkflowInputType, WorkflowNode, WorkflowNodeKind,
-    WorkflowPermissions,
+    AcquirePolicy, ActivationPolicy, ApplicationSpec, AqlQuery, AutomationTarget, BackendKind,
+    BackendPolicy, CleanupPolicy, CommandOperation, CommandRunner, NodeEnvelope, Position,
+    ResourceRef, TargetLocator, TargetScope, UiOperation, ValueExpr, WindowTitleMatcher,
+    WorkflowCapabilityId, WorkflowDefinition, WorkflowEdge, WorkflowInputDefinition,
+    WorkflowInputType, WorkflowNode, WorkflowPermissions,
 };
-use serde_json::json;
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 #[test]
 fn workflow_contract_round_trips_through_json() {
-    // 使用包含动作选择器和多条连线的最小完整工作流，覆盖扁平化节点类型及嵌套枚举。
     let workflow = WorkflowDefinition {
-        schema_version: 6,
+        schema_version: 7,
         id: Uuid::new_v4(),
         name: "契约测试".to_owned(),
         inputs: Vec::new(),
         variables: json!({ "enabled": true }),
-        permissions: WorkflowPermissions {
-            application_launch: false,
-            direct_command: false,
-            powershell: false,
-            cmd: false,
-        },
+        permissions: WorkflowPermissions::default(),
         nodes: vec![
-            WorkflowNode {
-                id: "start".to_owned(),
-                position: Position { x: 0.0, y: 0.0 },
-                kind: WorkflowNodeKind::Start,
-            },
-            WorkflowNode {
-                id: "action".to_owned(),
-                position: Position { x: 240.0, y: 0.0 },
-                kind: WorkflowNodeKind::Ui {
-                    operation: UiOperation::Click {
-                        target: AutomationTarget::query(AqlQuery::v1("button(name = \"保存\")")),
+            node("start", 0.0, "argus.start", json!({})),
+            node(
+                "action",
+                240.0,
+                "argus.ui",
+                json!({
+                    "operation": UiOperation::Click {
+                        target: AutomationTarget::query(AqlQuery::v1(
+                            "button(name = \"保存\")",
+                        )),
                     },
-                },
-            },
-            WorkflowNode {
-                id: "end".to_owned(),
-                position: Position { x: 480.0, y: 0.0 },
-                kind: WorkflowNodeKind::End,
-            },
+                }),
+            ),
+            node("end", 480.0, "argus.end", json!({})),
         ],
-        edges: vec![
-            WorkflowEdge {
-                id: "start-action".to_owned(),
-                source: "start".to_owned(),
-                target: "action".to_owned(),
-                branch: None,
-            },
-            WorkflowEdge {
-                id: "action-end".to_owned(),
-                source: "action".to_owned(),
-                target: "end".to_owned(),
-                branch: None,
-            },
-        ],
+        edges: vec![edge("start", "action"), edge("action", "end")],
     };
 
-    let json = serde_json::to_string(&workflow).expect("workflow should serialize");
+    let serialized = serde_json::to_string(&workflow).expect("workflow should serialize");
     let decoded: WorkflowDefinition =
-        serde_json::from_str(&json).expect("workflow should deserialize");
+        serde_json::from_str(&serialized).expect("workflow should deserialize");
 
-    assert!(json.contains("\"language_version\":1"));
-    assert!(json.contains("button(name = \\\"保存\\\")"));
+    assert!(serialized.contains("\"type_id\":\"argus.ui\""));
+    assert!(serialized.contains("\"language_version\":1"));
+    assert!(serialized.contains("button(name = \\\"保存\\\")"));
     assert_eq!(decoded, workflow);
 }
 
 #[test]
-fn schema_v6_inputs_resources_values_and_commands_round_trip_through_json() {
+fn schema_v7_inputs_resources_values_and_commands_round_trip_through_json() {
+    let application_spec = ApplicationSpec {
+        executable_path: r"C:\Program Files\Example\example.exe".to_owned(),
+        arguments: vec!["--automation".to_owned()],
+        window_title: WindowTitleMatcher::Contains {
+            value: "Example".to_owned(),
+        },
+        acquire_policy: AcquirePolicy::AttachOrStart,
+        launch_timeout_ms: 10_000,
+        cleanup_policy: CleanupPolicy::CloseIfStartedByWorkflow,
+        activation_policy: ActivationPolicy::BestEffort,
+    };
+    let read_operation = UiOperation::GetText {
+        target: AutomationTarget {
+            scope: TargetScope::Application {
+                resource: ResourceRef {
+                    producer_node_id: "application".to_owned(),
+                    output_name: "session".to_owned(),
+                },
+            },
+            locator: TargetLocator::Query {
+                query: AqlQuery::v1("first(text(name = \"订单号\"))"),
+            },
+            backend_policy: BackendPolicy::only(BackendKind::WindowsUia),
+        },
+    };
+    let command_operation = CommandOperation {
+        runner: CommandRunner::Direct,
+        program: Some(ValueExpr::text(r"C:\Windows\System32\whoami.exe")),
+        arguments: vec![ValueExpr::NodeOutput {
+            node_id: "read".to_owned(),
+            output: "text".to_owned(),
+        }],
+        script: None,
+        working_directory: None,
+        environment: Vec::new(),
+        stdin: None,
+        timeout_ms: 30_000,
+        accepted_exit_codes: vec![0],
+        max_stdout_bytes: 1_048_576,
+        max_stderr_bytes: 1_048_576,
+    };
     let workflow = WorkflowDefinition {
-        schema_version: 6,
+        schema_version: 7,
         id: Uuid::new_v4(),
         name: "资源与数据契约".to_owned(),
         inputs: vec![WorkflowInputDefinition {
@@ -84,72 +102,31 @@ fn schema_v6_inputs_resources_values_and_commands_round_trip_through_json() {
             value_type: WorkflowInputType::Text,
         }],
         variables: json!({ "input": "ArgusFlow" }),
-        permissions: WorkflowPermissions {
-            application_launch: true,
-            ..WorkflowPermissions::direct_command_only()
-        },
+        permissions: WorkflowPermissions::from_iter([
+            WorkflowCapabilityId::application_launch(),
+            WorkflowCapabilityId::direct_command(),
+        ]),
         nodes: vec![
-            node("start", 0.0, WorkflowNodeKind::Start),
+            node("start", 0.0, "argus.start", json!({})),
             node(
                 "application",
                 180.0,
-                WorkflowNodeKind::Application {
-                    spec: ApplicationSpec {
-                        executable_path: r"C:\Program Files\Example\example.exe".to_owned(),
-                        arguments: vec!["--automation".to_owned()],
-                        window_title: WindowTitleMatcher::Contains {
-                            value: "Example".to_owned(),
-                        },
-                        acquire_policy: AcquirePolicy::AttachOrStart,
-                        launch_timeout_ms: 10_000,
-                        cleanup_policy: CleanupPolicy::CloseIfStartedByWorkflow,
-                        activation_policy: ActivationPolicy::BestEffort,
-                    },
-                },
+                "argus.application",
+                json!({ "spec": application_spec }),
             ),
             node(
                 "read",
                 360.0,
-                WorkflowNodeKind::Ui {
-                    operation: UiOperation::GetText {
-                        target: AutomationTarget {
-                            scope: TargetScope::Application {
-                                resource: ResourceRef {
-                                    producer_node_id: "application".to_owned(),
-                                    output_name: "session".to_owned(),
-                                },
-                            },
-                            locator: TargetLocator::Query {
-                                query: AqlQuery::v1("first(text(name = \"订单号\"))"),
-                            },
-                            backend_preference: BackendPreference::WindowsUia,
-                        },
-                    },
-                },
+                "argus.ui",
+                json!({ "operation": read_operation }),
             ),
             node(
                 "command",
                 540.0,
-                WorkflowNodeKind::Command {
-                    operation: CommandOperation {
-                        runner: CommandRunner::Direct,
-                        program: Some(ValueExpr::text(r"C:\Windows\System32\whoami.exe")),
-                        arguments: vec![ValueExpr::NodeOutput {
-                            node_id: "read".to_owned(),
-                            output: "text".to_owned(),
-                        }],
-                        script: None,
-                        working_directory: None,
-                        environment: Vec::new(),
-                        stdin: None,
-                        timeout_ms: 30_000,
-                        accepted_exit_codes: vec![0],
-                        max_stdout_bytes: 1_048_576,
-                        max_stderr_bytes: 1_048_576,
-                    },
-                },
+                "argus.command",
+                json!({ "operation": command_operation }),
             ),
-            node("end", 720.0, WorkflowNodeKind::End),
+            node("end", 720.0, "argus.end", json!({})),
         ],
         edges: vec![
             edge("start", "application"),
@@ -159,9 +136,9 @@ fn schema_v6_inputs_resources_values_and_commands_round_trip_through_json() {
         ],
     };
 
-    let serialized = serde_json::to_string(&workflow).expect("schema v6 should serialize");
+    let serialized = serde_json::to_string(&workflow).expect("schema v7 should serialize");
     let decoded: WorkflowDefinition =
-        serde_json::from_str(&serialized).expect("schema v6 should deserialize");
+        serde_json::from_str(&serialized).expect("schema v7 should deserialize");
 
     assert!(serialized.contains("\"producer_node_id\":\"application\""));
     assert!(serialized.contains("\"type\":\"node_output\""));
@@ -170,12 +147,12 @@ fn schema_v6_inputs_resources_values_and_commands_round_trip_through_json() {
     assert_eq!(decoded, workflow);
 }
 
-/// 以稳定布局构造序列化测试节点。
-fn node(id: &str, x: f64, kind: WorkflowNodeKind) -> WorkflowNode {
+/// 以稳定布局构造 schema v7 开放节点。
+fn node(id: &str, x: f64, type_id: &str, payload: Value) -> WorkflowNode {
     WorkflowNode {
         id: id.to_owned(),
         position: Position { x, y: 0.0 },
-        kind,
+        definition: NodeEnvelope::new(type_id, 1, payload),
     }
 }
 

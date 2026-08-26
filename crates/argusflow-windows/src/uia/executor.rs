@@ -7,7 +7,7 @@ use windows::Win32::{
     Foundation::HWND,
     UI::{
         Accessibility::{
-            IUIAutomation, IUIAutomationCacheRequest, IUIAutomationElement, IUIAutomationTreeWalker,
+            IUIAutomation, IUIAutomationElement, TreeScope_Children, TreeScope_Descendants,
         },
         WindowsAndMessaging::{GetWindowThreadProcessId, IsWindow},
     },
@@ -17,15 +17,14 @@ use super::{
     action::execute_action,
     budget::{UiaBudgetTracker, UiaExecutionBudget},
     cache::build_cache_request,
-    current_match::matches_current,
-    element_identity::runtime_id,
+    condition::build_match_condition,
+    element_search::find_cached_matches,
     error::{UiaError, UiaOperation},
-    plan::{TargetWaitPolicy, UiaMatcherPlan, UiaPlanExpr},
+    plan::{TargetWaitPolicy, UiaMatcherPlan, UiaPlanExpr, UiaResultLimit},
     process_search::find_process_matches,
-    property::matches_residual,
     runtime::{PreparedWindowTarget, UiaExecuteRequest},
     target_selection::{
-        ResolvedElement, TargetSelectionError, append_unique, resolution_error,
+        ResolvedElement, ResolvedElementSet, TargetSelectionError, resolution_error,
         resolve_action_target,
     },
 };
@@ -92,6 +91,7 @@ impl<'automation> UiaExecutor<'automation> {
                     process_id: request.window.process_id,
                 },
                 &request.plan.query.expression,
+                UiaResultLimit::All,
                 &mut *budget,
             ) {
                 Ok(candidates) => candidates,
@@ -178,95 +178,110 @@ impl<'automation> UiaExecutor<'automation> {
         root: &IUIAutomationElement,
         scope: SearchScope,
         expression: &UiaPlanExpr,
+        result_limit: UiaResultLimit,
         budget: &mut UiaBudgetTracker,
     ) -> Result<Vec<ResolvedElement>, UiaError> {
         budget.check_deadline()?;
         match expression {
-            UiaPlanExpr::Match(matcher) => self.execute_match(root, scope, matcher, budget),
+            UiaPlanExpr::Match(matcher) => {
+                self.execute_match(root, scope, matcher, result_limit, budget)
+            }
             UiaPlanExpr::Descendant { ancestor, target } => {
-                let ancestors = self.execute_expression(root, scope, ancestor, budget)?;
-                self.execute_within(ancestors, SearchScope::Descendants, target, budget)
+                let ancestors =
+                    self.execute_expression(root, scope, ancestor, UiaResultLimit::All, budget)?;
+                self.execute_within(
+                    ancestors,
+                    SearchScope::Descendants,
+                    target,
+                    result_limit,
+                    budget,
+                )
             }
             UiaPlanExpr::Child { parent, target } => {
-                let parents = self.execute_expression(root, scope, parent, budget)?;
-                self.execute_within(parents, SearchScope::Children, target, budget)
+                let parents =
+                    self.execute_expression(root, scope, parent, UiaResultLimit::All, budget)?;
+                self.execute_within(parents, SearchScope::Children, target, result_limit, budget)
             }
             UiaPlanExpr::First(query) => {
-                let results = self.execute_expression(root, scope, query, budget)?;
-                Ok(results.into_iter().take(1).collect())
+                self.execute_expression(root, scope, query, UiaResultLimit::first(), budget)
             }
             UiaPlanExpr::Nth { query, index } => {
-                let results = self.execute_expression(root, scope, query, budget)?;
-                Ok(results.into_iter().nth(*index - 1).into_iter().collect())
+                let results = self.execute_expression(
+                    root,
+                    scope,
+                    query,
+                    UiaResultLimit::at_most(*index),
+                    budget,
+                )?;
+                Ok(results
+                    .into_iter()
+                    .nth(index.get() - 1)
+                    .into_iter()
+                    .collect())
             }
         }
     }
 
-    /// 对每个关系父节点使用有界 RawView TreeWalker 保持严格 Children/Descendants scope。
+    /// 对每个关系父节点使用原生 TreeScope 保持严格 Children/Descendants scope。
     fn execute_within(
         &self,
         roots: Vec<ResolvedElement>,
         scope: SearchScope,
         expression: &UiaPlanExpr,
+        result_limit: UiaResultLimit,
         budget: &mut UiaBudgetTracker,
     ) -> Result<Vec<ResolvedElement>, UiaError> {
         budget.observe_relation_roots(roots.len())?;
-        let mut combined = Vec::new();
+        let mut combined = ResolvedElementSet::new();
         for root in roots {
             budget.check_deadline()?;
-            let results = self.execute_expression(&root.element, scope, expression, budget)?;
-            append_unique(&mut combined, results);
+            if result_limit.is_reached(combined.len()) {
+                break;
+            }
+            // 首个关系根没有跨根重复，可以安全下推 First/Nth 限制；后续根可能先返回
+            // 已出现的 runtime id，必须完整扫描当前根后再按唯一结果数量截断。
+            let root_limit = if combined.is_empty() {
+                result_limit
+            } else {
+                UiaResultLimit::All
+            };
+            let results =
+                self.execute_expression(&root.element, scope, expression, root_limit, budget)?;
+            combined.extend_until(results, result_limit);
         }
-        Ok(combined)
+        Ok(combined.into_vec())
     }
 
-    /// 使用有界 RawView 遍历、单元素原生 condition 与本地 residual 执行 matcher。
+    /// 使用原生 condition、BuildCache 与本地 residual 执行 matcher。
     fn execute_match(
         &self,
         root: &IUIAutomationElement,
         scope: SearchScope,
         matcher: &UiaMatcherPlan,
+        result_limit: UiaResultLimit,
         budget: &mut UiaBudgetTracker,
     ) -> Result<Vec<ResolvedElement>, UiaError> {
         budget.check_deadline()?;
         if let SearchScope::Process { process_id } = scope {
-            return self.execute_process_match(process_id, matcher, budget);
+            return self.execute_process_match(process_id, matcher, result_limit, budget);
         }
-        // 关系查询同样只为真正存在的 residual 谓词创建属性缓存。
-        let cache = if matcher.residual.is_empty() {
-            None
-        } else {
-            Some(build_cache_request(self.automation, &matcher.cache)?)
+        let native_scope = match scope {
+            SearchScope::Descendants => TreeScope_Descendants,
+            SearchScope::Children => TreeScope_Children,
+            SearchScope::Process { .. } => unreachable!("process scope returned above"),
         };
-        // SAFETY: automation client 及 walker 都留在当前 UIA worker apartment。
-        let walker = unsafe { self.automation.RawViewWalker() }
-            .map_err(|source| UiaError::from_native(UiaOperation::NavigateTree, source))?;
-        let mut matches = Vec::new();
-        let children = self.direct_children(root, &walker, budget)?;
-        if matches!(scope, SearchScope::Children) {
-            for child in children {
-                if let Some(element) =
-                    self.match_element(&child, matcher, cache.as_ref(), &matcher.residual, budget)?
-                {
-                    append_unique(&mut matches, [element]);
-                }
-            }
-            return Ok(matches);
-        }
-
-        let mut pending = children;
-        pending.reverse();
-        while let Some(element) = pending.pop() {
-            if let Some(resolved) =
-                self.match_element(&element, matcher, cache.as_ref(), &matcher.residual, budget)?
-            {
-                append_unique(&mut matches, [resolved]);
-            }
-            let mut children = self.direct_children(&element, &walker, budget)?;
-            children.reverse();
-            pending.extend(children);
-        }
-        Ok(matches)
+        let condition = build_match_condition(self.automation, matcher)?;
+        let cache = build_cache_request(self.automation, &matcher.cache)?;
+        find_cached_matches(
+            self.automation,
+            root,
+            native_scope,
+            &condition,
+            &cache,
+            &matcher.residual,
+            result_limit,
+            budget,
+        )
     }
 
     /// 从目标进程各顶层窗口的独立 UIA 子树中解析并按 runtime id 去重。
@@ -274,70 +289,10 @@ impl<'automation> UiaExecutor<'automation> {
         &self,
         process_id: u32,
         matcher: &UiaMatcherPlan,
+        result_limit: UiaResultLimit,
         budget: &mut UiaBudgetTracker,
     ) -> Result<Vec<ResolvedElement>, UiaError> {
-        let elements = find_process_matches(self.automation, process_id, matcher, budget)?;
-        let mut matches = Vec::with_capacity(elements.len());
-        for element in elements {
-            append_unique(
-                &mut matches,
-                [ResolvedElement {
-                    runtime_id: runtime_id(&element)?,
-                    element,
-                }],
-            );
-        }
-        Ok(matches)
-    }
-
-    /// 只在当前元素上执行原生 condition，避免一次性物化完整 subtree 数组。
-    fn match_element(
-        &self,
-        element: &IUIAutomationElement,
-        matcher: &UiaMatcherPlan,
-        cache: Option<&IUIAutomationCacheRequest>,
-        residual: &[super::native::UiaResidualPredicate],
-        budget: &mut UiaBudgetTracker,
-    ) -> Result<Option<ResolvedElement>, UiaError> {
-        budget.check_deadline()?;
-        if !matches_current(element, matcher)? {
-            return Ok(None);
-        }
-        let element = if let Some(cache) = cache {
-            // SAFETY: element 与 cache 同属当前 UIA worker apartment，cache 仅请求 Element scope。
-            unsafe { element.BuildUpdatedCache(cache) }
-                .map_err(|source| UiaError::from_native(UiaOperation::BuildCache, source))?
-        } else {
-            element.clone()
-        };
-        if !matches_residual(&element, residual)? {
-            return Ok(None);
-        }
-        Ok(Some(ResolvedElement {
-            runtime_id: runtime_id(&element)?,
-            element,
-        }))
-    }
-
-    /// 按 RawView sibling 顺序枚举直接子元素，并在取得每个节点时执行硬预算检查。
-    fn direct_children(
-        &self,
-        root: &IUIAutomationElement,
-        walker: &IUIAutomationTreeWalker,
-        budget: &mut UiaBudgetTracker,
-    ) -> Result<Vec<IUIAutomationElement>, UiaError> {
-        budget.check_deadline()?;
-        // SAFETY: root 与 walker 同属当前 worker apartment；空结果由 windows-rs 表示为空错误。
-        let mut current = optional_element(unsafe { walker.GetFirstChildElement(root) })?;
-        let mut children = Vec::new();
-        while let Some(element) = current {
-            budget.observe_traversal_nodes(1)?;
-            budget.check_deadline()?;
-            // SAFETY: element 来自同一 walker；调用只导航到同层后继节点。
-            current = optional_element(unsafe { walker.GetNextSiblingElement(&element) })?;
-            children.push(element);
-        }
-        Ok(children)
+        find_process_matches(self.automation, process_id, matcher, result_limit, budget)
     }
 }
 
@@ -353,15 +308,4 @@ enum SearchScope {
     Descendants,
     /// 关系查询的直接子元素。
     Children,
-}
-
-/// 把 UIA TreeWalker 的 S_OK + null 结束标记与真正 provider 错误分开。
-fn optional_element(
-    result: windows::core::Result<IUIAutomationElement>,
-) -> Result<Option<IUIAutomationElement>, UiaError> {
-    match result {
-        Ok(element) => Ok(Some(element)),
-        Err(source) if source.code().0 == 0 => Ok(None),
-        Err(source) => Err(UiaError::from_native(UiaOperation::NavigateTree, source)),
-    }
 }

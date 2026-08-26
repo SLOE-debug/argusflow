@@ -14,31 +14,20 @@ fn visit(expression: &CdpPlanExpr, steps: &mut Vec<PlanStepExplain>) {
     match expression {
         CdpPlanExpr::Match(matcher) => {
             let source = match matcher.source {
-                CdpCandidateSource::AccessibilityTree => "Accessibility tree",
-                CdpCandidateSource::Dom => "DOM tree",
+                CdpCandidateSource::AccessibilityTree => "Accessibility.queryAXTree",
+                CdpCandidateSource::Dom => "DOM full-tree semantic scan",
             };
             steps.push(PlanStepExplain {
                 kind: PlanStepKind::CandidateSource,
                 summary: format!("{source}: {:?}", matcher.role),
             });
-            if !matcher.pushdown.is_empty() {
-                steps.push(PlanStepExplain {
-                    kind: PlanStepKind::Pushdown,
-                    summary: format!("{} native predicate(s)", matcher.pushdown.len()),
-                });
-            }
-            if !matcher.projected_attributes.is_empty() {
-                steps.push(PlanStepExplain {
-                    kind: PlanStepKind::Cache,
-                    summary: format!("project {:?}", matcher.projected_attributes),
-                });
-            }
-            if !matcher.residual.is_empty() {
-                steps.push(PlanStepExplain {
-                    kind: PlanStepKind::Residual,
-                    summary: format!("{} residual predicate(s)", matcher.residual.len()),
-                });
-            }
+            steps.push(PlanStepExplain {
+                kind: PlanStepKind::Residual,
+                summary: format!(
+                    "role and {} predicate(s) evaluated in page",
+                    matcher.predicates.len()
+                ),
+            });
         }
         CdpPlanExpr::Descendant { ancestor, target } => {
             steps.push(scope("descendant traversal"));
@@ -85,5 +74,30 @@ fn selection(summary: &str) -> PlanStepExplain {
     PlanStepExplain {
         kind: PlanStepKind::Selection,
         summary: summary.to_owned(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use argusflow_agent::PlanStepKind;
+    use argusflow_core::ElementRole;
+
+    use super::explain_cdp_plan;
+    use crate::cdp::{CdpCandidateSource, CdpMatcherPlan, CdpPlanExpr};
+
+    #[test]
+    fn semantic_matcher_explain_reports_page_emulation() {
+        let expression = CdpPlanExpr::Match(CdpMatcherPlan {
+            source: CdpCandidateSource::Dom,
+            role: ElementRole::Button,
+            predicates: Vec::new(),
+        });
+
+        let steps = explain_cdp_plan(&expression);
+
+        assert_eq!(steps[0].kind, PlanStepKind::CandidateSource);
+        assert!(steps[0].summary.contains("DOM full-tree semantic scan"));
+        assert_eq!(steps[1].kind, PlanStepKind::Residual);
+        assert!(steps.iter().all(|step| step.kind != PlanStepKind::Pushdown));
     }
 }

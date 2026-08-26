@@ -1,17 +1,22 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use argusflow_core::{
-    ApplicationSessionProvider, BrowserSessionProvider, ConditionBranch, ExecutionEvent,
-    ExecutionEventKind, ExecutionEventPayload, RunInputs, RunStarted, WorkflowDefinition,
-    WorkflowEdge, WorkflowNode, WorkflowNodeKind,
+    ApplicationSessionProvider, BrowserSessionProvider, ExecutionEvent, ExecutionEventKind,
+    ExecutionEventPayload, RunInputs, RunStarted, WorkflowEdge, WorkflowNode,
 };
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::{
-    ActionDispatcher, RunContext, RuntimeError, UnavailableApplicationSessionProvider,
-    UnavailableBrowserSessionProvider, node_executor::WorkflowNodeExecutor,
-    run_inputs::validate_run_inputs, validate_workflow,
+    ActionDispatcher, NodeCompiler, NodeFlow, NodeRegistryError, NodeTypeRegistry, PreparedNode,
+    RunContext, RuntimeError, UnavailableApplicationSessionProvider,
+    UnavailableBrowserSessionProvider, builtin_nodes,
+    run_inputs::validate_run_inputs,
+    scheduler::ResourceScheduler,
+    validator::{PreparedWorkflow, prepare_workflow},
 };
 
 /// 接收工作流执行事件的线程安全目标。
@@ -20,16 +25,18 @@ pub trait ExecutionEventSink: Send + Sync + 'static {
     fn emit(&self, event: ExecutionEvent) -> Result<(), String>;
 }
 
-/// 管理单个活动运行并按条件 DAG 的单一命中路径执行工作流。
+/// 管理多个 RunWorld，并执行已经由开放注册表冻结的强类型节点路径。
 pub struct WorkflowEngine {
-    /// 当前活动运行 ID；同一引擎同时只允许一个运行。
-    active_run: Mutex<Option<Uuid>>,
-    /// 资源、UI 和命令节点的强类型执行编排器。
-    nodes: WorkflowNodeExecutor,
+    /// 当前活动 RunWorld 集合；不同资源的节点可以并行推进。
+    active_runs: Mutex<HashSet<Uuid>>,
+    /// 在启动前把 NodeEnvelope 编译为 PreparedNode 的注册表。
+    node_types: NodeTypeRegistry,
+    /// 跨 RunWorld 按资源 read/exclusive 语义仲裁副作用。
+    scheduler: ResourceScheduler,
 }
 
 impl WorkflowEngine {
-    /// 创建没有平台应用资源能力的工作流引擎。
+    /// 创建没有平台资源能力、但包含全部内置节点定义的工作流引擎。
     pub fn new(dispatcher: Arc<dyn ActionDispatcher>) -> Self {
         Self::with_resource_providers(
             dispatcher,
@@ -57,72 +64,92 @@ impl WorkflowEngine {
         browsers: Arc<dyn BrowserSessionProvider>,
     ) -> Self {
         Self {
-            active_run: Mutex::new(None),
-            nodes: WorkflowNodeExecutor::new(dispatcher, applications, browsers),
+            active_runs: Mutex::new(HashSet::new()),
+            node_types: builtin_nodes::registry(dispatcher, applications, browsers),
+            scheduler: ResourceScheduler::default(),
         }
     }
 
-    /// 查询当前活动运行；没有运行时返回 `None`。
-    pub async fn active_run(&self) -> Option<Uuid> {
-        *self.active_run.lock().await
+    /// 创建内置节点运行时，并追加宿主提供的开放节点类型编译器。
+    pub fn with_node_compilers(
+        dispatcher: Arc<dyn ActionDispatcher>,
+        applications: Arc<dyn ApplicationSessionProvider>,
+        browsers: Arc<dyn BrowserSessionProvider>,
+        compilers: impl IntoIterator<Item = Arc<dyn NodeCompiler>>,
+    ) -> Result<Self, NodeRegistryError> {
+        let mut node_types = builtin_nodes::registry(dispatcher, applications, browsers);
+        for compiler in compilers {
+            node_types.register(compiler)?;
+        }
+        Ok(Self {
+            active_runs: Mutex::new(HashSet::new()),
+            node_types,
+            scheduler: ResourceScheduler::default(),
+        })
     }
 
-    /// 校验并异步启动一个工作流，执行结果通过事件接收器报告。
+    /// 返回稳定排序的全部活动 RunWorld ID。
+    pub async fn active_runs(&self) -> Vec<Uuid> {
+        let mut runs = self
+            .active_runs
+            .lock()
+            .await
+            .iter()
+            .copied()
+            .collect::<Vec<_>>();
+        runs.sort_unstable();
+        runs
+    }
+
+    /// 编译、校验并异步启动工作流，执行结果通过事件接收器报告。
     pub async fn start(
         self: &Arc<Self>,
-        workflow: WorkflowDefinition,
+        workflow: argusflow_core::WorkflowDefinition,
         inputs: RunInputs,
         sink: Arc<dyn ExecutionEventSink>,
     ) -> Result<RunStarted, RuntimeError> {
-        let report = validate_workflow(&workflow);
-        if !report.valid {
-            return Err(RuntimeError::ValidationFailed { report });
-        }
-        validate_run_inputs(&workflow, &inputs)?;
+        let workflow = prepare_workflow(workflow, &self.node_types)
+            .map_err(|report| RuntimeError::ValidationFailed { report })?;
+        validate_run_inputs(&workflow.definition, &inputs)?;
         let run_id = Uuid::new_v4();
-        {
-            let mut active_run = self.active_run.lock().await;
-            // 在同一把锁内检查并写入，保证并发启动请求至多有一个成功。
-            if let Some(run_id) = *active_run {
-                return Err(RuntimeError::RunInProgress { run_id });
-            }
-            *active_run = Some(run_id);
-        }
+        self.active_runs.lock().await.insert(run_id);
         let engine = Arc::clone(self);
         tokio::spawn(async move {
             let _ = engine.execute(run_id, workflow, inputs, sink).await;
-            let mut active_run = engine.active_run.lock().await;
-            if *active_run == Some(run_id) {
-                *active_run = None;
-            }
+            engine.active_runs.lock().await.remove(&run_id);
         });
         Ok(RunStarted { run_id })
     }
 
-    /// 执行单一命中路径，并保证已经获取的资源在成功或失败后都进入清理阶段。
+    /// 执行单一命中路径，并保证所有注册资源都进入各自冻结的清理策略。
     async fn execute(
         &self,
         run_id: Uuid,
-        workflow: WorkflowDefinition,
+        workflow: PreparedWorkflow,
         inputs: RunInputs,
         sink: Arc<dyn ExecutionEventSink>,
     ) -> Result<(), RuntimeError> {
         // Validator 已保证 variables 是对象；这里保留结构约束错误以防未来绕过入口。
-        let variables = workflow.variables.as_object().cloned().ok_or_else(|| {
-            RuntimeError::ExecutionInvariant("workflow variables are not an object".to_owned())
-        })?;
+        let variables = workflow
+            .definition
+            .variables
+            .as_object()
+            .cloned()
+            .ok_or_else(|| {
+                RuntimeError::ExecutionInvariant("workflow variables are not an object".to_owned())
+            })?;
         let mut context = RunContext::new(run_id, inputs.values, variables);
         let mut sequence = 0;
         emit_event(
             &sink,
             build_event(
                 run_id,
-                workflow.id,
+                workflow.definition.id,
                 &mut sequence,
                 None,
                 None,
                 ExecutionEventKind::WorkflowStarted,
-                Some(format!("开始执行工作流：{}", workflow.name)),
+                Some(format!("开始执行工作流：{}", workflow.definition.name)),
                 None,
             ),
         )?;
@@ -130,14 +157,16 @@ impl WorkflowEngine {
         let execution = self
             .execute_path(&workflow, &sink, &mut context, &mut sequence)
             .await;
-        let cleanup = self.nodes.cleanup(&context).await;
+        let cleanup_access = context.resources().cleanup_access_set();
+        let _cleanup_guard = self.scheduler.acquire(cleanup_access).await;
+        let cleanup = context.resources().cleanup_all().await;
         let result = execution.and(cleanup);
         match result {
             Ok(()) => emit_event(
                 &sink,
                 build_event(
                     run_id,
-                    workflow.id,
+                    workflow.definition.id,
                     &mut sequence,
                     None,
                     None,
@@ -151,7 +180,7 @@ impl WorkflowEngine {
                     &sink,
                     build_event(
                         run_id,
-                        workflow.id,
+                        workflow.definition.id,
                         &mut sequence,
                         None,
                         None,
@@ -165,28 +194,35 @@ impl WorkflowEngine {
         }
     }
 
-    /// 沿控制流执行节点，并把 NodeOutcome 持久化到 RunContext 数据面。
+    /// 沿控制流执行 PreparedNode，并把 NodeOutcome 保存到 RunContext 数据面。
     async fn execute_path(
         &self,
-        workflow: &WorkflowDefinition,
+        workflow: &PreparedWorkflow,
         sink: &Arc<dyn ExecutionEventSink>,
         context: &mut RunContext,
         sequence: &mut u64,
     ) -> Result<(), RuntimeError> {
-        // 两个只读索引支持按 ID 取节点和沿源节点选择后继，避免执行时反复扫描。
+        // 两个只读索引支持按 ID 取 definition 和沿源节点选择后继。
         let nodes: HashMap<&str, &WorkflowNode> = workflow
+            .definition
             .nodes
             .iter()
             .map(|node| (node.id.as_str(), node))
             .collect();
         let mut outgoing: HashMap<&str, Vec<&WorkflowEdge>> = HashMap::new();
-        for edge in &workflow.edges {
+        for edge in &workflow.definition.edges {
             outgoing.entry(edge.source.as_str()).or_default().push(edge);
         }
         let mut current_id = workflow
+            .definition
             .nodes
             .iter()
-            .find(|node| matches!(&node.kind, WorkflowNodeKind::Start))
+            .find(|node| {
+                workflow
+                    .nodes
+                    .get(&node.id)
+                    .is_some_and(|prepared| matches!(prepared.flow(), NodeFlow::Start))
+            })
             .map(|node| node.id.as_str());
 
         while let Some(node_id) = current_id {
@@ -195,22 +231,28 @@ impl WorkflowEngine {
                     "node '{node_id}' disappeared after validation"
                 ))
             })?;
+            let prepared = workflow.nodes.get(node_id).ok_or_else(|| {
+                RuntimeError::ExecutionInvariant(format!(
+                    "node '{node_id}' has no prepared execution after validation"
+                ))
+            })?;
             emit_event(
                 sink,
                 build_event(
                     context.run_id,
-                    workflow.id,
+                    workflow.definition.id,
                     sequence,
                     Some(node.id.clone()),
                     None,
                     ExecutionEventKind::NodeStarted,
-                    Some(node_label(&node.kind)),
+                    Some(prepared.label()),
                     None,
                 ),
             )?;
-            let execution = match self
-                .nodes
-                .execute(node, workflow.permissions, context)
+            let access = prepared.access_set(&node.id, context)?;
+            let access_guard = self.scheduler.acquire(access).await;
+            let execution = match prepared
+                .execute(&node.id, &workflow.definition.permissions, context)
                 .await
             {
                 Ok(execution) => execution,
@@ -219,7 +261,7 @@ impl WorkflowEngine {
                         sink,
                         build_event(
                             context.run_id,
-                            workflow.id,
+                            workflow.definition.id,
                             sequence,
                             Some(node.id.clone()),
                             None,
@@ -231,13 +273,14 @@ impl WorkflowEngine {
                     return Err(error);
                 }
             };
+            drop(access_guard);
             context.record_outcome(node.id.clone(), execution.outcome);
             for node_event in execution.events {
                 emit_event(
                     sink,
                     build_event(
                         context.run_id,
-                        workflow.id,
+                        workflow.definition.id,
                         sequence,
                         Some(node.id.clone()),
                         None,
@@ -251,7 +294,7 @@ impl WorkflowEngine {
                 sink,
                 build_event(
                     context.run_id,
-                    workflow.id,
+                    workflow.definition.id,
                     sequence,
                     Some(node.id.clone()),
                     None,
@@ -261,13 +304,18 @@ impl WorkflowEngine {
                 ),
             )?;
 
-            let next_edge = select_next_edge(node, node_id, &outgoing, &workflow.variables)?;
+            let next_edge = select_next_edge(
+                prepared.as_ref(),
+                node_id,
+                &outgoing,
+                &workflow.definition.variables,
+            )?;
             if let Some(edge) = next_edge {
                 emit_event(
                     sink,
                     build_event(
                         context.run_id,
-                        workflow.id,
+                        workflow.definition.id,
                         sequence,
                         None,
                         Some(edge.id.clone()),
@@ -285,43 +333,23 @@ impl WorkflowEngine {
     }
 }
 
-/// 根据普通或条件节点选择唯一后继边。
-fn select_next_edge<'a>(
-    node: &WorkflowNode,
+/// 根据 PreparedNode 声明的控制流与可选分支选择唯一后继边。
+fn select_next_edge<'edge>(
+    node: &dyn PreparedNode,
     node_id: &str,
-    outgoing: &'a HashMap<&str, Vec<&'a WorkflowEdge>>,
+    outgoing: &'edge HashMap<&str, Vec<&'edge WorkflowEdge>>,
     variables: &serde_json::Value,
-) -> Result<Option<&'a WorkflowEdge>, RuntimeError> {
-    match &node.kind {
-        WorkflowNodeKind::Condition { predicate } => {
-            let matched = predicate
-                .evaluate(variables)
-                .map_err(|error| RuntimeError::ExecutionInvariant(error.to_string()))?;
-            let branch = if matched {
-                ConditionBranch::True
-            } else {
-                ConditionBranch::False
-            };
-            Ok(outgoing
-                .get(node_id)
-                .into_iter()
-                .flatten()
-                .find(|edge| edge.branch == Some(branch))
-                .copied())
-        }
-        WorkflowNodeKind::End => Ok(None),
-        WorkflowNodeKind::Start
-        | WorkflowNodeKind::Log { .. }
-        | WorkflowNodeKind::Debug { .. }
-        | WorkflowNodeKind::Delay { .. }
-        | WorkflowNodeKind::Application { .. }
-        | WorkflowNodeKind::Browser { .. }
-        | WorkflowNodeKind::Ui { .. }
-        | WorkflowNodeKind::Command { .. } => Ok(outgoing
-            .get(node_id)
-            .and_then(|edges| edges.first())
-            .copied()),
+) -> Result<Option<&'edge WorkflowEdge>, RuntimeError> {
+    if matches!(node.flow(), NodeFlow::End) {
+        return Ok(None);
     }
+    let selected_branch = node.select_branch(variables)?;
+    Ok(outgoing
+        .get(node_id)
+        .into_iter()
+        .flatten()
+        .find(|edge| edge.branch == selected_branch)
+        .copied())
 }
 
 /// 将事件交付错误统一映射到 RuntimeError。
@@ -356,31 +384,4 @@ fn build_event(
     };
     *sequence += 1;
     event
-}
-
-/// 返回节点启动事件使用的稳定摘要。
-fn node_label(kind: &WorkflowNodeKind) -> String {
-    match kind {
-        WorkflowNodeKind::Start => "Start".to_owned(),
-        WorkflowNodeKind::Log { .. } => "Log".to_owned(),
-        WorkflowNodeKind::Debug { .. } => "Debug Output".to_owned(),
-        WorkflowNodeKind::Delay { milliseconds } => format!("Delay {milliseconds}ms"),
-        WorkflowNodeKind::Condition { .. } => "Condition".to_owned(),
-        WorkflowNodeKind::Application { .. } => "Application".to_owned(),
-        WorkflowNodeKind::Browser { .. } => "Browser".to_owned(),
-        WorkflowNodeKind::Ui { operation } => ui_node_label(operation).to_owned(),
-        WorkflowNodeKind::Command { operation } => format!("Command {:?}", operation.runner),
-        WorkflowNodeKind::End => "End".to_owned(),
-    }
-}
-
-/// 返回不会包含 SetValue 业务数据的 UI 节点摘要。
-fn ui_node_label(operation: &argusflow_core::UiOperation) -> &'static str {
-    match operation {
-        argusflow_core::UiOperation::Click { .. } => "UI Click",
-        argusflow_core::UiOperation::SetValue { .. } => "UI SetValue",
-        argusflow_core::UiOperation::GetText { .. } => "UI GetText",
-        argusflow_core::UiOperation::GetValue { .. } => "UI GetValue",
-        argusflow_core::UiOperation::CollectLinks { .. } => "UI CollectLinks",
-    }
 }

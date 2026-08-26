@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{num::NonZeroUsize, time::Duration};
 
 use argusflow_core::{ActionCapability, UiQuery};
 use argusflow_query::{BackendQueryCapability, Diagnostic};
@@ -46,8 +46,45 @@ pub enum UiaPlanExpr {
         /// 内部查询计划。
         query: Box<UiaPlanExpr>,
         /// 一基索引。
-        index: usize,
+        index: NonZeroUsize,
     },
+}
+
+/// 选择算子向 matcher 和关系遍历下传的结果数量边界。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum UiaResultLimit {
+    /// 必须物化全部结果，供唯一性判断或关系左侧展开。
+    All,
+    /// 达到指定非零结果数后即可停止遍历。
+    AtMost(NonZeroUsize),
+}
+
+impl UiaResultLimit {
+    /// 创建 First 对应的单结果边界。
+    pub(crate) const fn first() -> Self {
+        Self::AtMost(NonZeroUsize::MIN)
+    }
+
+    /// 创建 Nth 对应的有界结果数。
+    pub(crate) const fn at_most(count: NonZeroUsize) -> Self {
+        Self::AtMost(count)
+    }
+
+    /// 返回具体上限；All 不限制结果数。
+    pub(crate) const fn maximum(self) -> Option<usize> {
+        match self {
+            Self::All => None,
+            Self::AtMost(count) => Some(count.get()),
+        }
+    }
+
+    /// 判断已收集数量是否满足当前有界请求。
+    pub(crate) const fn is_reached(self, result_count: usize) -> bool {
+        match self {
+            Self::All => false,
+            Self::AtMost(count) => result_count >= count.get(),
+        }
+    }
 }
 
 /// 单个 UIA 元素 matcher 的原生条件、缓存与本地过滤边界。

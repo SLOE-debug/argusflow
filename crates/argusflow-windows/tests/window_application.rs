@@ -11,10 +11,11 @@ use std::{
 
 use argusflow_agent::{ActionBackend, ActionRouter};
 use argusflow_core::{
-    AcquirePolicy, ActivationPolicy, ApplicationSessionProvider, ApplicationSpec,
-    BackendPreference, CleanupPolicy, ExecutionEvent, ExecutionEventKind, Position, ResourceRef,
-    RunInputs, TargetLocator, TargetScope, UiOperation, WindowIdentity, WindowTitleMatcher,
-    WorkflowDefinition, WorkflowEdge, WorkflowNode, WorkflowNodeKind, WorkflowPermissions,
+    AcquirePolicy, ActivationPolicy, ApplicationSessionProvider, ApplicationSpec, BackendKind,
+    BackendPolicy, CleanupPolicy, ExecutionEvent, ExecutionEventKind, NodeEnvelope, Position,
+    ResourceRef, RunInputs, TargetLocator, TargetScope, UiOperation, WindowIdentity,
+    WindowTitleMatcher, WorkflowCapabilityId, WorkflowDefinition, WorkflowEdge, WorkflowNode,
+    WorkflowPermissions,
 };
 use argusflow_runtime::{ExecutionEventSink, WorkflowEngine};
 use argusflow_windows::{
@@ -34,6 +35,29 @@ use windows::Win32::{
 use windows::core::BOOL;
 
 use support::uia_dump::has_name_prefix_for_process;
+
+/// E2E fixture 使用的内置节点构造器。
+enum WorkflowNodeKind {
+    Start,
+    Application { spec: ApplicationSpec },
+    Ui { operation: UiOperation },
+    End,
+}
+
+impl From<WorkflowNodeKind> for NodeEnvelope {
+    fn from(kind: WorkflowNodeKind) -> Self {
+        match kind {
+            WorkflowNodeKind::Start => Self::new("argus.start", 1, json!({})),
+            WorkflowNodeKind::Application { spec } => {
+                Self::new("argus.application", 1, json!({ "spec": spec }))
+            }
+            WorkflowNodeKind::Ui { operation } => {
+                Self::new("argus.ui", 1, json!({ "operation": operation }))
+            }
+            WorkflowNodeKind::End => Self::new("argus.end", 1, json!({})),
+        }
+    }
+}
 
 /// 只在显式提供 Notepad++ EXE 时运行，避免普通测试意外启动桌面程序。
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -140,17 +164,12 @@ async fn workflow_application_resource_scopes_a_real_uia_action() {
 /// 构造 Start → Application → Ui → End 的真实资源数据路径。
 fn application_workflow(spec: ApplicationSpec) -> WorkflowDefinition {
     WorkflowDefinition {
-        schema_version: 6,
+        schema_version: 7,
         id: Uuid::new_v4(),
         name: "Notepad++ AppSession E2E".to_owned(),
         inputs: Vec::new(),
         variables: json!({}),
-        permissions: WorkflowPermissions {
-            application_launch: true,
-            direct_command: false,
-            powershell: false,
-            cmd: false,
-        },
+        permissions: WorkflowPermissions::from_iter([WorkflowCapabilityId::application_launch()]),
         nodes: vec![
             node("start", 0.0, WorkflowNodeKind::Start),
             node("application", 200.0, WorkflowNodeKind::Application { spec }),
@@ -171,7 +190,7 @@ fn application_workflow(spec: ApplicationSpec) -> WorkflowDefinition {
                                     r#"menu_item(name = "搜索(S)")"#,
                                 ),
                             },
-                            backend_preference: BackendPreference::WindowsUia,
+                            backend_policy: BackendPolicy::only(BackendKind::WindowsUia),
                         },
                     },
                 },
@@ -191,7 +210,7 @@ fn node(id: &str, x: f64, kind: WorkflowNodeKind) -> WorkflowNode {
     WorkflowNode {
         id: id.to_owned(),
         position: Position { x, y: 0.0 },
-        kind,
+        definition: kind.into(),
     }
 }
 

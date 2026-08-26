@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::{AppCapabilities, AqlQuery, ResourceRef, ValueExpr};
+use crate::{AqlQuery, CapabilitySet, ResourceRef, ValueExpr};
 
 /// Workflow 层保存的语义界面操作。
 ///
@@ -108,8 +108,8 @@ pub struct AutomationTarget {
     pub scope: TargetScope,
     /// 描述目标位置的跨后端定位契约。
     pub locator: TargetLocator,
-    /// 查询规划器选择后端时使用的提示；不会改变 AQL 本身的语义。
-    pub backend_preference: BackendPreference,
+    /// 查询规划器使用的候选集合约束与稳定偏好顺序。
+    pub backend_policy: BackendPolicy,
 }
 
 impl AutomationTarget {
@@ -118,18 +118,18 @@ impl AutomationTarget {
         Self {
             scope: TargetScope::Current,
             locator: TargetLocator::Query { query },
-            backend_preference: BackendPreference::Auto,
+            backend_policy: BackendPolicy::default(),
         }
     }
 
     /// 创建由屏幕物理像素坐标描述的当前上下文目标。
-    pub const fn coordinate(x: i32, y: i32) -> Self {
+    pub fn coordinate(x: i32, y: i32) -> Self {
         Self {
             scope: TargetScope::Current,
             locator: TargetLocator::Coordinate {
                 point: ScreenPoint { x, y },
             },
-            backend_preference: BackendPreference::Auto,
+            backend_policy: BackendPolicy::default(),
         }
     }
 }
@@ -216,19 +216,6 @@ pub struct ScreenPoint {
     pub y: i32,
 }
 
-/// 用户对语义查询执行后端的显式偏好。
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum BackendPreference {
-    /// 根据查询能力和运行上下文自动选择后端。
-    #[default]
-    Auto,
-    /// 强制使用 Windows UI Automation。
-    WindowsUia,
-    /// 强制使用 Chrome DevTools Protocol。
-    BrowserCdp,
-}
-
 /// 执行动作时可选的后端类型。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -247,6 +234,44 @@ pub enum BackendKind {
     GuiGrounding,
     /// Windows SendInput 输入后端。
     SendInput,
+}
+
+/// 用户对 Planner 候选后端施加的开放集合约束与偏好顺序。
+///
+/// `allow` 为空表示允许所有已注册后端；`deny` 始终优先；`prefer` 只影响通过过滤后
+/// 的候选排序，不会使一个不支持语义或不可用的后端变成可执行候选。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BackendPolicy {
+    /// 允许参与规划的后端集合；空集合表示不限制。
+    pub allow: Vec<BackendKind>,
+    /// 即使出现在 allow 中也必须排除的后端集合。
+    pub deny: Vec<BackendKind>,
+    /// 从高到低排列的用户偏好；未列出的后端沿用 Planner 稳定顺序。
+    pub prefer: Vec<BackendKind>,
+}
+
+impl BackendPolicy {
+    /// 创建只允许单个后端参与规划的强制策略。
+    pub fn only(backend: BackendKind) -> Self {
+        Self {
+            allow: vec![backend],
+            deny: Vec::new(),
+            prefer: vec![backend],
+        }
+    }
+
+    /// 判断一个已注册后端能否参与候选准备。
+    pub fn allows(&self, backend: BackendKind) -> bool {
+        (self.allow.is_empty() || self.allow.contains(&backend)) && !self.deny.contains(&backend)
+    }
+
+    /// 返回用户偏好序号；未显式列出的后端排在全部用户偏好之后。
+    pub fn preference_rank(&self, backend: BackendKind) -> usize {
+        self.prefer
+            .iter()
+            .position(|candidate| *candidate == backend)
+            .unwrap_or(self.prefer.len())
+    }
 }
 
 /// 自动化动作成功后的结构化结果。
@@ -287,7 +312,7 @@ pub enum AutomationExecutionScope {
         /// 窗口所属进程 ID，用于检测句柄复用。
         process_id: u32,
         /// 应用资源提供器在获取阶段确认的后端能力事实。
-        capabilities: AppCapabilities,
+        capabilities: CapabilitySet,
     },
     /// 在已获取且仍附加的浏览器页面会话内执行。
     Browser {

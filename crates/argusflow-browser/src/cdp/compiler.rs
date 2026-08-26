@@ -1,4 +1,4 @@
-use argusflow_core::{ElementMatcher, MatchOperator, QueryExpr, SelectorAttribute, UiQuery};
+use argusflow_core::{ElementMatcher, QueryExpr, SelectorAttribute, UiQuery};
 use argusflow_query::{
     AlternativeBudgetExceeded, AlternativeExpansionBudget, BackendQueryCapability, BranchPath,
     Diagnostic, DiagnosticCode, DiagnosticSeverity, QueryBackend, QueryCost, SupportLevel,
@@ -30,7 +30,7 @@ struct CompiledExpression {
     cost: QueryCost,
     /// 当前替代方案在完整查询 fallback 树中的稳定路径。
     branch_path: BranchPath,
-    /// 与 residual 或树遍历有关的结构化诊断。
+    /// 与页面模拟或树遍历有关的结构化诊断。
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -139,7 +139,7 @@ fn compile_expression(
     }
 }
 
-/// 编译一个 AX/DOM matcher，并从 projected attributes 推导 Hybrid 能力。
+/// 按页面执行器当前真实能力编译一个 DOM 全树语义 matcher。
 fn compile_matcher(matcher: &ElementMatcher) -> Result<CompiledExpression, CdpQueryCompileError> {
     if matcher
         .predicates
@@ -149,59 +149,28 @@ fn compile_matcher(matcher: &ElementMatcher) -> Result<CompiledExpression, CdpQu
         return Err(CdpQueryCompileError::UnsupportedQuery);
     }
 
-    let source = if matcher
-        .predicates
-        .iter()
-        .any(|predicate| matches!(predicate.attribute, SelectorAttribute::Dom(_)))
-    {
-        CdpCandidateSource::Dom
-    } else {
-        CdpCandidateSource::AccessibilityTree
-    };
-    let mut pushdown = Vec::new();
-    let mut residual = Vec::new();
-    let mut projected_attributes = Vec::new();
-    for predicate in &matcher.predicates {
-        if can_push_down(source, predicate.attribute, predicate.operator) {
-            pushdown.push(predicate.clone());
-        } else {
-            residual.push(predicate.clone());
-            if !projected_attributes.contains(&predicate.attribute) {
-                projected_attributes.push(predicate.attribute);
-            }
-        }
-    }
-    projected_attributes.sort();
-
-    let has_residual = !residual.is_empty();
-    let diagnostics = has_residual
-        .then(|| {
-            Diagnostic::global(
-                DiagnosticCode::ResidualFilter,
-                DiagnosticSeverity::Information,
-                Some(QueryBackend::BrowserCdp),
-            )
-        })
-        .into_iter()
-        .collect();
+    // 当前页面解释器通过 `querySelectorAll('*')` 获取候选，再用 JavaScript
+    // 计算角色和谓词；在 AX/DOM 原生执行器落地前不能把它声明为 Native/Hybrid。
+    let diagnostics = vec![
+        Diagnostic::global(
+            DiagnosticCode::ResidualFilter,
+            DiagnosticSeverity::Information,
+            Some(QueryBackend::BrowserCdp),
+        ),
+        Diagnostic::global(
+            DiagnosticCode::ExpensiveTraversal,
+            DiagnosticSeverity::Information,
+            Some(QueryBackend::BrowserCdp),
+        ),
+    ];
     Ok(CompiledExpression {
         expression: CdpPlanExpr::Match(CdpMatcherPlan {
-            source,
+            source: CdpCandidateSource::Dom,
             role: matcher.role,
-            pushdown,
-            projected_attributes,
-            residual,
+            predicates: matcher.predicates.clone(),
         }),
-        support: if has_residual {
-            SupportLevel::Hybrid
-        } else {
-            SupportLevel::Native
-        },
-        cost: if has_residual {
-            QueryCost::Medium
-        } else {
-            QueryCost::Low
-        },
+        support: SupportLevel::Emulated,
+        cost: QueryCost::High,
         branch_path: BranchPath::root(),
         diagnostics,
     })
@@ -269,37 +238,20 @@ fn emulated(
     mut diagnostics: Vec<Diagnostic>,
     branch_path: BranchPath,
 ) -> CompiledExpression {
-    diagnostics.push(Diagnostic::global(
+    let traversal_diagnostic = Diagnostic::global(
         DiagnosticCode::ExpensiveTraversal,
         DiagnosticSeverity::Information,
         Some(QueryBackend::BrowserCdp),
-    ));
+    );
+    if !diagnostics.contains(&traversal_diagnostic) {
+        diagnostics.push(traversal_diagnostic);
+    }
     CompiledExpression {
         expression,
         support: SupportLevel::Emulated,
         cost: QueryCost::High,
         branch_path,
         diagnostics,
-    }
-}
-
-/// 判断属性谓词能否由所选 CDP 数据源完整下推。
-const fn can_push_down(
-    source: CdpCandidateSource,
-    attribute: SelectorAttribute,
-    operator: MatchOperator,
-) -> bool {
-    if matches!(operator, MatchOperator::Regex) {
-        return false;
-    }
-    match source {
-        CdpCandidateSource::AccessibilityTree => {
-            matches!(attribute, SelectorAttribute::Name) && matches!(operator, MatchOperator::Equal)
-        }
-        CdpCandidateSource::Dom => matches!(
-            attribute,
-            SelectorAttribute::Dom(_) | SelectorAttribute::Key
-        ),
     }
 }
 

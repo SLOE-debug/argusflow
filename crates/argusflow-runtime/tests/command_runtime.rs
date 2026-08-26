@@ -28,7 +28,7 @@ async fn command_finishes_after_killing_a_descendant_that_inherits_output_pipes(
 
     let outcome = tokio::time::timeout(
         Duration::from_secs(8),
-        CommandExecutor.execute(&operation, permissions, &context),
+        CommandExecutor.execute(&operation, &permissions, &context),
     )
     .await
     .expect("CommandExecutor must enforce its own complete lifecycle deadline")
@@ -61,7 +61,7 @@ async fn command_terminates_immediately_when_stdout_exceeds_limit() {
         Duration::from_secs(5),
         CommandExecutor.execute(
             &operation,
-            WorkflowPermissions::direct_command_only(),
+            &WorkflowPermissions::direct_command_only(),
             &context,
         ),
     )

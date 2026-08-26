@@ -47,7 +47,11 @@ describe('WorkflowNodeCard', () => {
               type: 'query',
               query: { language_version: 1, source: 'document()' },
             },
-            backend_preference: 'windows_uia',
+            backend_policy: {
+              allow: ['windows_uia'],
+              deny: [],
+              prefer: ['windows_uia'],
+            },
           },
           value: { type: 'literal', value: 'ArgusFlow' },
         },

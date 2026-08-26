@@ -1,3 +1,5 @@
+use std::{borrow::Cow, collections::BTreeSet};
+
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -17,7 +19,7 @@ pub struct ResourceRef {
 }
 
 /// 单次运行内分配给真实资源的稳定标识。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct ResourceId(Uuid);
 
 impl ResourceId {
@@ -30,6 +32,32 @@ impl ResourceId {
 impl Default for ResourceId {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// 工作流资源端口和运行时资源实例共享的开放类型标识。
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ResourceTypeId(String);
+
+impl ResourceTypeId {
+    /// Windows 桌面应用会话资源。
+    pub fn application() -> Self {
+        Self::new("argus.application.session")
+    }
+    /// Chromium CDP 页面会话资源。
+    pub fn browser() -> Self {
+        Self::new("argus.browser.session")
+    }
+
+    /// 从运行时注册名称创建资源类型 ID。
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
+    /// 返回持久化契约和注册表使用的稳定名称。
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
 }
 
@@ -51,17 +79,63 @@ pub struct WindowIdentity {
     pub process_id: u32,
 }
 
-/// Planner 可以从应用会话使用的执行能力事实。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct AppCapabilities {
-    /// 会话窗口可通过 Windows UI Automation 查询。
-    pub windows_uia: bool,
-    /// 会话已经具备可附加的浏览器调试上下文。
-    pub browser_cdp: bool,
-    /// 会话可以使用屏幕视觉定位。
-    pub visual: bool,
-    /// 应用具有保持业务语义的专用命令适配器。
-    pub command_adapter: bool,
+/// 可由资源提供器和 Planner 共同识别的开放能力标识。
+///
+/// 内置能力使用静态字符串且无需分配；外部注册能力可以持有自己的名称。能力 ID
+/// 只描述事实，不隐含后端优先级或可用性。
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct CapabilityId(Cow<'static, str>);
+
+impl CapabilityId {
+    /// Windows UI Automation 查询与动作能力。
+    pub const WINDOWS_UIA: Self = Self::from_static("ui.windows.uia");
+    /// Chromium DevTools Protocol 页面能力。
+    pub const BROWSER_CDP: Self = Self::from_static("browser.cdp");
+    /// 屏幕视觉定位能力。
+    pub const VISUAL_SCREEN: Self = Self::from_static("vision.screen");
+    /// 保持业务语义的应用命令适配能力。
+    pub const COMMAND_ADAPTER: Self = Self::from_static("command.adapter");
+
+    /// 从编译期稳定名称创建零分配能力 ID。
+    pub const fn from_static(value: &'static str) -> Self {
+        Self(Cow::Borrowed(value))
+    }
+
+    /// 从运行时注册名称创建能力 ID。
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(Cow::Owned(value.into()))
+    }
+
+    /// 返回用于注册、Explain 和诊断的稳定名称。
+    pub fn as_str(&self) -> &str {
+        self.0.as_ref()
+    }
+}
+
+/// 应用会话公开给 Planner 的开放能力集合。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CapabilitySet {
+    /// 有序集合保证 Explain、日志和测试输出稳定。
+    capabilities: BTreeSet<CapabilityId>,
+}
+
+impl CapabilitySet {
+    /// 从资源提供器确认的能力事实创建集合。
+    pub fn from_iter(capabilities: impl IntoIterator<Item = CapabilityId>) -> Self {
+        Self {
+            capabilities: capabilities.into_iter().collect(),
+        }
+    }
+
+    /// 判断资源是否公开指定能力。
+    pub fn contains(&self, capability: &CapabilityId) -> bool {
+        self.capabilities.contains(capability)
+    }
+
+    /// 返回稳定有序且只读的能力迭代器。
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = &CapabilityId> {
+        self.capabilities.iter()
+    }
 }
 
 /// 单次运行持有的逻辑应用会话。
@@ -79,7 +153,7 @@ pub struct AppSession {
     /// 当前匹配且已经恢复的顶层窗口。
     pub windows: Vec<WindowIdentity>,
     /// Planner 可消费的运行时能力事实。
-    pub capabilities: AppCapabilities,
+    pub capabilities: CapabilitySet,
     /// 当前进程是否由本次工作流获取动作启动。
     pub started_by_workflow: bool,
 }

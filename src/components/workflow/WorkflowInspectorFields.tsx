@@ -74,32 +74,39 @@ export function WorkflowInspectorFields({
       <InspectorSection title="系统权限">
         <PermissionToggle
           label="允许 Application 启动应用"
-          checked={permissions.application_launch}
-          onChange={(application_launch) => onPermissionsChange({
-            ...permissions,
-            application_launch,
-          })}
+          checked={hasPermission(permissions, 'process.application.launch')}
+          onChange={(allowed) => onPermissionsChange(changePermission(
+            permissions,
+            'process.application.launch',
+            allowed,
+          ))}
         />
         <PermissionToggle
           label="允许 Direct 命令"
-          checked={permissions.direct_command}
-          onChange={(direct_command) => onPermissionsChange({
-            ...permissions,
-            direct_command,
-          })}
+          checked={hasPermission(permissions, 'process.command.direct')}
+          onChange={(allowed) => onPermissionsChange(changePermission(
+            permissions,
+            'process.command.direct',
+            allowed,
+          ))}
         />
         <PermissionToggle
           label="允许 PowerShell"
-          checked={permissions.powershell}
-          onChange={(powershell) => onPermissionsChange({
-            ...permissions,
-            powershell,
-          })}
+          checked={hasPermission(permissions, 'process.command.powershell')}
+          onChange={(allowed) => onPermissionsChange(changePermission(
+            permissions,
+            'process.command.powershell',
+            allowed,
+          ))}
         />
         <PermissionToggle
           label="允许 CMD"
-          checked={permissions.cmd}
-          onChange={(cmd) => onPermissionsChange({ ...permissions, cmd })}
+          checked={hasPermission(permissions, 'process.command.cmd')}
+          onChange={(allowed) => onPermissionsChange(changePermission(
+            permissions,
+            'process.command.cmd',
+            allowed,
+          ))}
         />
         <p className={INSPECTOR_HELP_CLASS_NAME}>
           每种会创建进程的节点路径都必须拥有对应能力声明。
@@ -168,7 +175,24 @@ function JsonEditorSection({
   );
 }
 
-/** 统一渲染工作流级布尔权限开关。 */
+/** 判断开放权限集合是否包含指定能力。 */
+function hasPermission(permissions: WorkflowPermissions, capability: string): boolean {
+  return permissions.allow.includes(capability);
+}
+
+/** 以稳定顺序增删一个系统能力授权。 */
+function changePermission(
+  permissions: WorkflowPermissions,
+  capability: string,
+  allowed: boolean,
+): WorkflowPermissions {
+  const allow = allowed
+    ? [...new Set([...permissions.allow, capability])]
+    : permissions.allow.filter((candidate) => candidate !== capability);
+  return { allow: allow.sort() };
+}
+
+/** 统一渲染工作流级权限开关。 */
 function PermissionToggle({
   label,
   checked,

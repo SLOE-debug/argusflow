@@ -8,7 +8,7 @@ use std::{
 use argusflow_core::ResourceId;
 use serde_json::{Value, json};
 
-use super::protocol::{CdpConnection, CdpProtocolError};
+use super::{failure::CdpProtocolError, protocol::CdpConnection};
 
 /// 已附加到单个 page target 的持久会话。
 #[derive(Debug)]
@@ -41,6 +41,7 @@ impl CdpPageSession {
                 message: "Target.attachToTarget did not return sessionId".to_owned(),
             })?
             .to_owned();
+        connection.register_session(session_id.clone(), target_id.clone());
         let page = Arc::new(Self {
             connection,
             session_id,
@@ -48,6 +49,7 @@ impl CdpPageSession {
         });
         page.command("Runtime.enable", json!({})).await?;
         page.command("Page.enable", json!({})).await?;
+        page.command("Inspector.enable", json!({})).await?;
         Ok(page)
     }
 

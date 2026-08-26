@@ -1,10 +1,17 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
-use argusflow_core::{ConditionBranch, WorkflowDefinition, WorkflowNodeKind};
-use serde::{Deserialize, Serialize};
+use argusflow_core::WorkflowDefinition;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::{
-    validation_nodes::validate_node_parameters, validation_references::validate_data_references,
+    NodeFlow, NodeRegistryError, NodeTypeRegistry, NodeValidationContext, PreparedNode,
+    UnavailableActionDispatcher, UnavailableApplicationSessionProvider,
+    UnavailableBrowserSessionProvider, builtin_nodes,
+    validation_graph::{build_graph, validate_graph_shape, validate_node_degrees},
+    validation_references::validate_data_references,
 };
 
 /// 工作流结构校验的汇总结果。
@@ -29,77 +36,149 @@ pub struct ValidationIssue {
     pub edge_id: Option<String>,
 }
 
-/// 工作流校验器能够识别的问题类别。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ValidationIssueCode {
-    /// schema 版本不是 6。
-    UnsupportedSchemaVersion,
-    /// 工作流名称为空。
-    EmptyWorkflowName,
-    /// 运行输入声明存在空名称或重复名称。
-    InvalidWorkflowInputs,
-    /// variables 根值不是 JSON 对象。
-    InvalidVariables,
-    /// 节点 ID 为空。
-    EmptyNodeId,
-    /// 节点 ID 重复。
-    DuplicateNodeId,
-    /// 连线 ID 为空。
-    EmptyEdgeId,
-    /// 连线 ID 重复。
-    DuplicateEdgeId,
-    /// Start 数量不是一个。
-    InvalidStartCount,
-    /// End 数量不是一个。
-    InvalidEndCount,
-    /// 连线端点不存在。
-    UnknownEdgeEndpoint,
-    /// 连线连接回自身。
-    SelfLoop,
-    /// 节点度数不符合条件 DAG 约束。
-    InvalidNodeDegree,
-    /// Condition 谓词无法求值。
-    InvalidCondition,
-    /// Condition 分支标签缺失、重复或用在普通边上。
-    InvalidBranch,
-    /// 图中存在环路。
-    CycleDetected,
-    /// 节点不能从 Start 到达。
-    UnreachableNode,
-    /// 节点没有到 End 的路径。
-    NoPathToEnd,
-    /// Log 消息为空。
-    EmptyLogMessage,
-    /// Delay 时长越界。
-    InvalidDelay,
-    /// UI 节点携带的 AQL 无法解析或通过语义检查。
-    InvalidAqlQuery,
-    /// 应用节点缺少有效 EXE、窗口标题或策略配置。
-    InvalidApplicationSpec,
-    /// 浏览器节点缺少有效 EXE、初始 URL 或启动边界。
-    InvalidBrowserSpec,
-    /// WorkflowPermissions 没有授权 Application 节点所需的启动能力。
-    ApplicationPermissionDenied,
-    /// UI 节点的后端偏好与目标资源作用域能力不兼容。
-    InvalidBackendPreference,
-    /// CommandOperation 的 runner 与字段组合或资源上限无效。
-    InvalidCommand,
-    /// WorkflowPermissions 没有授权 Command 节点所需能力。
-    CommandPermissionDenied,
-    /// ValueExpr 引用了无效输入、变量或节点输出。
-    InvalidValueReference,
-    /// TargetScope 引用了无效应用资源输出。
-    InvalidResourceReference,
-    /// 值或资源生产节点没有支配消费节点。
-    ReferenceNotDominating,
+macro_rules! validation_issue_codes {
+    ($($variant:ident => $value:literal),+ $(,)?) => {
+        /// 工作流校验器和注册节点共同使用的开放问题类别。
+        #[derive(Debug, Clone, PartialEq, Eq)]
+        pub enum ValidationIssueCode {
+            $(
+                #[doc = concat!("内置稳定问题码 `", $value, "`。")]
+                $variant,
+            )+
+            /// 注册节点拥有的命名空间化问题码。
+            Custom(String),
+        }
+
+        impl ValidationIssueCode {
+            /// 创建自定义节点拥有的稳定问题码；已知内置值会规范化为内置变体。
+            pub fn custom(value: impl Into<String>) -> Self {
+                let value = value.into();
+                match value.as_str() {
+                    $($value => Self::$variant,)+
+                    _ => Self::Custom(value),
+                }
+            }
+
+            /// 返回前端、日志和持久化协议使用的稳定字符串。
+            pub fn as_str(&self) -> &str {
+                match self {
+                    $(Self::$variant => $value,)+
+                    Self::Custom(value) => value,
+                }
+            }
+        }
+
+        impl Serialize for ValidationIssueCode {
+            fn serialize<SerializerType>(
+                &self,
+                serializer: SerializerType,
+            ) -> Result<SerializerType::Ok, SerializerType::Error>
+            where
+                SerializerType: Serializer,
+            {
+                serializer.serialize_str(self.as_str())
+            }
+        }
+
+        impl<'de> Deserialize<'de> for ValidationIssueCode {
+            fn deserialize<DeserializerType>(
+                deserializer: DeserializerType,
+            ) -> Result<Self, DeserializerType::Error>
+            where
+                DeserializerType: Deserializer<'de>,
+            {
+                String::deserialize(deserializer).map(|value| Self::custom(value))
+            }
+        }
+    };
 }
 
-/// 校验 schema v6 条件 DAG、节点参数、数据流和资源支配关系。
+validation_issue_codes! {
+    UnsupportedSchemaVersion => "unsupported_schema_version",
+    EmptyWorkflowName => "empty_workflow_name",
+    InvalidWorkflowInputs => "invalid_workflow_inputs",
+    InvalidVariables => "invalid_variables",
+    EmptyNodeId => "empty_node_id",
+    DuplicateNodeId => "duplicate_node_id",
+    EmptyEdgeId => "empty_edge_id",
+    DuplicateEdgeId => "duplicate_edge_id",
+    InvalidStartCount => "invalid_start_count",
+    InvalidEndCount => "invalid_end_count",
+    UnknownEdgeEndpoint => "unknown_edge_endpoint",
+    SelfLoop => "self_loop",
+    InvalidNodeDegree => "invalid_node_degree",
+    InvalidCondition => "invalid_condition",
+    InvalidBranch => "invalid_branch",
+    CycleDetected => "cycle_detected",
+    UnreachableNode => "unreachable_node",
+    NoPathToEnd => "no_path_to_end",
+    EmptyLogMessage => "empty_log_message",
+    InvalidDelay => "invalid_delay",
+    InvalidAqlQuery => "invalid_aql_query",
+    InvalidApplicationSpec => "invalid_application_spec",
+    InvalidBrowserSpec => "invalid_browser_spec",
+    ApplicationPermissionDenied => "application_permission_denied",
+    InvalidBackendPolicy => "invalid_backend_policy",
+    InvalidCommand => "invalid_command",
+    CommandPermissionDenied => "command_permission_denied",
+    InvalidValueReference => "invalid_value_reference",
+    InvalidResourceReference => "invalid_resource_reference",
+    ReferenceNotDominating => "reference_not_dominating",
+    UnknownNodeType => "unknown_node_type",
+    InvalidNodeDefinition => "invalid_node_definition",
+}
+
+/// 已通过 registry 编译、可直接进入执行热路径的工作流。
+pub(crate) struct PreparedWorkflow {
+    /// 原始 definition 只保留图、元数据和事件所需字段。
+    pub(crate) definition: WorkflowDefinition,
+    /// 每个节点 ID 对应的强类型冻结执行对象。
+    pub(crate) nodes: HashMap<String, Arc<dyn PreparedNode>>,
+}
+
+/// 使用内置节点注册表校验 schema v7 工作流。
 pub fn validate_workflow(workflow: &WorkflowDefinition) -> ValidationReport {
+    let registry = builtin_nodes::registry(
+        Arc::new(UnavailableActionDispatcher),
+        Arc::new(UnavailableApplicationSessionProvider),
+        Arc::new(UnavailableBrowserSessionProvider),
+    );
+    validate_workflow_with_registry(workflow, &registry)
+}
+
+/// 使用宿主装配的开放节点注册表校验工作流。
+pub fn validate_workflow_with_registry(
+    workflow: &WorkflowDefinition,
+    registry: &NodeTypeRegistry,
+) -> ValidationReport {
+    validate_and_compile(workflow, registry).1
+}
+
+/// 编译并校验工作流；成功结果保证执行阶段不再读取动态 payload。
+pub(crate) fn prepare_workflow(
+    workflow: WorkflowDefinition,
+    registry: &NodeTypeRegistry,
+) -> Result<PreparedWorkflow, ValidationReport> {
+    let (nodes, report) = validate_and_compile(&workflow, registry);
+    if report.valid {
+        Ok(PreparedWorkflow {
+            definition: workflow,
+            nodes,
+        })
+    } else {
+        Err(report)
+    }
+}
+
+/// 完成单次 registry decode，并在同一批强类型节点上运行所有校验。
+fn validate_and_compile(
+    workflow: &WorkflowDefinition,
+    registry: &NodeTypeRegistry,
+) -> (HashMap<String, Arc<dyn PreparedNode>>, ValidationReport) {
     let mut issues = Vec::new();
     validate_workflow_metadata(workflow, &mut issues);
 
+    let mut prepared_nodes = HashMap::new();
     let mut node_ids = HashSet::new();
     let mut start_ids = Vec::new();
     let mut end_ids = Vec::new();
@@ -120,34 +199,69 @@ pub fn validate_workflow(workflow: &WorkflowDefinition) -> ValidationReport {
                 None,
             ));
         }
-        match &node.kind {
-            WorkflowNodeKind::Start => start_ids.push(node.id.clone()),
-            WorkflowNodeKind::End => end_ids.push(node.id.clone()),
-            _ => {}
+        match registry.compile(node) {
+            Ok(prepared) => {
+                match prepared.flow() {
+                    NodeFlow::Start => start_ids.push(node.id.clone()),
+                    NodeFlow::End => end_ids.push(node.id.clone()),
+                    NodeFlow::Linear | NodeFlow::Branch { .. } => {}
+                }
+                issues.extend(prepared.validate(&NodeValidationContext {
+                    workflow,
+                    node_id: &node.id,
+                }));
+                prepared_nodes.insert(node.id.clone(), prepared);
+            }
+            Err(NodeRegistryError::UnknownType { type_id }) => issues.push(issue(
+                ValidationIssueCode::UnknownNodeType,
+                format!("节点类型 '{}' 没有注册编译器", type_id.as_str()),
+                Some(node.id.clone()),
+                None,
+            )),
+            Err(NodeRegistryError::InvalidDefinition { source, .. }) => issues.push(issue(
+                ValidationIssueCode::InvalidNodeDefinition,
+                source.message,
+                Some(node.id.clone()),
+                None,
+            )),
+            Err(NodeRegistryError::DuplicateType { type_id }) => issues.push(issue(
+                ValidationIssueCode::InvalidNodeDefinition,
+                format!("节点类型 '{}' 在注册表中重复", type_id.as_str()),
+                Some(node.id.clone()),
+                None,
+            )),
         }
-        validate_node_parameters(node, workflow, &mut issues);
     }
     validate_terminal_counts(&start_ids, &end_ids, &mut issues);
 
     let graph = build_graph(workflow, &node_ids, &mut issues);
-    validate_node_degrees(workflow, &graph, &mut issues);
+    validate_node_degrees(workflow, &prepared_nodes, &graph, &mut issues);
     validate_graph_shape(&node_ids, &start_ids, &end_ids, &graph, &mut issues);
     if start_ids.len() == 1 {
-        validate_data_references(workflow, &start_ids[0], &graph.predecessors, &mut issues);
+        validate_data_references(
+            workflow,
+            &prepared_nodes,
+            &start_ids[0],
+            &graph.predecessors,
+            &mut issues,
+        );
     }
 
-    ValidationReport {
-        valid: issues.is_empty(),
-        issues,
-    }
+    (
+        prepared_nodes,
+        ValidationReport {
+            valid: issues.is_empty(),
+            issues,
+        },
+    )
 }
 
 /// 校验工作流级契约。
 fn validate_workflow_metadata(workflow: &WorkflowDefinition, issues: &mut Vec<ValidationIssue>) {
-    if workflow.schema_version != 6 {
+    if workflow.schema_version != 7 {
         issues.push(issue(
             ValidationIssueCode::UnsupportedSchemaVersion,
-            "schema_version 必须为 6",
+            "schema_version 必须为 7",
             None,
             None,
         ));
@@ -203,229 +317,6 @@ fn validate_terminal_counts(
             None,
         ));
     }
-}
-
-/// Validator 内部使用的有向图索引。
-struct WorkflowGraph<'workflow> {
-    /// 每个节点的入度。
-    incoming: HashMap<String, usize>,
-    /// 每个节点按文档顺序排列的出边。
-    outgoing: HashMap<String, Vec<&'workflow argusflow_core::WorkflowEdge>>,
-    /// 从节点到后继节点 ID 的邻接表。
-    adjacency: HashMap<String, Vec<String>>,
-    /// 从节点到前驱节点 ID 的反向邻接表。
-    predecessors: HashMap<String, Vec<String>>,
-}
-
-/// 校验连线身份和端点并建立图索引。
-fn build_graph<'workflow>(
-    workflow: &'workflow WorkflowDefinition,
-    node_ids: &HashSet<String>,
-    issues: &mut Vec<ValidationIssue>,
-) -> WorkflowGraph<'workflow> {
-    let mut edge_ids = HashSet::new();
-    let mut graph = WorkflowGraph {
-        incoming: node_ids.iter().map(|id| (id.clone(), 0)).collect(),
-        outgoing: node_ids.iter().map(|id| (id.clone(), Vec::new())).collect(),
-        adjacency: node_ids.iter().map(|id| (id.clone(), Vec::new())).collect(),
-        predecessors: node_ids.iter().map(|id| (id.clone(), Vec::new())).collect(),
-    };
-    for edge in &workflow.edges {
-        if edge.id.trim().is_empty() {
-            issues.push(issue(
-                ValidationIssueCode::EmptyEdgeId,
-                "连线 ID 不能为空",
-                None,
-                Some(edge.id.clone()),
-            ));
-        }
-        if !edge_ids.insert(edge.id.clone()) {
-            issues.push(issue(
-                ValidationIssueCode::DuplicateEdgeId,
-                format!("连线 ID '{}' 重复", edge.id),
-                None,
-                Some(edge.id.clone()),
-            ));
-        }
-        if !node_ids.contains(&edge.source) || !node_ids.contains(&edge.target) {
-            issues.push(issue(
-                ValidationIssueCode::UnknownEdgeEndpoint,
-                "连线引用了不存在的节点",
-                None,
-                Some(edge.id.clone()),
-            ));
-            continue;
-        }
-        if edge.source == edge.target {
-            issues.push(issue(
-                ValidationIssueCode::SelfLoop,
-                "节点不能连接到自身",
-                Some(edge.source.clone()),
-                Some(edge.id.clone()),
-            ));
-        }
-        *graph.incoming.entry(edge.target.clone()).or_default() += 1;
-        graph
-            .outgoing
-            .entry(edge.source.clone())
-            .or_default()
-            .push(edge);
-        graph
-            .adjacency
-            .entry(edge.source.clone())
-            .or_default()
-            .push(edge.target.clone());
-        graph
-            .predecessors
-            .entry(edge.target.clone())
-            .or_default()
-            .push(edge.source.clone());
-    }
-    graph
-}
-
-/// 校验各类节点的入度、出度和条件分支标签。
-fn validate_node_degrees(
-    workflow: &WorkflowDefinition,
-    graph: &WorkflowGraph<'_>,
-    issues: &mut Vec<ValidationIssue>,
-) {
-    for node in &workflow.nodes {
-        let incoming_count = graph.incoming.get(&node.id).copied().unwrap_or_default();
-        let node_edges = graph
-            .outgoing
-            .get(&node.id)
-            .map(Vec::as_slice)
-            .unwrap_or_default();
-        let valid_degree = match &node.kind {
-            WorkflowNodeKind::Start => incoming_count == 0 && node_edges.len() == 1,
-            WorkflowNodeKind::End => incoming_count >= 1 && node_edges.is_empty(),
-            WorkflowNodeKind::Condition { .. } => incoming_count >= 1 && node_edges.len() == 2,
-            WorkflowNodeKind::Log { .. }
-            | WorkflowNodeKind::Debug { .. }
-            | WorkflowNodeKind::Delay { .. }
-            | WorkflowNodeKind::Application { .. }
-            | WorkflowNodeKind::Browser { .. }
-            | WorkflowNodeKind::Ui { .. }
-            | WorkflowNodeKind::Command { .. } => incoming_count >= 1 && node_edges.len() == 1,
-        };
-        if !valid_degree {
-            issues.push(issue(
-                ValidationIssueCode::InvalidNodeDegree,
-                "节点入度或出度不符合条件 DAG 约束",
-                Some(node.id.clone()),
-                None,
-            ));
-        }
-        validate_branches(node, node_edges, issues);
-    }
-}
-
-/// 条件节点必须有唯一 true/false，普通节点不能携带 branch。
-fn validate_branches(
-    node: &argusflow_core::WorkflowNode,
-    edges: &[&argusflow_core::WorkflowEdge],
-    issues: &mut Vec<ValidationIssue>,
-) {
-    if matches!(&node.kind, WorkflowNodeKind::Condition { .. }) {
-        let branches: HashSet<_> = edges.iter().filter_map(|edge| edge.branch).collect();
-        if branches != HashSet::from([ConditionBranch::True, ConditionBranch::False]) {
-            issues.push(issue(
-                ValidationIssueCode::InvalidBranch,
-                "Condition 节点必须具有唯一的 true 和 false 分支",
-                Some(node.id.clone()),
-                None,
-            ));
-        }
-    } else {
-        for edge in edges.iter().filter(|edge| edge.branch.is_some()) {
-            issues.push(issue(
-                ValidationIssueCode::InvalidBranch,
-                "只有 Condition 节点的连线可以包含 branch",
-                Some(node.id.clone()),
-                Some(edge.id.clone()),
-            ));
-        }
-    }
-}
-
-/// 校验 DAG、Start 可达性和到 End 的可达性。
-fn validate_graph_shape(
-    node_ids: &HashSet<String>,
-    start_ids: &[String],
-    end_ids: &[String],
-    graph: &WorkflowGraph<'_>,
-    issues: &mut Vec<ValidationIssue>,
-) {
-    if has_cycle(node_ids, &graph.incoming, &graph.adjacency) {
-        issues.push(issue(
-            ValidationIssueCode::CycleDetected,
-            "工作流不能包含环路",
-            None,
-            None,
-        ));
-    }
-    if let [start_id] = start_ids {
-        let reachable = reachable_nodes(start_id, &graph.adjacency);
-        for id in node_ids.difference(&reachable) {
-            issues.push(issue(
-                ValidationIssueCode::UnreachableNode,
-                format!("节点 '{id}' 无法从 Start 到达"),
-                Some(id.clone()),
-                None,
-            ));
-        }
-    }
-    if let [end_id] = end_ids {
-        let reaches_end = reachable_nodes(end_id, &graph.predecessors);
-        for id in node_ids.difference(&reaches_end) {
-            issues.push(issue(
-                ValidationIssueCode::NoPathToEnd,
-                format!("节点 '{id}' 无法到达 End"),
-                Some(id.clone()),
-                None,
-            ));
-        }
-    }
-}
-
-/// 使用 Kahn 算法判断已知节点子图是否含环。
-fn has_cycle(
-    node_ids: &HashSet<String>,
-    incoming: &HashMap<String, usize>,
-    adjacency: &HashMap<String, Vec<String>>,
-) -> bool {
-    let mut counts = incoming.clone();
-    let mut queue: VecDeque<_> = node_ids
-        .iter()
-        .filter(|id| counts.get(*id).copied().unwrap_or_default() == 0)
-        .cloned()
-        .collect();
-    let mut processed = 0;
-    while let Some(id) = queue.pop_front() {
-        processed += 1;
-        for target in adjacency.get(&id).into_iter().flatten() {
-            let count = counts.entry(target.clone()).or_default();
-            *count = count.saturating_sub(1);
-            if *count == 0 {
-                queue.push_back(target.clone());
-            }
-        }
-    }
-    processed != node_ids.len()
-}
-
-/// 沿指定邻接关系返回包括起点在内的全部可达节点。
-fn reachable_nodes(start: &str, adjacency: &HashMap<String, Vec<String>>) -> HashSet<String> {
-    let mut reached = HashSet::new();
-    let mut queue = VecDeque::from([start.to_owned()]);
-    while let Some(id) = queue.pop_front() {
-        if !reached.insert(id.clone()) {
-            continue;
-        }
-        queue.extend(adjacency.get(&id).into_iter().flatten().cloned());
-    }
-    reached
 }
 
 /// 创建一项稳定且可定位的校验问题。

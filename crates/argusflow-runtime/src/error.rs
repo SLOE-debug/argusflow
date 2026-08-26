@@ -1,11 +1,9 @@
-use argusflow_core::{
-    ApplicationError, AutomationError, BrowserError, ResourceRef, WorkflowCapability,
-};
-use thiserror::Error;
-use uuid::Uuid;
-
 use crate::CommandError;
 use crate::ValidationReport;
+use argusflow_core::{
+    ApplicationError, AutomationError, BrowserError, ResourceRef, WorkflowCapabilityId,
+};
+use thiserror::Error;
 
 /// 工作流运行时在校验、调度或事件交付阶段返回的错误。
 #[derive(Debug, Error)]
@@ -22,18 +20,18 @@ pub enum RuntimeError {
         /// 缺失、多余或类型错误的输入说明。
         message: String,
     },
-    /// 当前引擎已有尚未结束的运行，拒绝并发启动。
-    #[error("workflow run {run_id} is already active")]
-    RunInProgress {
-        /// 当前仍处于活动状态的运行 ID。
-        run_id: Uuid,
-    },
     /// 执行事件无法交付给调用方提供的接收器。
     #[error("workflow event could not be delivered: {0}")]
     EventSink(String),
     /// 校验后本应成立的运行时结构约束意外失效。
     #[error("validated workflow invariant failed: {0}")]
     ExecutionInvariant(String),
+    /// 注册节点在自身领域执行边界返回的安全失败说明。
+    #[error("registered node execution failed: {message}")]
+    NodeExecution {
+        /// 不包含敏感 payload、但可以交付给事件消费者的失败原因。
+        message: String,
+    },
     /// ValueExpr 引用的输入、变量或节点输出尚不可用。
     #[error("runtime value is unavailable: {description}")]
     ValueUnavailable {
@@ -50,7 +48,7 @@ pub enum RuntimeError {
     #[error("workflow capability was denied: {capability}")]
     CapabilityDenied {
         /// 被拒绝的稳定能力名称。
-        capability: WorkflowCapability,
+        capability: WorkflowCapabilityId,
     },
     /// ResourceRef 在当前运行中没有绑定真实资源。
     #[error("runtime resource is unavailable: {}.{}", reference.producer_node_id, reference.output_name)]

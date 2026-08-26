@@ -2,10 +2,10 @@
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 export type JsonObject = { [key: string]: JsonValue };
 
-/** 与 Rust 后端交换的 schema v6 工作流。 */
+/** 与 Rust 后端交换的 schema v7 工作流。 */
 export type WorkflowDefinition = {
   /** 当前契约固定版本。 */
-  schema_version: 6;
+  schema_version: 7;
   /** 工作流稳定 ID。 */
   id: string;
   /** 面向用户的名称。 */
@@ -24,8 +24,17 @@ export type WorkflowDefinition = {
 
 export type Position = { x: number; y: number };
 
-/** 后端可执行节点的通用字段与具体节点类型联合。 */
-export type WorkflowNodeContract = { id: string; position: Position } & WorkflowNodeKind;
+/** 后端可执行节点的通用字段与开放 definition envelope。 */
+export type WorkflowNodeContract = {
+  id: string;
+  position: Position;
+  /** 指向唯一 NodeCompiler 的稳定类型 ID。 */
+  type_id: string;
+  /** 节点类型独立于工作流 schema 的 payload 版本。 */
+  version: number;
+  /** 只由对应注册编译器解码的节点参数。 */
+  payload: JsonValue;
+};
 
 export type ConditionOperator =
   | 'equal' | 'not_equal' | 'greater_than' | 'greater_than_or_equal'
@@ -41,18 +50,6 @@ export type ConditionPredicate = {
   /** 二元运算符的 JSON 右值。 */
   operand: JsonValue | null;
 };
-
-export type WorkflowNodeKind =
-  | { type: 'start' }
-  | { type: 'log'; message: string }
-  | { type: 'debug'; value: ValueExpr }
-  | { type: 'delay'; milliseconds: number }
-  | { type: 'condition'; predicate: ConditionPredicate }
-  | { type: 'application'; spec: ApplicationSpec }
-  | { type: 'browser'; spec: BrowserSpec }
-  | { type: 'ui'; operation: UiOperation }
-  | { type: 'command'; operation: CommandOperation }
-  | { type: 'end' };
 
 /** Workflow 层保存的语义界面操作。 */
 export type UiOperation =
@@ -71,8 +68,8 @@ export type AutomationTarget = {
   scope: TargetScope;
   /** 跨平台定位契约。 */
   locator: TargetLocator;
-  /** `auto` 默认根据查询能力规划，另外两项用于显式强制后端。 */
-  backend_preference: BackendPreference;
+  /** 候选后端的 allow/deny 集合与稳定偏好顺序。 */
+  backend_policy: BackendPolicy;
 };
 
 export type WorkflowInputType = 'text';
@@ -109,8 +106,15 @@ export type ValueExpr =
 
 export type ValueExprKind = ValueExpr['type'];
 
-/** 查询规划时独立于 AQL 语义的后端偏好。 */
-export type BackendPreference = 'auto' | 'windows_uia' | 'browser_cdp';
+/** 查询规划时独立于 AQL 语义的开放后端集合策略。 */
+export type BackendPolicy = {
+  /** 空数组表示允许全部已注册后端。 */
+  allow: BackendKind[];
+  /** deny 始终覆盖 allow。 */
+  deny: BackendKind[];
+  /** 从高到低排列；未列出的候选沿用 Planner 稳定顺序。 */
+  prefer: BackendKind[];
+};
 
 /** 与 workflow schema 独立演进的持久化 AQL 源码。 */
 export type AqlQuery = {
@@ -187,12 +191,12 @@ export type CommandOperation = {
   max_stderr_bytes: number;
 };
 
-/** 工作流对所有进程创建路径的最小粒度能力声明。 */
+/** 工作流对所有高风险系统路径的开放能力授权。 */
+export type WorkflowCapabilityId = string;
+
 export type WorkflowPermissions = {
-  application_launch: boolean;
-  direct_command: boolean;
-  powershell: boolean;
-  cmd: boolean;
+  /** 未列出的能力一律拒绝。 */
+  allow: readonly WorkflowCapabilityId[];
 };
 
 /** AQL backend compiler 使用的稳定后端家族。 */
@@ -317,7 +321,8 @@ export type AqlInspection =
     }
   | { status: 'invalid'; diagnostics: readonly AqlDiagnostic[] };
 
-export type ConditionBranch = 'true' | 'false';
+/** 分支节点注册的开放控制流端口；内置 Condition 使用 true/false。 */
+export type ControlPortId = string;
 
 /** 有向边；只有 Condition 源节点携带 branch。 */
 export type WorkflowEdgeContract = {
@@ -328,11 +333,11 @@ export type WorkflowEdgeContract = {
   /** 目标节点 ID。 */
   target: string;
   /** Condition 源节点的分支。 */
-  branch: ConditionBranch | null;
+  branch: ControlPortId | null;
 };
 
-/** Rust `ValidationIssueCode` 的完整序列化取值。 */
-export type ValidationIssueCode =
+/** Runtime 内置校验问题码。 */
+export type BuiltinValidationIssueCode =
   | 'unsupported_schema_version'
   | 'empty_workflow_name'
   | 'invalid_workflow_inputs'
@@ -357,12 +362,18 @@ export type ValidationIssueCode =
   | 'invalid_application_spec'
   | 'invalid_browser_spec'
   | 'application_permission_denied'
-  | 'invalid_backend_preference'
+  | 'invalid_backend_policy'
   | 'invalid_command'
   | 'command_permission_denied'
   | 'invalid_value_reference'
   | 'invalid_resource_reference'
-  | 'reference_not_dominating';
+  | 'reference_not_dominating'
+  | 'unknown_node_type'
+  | 'invalid_node_definition';
+
+/** 内置问题码或由注册节点拥有的命名空间化问题码。 */
+export type ValidationIssueCode = BuiltinValidationIssueCode
+  | (string & Readonly<Record<never, never>>);
 
 export type ValidationIssue = {
   code: ValidationIssueCode;
@@ -418,7 +429,6 @@ export type ExecutionEventPayload =
 /** Rust `CommandErrorCode` 的完整序列化取值。 */
 export const COMMAND_ERROR_CODES = [
   'validation_failed',
-  'run_in_progress',
   'event_delivery_failed',
   'execution_invariant_failed',
   'automation_failed',

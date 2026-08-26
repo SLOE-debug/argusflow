@@ -5,7 +5,7 @@ use argusflow_core::{
 };
 use serde::Serialize;
 
-use super::CdpPlanExpr;
+use super::{CdpCandidateSource, CdpPlanExpr};
 
 /// 页面函数接受的稳定查询 DTO，只包含执行所需字段。
 #[derive(Serialize)]
@@ -13,9 +13,11 @@ use super::CdpPlanExpr;
 enum PagePlan<'plan> {
     /// 角色和完整谓词集合。
     Match {
+        /// 实际候选来源；页面解释器会拒绝尚未实现的来源。
+        source: CdpCandidateSource,
         /// 目标语义角色。
         role: ElementRole,
-        /// pushdown 与 residual 在页面内统一批处理。
+        /// 页面内逐候选计算的完整谓词集合。
         predicates: Vec<&'plan PropertyPredicate>,
     },
     /// 后代关系。
@@ -99,8 +101,9 @@ impl<'plan> From<&'plan CdpPlanExpr> for PagePlan<'plan> {
     fn from(expression: &'plan CdpPlanExpr) -> Self {
         match expression {
             CdpPlanExpr::Match(matcher) => Self::Match {
+                source: matcher.source,
                 role: matcher.role,
-                predicates: matcher.pushdown.iter().chain(&matcher.residual).collect(),
+                predicates: matcher.predicates.iter().collect(),
             },
             CdpPlanExpr::Descendant { ancestor, target } => Self::Descendant {
                 ancestor: Box::new(Self::from(ancestor.as_ref())),
@@ -229,6 +232,9 @@ const PAGE_INTERPRETER: &str = r#"(() => {
   const evaluate = (node, roots = [document], direct = false) => {
     switch (node.type) {
       case 'match':
+        if (node.source !== 'dom') {
+          throw new Error(`unsupported CDP candidate source ${node.source}`);
+        }
         return observe(scopedElements(roots, direct)).filter((element) => (
           roleMatches(element, node.role)
           && node.predicates.every((predicate) => predicateMatches(element, predicate))
@@ -314,6 +320,29 @@ mod tests {
         assert!(script.contains("join('\\r\\n') + '\\r\\n'"));
         assert!(script.contains("element.closest('a[href]')"));
         assert!(script.contains("outputs: { links, text }"));
+        assert!(script.contains(r#"\"type\":\"css\""#));
         assert!(!script.contains("__ARGUS_PLAN__"));
+    }
+
+    #[test]
+    fn semantic_matcher_preserves_candidate_source_in_page_dto() {
+        use argusflow_core::ElementRole;
+
+        use crate::cdp::{CdpCandidateSource, CdpMatcherPlan};
+
+        let action = AutomationAction::GetText {
+            target: AutomationTarget::query(AqlQuery::v1("button")),
+        };
+        let expression = CdpPlanExpr::Match(CdpMatcherPlan {
+            source: CdpCandidateSource::Dom,
+            role: ElementRole::Button,
+            predicates: Vec::new(),
+        });
+
+        let script = build_page_action_script(&expression, &action)
+            .expect("semantic matcher should serialize");
+
+        assert!(script.contains(r#"\"source\":\"dom\""#));
+        assert!(script.contains("unsupported CDP candidate source"));
     }
 }

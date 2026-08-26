@@ -1,24 +1,20 @@
-//! 工作流运行时的结构校验、事件顺序和失败传播测试。
-//!
-//! 测试 fixture 构造线性工作流，并通过内存通道观察异步引擎发出的生命周期事件。
+//! 工作流执行事件、运行输入、分支选择与 RunWorld 并发契约。
+
+mod workflow_fixture;
 
 use std::sync::Arc;
 
 use argusflow_core::{
-    AcquirePolicy, ActivationPolicy, ApplicationSpec, AqlQuery, AutomationTarget,
-    BackendPreference, CleanupPolicy, CommandOperation, CommandRunner, ConditionBranch,
-    ConditionOperator, ConditionPredicate, ExecutionEvent, ExecutionEventKind, Position,
-    ResourceRef, RunInputs, TargetLocator, TargetScope, UiOperation, ValueExpr, WindowTitleMatcher,
-    WorkflowDefinition, WorkflowEdge, WorkflowInputDefinition, WorkflowInputType, WorkflowNode,
-    WorkflowNodeKind, WorkflowPermissions,
+    AqlQuery, AutomationTarget, ExecutionEvent, ExecutionEventKind, RunInputs, UiOperation,
+    ValueExpr, WorkflowInputDefinition, WorkflowInputType,
 };
 use argusflow_runtime::{
-    ExecutionEventSink, RuntimeError, UnavailableActionDispatcher, ValidationIssueCode,
-    WorkflowEngine, validate_workflow,
+    ExecutionEventSink, RuntimeError, UnavailableActionDispatcher, WorkflowEngine,
 };
 use serde_json::json;
 use tokio::sync::mpsc;
-use uuid::Uuid;
+
+use workflow_fixture::{WorkflowNodeKind, condition_workflow, demo_workflow};
 
 /// 将运行时事件转发到测试接收端的内存 sink。
 struct ChannelSink(mpsc::UnboundedSender<ExecutionEvent>);
@@ -30,269 +26,6 @@ impl ExecutionEventSink for ChannelSink {
     }
 }
 
-#[test]
-fn valid_linear_workflow_passes_validation() {
-    assert!(validate_workflow(&demo_workflow(1)).valid);
-}
-
-#[test]
-fn validation_rejects_invalid_aql_before_execution() {
-    let mut workflow = demo_workflow(1);
-    workflow.nodes[1].kind = WorkflowNodeKind::Ui {
-        operation: UiOperation::Click {
-            target: AutomationTarget::query(AqlQuery::v1(r#"button[name="保存"]"#)),
-        },
-    };
-
-    let report = validate_workflow(&workflow);
-    let issue = report
-        .issues
-        .iter()
-        .find(|issue| issue.code == ValidationIssueCode::InvalidAqlQuery)
-        .expect("invalid AQL should produce a node issue");
-    assert_eq!(issue.node_id.as_deref(), Some("log"));
-    assert!(issue.message.contains("AQL 不支持 CSS"));
-}
-
-#[test]
-fn validation_rejects_duplicate_ids_unknown_edges_cycles_branches_and_unreachable_nodes() {
-    let mut duplicate = demo_workflow(1);
-    duplicate.nodes[1].id = "start".to_owned();
-    assert_has_issue(&duplicate, ValidationIssueCode::DuplicateNodeId);
-
-    let mut unknown_edge = demo_workflow(1);
-    unknown_edge.edges[0].target = "missing".to_owned();
-    assert_has_issue(&unknown_edge, ValidationIssueCode::UnknownEdgeEndpoint);
-
-    let mut duplicate_edge = demo_workflow(1);
-    duplicate_edge.edges[1].id = duplicate_edge.edges[0].id.clone();
-    assert_has_issue(&duplicate_edge, ValidationIssueCode::DuplicateEdgeId);
-
-    let mut cycle = demo_workflow(1);
-    cycle.edges.push(WorkflowEdge {
-        id: "cycle".to_owned(),
-        source: "end".to_owned(),
-        target: "start".to_owned(),
-        branch: None,
-    });
-    assert_has_issue(&cycle, ValidationIssueCode::CycleDetected);
-
-    let mut branch = demo_workflow(1);
-    branch.nodes.insert(
-        2,
-        WorkflowNode {
-            id: "extra".to_owned(),
-            position: Position { x: 400.0, y: 120.0 },
-            kind: WorkflowNodeKind::Log {
-                message: "branch".to_owned(),
-            },
-        },
-    );
-    branch.edges.push(WorkflowEdge {
-        id: "branch".to_owned(),
-        source: "start".to_owned(),
-        target: "extra".to_owned(),
-        branch: None,
-    });
-    assert_has_issue(&branch, ValidationIssueCode::InvalidNodeDegree);
-
-    let mut unreachable = demo_workflow(1);
-    unreachable.nodes.push(WorkflowNode {
-        id: "orphan".to_owned(),
-        position: Position { x: 0.0, y: 200.0 },
-        kind: WorkflowNodeKind::Log {
-            message: "orphan".to_owned(),
-        },
-    });
-    assert_has_issue(&unreachable, ValidationIssueCode::UnreachableNode);
-}
-
-#[test]
-fn validation_requires_exactly_one_start_and_end() {
-    let mut workflow = demo_workflow(1);
-    workflow
-        .nodes
-        .retain(|node| !matches!(&node.kind, WorkflowNodeKind::End));
-    assert_has_issue(&workflow, ValidationIssueCode::InvalidEndCount);
-
-    let mut workflow = demo_workflow(1);
-    workflow.nodes.push(WorkflowNode {
-        id: "another-start".to_owned(),
-        position: Position { x: 0.0, y: 100.0 },
-        kind: WorkflowNodeKind::Start,
-    });
-    assert_has_issue(&workflow, ValidationIssueCode::InvalidStartCount);
-}
-
-#[test]
-fn validation_accepts_a_condition_dag_with_both_branches() {
-    assert!(validate_workflow(&condition_workflow(true)).valid);
-}
-
-#[test]
-fn validation_rejects_an_application_resource_that_does_not_dominate_its_consumer() {
-    let mut workflow = condition_workflow(true);
-    workflow
-        .nodes
-        .retain(|node| node.id != "true-log" && node.id != "false-log");
-    workflow.nodes.insert(
-        2,
-        node(
-            "application",
-            320.0,
-            WorkflowNodeKind::Application {
-                spec: test_application_spec(),
-            },
-        ),
-    );
-    workflow.nodes.insert(
-        3,
-        node(
-            "consumer",
-            480.0,
-            WorkflowNodeKind::Ui {
-                operation: UiOperation::Click {
-                    target: AutomationTarget {
-                        scope: TargetScope::Application {
-                            resource: ResourceRef {
-                                producer_node_id: "application".to_owned(),
-                                output_name: "session".to_owned(),
-                            },
-                        },
-                        locator: argusflow_core::TargetLocator::Query {
-                            query: AqlQuery::v1("button(name = \"保存\")"),
-                        },
-                        backend_preference: argusflow_core::BackendPreference::Auto,
-                    },
-                },
-            },
-        ),
-    );
-    workflow.edges = vec![
-        edge("start", "condition"),
-        WorkflowEdge {
-            id: "condition-true".to_owned(),
-            source: "condition".to_owned(),
-            target: "application".to_owned(),
-            branch: Some(ConditionBranch::True),
-        },
-        WorkflowEdge {
-            id: "condition-false".to_owned(),
-            source: "condition".to_owned(),
-            target: "consumer".to_owned(),
-            branch: Some(ConditionBranch::False),
-        },
-        edge("application", "consumer"),
-        edge("consumer", "end"),
-    ];
-
-    assert_has_issue(&workflow, ValidationIssueCode::ReferenceNotDominating);
-}
-
-#[test]
-fn validation_rejects_browser_cdp_for_a_desktop_application_resource() {
-    let resource = ResourceRef {
-        producer_node_id: "application".to_owned(),
-        output_name: "session".to_owned(),
-    };
-    let target = AutomationTarget {
-        scope: TargetScope::Application { resource },
-        locator: TargetLocator::Query {
-            query: AqlQuery::v1("button(name = \"Save\")"),
-        },
-        backend_preference: BackendPreference::BrowserCdp,
-    };
-    let workflow = WorkflowDefinition {
-        schema_version: 6,
-        id: Uuid::new_v4(),
-        name: "Application backend validation".to_owned(),
-        inputs: Vec::new(),
-        variables: json!({}),
-        permissions: no_permissions(),
-        nodes: vec![
-            node("start", 0.0, WorkflowNodeKind::Start),
-            node(
-                "application",
-                200.0,
-                WorkflowNodeKind::Application {
-                    spec: test_application_spec(),
-                },
-            ),
-            node(
-                "ui",
-                400.0,
-                WorkflowNodeKind::Ui {
-                    operation: UiOperation::Click { target },
-                },
-            ),
-            node("end", 600.0, WorkflowNodeKind::End),
-        ],
-        edges: vec![
-            edge("start", "application"),
-            edge("application", "ui"),
-            edge("ui", "end"),
-        ],
-    };
-
-    assert_has_issue(&workflow, ValidationIssueCode::InvalidBackendPreference);
-}
-
-#[test]
-fn validation_requires_explicit_command_permissions() {
-    let mut workflow = demo_workflow(1);
-    workflow.nodes[1].kind = WorkflowNodeKind::Command {
-        operation: CommandOperation {
-            runner: CommandRunner::Direct,
-            program: Some(ValueExpr::text(r"C:\Windows\System32\whoami.exe")),
-            arguments: Vec::new(),
-            script: None,
-            working_directory: None,
-            environment: Vec::new(),
-            stdin: None,
-            timeout_ms: 30_000,
-            accepted_exit_codes: vec![0],
-            max_stdout_bytes: 1_048_576,
-            max_stderr_bytes: 1_048_576,
-        },
-    };
-
-    assert_has_issue(&workflow, ValidationIssueCode::CommandPermissionDenied);
-    workflow.permissions = WorkflowPermissions::direct_command_only();
-    assert!(validate_workflow(&workflow).valid);
-}
-
-#[test]
-fn validation_uses_input_declarations_instead_of_persisted_variables() {
-    let mut workflow = demo_workflow(1);
-    workflow.inputs = vec![WorkflowInputDefinition {
-        key: "secret".to_owned(),
-        value_type: WorkflowInputType::Text,
-    }];
-    workflow.variables = json!({ "secret": 42 });
-    workflow.nodes[1].kind = WorkflowNodeKind::Debug {
-        value: ValueExpr::WorkflowInput {
-            key: "secret".to_owned(),
-        },
-    };
-
-    assert!(validate_workflow(&workflow).valid);
-}
-
-#[test]
-fn validation_requires_application_launch_permission_only_for_launching_policies() {
-    let mut workflow = demo_workflow(1);
-    workflow.nodes[1].kind = WorkflowNodeKind::Application {
-        spec: test_application_spec(),
-    };
-    assert_has_issue(&workflow, ValidationIssueCode::ApplicationPermissionDenied);
-
-    let WorkflowNodeKind::Application { spec } = &mut workflow.nodes[1].kind else {
-        panic!("fixture node should remain an Application node");
-    };
-    spec.acquire_policy = AcquirePolicy::AttachOnly;
-    assert!(validate_workflow(&workflow).valid);
-}
-
 #[tokio::test]
 async fn runtime_requires_and_resolves_separate_run_inputs() {
     let mut workflow = demo_workflow(1);
@@ -300,11 +33,12 @@ async fn runtime_requires_and_resolves_separate_run_inputs() {
         key: "secret".to_owned(),
         value_type: WorkflowInputType::Text,
     }];
-    workflow.nodes[1].kind = WorkflowNodeKind::Debug {
+    workflow.nodes[1].definition = WorkflowNodeKind::Debug {
         value: ValueExpr::WorkflowInput {
             key: "secret".to_owned(),
         },
-    };
+    }
+    .into();
     let engine = Arc::new(WorkflowEngine::new(Arc::new(UnavailableActionDispatcher)));
     let (sender, mut receiver) = mpsc::unbounded_channel();
 
@@ -406,7 +140,12 @@ async fn runtime_only_executes_the_selected_condition_branch() {
     let mut edge_ids = Vec::new();
     while let Some(event) = receiver.recv().await {
         if event.kind == ExecutionEventKind::EdgeTraversed {
-            edge_ids.push(event.edge_id.clone().unwrap());
+            edge_ids.push(
+                event
+                    .edge_id
+                    .clone()
+                    .expect("edge event should carry its id"),
+            );
         }
         if event.kind == ExecutionEventKind::WorkflowCompleted {
             break;
@@ -417,7 +156,7 @@ async fn runtime_only_executes_the_selected_condition_branch() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn runtime_rejects_a_second_active_run() {
+async fn runtime_accepts_multiple_active_run_worlds() {
     let engine = Arc::new(WorkflowEngine::new(Arc::new(UnavailableActionDispatcher)));
     let (sender, _receiver) = mpsc::unbounded_channel();
     let sink = Arc::new(ChannelSink(sender));
@@ -426,12 +165,12 @@ async fn runtime_rejects_a_second_active_run() {
         .start(demo_workflow(1_000), RunInputs::default(), sink.clone())
         .await
         .expect("first run should start");
-    let error = engine
+    engine
         .start(demo_workflow(1_000), RunInputs::default(), sink)
         .await
-        .expect_err("second run should be rejected");
+        .expect("second run on independent state should start");
 
-    assert!(matches!(error, RuntimeError::RunInProgress { .. }));
+    assert_eq!(engine.active_runs().await.len(), 2);
 }
 
 #[tokio::test]
@@ -439,11 +178,12 @@ async fn runtime_emits_a_failure_for_an_unavailable_action_backend() {
     let engine = Arc::new(WorkflowEngine::new(Arc::new(UnavailableActionDispatcher)));
     let (sender, mut receiver) = mpsc::unbounded_channel();
     let mut workflow = demo_workflow(1);
-    workflow.nodes[1].kind = WorkflowNodeKind::Ui {
+    workflow.nodes[1].definition = WorkflowNodeKind::Ui {
         operation: UiOperation::Click {
             target: AutomationTarget::query(AqlQuery::v1("button(name = \"保存\")")),
         },
-    };
+    }
+    .into();
 
     engine
         .start(
@@ -468,140 +208,4 @@ async fn runtime_emits_a_failure_for_an_unavailable_action_backend() {
             .and_then(|event| event.message)
             .is_some_and(|message| message.contains("unavailable"))
     );
-}
-
-fn assert_has_issue(workflow: &WorkflowDefinition, code: ValidationIssueCode) {
-    let report = validate_workflow(workflow);
-    assert!(report.issues.iter().any(|issue| issue.code == code));
-}
-
-/// 在测试中构造一条可执行的 Start -> Log -> Delay -> End 线性链。
-fn demo_workflow(milliseconds: u64) -> WorkflowDefinition {
-    WorkflowDefinition {
-        schema_version: 6,
-        id: Uuid::new_v4(),
-        name: "Demo".to_owned(),
-        inputs: Vec::new(),
-        variables: json!({}),
-        permissions: no_permissions(),
-        nodes: vec![
-            node("start", 0.0, WorkflowNodeKind::Start),
-            node(
-                "log",
-                220.0,
-                WorkflowNodeKind::Log {
-                    message: "ArgusFlow".to_owned(),
-                },
-            ),
-            node("delay", 440.0, WorkflowNodeKind::Delay { milliseconds }),
-            node("end", 660.0, WorkflowNodeKind::End),
-        ],
-        edges: vec![
-            edge("start", "log"),
-            edge("log", "delay"),
-            edge("delay", "end"),
-        ],
-    }
-}
-
-/// 使用给定横坐标创建测试节点，统一 fixture 的画布布局。
-fn node(id: &str, x: f64, kind: WorkflowNodeKind) -> WorkflowNode {
-    WorkflowNode {
-        id: id.to_owned(),
-        position: Position { x, y: 0.0 },
-        kind,
-    }
-}
-
-/// 创建由源节点指向目标节点的测试连线，并派生稳定的连线 ID。
-fn edge(source: &str, target: &str) -> WorkflowEdge {
-    WorkflowEdge {
-        id: format!("{source}-{target}"),
-        source: source.to_owned(),
-        target: target.to_owned(),
-        branch: None,
-    }
-}
-
-/// 构造两条分支最终汇合到 End 的条件 DAG。
-fn condition_workflow(enabled: bool) -> WorkflowDefinition {
-    WorkflowDefinition {
-        schema_version: 6,
-        id: Uuid::new_v4(),
-        name: "Condition".to_owned(),
-        inputs: Vec::new(),
-        variables: json!({ "enabled": enabled }),
-        permissions: no_permissions(),
-        nodes: vec![
-            node("start", 0.0, WorkflowNodeKind::Start),
-            node(
-                "condition",
-                160.0,
-                WorkflowNodeKind::Condition {
-                    predicate: ConditionPredicate {
-                        pointer: "/enabled".to_owned(),
-                        operator: ConditionOperator::Equal,
-                        operand: Some(json!(true)),
-                    },
-                },
-            ),
-            node(
-                "true-log",
-                320.0,
-                WorkflowNodeKind::Log {
-                    message: "true".to_owned(),
-                },
-            ),
-            node(
-                "false-log",
-                320.0,
-                WorkflowNodeKind::Log {
-                    message: "false".to_owned(),
-                },
-            ),
-            node("end", 520.0, WorkflowNodeKind::End),
-        ],
-        edges: vec![
-            edge("start", "condition"),
-            WorkflowEdge {
-                id: "condition-true".to_owned(),
-                source: "condition".to_owned(),
-                target: "true-log".to_owned(),
-                branch: Some(ConditionBranch::True),
-            },
-            WorkflowEdge {
-                id: "condition-false".to_owned(),
-                source: "condition".to_owned(),
-                target: "false-log".to_owned(),
-                branch: Some(ConditionBranch::False),
-            },
-            edge("true-log", "end"),
-            edge("false-log", "end"),
-        ],
-    }
-}
-
-/// 普通工作流测试默认不授予任何命令能力。
-fn no_permissions() -> WorkflowPermissions {
-    WorkflowPermissions {
-        application_launch: false,
-        direct_command: false,
-        powershell: false,
-        cmd: false,
-    }
-}
-
-/// 构造不依赖本机文件存在性的静态应用校验契约。
-fn test_application_spec() -> ApplicationSpec {
-    ApplicationSpec {
-        executable_path: r"C:\Program Files\Example\example.exe".to_owned(),
-        arguments: Vec::new(),
-        window_title: WindowTitleMatcher::Contains {
-            value: "Example".to_owned(),
-        },
-        acquire_policy: AcquirePolicy::AttachOrStart,
-        launch_timeout_ms: 10_000,
-        cleanup_policy: CleanupPolicy::LeaveRunning,
-        activation_policy: ActivationPolicy::BestEffort,
-    }
 }

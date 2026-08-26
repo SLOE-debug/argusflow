@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   changeUiOperationKind,
-  changeBackendPreference,
+  changeBackendPolicy,
   changeTargetLocatorKind,
   createDefaultUiOperation,
 } from './workflowAction';
@@ -21,14 +21,14 @@ describe('workflow UI operation transformations', () => {
 
   it('returns non-semantic locators to automatic backend planning', () => {
     const click = createDefaultUiOperation();
-    const forcedUia = changeBackendPreference(click, 'windows_uia');
+    const forcedUia = changeBackendPolicy(click, 'windows_uia');
     const visual = changeTargetLocatorKind(forcedUia, 'visual');
 
     expect(visual.target.locator).toEqual({
       type: 'visual',
       query: { text: '确定', exact: true },
     });
-    expect(visual.target.backend_preference).toBe('auto');
+    expect(visual.target.backend_policy).toEqual({ allow: [], deny: [], prefer: [] });
   });
 
   it('forces collect links onto a semantic CDP query', () => {
@@ -39,6 +39,10 @@ describe('workflow UI operation transformations', () => {
 
     expect(collectLinks.type).toBe('collect_links');
     expect(collectLinks.target.locator.type).toBe('query');
-    expect(collectLinks.target.backend_preference).toBe('browser_cdp');
+    expect(collectLinks.target.backend_policy).toEqual({
+      allow: ['browser_cdp'],
+      deny: [],
+      prefer: ['browser_cdp'],
+    });
   });
 });

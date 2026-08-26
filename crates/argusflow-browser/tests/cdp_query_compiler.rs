@@ -1,10 +1,9 @@
-//! CDP AQL 逻辑计划的 DOM fast path 与 AX residual 边界测试。
+//! CDP AQL 逻辑计划的 DOM fast path 与语义模拟边界测试。
 
 use argusflow_browser::cdp::{
     CdpCandidateSource, CdpPlanExpr, CdpQueryCompileError, CdpQueryPlan, compile_cdp_query,
 };
-use argusflow_core::SelectorAttribute;
-use argusflow_query::{SupportLevel, parse_query};
+use argusflow_query::{DiagnosticCode, QueryCost, SupportLevel, parse_query};
 
 #[test]
 fn compiler_uses_raw_css_fast_path() {
@@ -19,21 +18,28 @@ fn compiler_uses_raw_css_fast_path() {
 }
 
 #[test]
-fn compiler_uses_ax_pushdown_and_projects_regex_attribute() {
+fn compiler_marks_semantic_matcher_as_dom_full_tree_emulation() {
     let query = parse_query(r#"button(name matches /保存|Save/i, enabled = true)"#)
         .expect("semantic query should parse");
     let plan = compile_single(&query);
 
-    assert_eq!(plan.capability.level, SupportLevel::Hybrid);
+    assert_eq!(plan.capability.level, SupportLevel::Emulated);
+    assert_eq!(plan.capability.estimated_cost, QueryCost::High);
+    assert!(
+        plan.diagnostics
+            .iter()
+            .any(|diagnostic| { diagnostic.code == DiagnosticCode::ResidualFilter })
+    );
+    assert!(
+        plan.diagnostics
+            .iter()
+            .any(|diagnostic| { diagnostic.code == DiagnosticCode::ExpensiveTraversal })
+    );
     let CdpPlanExpr::Match(matcher) = plan.expression else {
         panic!("expected matcher plan");
     };
-    assert_eq!(matcher.source, CdpCandidateSource::AccessibilityTree);
-    assert!(matcher.pushdown.is_empty());
-    assert_eq!(
-        matcher.projected_attributes,
-        vec![SelectorAttribute::Name, SelectorAttribute::Enabled]
-    );
+    assert_eq!(matcher.source, CdpCandidateSource::Dom);
+    assert_eq!(matcher.predicates.len(), 2);
 }
 
 #[test]
@@ -46,8 +52,9 @@ fn compiler_uses_dom_source_for_explicit_dom_property() {
         panic!("expected matcher plan");
     };
     assert_eq!(matcher.source, CdpCandidateSource::Dom);
-    assert_eq!(matcher.pushdown.len(), 1);
-    assert!(matcher.residual.is_empty());
+    assert_eq!(matcher.predicates.len(), 1);
+    assert_eq!(plan.capability.level, SupportLevel::Emulated);
+    assert_eq!(plan.capability.estimated_cost, QueryCost::High);
 }
 
 #[test]
@@ -72,7 +79,7 @@ fn compiler_keeps_supported_branch_of_cross_backend_any() {
     .expect("cross-backend any should parse");
     let plan = compile_single(&query);
 
-    assert_eq!(plan.capability.level, SupportLevel::Native);
+    assert_eq!(plan.capability.level, SupportLevel::Emulated);
     assert_eq!(plan.capability.branch_path.as_slice(), &[1]);
     assert!(matches!(plan.expression, CdpPlanExpr::Match(_)));
 }

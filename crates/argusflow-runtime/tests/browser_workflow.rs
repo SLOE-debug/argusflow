@@ -1,13 +1,36 @@
 //! Browser 资源作用域、CDP 后端约束和链接输出端口的校验测试。
 
 use argusflow_core::{
-    AqlQuery, AutomationTarget, BackendPreference, BrowserSpec, Position, ResourceRef,
-    TargetLocator, TargetScope, UiOperation, WorkflowDefinition, WorkflowEdge, WorkflowNode,
-    WorkflowNodeKind, WorkflowPermissions,
+    AqlQuery, AutomationTarget, BackendKind, BackendPolicy, BrowserSpec, NodeEnvelope, Position,
+    ResourceRef, TargetLocator, TargetScope, UiOperation, WorkflowCapabilityId, WorkflowDefinition,
+    WorkflowEdge, WorkflowNode, WorkflowPermissions,
 };
 use argusflow_runtime::validate_workflow;
 use serde_json::json;
 use uuid::Uuid;
+
+/// 测试 fixture 使用的内置节点构造器。
+enum WorkflowNodeKind {
+    Start,
+    Browser { spec: BrowserSpec },
+    Ui { operation: UiOperation },
+    End,
+}
+
+impl From<WorkflowNodeKind> for NodeEnvelope {
+    fn from(kind: WorkflowNodeKind) -> Self {
+        match kind {
+            WorkflowNodeKind::Start => Self::new("argus.start", 1, json!({})),
+            WorkflowNodeKind::Browser { spec } => {
+                Self::new("argus.browser", 1, json!({ "spec": spec }))
+            }
+            WorkflowNodeKind::Ui { operation } => {
+                Self::new("argus.ui", 1, json!({ "operation": operation }))
+            }
+            WorkflowNodeKind::End => Self::new("argus.end", 1, json!({})),
+        }
+    }
+}
 
 #[test]
 fn validation_accepts_collect_links_from_a_dominating_browser_resource() {
@@ -23,20 +46,15 @@ fn validation_accepts_collect_links_from_a_dominating_browser_resource() {
                 r##"css("#hotsearch-content-wrapper a.title-content .title-content-title")"##,
             ),
         },
-        backend_preference: BackendPreference::BrowserCdp,
+        backend_policy: BackendPolicy::only(BackendKind::BrowserCdp),
     };
     let workflow = WorkflowDefinition {
-        schema_version: 6,
+        schema_version: 7,
         id: Uuid::new_v4(),
         name: "Browser resource validation".to_owned(),
         inputs: Vec::new(),
         variables: json!({}),
-        permissions: WorkflowPermissions {
-            application_launch: true,
-            direct_command: false,
-            powershell: false,
-            cmd: false,
-        },
+        permissions: WorkflowPermissions::from_iter([WorkflowCapabilityId::application_launch()]),
         nodes: vec![
             node("start", 0.0, WorkflowNodeKind::Start),
             node(
@@ -75,7 +93,7 @@ fn node(id: &str, x: f64, kind: WorkflowNodeKind) -> WorkflowNode {
     WorkflowNode {
         id: id.to_owned(),
         position: Position { x, y: 0.0 },
-        kind,
+        definition: kind.into(),
     }
 }
 

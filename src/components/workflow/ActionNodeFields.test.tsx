@@ -15,7 +15,11 @@ describe('ActionNodeFields', () => {
           type: 'query',
           query: { language_version: 1, source: 'button(name = "保存")' },
         },
-        backend_preference: 'windows_uia',
+        backend_policy: {
+          allow: ['windows_uia'],
+          deny: [],
+          prefer: ['windows_uia'],
+        },
       },
     };
 
@@ -38,7 +42,11 @@ describe('ActionNodeFields', () => {
           type: 'query',
           query: { language_version: 1, source: 'button(name = "确定")' },
         },
-        backend_preference: 'windows_uia',
+        backend_policy: {
+          allow: ['windows_uia'],
+          deny: [],
+          prefer: ['windows_uia'],
+        },
       },
     });
   });

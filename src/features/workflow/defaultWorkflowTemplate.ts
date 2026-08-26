@@ -33,10 +33,10 @@ export const DEFAULT_RUN_INPUT_VALUES = {} as const satisfies JsonObject;
 
 /** 浏览器启动和 PowerShell 文件写入是本示例需要的最小系统能力。 */
 export const DEFAULT_WORKFLOW_PERMISSIONS = {
-  application_launch: true,
-  direct_command: false,
-  powershell: true,
-  cmd: false,
+  allow: [
+    'process.application.launch',
+    'process.command.powershell',
+  ],
 } as const satisfies WorkflowPermissions;
 
 /** 默认选中 Browser 节点，优先展示隔离 CDP 会话配置。 */
@@ -211,7 +211,11 @@ function createBaiduCdpTarget(source: string): AutomationTarget {
       type: 'query',
       query: { language_version: 1, source },
     },
-    backend_preference: 'browser_cdp',
+    backend_policy: {
+      allow: ['browser_cdp'],
+      deny: [],
+      prefer: ['browser_cdp'],
+    },
   };
 }
 

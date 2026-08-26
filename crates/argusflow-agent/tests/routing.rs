@@ -12,7 +12,7 @@ use argusflow_agent::{
 };
 use argusflow_core::{
     ActionOutcome, AqlQuery, AutomationAction, AutomationError, AutomationExecutionScope,
-    AutomationTarget, BackendKind, BackendPreference,
+    AutomationTarget, BackendKind, BackendPolicy,
 };
 use argusflow_query::{BranchPath, QueryCost, QueryPortability, SupportLevel};
 use argusflow_runtime::ActionDispatcher;
@@ -225,6 +225,32 @@ async fn router_prefers_earlier_any_branch_before_backend_capability() {
 }
 
 #[tokio::test]
+async fn user_backend_preference_does_not_reorder_any_branches() {
+    let router = ActionRouter::new(vec![
+        Arc::new(PlannedBackend {
+            branch_path: BranchPath::from_indices([1]),
+            ..planned(BackendKind::WindowsUia, ExecutionResult::Success)
+        }),
+        Arc::new(PlannedBackend {
+            branch_path: BranchPath::from_indices([0]),
+            ..planned(BackendKind::BrowserCdp, ExecutionResult::Success)
+        }),
+    ]);
+    let mut action = portable_click();
+    let AutomationAction::Click { target } = &mut action else {
+        unreachable!("test action is always Click");
+    };
+    target.backend_policy.prefer = vec![BackendKind::WindowsUia];
+
+    let outcome = router
+        .execute(&action, AutomationExecutionScope::Current)
+        .await
+        .expect("explicit any branch order remains part of query semantics");
+
+    assert_eq!(outcome.backend, BackendKind::BrowserCdp);
+}
+
+#[tokio::test]
 async fn target_not_found_only_advances_to_a_later_any_branch() {
     let same_branch_executions = Arc::new(AtomicUsize::new(0));
     let later_branch_executions = Arc::new(AtomicUsize::new(0));
@@ -312,7 +338,7 @@ async fn router_honors_backend_constraint_without_mutating_query() {
     let AutomationAction::Click { target } = &mut action else {
         unreachable!("test action is always Click");
     };
-    target.backend_preference = BackendPreference::BrowserCdp;
+    target.backend_policy = BackendPolicy::only(BackendKind::BrowserCdp);
 
     let outcome = router
         .execute(&action, AutomationExecutionScope::Current)

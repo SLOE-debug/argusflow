@@ -7,8 +7,8 @@ use std::{
 };
 
 use argusflow_core::{
-    AcquirePolicy, ActivationPolicy, AppCapabilities, AppSession, ApplicationError,
-    ApplicationSessionProvider, ApplicationSpec, CleanupPolicy, ProcessIdentity, ResourceId,
+    AcquirePolicy, ActivationPolicy, AppSession, ApplicationError, ApplicationSessionProvider,
+    ApplicationSpec, CapabilityId, CapabilitySet, CleanupPolicy, ProcessIdentity, ResourceId,
     WindowIdentity,
 };
 use async_trait::async_trait;
@@ -148,12 +148,10 @@ fn build_session(
             executable_path: executable_path.to_string_lossy().into_owned(),
         },
         windows: vec![window],
-        capabilities: AppCapabilities {
-            windows_uia: true,
-            browser_cdp: false,
-            visual: true,
-            command_adapter: false,
-        },
+        capabilities: CapabilitySet::from_iter([
+            CapabilityId::WINDOWS_UIA,
+            CapabilityId::VISUAL_SCREEN,
+        ]),
         started_by_workflow,
     }
 }

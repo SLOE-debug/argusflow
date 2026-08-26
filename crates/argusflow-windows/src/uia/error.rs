@@ -32,6 +32,8 @@ pub(crate) enum UiaOperation {
     BuildCache,
     /// 在限定 scope 内查询候选。
     FindAll,
+    /// 在限定 scope 内查询第一个候选。
+    FindFirst,
     /// 通过 RawView TreeWalker 有界导航 provider 树。
     NavigateTree,
     /// 读取 cached property。

@@ -3,6 +3,8 @@
 mod compiler;
 mod executor;
 mod explain;
+mod failure;
+mod lifecycle;
 mod page_script;
 mod plan;
 mod protocol;

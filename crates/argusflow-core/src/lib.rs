@@ -18,12 +18,12 @@ mod workflow;
 pub use application::{AcquirePolicy, ActivationPolicy, ApplicationSpec, CleanupPolicy};
 pub use automation::{
     ActionOutcome, AutomationAction, AutomationExecutionScope, AutomationTarget, BackendKind,
-    BackendPreference, DiagnosticEvidenceReference, ScreenPoint, TargetLocator, TargetScope,
+    BackendPolicy, DiagnosticEvidenceReference, ScreenPoint, TargetLocator, TargetScope,
     UiOperation, VisualQuery, WindowTitleMatcher,
 };
 pub use browser::BrowserSpec;
 pub use command::{
-    CommandOperation, CommandRunner, EnvironmentBinding, WorkflowCapability, WorkflowPermissions,
+    CommandOperation, CommandRunner, EnvironmentBinding, WorkflowCapabilityId, WorkflowPermissions,
     required_command_capability,
 };
 pub use condition::{ConditionEvaluationError, ConditionOperator, ConditionPredicate};
@@ -36,11 +36,12 @@ pub use query::{
     UiaAttribute,
 };
 pub use resource::{
-    AppCapabilities, AppSession, ApplicationError, ApplicationSessionProvider, BrowserError,
-    BrowserSession, BrowserSessionProvider, ProcessIdentity, ResourceId, ResourceRef,
-    WindowIdentity,
+    AppSession, ApplicationError, ApplicationSessionProvider, BrowserError, BrowserSession,
+    BrowserSessionProvider, CapabilityId, CapabilitySet, ProcessIdentity, ResourceId, ResourceRef,
+    ResourceTypeId, WindowIdentity,
 };
 pub use value::ValueExpr;
 pub use workflow::{
-    ConditionBranch, Position, WorkflowDefinition, WorkflowEdge, WorkflowNode, WorkflowNodeKind,
+    ControlPortId, NodeEnvelope, NodeTypeId, Position, WorkflowDefinition, WorkflowEdge,
+    WorkflowNode,
 };

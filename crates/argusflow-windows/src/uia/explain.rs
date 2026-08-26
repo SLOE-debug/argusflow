@@ -87,14 +87,14 @@ fn visit(expression: &UiaPlanExpr, steps: &mut Vec<PlanStepExplain>) {
         UiaPlanExpr::First(query) => {
             steps.push(PlanStepExplain {
                 kind: PlanStepKind::Selection,
-                summary: "first result".to_owned(),
+                summary: "first result (bounded materialization)".to_owned(),
             });
             visit(query, steps);
         }
         UiaPlanExpr::Nth { query, index } => {
             steps.push(PlanStepExplain {
                 kind: PlanStepKind::Selection,
-                summary: format!("result #{index}"),
+                summary: format!("result #{index} (materialize at most {index})"),
             });
             visit(query, steps);
         }

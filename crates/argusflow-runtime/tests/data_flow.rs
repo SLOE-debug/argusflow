@@ -5,14 +5,37 @@ use std::{collections::BTreeMap, sync::Arc};
 use argusflow_core::{
     ActionOutcome, AqlQuery, AutomationAction, AutomationError, AutomationExecutionScope,
     AutomationTarget, BackendKind, DiagnosticEvidenceReference, ExecutionEvent, ExecutionEventKind,
-    ExecutionEventPayload, Position, RunInputs, UiOperation, ValueExpr, WorkflowDefinition,
-    WorkflowEdge, WorkflowNode, WorkflowNodeKind, WorkflowPermissions,
+    ExecutionEventPayload, NodeEnvelope, Position, RunInputs, UiOperation, ValueExpr,
+    WorkflowDefinition, WorkflowEdge, WorkflowNode, WorkflowPermissions,
 };
 use argusflow_runtime::{ActionDispatcher, ExecutionEventSink, WorkflowEngine};
 use async_trait::async_trait;
 use serde_json::{Value, json};
 use tokio::sync::{Mutex, mpsc};
 use uuid::Uuid;
+
+/// 测试 fixture 使用的内置节点构造器。
+enum WorkflowNodeKind {
+    Start,
+    Ui { operation: UiOperation },
+    Debug { value: ValueExpr },
+    End,
+}
+
+impl From<WorkflowNodeKind> for NodeEnvelope {
+    fn from(kind: WorkflowNodeKind) -> Self {
+        match kind {
+            WorkflowNodeKind::Start => Self::new("argus.start", 1, json!({})),
+            WorkflowNodeKind::Ui { operation } => {
+                Self::new("argus.ui", 1, json!({ "operation": operation }))
+            }
+            WorkflowNodeKind::Debug { value } => {
+                Self::new("argus.debug", 1, json!({ "value": value }))
+            }
+            WorkflowNodeKind::End => Self::new("argus.end", 1, json!({})),
+        }
+    }
+}
 
 /// 记录 Runtime 交付的已解析动作，并为读取动作返回固定文本端口。
 #[derive(Default)]
@@ -124,17 +147,12 @@ async fn read_output_is_resolved_for_debug_and_the_following_set_value() {
 /// 构造 Start → GetText → Debug/SetValue(NodeOutput) → End 的最小数据流。
 fn read_then_write_workflow() -> WorkflowDefinition {
     WorkflowDefinition {
-        schema_version: 6,
+        schema_version: 7,
         id: Uuid::new_v4(),
         name: "Read then write".to_owned(),
         inputs: Vec::new(),
         variables: json!({}),
-        permissions: WorkflowPermissions {
-            application_launch: false,
-            direct_command: false,
-            powershell: false,
-            cmd: false,
-        },
+        permissions: WorkflowPermissions::default(),
         nodes: vec![
             node("start", 0.0, WorkflowNodeKind::Start),
             node(
@@ -189,7 +207,7 @@ fn node(id: &str, x: f64, kind: WorkflowNodeKind) -> WorkflowNode {
     WorkflowNode {
         id: id.to_owned(),
         position: Position { x, y: 0.0 },
-        kind,
+        definition: kind.into(),
     }
 }
 

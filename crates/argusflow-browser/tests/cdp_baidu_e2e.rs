@@ -3,8 +3,8 @@ use std::sync::Arc;
 use argusflow_agent::{ActionBackend, ActionRouter};
 use argusflow_browser::{CdpBackend, CdpRuntime};
 use argusflow_core::{
-    AqlQuery, AutomationAction, AutomationExecutionScope, AutomationTarget, BackendPreference,
-    BrowserSessionProvider, BrowserSpec, TargetScope,
+    AqlQuery, AutomationAction, AutomationExecutionScope, AutomationTarget, BackendKind,
+    BackendPolicy, BrowserSessionProvider, BrowserSpec, TargetScope,
 };
 use argusflow_runtime::ActionDispatcher;
 
@@ -38,7 +38,7 @@ async fn collects_baidu_hot_search_links_with_crlf_records() {
                     r##"css("#hotsearch-content-wrapper a.title-content .title-content-title")"##,
                 ),
             },
-            backend_preference: BackendPreference::BrowserCdp,
+            backend_policy: BackendPolicy::only(BackendKind::BrowserCdp),
         },
     };
 

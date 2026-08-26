@@ -1,15 +1,16 @@
-use std::collections::{HashMap, HashSet};
-
-use argusflow_core::{
-    CommandOperation, ResourceRef, TargetScope, UiOperation, ValueExpr, WorkflowDefinition,
-    WorkflowNode, WorkflowNodeKind,
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
 };
 
-use crate::{ValidationIssue, ValidationIssueCode, validator::issue};
+use argusflow_core::{ResourceRef, ValueExpr, WorkflowDefinition, WorkflowNode};
 
-/// 校验 ValueExpr、ResourceRef 的生产端口、节点存在性与 CFG 支配关系。
+use crate::{PreparedNode, ValidationIssue, ValidationIssueCode, ValueTypeId, validator::issue};
+
+/// 校验注册节点声明的值/资源输入、生产端口、节点存在性与 CFG 支配关系。
 pub(crate) fn validate_data_references(
     workflow: &WorkflowDefinition,
+    prepared_nodes: &HashMap<String, Arc<dyn PreparedNode>>,
     start_id: &str,
     predecessors: &HashMap<String, Vec<String>>,
     issues: &mut Vec<ValidationIssue>,
@@ -29,71 +30,64 @@ pub(crate) fn validate_data_references(
         predecessors,
     );
     for consumer in &workflow.nodes {
-        match &consumer.kind {
-            WorkflowNodeKind::Ui { operation } => {
-                validate_scope(
-                    operation.target().scope.clone(),
-                    consumer,
-                    &nodes,
-                    &dominators,
-                    issues,
-                );
-                if let UiOperation::SetValue { value, .. } = operation {
-                    validate_value(value, consumer, workflow, &nodes, &dominators, issues);
-                }
-            }
-            WorkflowNodeKind::Command { operation } => {
-                for expression in command_values(operation) {
-                    validate_value(expression, consumer, workflow, &nodes, &dominators, issues);
-                }
-            }
-            WorkflowNodeKind::Debug { value } => {
-                validate_value(value, consumer, workflow, &nodes, &dominators, issues);
-            }
-            WorkflowNodeKind::Start
-            | WorkflowNodeKind::Log { .. }
-            | WorkflowNodeKind::Delay { .. }
-            | WorkflowNodeKind::Condition { .. }
-            | WorkflowNodeKind::Application { .. }
-            | WorkflowNodeKind::Browser { .. }
-            | WorkflowNodeKind::End => {}
+        let Some(prepared) = prepared_nodes.get(&consumer.id) else {
+            continue;
+        };
+        for input in prepared.resource_inputs() {
+            validate_resource(
+                input.reference,
+                input.expected_type,
+                consumer,
+                &nodes,
+                prepared_nodes,
+                &dominators,
+                issues,
+            );
+        }
+        for input in prepared.value_inputs() {
+            validate_value(
+                input.expression,
+                &input.expected_type,
+                consumer,
+                workflow,
+                &nodes,
+                prepared_nodes,
+                &dominators,
+                issues,
+            );
         }
     }
 }
 
-/// 校验一个 UI 资源作用域只指向支配消费者的 Application.session。
-fn validate_scope(
-    scope: TargetScope,
+/// 校验资源引用指向类型匹配且严格支配消费者的注册端口。
+fn validate_resource(
+    resource: &ResourceRef,
+    expected_type: &argusflow_core::ResourceTypeId,
     consumer: &WorkflowNode,
     nodes: &HashMap<&str, &WorkflowNode>,
+    prepared_nodes: &HashMap<String, Arc<dyn PreparedNode>>,
     dominators: &HashMap<String, HashSet<String>>,
     issues: &mut Vec<ValidationIssue>,
 ) {
-    let (resource, expected_browser, resource_name) = match scope {
-        TargetScope::Current => return,
-        TargetScope::Application { resource } => (resource, false, "Application"),
-        TargetScope::Browser { resource } => (resource, true, "Browser"),
-    };
-    let Some(producer) = nodes.get(resource.producer_node_id.as_str()) else {
+    let Some(_producer) = nodes.get(resource.producer_node_id.as_str()) else {
         issues.push(reference_issue(
             ValidationIssueCode::InvalidResourceReference,
             consumer,
-            &resource,
+            resource,
             "资源生产节点不存在",
         ));
         return;
     };
-    let producer_matches = match (&producer.kind, expected_browser) {
-        (WorkflowNodeKind::Application { .. }, false)
-        | (WorkflowNodeKind::Browser { .. }, true) => true,
-        _ => false,
-    };
-    if resource.output_name != "session" || !producer_matches {
+    let producer_matches = prepared_nodes
+        .get(&resource.producer_node_id)
+        .and_then(|prepared| prepared.resource_output(&resource.output_name))
+        .is_some_and(|actual_type| actual_type == expected_type);
+    if !producer_matches {
         issues.push(reference_issue(
             ValidationIssueCode::InvalidResourceReference,
             consumer,
-            &resource,
-            &format!("引用不是 {resource_name} 节点的 session 资源端口"),
+            resource,
+            &format!("生产端口没有公开资源类型 '{}'", expected_type.as_str(),),
         ));
         return;
     }
@@ -103,60 +97,72 @@ fn validate_scope(
         dominators,
         ValidationIssueCode::ReferenceNotDominating,
         format!(
-            "{} 资源 '{}.{}' 并非在所有到达消费节点的路径上先执行",
-            resource_name, resource.producer_node_id, resource.output_name,
+            "资源 '{}.{}' 并非在所有到达消费节点的路径上先执行",
+            resource.producer_node_id, resource.output_name,
         ),
         issues,
     );
 }
 
-/// 校验一个值表达式的数据来源与生产端口。
+/// 校验一个值表达式的数据来源与注册值端口。
 fn validate_value(
     expression: &ValueExpr,
+    expected_type: &ValueTypeId,
     consumer: &WorkflowNode,
     workflow: &WorkflowDefinition,
     nodes: &HashMap<&str, &WorkflowNode>,
+    prepared_nodes: &HashMap<String, Arc<dyn PreparedNode>>,
     dominators: &HashMap<String, HashSet<String>>,
     issues: &mut Vec<ValidationIssue>,
 ) {
     match expression {
         ValueExpr::Literal { value } => {
-            if !value.is_string() {
+            if !value_matches_type(value, expected_type) {
                 issues.push(issue(
                     ValidationIssueCode::InvalidValueReference,
-                    "当前节点参数要求字符串字面量",
+                    format!("当前节点参数要求 '{}' 字面量", expected_type.as_str()),
                     Some(consumer.id.clone()),
                     None,
                 ));
             }
         }
         ValueExpr::WorkflowInput { key } => {
-            if key.trim().is_empty() || !workflow.inputs.iter().any(|input| input.key == *key) {
+            let declared_type = workflow
+                .inputs
+                .iter()
+                .find(|input| input.key == *key)
+                .map(|_| ValueTypeId::text());
+            if key.trim().is_empty() || declared_type.as_ref() != Some(expected_type) {
                 issues.push(issue(
                     ValidationIssueCode::InvalidValueReference,
-                    format!("工作流输入 '{key}' 没有声明"),
+                    format!(
+                        "工作流输入 '{key}' 没有声明或类型不是 '{}'",
+                        expected_type.as_str(),
+                    ),
                     Some(consumer.id.clone()),
                     None,
                 ));
             }
         }
         ValueExpr::Variable { name } => {
-            if name.trim().is_empty()
-                || !workflow
-                    .variables
-                    .get(name.as_str())
-                    .is_some_and(serde_json::Value::is_string)
-            {
+            let matches_type = workflow
+                .variables
+                .get(name.as_str())
+                .is_some_and(|value| value_matches_type(value, expected_type));
+            if name.trim().is_empty() || !matches_type {
                 issues.push(issue(
                     ValidationIssueCode::InvalidValueReference,
-                    format!("运行变量 '{name}' 不存在或不是字符串"),
+                    format!(
+                        "运行变量 '{name}' 不存在或类型不是 '{}'",
+                        expected_type.as_str(),
+                    ),
                     Some(consumer.id.clone()),
                     None,
                 ));
             }
         }
         ValueExpr::NodeOutput { node_id, output } => {
-            let Some(producer) = nodes.get(node_id.as_str()) else {
+            if !nodes.contains_key(node_id.as_str()) {
                 issues.push(issue(
                     ValidationIssueCode::InvalidValueReference,
                     format!("值输出生产节点 '{node_id}' 不存在"),
@@ -164,11 +170,19 @@ fn validate_value(
                     None,
                 ));
                 return;
-            };
-            if !node_exposes_text(producer, output) {
+            }
+            let exposes_expected_type = prepared_nodes
+                .get(node_id)
+                .and_then(|prepared| prepared.value_output(output))
+                .as_ref()
+                == Some(expected_type);
+            if !exposes_expected_type {
                 issues.push(issue(
                     ValidationIssueCode::InvalidValueReference,
-                    format!("节点 '{node_id}' 不公开文本输出端口 '{output}'"),
+                    format!(
+                        "节点 '{node_id}' 的输出端口 '{output}' 不公开类型 '{}'",
+                        expected_type.as_str(),
+                    ),
                     Some(consumer.id.clone()),
                     None,
                 ));
@@ -186,42 +200,13 @@ fn validate_value(
     }
 }
 
-/// 判断节点是否公开可以直接供文本参数消费的输出端口。
-fn node_exposes_text(node: &WorkflowNode, output: &str) -> bool {
-    match &node.kind {
-        WorkflowNodeKind::Ui {
-            operation: UiOperation::GetText { .. },
-        } => output == "text",
-        WorkflowNodeKind::Ui {
-            operation: UiOperation::GetValue { .. },
-        } => output == "value",
-        WorkflowNodeKind::Ui {
-            operation: UiOperation::CollectLinks { .. },
-        } => output == "text",
-        WorkflowNodeKind::Command { .. } => matches!(output, "stdout" | "stderr"),
-        WorkflowNodeKind::Start
-        | WorkflowNodeKind::Log { .. }
-        | WorkflowNodeKind::Debug { .. }
-        | WorkflowNodeKind::Delay { .. }
-        | WorkflowNodeKind::Condition { .. }
-        | WorkflowNodeKind::Application { .. }
-        | WorkflowNodeKind::Browser { .. }
-        | WorkflowNodeKind::Ui { .. }
-        | WorkflowNodeKind::End => false,
+/// 校验内置值类型；自定义类型的更细约束由拥有它的 PreparedNode 校验。
+fn value_matches_type(value: &serde_json::Value, expected_type: &ValueTypeId) -> bool {
+    if expected_type == &ValueTypeId::text() {
+        value.is_string()
+    } else {
+        true
     }
-}
-
-/// 按稳定字段顺序枚举 CommandOperation 内的全部 ValueExpr。
-fn command_values(operation: &CommandOperation) -> Vec<&ValueExpr> {
-    operation
-        .program
-        .iter()
-        .chain(operation.arguments.iter())
-        .chain(operation.script.iter())
-        .chain(operation.working_directory.iter())
-        .chain(operation.environment.iter().map(|binding| &binding.value))
-        .chain(operation.stdin.iter())
-        .collect()
 }
 
 /// 检查生产节点严格支配消费节点；节点不能引用自身尚未产生的输出。

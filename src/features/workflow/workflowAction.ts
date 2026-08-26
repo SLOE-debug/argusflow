@@ -1,6 +1,7 @@
 import type {
   AutomationTarget,
-  BackendPreference,
+  BackendKind,
+  BackendPolicy,
   TargetLocator,
   TargetLocatorKind,
   TargetScope,
@@ -19,7 +20,7 @@ export function createDefaultUiOperation(): UiOperation {
     target: {
       scope: { type: 'current' },
       locator: createTargetLocator('query'),
-      backend_preference: 'auto',
+      backend_policy: createBackendPolicy('auto'),
     },
   };
 }
@@ -52,7 +53,7 @@ export function changeUiOperationKind(
           locator: operation.target.locator.type === 'query'
             ? operation.target.locator
             : createTargetLocator('query'),
-          backend_preference: 'browser_cdp',
+          backend_policy: createBackendPolicy('browser_cdp'),
         },
       };
   }
@@ -85,9 +86,9 @@ export function changeTargetLocatorKind(
   return replaceAutomationTarget(operation, {
     ...operation.target,
     locator: createTargetLocator(kind),
-    backend_preference: kind === 'query'
-      ? operation.target.backend_preference
-      : 'auto',
+    backend_policy: kind === 'query'
+      ? operation.target.backend_policy
+      : createBackendPolicy('auto'),
   });
 }
 
@@ -99,15 +100,40 @@ export function changeTargetScope(
   return replaceAutomationTarget(operation, { ...operation.target, scope });
 }
 
-/** 更新动作目标的后端偏好。 */
-export function changeBackendPreference(
+/** 编辑器可直接表达的后端策略预设。 */
+export type BackendPolicyPreset = 'auto' | Extract<
+  BackendKind,
+  'windows_uia' | 'browser_cdp'
+>;
+
+/** 更新动作目标的后端策略预设。 */
+export function changeBackendPolicy(
   operation: UiOperation,
-  backendPreference: BackendPreference,
+  preset: BackendPolicyPreset,
 ): UiOperation {
   return replaceAutomationTarget(operation, {
     ...operation.target,
-    backend_preference: backendPreference,
+    backend_policy: createBackendPolicy(preset),
   });
+}
+
+/** 把编辑器预设转换为运行时开放集合策略。 */
+export function createBackendPolicy(preset: BackendPolicyPreset): BackendPolicy {
+  if (preset === 'auto') {
+    return { allow: [], deny: [], prefer: [] };
+  }
+  return { allow: [preset], deny: [], prefer: [preset] };
+}
+
+/** 将受支持的策略还原为编辑器预设；其它注册策略保留为自动展示。 */
+export function resolveBackendPolicyPreset(policy: BackendPolicy): BackendPolicyPreset {
+  if (policy.allow.length === 1
+    && policy.deny.length === 0
+    && policy.prefer[0] === policy.allow[0]
+    && (policy.allow[0] === 'windows_uia' || policy.allow[0] === 'browser_cdp')) {
+    return policy.allow[0];
+  }
+  return 'auto';
 }
 
 /** 更新操作的定位契约。 */
