@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 
-use argusflow_core::{AppSession, ResourceId, ResourceRef, ValueExpr};
+use argusflow_core::{AppSession, BrowserSession, ResourceId, ResourceRef, ValueExpr};
 use serde_json::{Map, Value};
 use uuid::Uuid;
 
@@ -30,6 +30,8 @@ impl NodeOutcome {
 pub enum ResourceEntry {
     /// Windows 桌面应用逻辑会话。
     Application(AppSession),
+    /// 隔离 Chromium/CDP 页面会话。
+    Browser(BrowserSession),
 }
 
 /// 单次运行独占的真实资源与逻辑引用绑定表。
@@ -53,6 +55,15 @@ impl ResourceTable {
         self.acquisition_order.push(resource_id);
     }
 
+    /// 绑定一个 Browser 节点的 `session` 输出。
+    pub fn insert_browser(&mut self, reference: ResourceRef, session: BrowserSession) {
+        let resource_id = session.id;
+        self.resources
+            .insert(resource_id, ResourceEntry::Browser(session));
+        self.bindings.insert(reference, resource_id);
+        self.acquisition_order.push(resource_id);
+    }
+
     /// 解析逻辑引用并要求其绑定应用会话。
     pub fn application(&self, reference: &ResourceRef) -> Result<&AppSession, RuntimeError> {
         let resource_id =
@@ -63,19 +74,35 @@ impl ResourceTable {
                 })?;
         match self.resources.get(resource_id) {
             Some(ResourceEntry::Application(session)) => Ok(session),
-            None => Err(RuntimeError::ResourceUnavailable {
+            _ => Err(RuntimeError::ResourceUnavailable {
                 reference: reference.clone(),
             }),
         }
     }
 
-    /// 返回所有应用会话的反向获取顺序副本，供异步清理时避免跨 await 借用表。
-    pub fn applications_for_cleanup(&self) -> Vec<AppSession> {
+    /// 解析逻辑引用并要求其绑定浏览器会话。
+    pub fn browser(&self, reference: &ResourceRef) -> Result<&BrowserSession, RuntimeError> {
+        let resource_id =
+            self.bindings
+                .get(reference)
+                .ok_or_else(|| RuntimeError::ResourceUnavailable {
+                    reference: reference.clone(),
+                })?;
+        match self.resources.get(resource_id) {
+            Some(ResourceEntry::Browser(session)) => Ok(session),
+            _ => Err(RuntimeError::ResourceUnavailable {
+                reference: reference.clone(),
+            }),
+        }
+    }
+
+    /// 返回全部资源的反向获取顺序副本，供异步清理时避免跨 await 借用表。
+    pub fn resources_for_cleanup(&self) -> Vec<ResourceEntry> {
         self.acquisition_order
             .iter()
             .rev()
             .filter_map(|resource_id| match self.resources.get(resource_id) {
-                Some(ResourceEntry::Application(session)) => Some(session.clone()),
+                Some(resource) => Some(resource.clone()),
                 None => None,
             })
             .collect()

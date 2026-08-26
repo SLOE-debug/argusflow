@@ -4,6 +4,7 @@
 
 mod application;
 mod automation;
+mod browser;
 mod command;
 mod condition;
 mod error;
@@ -20,6 +21,7 @@ pub use automation::{
     BackendPreference, DiagnosticEvidenceReference, ScreenPoint, TargetLocator, TargetScope,
     UiOperation, VisualQuery, WindowTitleMatcher,
 };
+pub use browser::BrowserSpec;
 pub use command::{
     CommandOperation, CommandRunner, EnvironmentBinding, WorkflowCapability, WorkflowPermissions,
     required_command_capability,
@@ -34,8 +36,9 @@ pub use query::{
     UiaAttribute,
 };
 pub use resource::{
-    AppCapabilities, AppSession, ApplicationError, ApplicationSessionProvider, ProcessIdentity,
-    ResourceId, ResourceRef, WindowIdentity,
+    AppCapabilities, AppSession, ApplicationError, ApplicationSessionProvider, BrowserError,
+    BrowserSession, BrowserSessionProvider, ProcessIdentity, ResourceId, ResourceRef,
+    WindowIdentity,
 };
 pub use value::ValueExpr;
 pub use workflow::{

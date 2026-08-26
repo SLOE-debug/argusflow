@@ -4,6 +4,7 @@ import {
   Bell,
   Bug,
   Clock3,
+  Globe2,
   Combine,
   Database,
   FileCode2,
@@ -170,6 +171,14 @@ export const PALETTE_ITEMS = [
     group: 'resource',
     icon: AppWindow,
     iconClassName: 'bg-indigo-50 text-indigo-700',
+  },
+  {
+    kind: 'browser',
+    title: '打开浏览器',
+    description: '创建隔离的 CDP 页面会话',
+    group: 'resource',
+    icon: Globe2,
+    iconClassName: 'bg-sky-50 text-sky-700',
   },
   {
     kind: 'ui',

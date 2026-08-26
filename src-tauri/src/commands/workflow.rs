@@ -79,6 +79,8 @@ pub enum CommandErrorCode {
     AutomationFailed,
     /// 应用资源获取或清理失败。
     ApplicationFailed,
+    /// 浏览器资源获取、CDP 初始化或清理失败。
+    BrowserFailed,
     /// 命令节点准备或执行失败。
     CommandFailed,
     /// 节点的数据或资源引用在执行期不可用。
@@ -138,6 +140,11 @@ impl From<RuntimeError> for CommandError {
             },
             RuntimeError::Application(error) => Self {
                 code: CommandErrorCode::ApplicationFailed,
+                message: error.to_string(),
+                issues: Vec::new(),
+            },
+            RuntimeError::Browser(error) => Self {
+                code: CommandErrorCode::BrowserFailed,
                 message: error.to_string(),
                 issues: Vec::new(),
             },

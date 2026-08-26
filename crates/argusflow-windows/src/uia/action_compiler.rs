@@ -12,6 +12,9 @@ use super::{
 /// UIA 无法为查询最终角色保持动作语义时返回的结构化错误。
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum UiaActionCompileError {
+    /// 动作只由其它后端定义，UIA 不提供等价语义。
+    #[error("Windows UI Automation does not support this action")]
+    UnsupportedAction,
     /// 至少一个可能成为 `any` 首个非空结果的角色不支持当前动作策略。
     #[error("Windows UI Automation cannot preserve the action semantics for target role {role:?}")]
     UnsupportedTargetRole {
@@ -25,6 +28,9 @@ pub fn compile_uia_action(
     action: &AutomationAction,
     query: UiaQueryPlan,
 ) -> Result<UiaPreparedPlan, UiaActionCompileError> {
+    if matches!(action, AutomationAction::CollectLinks { .. }) {
+        return Err(UiaActionCompileError::UnsupportedAction);
+    }
     let action_plan = match action {
         AutomationAction::Click { .. } => UiaActionPlan::Invoke,
         AutomationAction::SetValue { value, .. } => UiaActionPlan::SetValue {
@@ -32,6 +38,7 @@ pub fn compile_uia_action(
         },
         AutomationAction::GetText { .. } => UiaActionPlan::GetText,
         AutomationAction::GetValue { .. } => UiaActionPlan::GetValue,
+        AutomationAction::CollectLinks { .. } => unreachable!("handled before action planning"),
     };
     let mut roles = Vec::new();
     collect_target_roles(&query.expression, &mut roles);

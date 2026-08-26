@@ -28,6 +28,7 @@ const NODE_LOG_TONES = {
   delay: 'border-amber-500 text-amber-700',
   condition: 'border-violet-500 text-violet-700',
   application: 'border-indigo-500 text-indigo-700',
+  browser: 'border-sky-500 text-sky-700',
   ui: 'border-cyan-500 text-cyan-700',
   command: 'border-slate-600 text-slate-700',
   end: 'border-rose-500 text-rose-700',

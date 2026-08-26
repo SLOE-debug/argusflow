@@ -33,6 +33,14 @@ pub enum UiOperation {
         /// 要定位并读取的目标。
         target: AutomationTarget,
     },
+    /// 批量读取链接元素的可见标题和已解析绝对 URL。
+    ///
+    /// `text` 输出中每条记录使用制表符分隔标题与 URL，并以 `\r\n` 结尾；
+    /// `links` 输出保留结构化数组，供后续数据节点扩展使用。
+    CollectLinks {
+        /// 要批量定位的链接集合。
+        target: AutomationTarget,
+    },
 }
 
 impl UiOperation {
@@ -42,7 +50,8 @@ impl UiOperation {
             Self::Click { target }
             | Self::SetValue { target, .. }
             | Self::GetText { target }
-            | Self::GetValue { target } => target,
+            | Self::GetValue { target }
+            | Self::CollectLinks { target } => target,
         }
     }
 }
@@ -72,6 +81,11 @@ pub enum AutomationAction {
         /// 要定位并读取的目标。
         target: AutomationTarget,
     },
+    /// 批量读取链接元素的可见标题和已解析绝对 URL。
+    CollectLinks {
+        /// 要批量定位的链接集合。
+        target: AutomationTarget,
+    },
 }
 
 impl AutomationAction {
@@ -81,7 +95,8 @@ impl AutomationAction {
             Self::Click { target }
             | Self::SetValue { target, .. }
             | Self::GetText { target }
-            | Self::GetValue { target } => target,
+            | Self::GetValue { target }
+            | Self::CollectLinks { target } => target,
         }
     }
 }
@@ -128,6 +143,11 @@ pub enum TargetScope {
     /// 使用 Application 节点产生的逻辑会话。
     Application {
         /// 指向应用节点 `session` 资源端口的引用。
+        resource: ResourceRef,
+    },
+    /// 在 Browser 节点创建的隔离 CDP 页面会话内执行。
+    Browser {
+        /// 指向 Browser 节点 `session` 资源端口的引用。
         resource: ResourceRef,
     },
 }
@@ -256,7 +276,7 @@ pub struct DiagnosticEvidenceReference {
 }
 
 /// Runtime 解析资源引用后传给 ActionDispatcher 的瞬时执行作用域。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AutomationExecutionScope {
     /// 沿用宿主捕获的当前执行上下文。
     Current,
@@ -268,5 +288,12 @@ pub enum AutomationExecutionScope {
         process_id: u32,
         /// 应用资源提供器在获取阶段确认的后端能力事实。
         capabilities: AppCapabilities,
+    },
+    /// 在已获取且仍附加的浏览器页面会话内执行。
+    Browser {
+        /// 单次运行内浏览器资源的稳定 ID。
+        session_id: crate::ResourceId,
+        /// 获取阶段冻结的 CDP page target ID。
+        target_id: String,
     },
 }

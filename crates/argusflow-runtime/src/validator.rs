@@ -33,7 +33,7 @@ pub struct ValidationIssue {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ValidationIssueCode {
-    /// schema 版本不是 5。
+    /// schema 版本不是 6。
     UnsupportedSchemaVersion,
     /// 工作流名称为空。
     EmptyWorkflowName,
@@ -77,6 +77,8 @@ pub enum ValidationIssueCode {
     InvalidAqlQuery,
     /// 应用节点缺少有效 EXE、窗口标题或策略配置。
     InvalidApplicationSpec,
+    /// 浏览器节点缺少有效 EXE、初始 URL 或启动边界。
+    InvalidBrowserSpec,
     /// WorkflowPermissions 没有授权 Application 节点所需的启动能力。
     ApplicationPermissionDenied,
     /// UI 节点的后端偏好与目标资源作用域能力不兼容。
@@ -93,7 +95,7 @@ pub enum ValidationIssueCode {
     ReferenceNotDominating,
 }
 
-/// 校验 schema v5 条件 DAG、节点参数、数据流和资源支配关系。
+/// 校验 schema v6 条件 DAG、节点参数、数据流和资源支配关系。
 pub fn validate_workflow(workflow: &WorkflowDefinition) -> ValidationReport {
     let mut issues = Vec::new();
     validate_workflow_metadata(workflow, &mut issues);
@@ -142,10 +144,10 @@ pub fn validate_workflow(workflow: &WorkflowDefinition) -> ValidationReport {
 
 /// 校验工作流级契约。
 fn validate_workflow_metadata(workflow: &WorkflowDefinition, issues: &mut Vec<ValidationIssue>) {
-    if workflow.schema_version != 5 {
+    if workflow.schema_version != 6 {
         issues.push(issue(
             ValidationIssueCode::UnsupportedSchemaVersion,
-            "schema_version 必须为 5",
+            "schema_version 必须为 6",
             None,
             None,
         ));
@@ -303,6 +305,7 @@ fn validate_node_degrees(
             | WorkflowNodeKind::Debug { .. }
             | WorkflowNodeKind::Delay { .. }
             | WorkflowNodeKind::Application { .. }
+            | WorkflowNodeKind::Browser { .. }
             | WorkflowNodeKind::Ui { .. }
             | WorkflowNodeKind::Command { .. } => incoming_count >= 1 && node_edges.len() == 1,
         };

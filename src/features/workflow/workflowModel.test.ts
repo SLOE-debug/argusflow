@@ -41,7 +41,7 @@ function createExecutionEvent(
 }
 
 describe('workflow model', () => {
-  it('maps the empty canvas to the schema v5 Rust contract', () => {
+  it('maps the empty canvas to the schema v6 Rust contract', () => {
     const workflow = toWorkflowDefinition(
       '6d7d7a91-4e19-42c9-b1d8-011d4cf94330',
       'Demo',
@@ -51,7 +51,7 @@ describe('workflow model', () => {
       [],
       [],
     );
-    expect(workflow.schema_version).toBe(5);
+    expect(workflow.schema_version).toBe(6);
     expect(workflow.variables).toEqual({ enabled: true });
     expect(workflow.nodes).toEqual([]);
   });
@@ -96,7 +96,7 @@ describe('workflow model', () => {
     vi.unstubAllGlobals();
   });
 
-  it('uses a multi-step Notepad++ UIA workflow as the default template', () => {
+  it('uses a browser-to-desktop Baidu news workflow as the default template', () => {
     const workflow = toWorkflowDefinition(
       '6d7d7a91-4e19-42c9-b1d8-011d4cf94330',
       DEFAULT_WORKFLOW_NAME,
@@ -107,102 +107,53 @@ describe('workflow model', () => {
       DEFAULT_EDGES,
     );
 
-    expect(workflow.name).toBe('用 UIA 驱动 Notepad++ 查找');
-    expect(workflow.inputs).toEqual([
-      { key: 'search_text', value_type: 'text' },
-    ]);
-    expect(DEFAULT_RUN_INPUT_VALUES).toEqual({
-      search_text: 'UIA',
-    });
+    expect(workflow.name).toBe('采集百度热搜并写入桌面文本');
+    expect(workflow.inputs).toEqual([]);
+    expect(DEFAULT_RUN_INPUT_VALUES).toEqual({});
     expect(workflow.nodes.some((node) => node.type === 'condition')).toBe(false);
-    expect(workflow.edges).toHaveLength(13);
+    expect(workflow.edges).toHaveLength(6);
     expect(workflow.edges.every((edge) => edge.branch === null)).toBe(true);
     expect(workflow.nodes).toContainEqual(expect.objectContaining({
-      id: 'wait_notepadpp_ready_1',
-      type: 'delay',
-      milliseconds: 1_000,
+      id: 'baidu_browser_1',
+      type: 'browser',
+      spec: expect.objectContaining({
+        initial_url: 'https://www.baidu.com/',
+      }),
     }));
     expect(workflow.nodes).toContainEqual(expect.objectContaining({
-      type: 'application',
-      spec: expect.objectContaining({ acquire_policy: 'attach_or_start' }),
-    }));
-    expect(workflow.nodes).toContainEqual(expect.objectContaining({
-      id: 'open_search_menu_1',
+      id: 'collect_baidu_news_1',
       type: 'ui',
-      operation: expect.objectContaining({
-        type: 'click',
+      operation: {
+        type: 'collect_links',
         target: expect.objectContaining({
-          locator: expect.objectContaining({
-            query: expect.objectContaining({
-              source: 'menu_item(name = "搜索(S)")',
-            }),
-          }),
+          scope: {
+            type: 'browser',
+            resource: {
+              producer_node_id: 'baidu_browser_1',
+              output_name: 'session',
+            },
+          },
+          backend_preference: 'browser_cdp',
+          locator: {
+            type: 'query',
+            query: {
+              language_version: 1,
+              source: 'css("#hotsearch-content-wrapper a.title-content .title-content-title")',
+            },
+          },
         }),
-      }),
-    }));
-    expect(workflow.nodes).toContainEqual(expect.objectContaining({
-      id: 'open_find_dialog_1',
-      type: 'ui',
-      operation: expect.objectContaining({
-        type: 'click',
-        target: expect.objectContaining({
-          locator: expect.objectContaining({
-            query: expect.objectContaining({
-              source: 'menu_item(name starts_with "查找(F)...")',
-            }),
-          }),
-        }),
-      }),
-    }));
-    expect(workflow.nodes).toContainEqual(expect.objectContaining({
-      id: 'set_find_value_1',
-      type: 'ui',
-      operation: expect.objectContaining({
-        type: 'set_value',
-        value: { type: 'workflow_input', key: 'search_text' },
-      }),
-    }));
-    expect(workflow.nodes).toContainEqual(expect.objectContaining({
-      id: 'count_matches_1',
-      type: 'ui',
-      operation: expect.objectContaining({ type: 'click' }),
-    }));
-    expect(workflow.nodes).toContainEqual(expect.objectContaining({
-      id: 'read_search_value_1',
-      type: 'ui',
-      operation: expect.objectContaining({
-        type: 'get_value',
-        target: expect.objectContaining({
-          locator: expect.objectContaining({
-            query: expect.objectContaining({
-              source: 'dialog(name = "查找") >> textbox(name = "查找目标(F) :")',
-            }),
-          }),
-        }),
-      }),
-    }));
-    expect(workflow.nodes).toContainEqual(expect.objectContaining({
-      type: 'debug',
-      value: {
-        type: 'node_output',
-        node_id: 'read_search_value_1',
-        output: 'value',
       },
     }));
     expect(workflow.nodes).toContainEqual(expect.objectContaining({
-      id: 'close_find_dialog_1',
-      type: 'ui',
+      id: 'write_baidu_news_1',
+      type: 'command',
       operation: expect.objectContaining({
-        type: 'click',
-        target: expect.objectContaining({
-          backend_preference: 'windows_uia',
-          locator: expect.objectContaining({
-            type: 'query',
-            query: expect.objectContaining({
-              source: 'dialog(name = "查找") >> button(name = "取消")',
-            }),
-          }),
-        }),
+        runner: 'power_shell',
+        stdin: {
+          type: 'node_output',
+          node_id: 'collect_baidu_news_1',
+          output: 'text',
+        },
       }),
     }));
   });
@@ -250,14 +201,8 @@ describe('workflow model', () => {
     const previewRoutes = DEFAULT_EDGES.map((edge) => (
       previewEdgeRoute(edge, DEFAULT_NODES)?.route ?? null
     ));
-    const waitReadEdgeIndex = DEFAULT_EDGES.findIndex(
-      (edge) => edge.id === 'edge_wait_read',
-    );
-    const waitSetEdgeIndex = DEFAULT_EDGES.findIndex(
-      (edge) => edge.id === 'edge_wait_set',
-    );
-    const setCountEdgeIndex = DEFAULT_EDGES.findIndex(
-      (edge) => edge.id === 'edge_set_count',
+    const writeDebugEdgeIndex = DEFAULT_EDGES.findIndex(
+      (edge) => edge.id === 'edge_write_debug',
     );
     const routeGroups = [
       ['exact', exactRoutes],
@@ -281,20 +226,11 @@ describe('workflow model', () => {
     expect(exactRoutes.every((route) => route !== null)).toBe(true);
     expect(previewRoutes.every((route) => route !== null)).toBe(true);
     expect(nodeCrossings).toEqual([]);
-    expect(exactRoutes[waitReadEdgeIndex]).toMatchObject({
+    expect(exactRoutes[writeDebugEdgeIndex]).toMatchObject({
       sourceSide: 'bottom',
-      targetSide: 'top',
-    });
-    expect(exactRoutes[waitSetEdgeIndex]).toMatchObject({
-      sourceSide: 'left',
       targetSide: 'right',
     });
-    /** 截图复现边不得再暴露 OVG 的连续短距离阶梯折点。 */
-    expect(exactRoutes[waitSetEdgeIndex]!.points.length)
-      .toBeLessThanOrEqual(6);
-    expect(previewRoutes[waitSetEdgeIndex]!.points.length)
-      .toBeLessThanOrEqual(6);
-    expect(exactRoutes[setCountEdgeIndex]!.points.length)
+    expect(exactRoutes[writeDebugEdgeIndex]!.points.length)
       .toBeLessThanOrEqual(6);
   });
 

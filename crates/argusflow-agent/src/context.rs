@@ -2,6 +2,8 @@ use std::sync::RwLock;
 
 use serde::{Deserialize, Serialize};
 
+use argusflow_core::ResourceId;
+
 /// 当前前台窗口的稳定规划信息。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WindowContext {
@@ -23,6 +25,8 @@ pub struct ProcessContext {
 /// 当前浏览器调试会话上下文。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BrowserSessionContext {
+    /// 单次运行中与 CDP runtime 注册项关联的资源 ID。
+    pub session_id: ResourceId,
     /// 当前 CDP target 的稳定 ID。
     pub target_id: String,
     /// 会话是否仍处于 attached 状态。

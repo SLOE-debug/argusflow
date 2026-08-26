@@ -1,9 +1,9 @@
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use argusflow_core::{
-    ApplicationSessionProvider, AutomationAction, AutomationExecutionScope, ExecutionEventKind,
-    ExecutionEventPayload, ResourceRef, TargetScope, UiOperation, WorkflowCapability, WorkflowNode,
-    WorkflowNodeKind, WorkflowPermissions,
+    ApplicationSessionProvider, AutomationAction, AutomationExecutionScope, BrowserSessionProvider,
+    ExecutionEventKind, ExecutionEventPayload, ResourceRef, TargetScope, UiOperation,
+    WorkflowCapability, WorkflowNode, WorkflowNodeKind, WorkflowPermissions,
 };
 
 use crate::{ActionDispatcher, CommandExecutor, NodeOutcome, RunContext, RuntimeError};
@@ -34,6 +34,8 @@ pub(crate) struct WorkflowNodeExecutor {
     dispatcher: Arc<dyn ActionDispatcher>,
     /// 获取和清理平台应用会话。
     applications: Arc<dyn ApplicationSessionProvider>,
+    /// 获取和清理隔离 Chromium/CDP 页面会话。
+    browsers: Arc<dyn BrowserSessionProvider>,
     /// 独立于 UI Planner 的命令执行器。
     commands: CommandExecutor,
 }
@@ -43,10 +45,12 @@ impl WorkflowNodeExecutor {
     pub(crate) fn new(
         dispatcher: Arc<dyn ActionDispatcher>,
         applications: Arc<dyn ApplicationSessionProvider>,
+        browsers: Arc<dyn BrowserSessionProvider>,
     ) -> Self {
         Self {
             dispatcher,
             applications,
+            browsers,
             commands: CommandExecutor,
         }
     }
@@ -115,6 +119,36 @@ impl WorkflowNodeExecutor {
                     }],
                 })
             }
+            WorkflowNodeKind::Browser { spec } => {
+                if !permissions.allows(WorkflowCapability::ApplicationLaunch) {
+                    return Err(RuntimeError::CapabilityDenied {
+                        capability: WorkflowCapability::ApplicationLaunch,
+                    });
+                }
+                let session = self.browsers.acquire(spec).await?;
+                let output_name = "session".to_owned();
+                context.resources_mut().insert_browser(
+                    ResourceRef {
+                        producer_node_id: node.id.clone(),
+                        output_name: output_name.clone(),
+                    },
+                    session,
+                );
+                Ok(NodeExecution {
+                    outcome: NodeOutcome {
+                        outputs: BTreeMap::new(),
+                        resources: vec![output_name.clone()],
+                    },
+                    events: vec![NodeEvent {
+                        kind: ExecutionEventKind::ResourceAcquired,
+                        message: Some("浏览器 CDP 会话已获取".to_owned()),
+                        payload: Some(ExecutionEventPayload::ResourceAcquired {
+                            output_name,
+                            resource_type: "browser".to_owned(),
+                        }),
+                    }],
+                })
+            }
             WorkflowNodeKind::Ui { operation } => self.execute_ui(operation, context).await,
             WorkflowNodeKind::Command { operation } => {
                 let outcome = self
@@ -169,6 +203,7 @@ impl WorkflowNodeExecutor {
             },
             UiOperation::GetText { .. } => AutomationAction::GetText { target },
             UiOperation::GetValue { .. } => AutomationAction::GetValue { target },
+            UiOperation::CollectLinks { .. } => AutomationAction::CollectLinks { target },
         };
         let action_outcome = self.dispatcher.execute(&action, scope).await?;
         let output_names = action_outcome.outputs.keys().cloned().collect::<Vec<_>>();
@@ -209,8 +244,15 @@ impl WorkflowNodeExecutor {
 
     /// 按反向获取顺序执行应用资源清理策略。
     pub(crate) async fn cleanup(&self, context: &RunContext) -> Result<(), RuntimeError> {
-        for session in context.resources().applications_for_cleanup() {
-            self.applications.cleanup(&session).await?;
+        for resource in context.resources().resources_for_cleanup() {
+            match resource {
+                crate::ResourceEntry::Application(session) => {
+                    self.applications.cleanup(&session).await?;
+                }
+                crate::ResourceEntry::Browser(session) => {
+                    self.browsers.cleanup(&session).await?;
+                }
+            }
         }
         Ok(())
     }
@@ -235,6 +277,13 @@ fn resolve_execution_scope(
                 handle: window.handle,
                 process_id: window.process_id,
                 capabilities: session.capabilities,
+            })
+        }
+        TargetScope::Browser { resource } => {
+            let session = context.resources().browser(resource)?;
+            Ok(AutomationExecutionScope::Browser {
+                session_id: session.id,
+                target_id: session.target_id.clone(),
             })
         }
     }

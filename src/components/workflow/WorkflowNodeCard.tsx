@@ -1,6 +1,7 @@
 import {
   AppWindow,
   Bug,
+  Globe2,
   CircleCheck,
   CircleX,
   Clock3,
@@ -18,6 +19,7 @@ import {
 import type { FlowNodeRendererProps, NodeDefinition } from '../../flow';
 import type {
   TargetLocatorKind,
+  UiOperationKind,
   ValueExpr,
 } from '../../features/workflow/contracts';
 import {
@@ -46,6 +48,7 @@ const NODE_ICONS: Readonly<Record<WorkflowNodeKind, LucideIcon>> = {
   delay: Clock3,
   condition: GitBranch,
   application: AppWindow,
+  browser: Globe2,
   ui: MousePointerClick,
   command: Terminal,
   end: Square,
@@ -79,6 +82,10 @@ const NODE_TONES: Readonly<Record<
   application: {
     accent: 'bg-indigo-500',
     icon: 'bg-indigo-50 text-indigo-700',
+  },
+  browser: {
+    accent: 'bg-sky-500',
+    icon: 'bg-sky-50 text-sky-700',
   },
   ui: {
     accent: 'bg-cyan-500',
@@ -121,6 +128,7 @@ export const workflowNodeRegistry = {
   delay: createDefinition('delay', '等待', WORKFLOW_NODE_SIZES.delay),
   condition: createDefinition('condition', '条件', WORKFLOW_NODE_SIZES.condition),
   application: createDefinition('application', '应用', WORKFLOW_NODE_SIZES.application),
+  browser: createDefinition('browser', '浏览器', WORKFLOW_NODE_SIZES.browser),
   ui: createDefinition('ui', '界面操作', WORKFLOW_NODE_SIZES.ui),
   command: createDefinition('command', '执行命令', WORKFLOW_NODE_SIZES.command),
   end: {
@@ -203,6 +211,8 @@ function resolveNodeDetail(data: WorkflowNodeData): string {
       return `${data.pointer} ${data.operator}`;
     case 'application':
       return `${data.spec.acquire_policy} · ${data.spec.window_title.value}`;
+    case 'browser':
+      return data.spec.initial_url;
     case 'ui':
       return `${operationLabel(data.operation.type)} · ${locatorLabel(data.operation.target.locator.type)}`;
     case 'command':
@@ -269,11 +279,12 @@ function locatorLabel(locator: TargetLocatorKind): string {
 }
 
 /** 将 UI 操作判别值转换成卡片短标签。 */
-function operationLabel(operation: 'click' | 'set_value' | 'get_text' | 'get_value'): string {
+function operationLabel(operation: UiOperationKind): string {
   switch (operation) {
     case 'click': return '点击';
     case 'set_value': return '填写';
     case 'get_text': return '读取文本';
     case 'get_value': return '读取值';
+    case 'collect_links': return '批量链接';
   }
 }

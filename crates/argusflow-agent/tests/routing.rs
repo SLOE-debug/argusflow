@@ -340,6 +340,7 @@ fn planner_prefers_attached_browser_session_for_equal_semantic_plans() {
             process_id: 10,
         }),
         browser_session: Some(BrowserSessionContext {
+            session_id: argusflow_core::ResourceId::new(),
             target_id: "page-1".to_owned(),
             attached: true,
         }),

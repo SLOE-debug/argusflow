@@ -1,4 +1,6 @@
-use argusflow_core::{ApplicationError, AutomationError, ResourceRef, WorkflowCapability};
+use argusflow_core::{
+    ApplicationError, AutomationError, BrowserError, ResourceRef, WorkflowCapability,
+};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -59,6 +61,9 @@ pub enum RuntimeError {
     /// 平台应用会话获取或清理失败。
     #[error(transparent)]
     Application(#[from] ApplicationError),
+    /// Chromium 浏览器会话获取或清理失败。
+    #[error(transparent)]
+    Browser(#[from] BrowserError),
     /// Command 节点准备或执行失败。
     #[error(transparent)]
     Command(#[from] CommandError),

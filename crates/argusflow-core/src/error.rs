@@ -15,6 +15,8 @@ pub enum ActionCapability {
     ReadText,
     /// 可读取 backend 的值接口。
     ReadValue,
+    /// 可批量读取链接标题与绝对 URL。
+    ReadLinks,
 }
 
 /// 自动化后端无法执行动作时返回的结构化错误。

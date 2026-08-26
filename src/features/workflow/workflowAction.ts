@@ -44,6 +44,17 @@ export function changeUiOperationKind(
       return { type: kind, target: operation.target };
     case 'get_value':
       return { type: kind, target: operation.target };
+    case 'collect_links':
+      return {
+        type: kind,
+        target: {
+          ...operation.target,
+          locator: operation.target.locator.type === 'query'
+            ? operation.target.locator
+            : createTargetLocator('query'),
+          backend_preference: 'browser_cdp',
+        },
+      };
   }
 }
 
@@ -60,6 +71,8 @@ export function replaceAutomationTarget(
     case 'get_text':
       return { type: operation.type, target };
     case 'get_value':
+      return { type: operation.type, target };
+    case 'collect_links':
       return { type: operation.type, target };
   }
 }

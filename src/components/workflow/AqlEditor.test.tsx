@@ -66,6 +66,7 @@ describe('AqlEditor', () => {
       <AqlEditor
         query={query}
         target={{
+          scope: { type: 'current' },
           locator: { type: 'query', query },
           backend_preference: 'windows_uia',
         }}
@@ -90,6 +91,7 @@ describe('AqlEditor', () => {
       <AqlEditor
         query={query}
         target={{
+          scope: { type: 'current' },
           locator: { type: 'query', query },
           backend_preference: 'auto',
         }}
@@ -114,6 +116,7 @@ describe('AqlEditor', () => {
         <AqlEditor
           query={query}
           target={{
+            scope: { type: 'current' },
             locator: { type: 'query', query },
             backend_preference: 'auto',
           }}

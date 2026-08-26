@@ -30,4 +30,15 @@ describe('workflow UI operation transformations', () => {
     });
     expect(visual.target.backend_preference).toBe('auto');
   });
+
+  it('forces collect links onto a semantic CDP query', () => {
+    const click = createDefaultUiOperation();
+    const visual = changeTargetLocatorKind(click, 'visual');
+
+    const collectLinks = changeUiOperationKind(visual, 'collect_links');
+
+    expect(collectLinks.type).toBe('collect_links');
+    expect(collectLinks.target.locator.type).toBe('query');
+    expect(collectLinks.target.backend_preference).toBe('browser_cdp');
+  });
 });

@@ -7,6 +7,7 @@
 compile_error!("ArgusFlow only supports Windows targets.");
 
 mod application;
+mod browser;
 mod command;
 mod command_job;
 mod dispatcher;
@@ -20,6 +21,7 @@ mod validation_references;
 mod validator;
 
 pub use application::UnavailableApplicationSessionProvider;
+pub use browser::UnavailableBrowserSessionProvider;
 pub use command::{CommandError, CommandExecutor};
 pub use dispatcher::{ActionDispatcher, UnavailableActionDispatcher};
 pub use engine::{ExecutionEventSink, WorkflowEngine};

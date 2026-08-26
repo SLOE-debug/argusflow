@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::ApplicationSpec;
+use crate::{ApplicationSpec, BrowserSpec};
 
 /// 工作流定义中指向资源输出端口的逻辑引用。
 ///
@@ -17,7 +17,7 @@ pub struct ResourceRef {
 }
 
 /// 单次运行内分配给真实资源的稳定标识。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ResourceId(Uuid);
 
 impl ResourceId {
@@ -84,6 +84,21 @@ pub struct AppSession {
     pub started_by_workflow: bool,
 }
 
+/// 单次运行持有的隔离 Chromium 页面会话。
+///
+/// 工作流只保存可重新关联 CDP runtime 注册项的资源 ID，不持有 WebSocket 或进程句柄。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BrowserSession {
+    /// ResourceTable 使用的运行时资源 ID。
+    pub id: ResourceId,
+    /// 获取阶段冻结的浏览器启动契约。
+    pub spec: BrowserSpec,
+    /// 本次隔离浏览器的根进程 ID。
+    pub process_id: u32,
+    /// 当前页面的稳定 CDP target ID。
+    pub target_id: String,
+}
+
 /// Windows 应用资源获取或回收失败。
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum ApplicationError {
@@ -135,6 +150,35 @@ pub enum ApplicationError {
     },
 }
 
+/// Chromium 浏览器会话获取或回收失败。
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum BrowserError {
+    /// 浏览器定义无法形成确定且安全的启动请求。
+    #[error("invalid browser specification: {message}")]
+    InvalidSpec {
+        /// 无效字段或约束说明。
+        message: String,
+    },
+    /// 浏览器进程、调试端点或 WebSocket 初始化失败。
+    #[error("browser launch failed: {message}")]
+    LaunchFailed {
+        /// 不包含页面内容的失败原因。
+        message: String,
+    },
+    /// 浏览器没有在配置时限内公开可用页面 target。
+    #[error("browser acquisition timed out after {timeout_ms} ms")]
+    Timeout {
+        /// 配置的完整等待时长。
+        timeout_ms: u64,
+    },
+    /// 浏览器会话关闭或临时配置清理失败。
+    #[error("browser cleanup failed: {message}")]
+    CleanupFailed {
+        /// 清理失败说明。
+        message: String,
+    },
+}
+
 /// 平台应用运行时向 WorkflowEngine 提供的资源生命周期边界。
 #[async_trait]
 pub trait ApplicationSessionProvider: Send + Sync {
@@ -143,4 +187,14 @@ pub trait ApplicationSessionProvider: Send + Sync {
 
     /// 按会话冻结的 CleanupPolicy 回收资源。
     async fn cleanup(&self, session: &AppSession) -> Result<(), ApplicationError>;
+}
+
+/// 浏览器运行时向 WorkflowEngine 提供的隔离会话生命周期边界。
+#[async_trait]
+pub trait BrowserSessionProvider: Send + Sync {
+    /// 启动浏览器、连接随机 CDP 端口并返回页面会话资源。
+    async fn acquire(&self, spec: &BrowserSpec) -> Result<BrowserSession, BrowserError>;
+
+    /// 关闭 CDP 会话、浏览器进程并清理本次隔离用户目录。
+    async fn cleanup(&self, session: &BrowserSession) -> Result<(), BrowserError>;
 }

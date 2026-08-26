@@ -1,8 +1,9 @@
 use std::{collections::HashSet, path::Path};
 
 use argusflow_core::{
-    ApplicationSpec, BackendPreference, CommandOperation, CommandRunner, TargetLocator,
-    TargetScope, WorkflowCapability, WorkflowDefinition, WorkflowNode, WorkflowNodeKind,
+    ApplicationSpec, BackendPreference, BrowserSpec, CommandOperation, CommandRunner,
+    TargetLocator, TargetScope, WorkflowCapability, WorkflowDefinition, WorkflowNode,
+    WorkflowNodeKind,
 };
 use argusflow_query::parse_stored_query;
 
@@ -61,6 +62,20 @@ pub(crate) fn validate_node_parameters(
                 ));
             }
         }
+        WorkflowNodeKind::Browser { spec } => {
+            validate_browser_spec(spec, &node.id, issues);
+            if !workflow
+                .permissions
+                .allows(WorkflowCapability::ApplicationLaunch)
+            {
+                issues.push(issue(
+                    ValidationIssueCode::ApplicationPermissionDenied,
+                    "工作流权限未授权 Browser 节点启动浏览器",
+                    Some(node.id.clone()),
+                    None,
+                ));
+            }
+        }
         WorkflowNodeKind::Ui { operation } => {
             let target = operation.target();
             if matches!(&target.scope, TargetScope::Application { .. })
@@ -69,6 +84,26 @@ pub(crate) fn validate_node_parameters(
                 issues.push(issue(
                     ValidationIssueCode::InvalidBackendPreference,
                     "应用资源当前不提供 Browser CDP 能力，不能强制使用 browser_cdp 后端",
+                    Some(node.id.clone()),
+                    None,
+                ));
+            }
+            if matches!(&target.scope, TargetScope::Browser { .. })
+                && matches!(target.backend_preference, BackendPreference::WindowsUia)
+            {
+                issues.push(issue(
+                    ValidationIssueCode::InvalidBackendPreference,
+                    "浏览器资源不能强制使用 windows_uia 后端",
+                    Some(node.id.clone()),
+                    None,
+                ));
+            }
+            if matches!(operation, argusflow_core::UiOperation::CollectLinks { .. })
+                && !matches!(target.backend_preference, BackendPreference::BrowserCdp)
+            {
+                issues.push(issue(
+                    ValidationIssueCode::InvalidBackendPreference,
+                    "批量链接读取必须显式使用 browser_cdp 后端",
                     Some(node.id.clone()),
                     None,
                 ));
@@ -91,6 +126,40 @@ pub(crate) fn validate_node_parameters(
         WorkflowNodeKind::Command { operation } => {
             validate_command(operation, workflow, &node.id, issues);
         }
+    }
+}
+
+/// 校验浏览器可执行路径、初始 URL 和启动等待边界。
+fn validate_browser_spec(browser: &BrowserSpec, node_id: &str, issues: &mut Vec<ValidationIssue>) {
+    if !Path::new(browser.executable_path.trim()).is_absolute() {
+        issues.push(issue(
+            ValidationIssueCode::InvalidBrowserSpec,
+            "浏览器 EXE 必须使用绝对路径",
+            Some(node_id.to_owned()),
+            None,
+        ));
+    }
+    let valid_url = browser
+        .initial_url
+        .split_once("://")
+        .is_some_and(|(scheme, remainder)| {
+            matches!(scheme, "http" | "https") && !remainder.trim().is_empty()
+        });
+    if !valid_url {
+        issues.push(issue(
+            ValidationIssueCode::InvalidBrowserSpec,
+            "浏览器初始地址必须是绝对 HTTP(S) URL",
+            Some(node_id.to_owned()),
+            None,
+        ));
+    }
+    if !(100..=60_000).contains(&browser.launch_timeout_ms) {
+        issues.push(issue(
+            ValidationIssueCode::InvalidBrowserSpec,
+            "浏览器启动超时必须在 100 到 60000 毫秒之间",
+            Some(node_id.to_owned()),
+            None,
+        ));
     }
 }
 

@@ -10,234 +10,148 @@ import {
   type WorkflowCanvasNode,
 } from './workflowModel';
 
-/** 默认示例绑定的 Notepad++ Application 节点 ID。 */
-const NOTEPADPP_APPLICATION_NODE_ID = 'notepadpp_app_1';
+/** 默认示例中生产隔离 CDP 页面会话的 Browser 节点 ID。 */
+const BAIDU_BROWSER_NODE_ID = 'baidu_browser_1';
 
-/** 查找词回读节点 ID，用于演示强类型节点输出传递。 */
-const READ_SEARCH_VALUE_NODE_ID = 'read_search_value_1';
+/** 批量读取百度热搜标题与链接的 UI 节点 ID。 */
+const COLLECT_NEWS_NODE_ID = 'collect_baidu_news_1';
+
+/** 把 CRLF 文本写入当前用户桌面的命令节点 ID。 */
+const WRITE_NEWS_NODE_ID = 'write_baidu_news_1';
 
 /** 默认模板的工作流名称。 */
-export const DEFAULT_WORKFLOW_NAME = '用 UIA 驱动 Notepad++ 查找';
+export const DEFAULT_WORKFLOW_NAME = '采集百度热搜并写入桌面文本';
 
-/** 默认模板不制造未被节点消费的演示变量。 */
+/** 默认模板不依赖预置变量。 */
 export const DEFAULT_WORKFLOW_VARIABLES = {} as const satisfies JsonObject;
 
-/** 搜索文字作为瞬时输入传给 ValuePattern，不写入工作流定义。 */
-export const DEFAULT_WORKFLOW_INPUTS = [
-  { key: 'search_text', value_type: 'text' },
-] as const satisfies ReadonlyArray<WorkflowInputDefinition>;
+/** 默认模板运行时不要求用户补充输入。 */
+export const DEFAULT_WORKFLOW_INPUTS = [] as const satisfies ReadonlyArray<WorkflowInputDefinition>;
 
-/** 默认运行值让示例无需额外配置即可统计当前文档中的 UIA 文本。 */
-export const DEFAULT_RUN_INPUT_VALUES = {
-  search_text: 'UIA',
-} as const satisfies JsonObject;
+/** 没有输入声明时运行值保持空对象。 */
+export const DEFAULT_RUN_INPUT_VALUES = {} as const satisfies JsonObject;
 
-/** 默认模板只授权示例 Application 节点可能需要的启动能力。 */
+/** 浏览器启动和 PowerShell 文件写入是本示例需要的最小系统能力。 */
 export const DEFAULT_WORKFLOW_PERMISSIONS = {
   application_launch: true,
   direct_command: false,
-  powershell: false,
+  powershell: true,
   cmd: false,
 } as const satisfies WorkflowPermissions;
 
-/** 默认选中应用资源节点，突出资源生命周期与后续 UIA 作用域。 */
-export const DEFAULT_SELECTED_NODE_ID = NOTEPADPP_APPLICATION_NODE_ID;
+/** 默认选中 Browser 节点，优先展示隔离 CDP 会话配置。 */
+export const DEFAULT_SELECTED_NODE_ID = BAIDU_BROWSER_NODE_ID;
 
 /**
- * 可直接执行的中文 Notepad++ UIA 示例。
+ * 打开隔离 Chrome、导航百度、批量获取热搜标题与绝对链接并写入桌面 TXT。
  *
- * 流程只通过中文可访问名称与控件树关系定位目标：展开“搜索”菜单、打开“查找”
- * 对话框、写入并回读运行时搜索词、执行计数，最后取消对话框。
+ * CollectLinks 在页面内一次性完成 DOM 查询和投影，每条记录固定为
+ * `标题<TAB>链接<CRLF>`；PowerShell 只负责解析当前用户桌面并按 UTF-8 原样落盘。
  */
 export const DEFAULT_NODES = [
   {
     id: 'start_1',
     kind: 'start',
-    position: { x: 28, y: 92 },
+    position: { x: 28, y: 104 },
     size: { ...WORKFLOW_NODE_SIZES.start },
     data: { kind: 'start', label: '开始', runState: 'idle' },
   },
   {
-    id: NOTEPADPP_APPLICATION_NODE_ID,
-    kind: 'application',
-    position: { x: 182, y: 92 },
-    size: { ...WORKFLOW_NODE_SIZES.application },
+    id: BAIDU_BROWSER_NODE_ID,
+    kind: 'browser',
+    position: { x: 188, y: 104 },
+    size: { ...WORKFLOW_NODE_SIZES.browser },
     data: {
-      kind: 'application',
-      label: '连接 Notepad++',
+      kind: 'browser',
+      label: '打开 Chrome 并访问百度',
       spec: {
-        executable_path: 'C:\\Program Files\\Notepad++\\notepad++.exe',
+        executable_path: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+        initial_url: 'https://www.baidu.com/',
+        launch_timeout_ms: 15_000,
+      },
+      runState: 'idle',
+    },
+  },
+  {
+    id: 'wait_baidu_ready_1',
+    kind: 'delay',
+    position: { x: 402, y: 104 },
+    size: { ...WORKFLOW_NODE_SIZES.delay },
+    data: {
+      kind: 'delay',
+      label: '等待百度热搜渲染',
+      milliseconds: 1_500,
+      runState: 'idle',
+    },
+  },
+  {
+    id: COLLECT_NEWS_NODE_ID,
+    kind: 'ui',
+    position: { x: 586, y: 104 },
+    size: { ...WORKFLOW_NODE_SIZES.ui },
+    data: {
+      kind: 'ui',
+      label: '批量获取热搜标题和链接',
+      operation: {
+        type: 'collect_links',
+        target: createBaiduCdpTarget(
+          'css("#hotsearch-content-wrapper a.title-content .title-content-title")',
+        ),
+      },
+      runState: 'idle',
+    },
+  },
+  {
+    id: WRITE_NEWS_NODE_ID,
+    kind: 'command',
+    position: { x: 794, y: 104 },
+    size: { ...WORKFLOW_NODE_SIZES.command },
+    data: {
+      kind: 'command',
+      label: '写入桌面百度热搜.txt',
+      operation: {
+        runner: 'power_shell',
+        program: null,
         arguments: [],
-        window_title: { type: 'contains', value: 'Notepad++' },
-        acquire_policy: 'attach_or_start',
-        launch_timeout_ms: 10_000,
-        cleanup_policy: 'leave_running',
-        activation_policy: 'best_effort',
+        script: {
+          type: 'literal',
+          value: [
+            '[Console]::InputEncoding = [Text.UTF8Encoding]::new($false)',
+            '[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)',
+            '$desktop = [Environment]::GetFolderPath([Environment+SpecialFolder]::Desktop)',
+            '$path = Join-Path $desktop "百度热搜.txt"',
+            '$content = [Console]::In.ReadToEnd()',
+            '[IO.File]::WriteAllText($path, $content, [Text.UTF8Encoding]::new($true))',
+            '[Console]::Out.Write($path)',
+          ].join('; '),
+        },
+        working_directory: null,
+        environment: [],
+        stdin: {
+          type: 'node_output',
+          node_id: COLLECT_NEWS_NODE_ID,
+          output: 'text',
+        },
+        timeout_ms: 30_000,
+        accepted_exit_codes: [0],
+        max_stdout_bytes: 4_096,
+        max_stderr_bytes: 65_536,
       },
       runState: 'idle',
     },
   },
   {
-    id: 'wait_notepadpp_ready_1',
-    kind: 'delay',
-    position: { x: 390, y: 92 },
-    size: { ...WORKFLOW_NODE_SIZES.delay },
-    data: {
-      kind: 'delay',
-      label: '等待 UIA 控件就绪',
-      milliseconds: 1_000,
-      runState: 'idle',
-    },
-  },
-  {
-    id: 'open_search_menu_1',
-    kind: 'ui',
-    position: { x: 562, y: 92 },
-    size: { ...WORKFLOW_NODE_SIZES.ui },
-    data: {
-      kind: 'ui',
-      label: '展开“搜索”菜单',
-      operation: {
-        type: 'click',
-        target: createNotepadppUiaTarget('menu_item(name = "搜索(S)")'),
-      },
-      runState: 'idle',
-    },
-  },
-  {
-    id: 'wait_search_menu_1',
-    kind: 'delay',
-    position: { x: 762, y: 92 },
-    size: { ...WORKFLOW_NODE_SIZES.delay },
-    data: {
-      kind: 'delay',
-      label: '等待菜单展开',
-      milliseconds: 200,
-      runState: 'idle',
-    },
-  },
-  {
-    id: 'open_find_dialog_1',
-    kind: 'ui',
-    position: { x: 934, y: 92 },
-    size: { ...WORKFLOW_NODE_SIZES.ui },
-    data: {
-      kind: 'ui',
-      label: '调用“查找”菜单项',
-      operation: {
-        type: 'click',
-        target: createNotepadppUiaTarget(
-          'menu_item(name starts_with "查找(F)...")',
-        ),
-      },
-      runState: 'idle',
-    },
-  },
-  {
-    id: 'wait_find_dialog_1',
-    kind: 'delay',
-    position: { x: 762, y: 226 },
-    size: { ...WORKFLOW_NODE_SIZES.delay },
-    data: {
-      kind: 'delay',
-      label: '等待对话框就绪',
-      milliseconds: 300,
-      runState: 'idle',
-    },
-  },
-  {
-    id: 'set_find_value_1',
-    kind: 'ui',
-    position: { x: 562, y: 226 },
-    size: { ...WORKFLOW_NODE_SIZES.ui },
-    data: {
-      kind: 'ui',
-      label: '写入运行时搜索词',
-      operation: {
-        type: 'set_value',
-        target: createNotepadppUiaTarget(
-          'dialog(name = "查找") >> textbox(name = "查找目标(F) :")',
-        ),
-        value: { type: 'workflow_input', key: 'search_text' },
-      },
-      runState: 'idle',
-    },
-  },
-  {
-    id: 'count_matches_1',
-    kind: 'ui',
-    position: { x: 362, y: 226 },
-    size: { ...WORKFLOW_NODE_SIZES.ui },
-    data: {
-      kind: 'ui',
-      label: '统计当前文档匹配数',
-      operation: {
-        type: 'click',
-        target: createNotepadppUiaTarget(
-          'dialog(name = "查找") >> button(name = "计数(T)")',
-        ),
-      },
-      runState: 'idle',
-    },
-  },
-  {
-    id: 'wait_match_count_1',
-    kind: 'delay',
-    position: { x: 170, y: 226 },
-    size: { ...WORKFLOW_NODE_SIZES.delay },
-    data: {
-      kind: 'delay',
-      label: '等待计数结果',
-      milliseconds: 300,
-      runState: 'idle',
-    },
-  },
-  {
-    id: READ_SEARCH_VALUE_NODE_ID,
-    kind: 'ui',
-    position: { x: 170, y: 360 },
-    size: { ...WORKFLOW_NODE_SIZES.ui },
-    data: {
-      kind: 'ui',
-      label: '回读运行时搜索词',
-      operation: {
-        type: 'get_value',
-        target: createNotepadppUiaTarget(
-          'dialog(name = "查找") >> textbox(name = "查找目标(F) :")',
-        ),
-      },
-      runState: 'idle',
-    },
-  },
-  {
-    id: 'debug_match_count_1',
+    id: 'debug_output_path_1',
     kind: 'debug',
-    position: { x: 362, y: 360 },
+    position: { x: 586, y: 238 },
     size: { ...WORKFLOW_NODE_SIZES.debug },
     data: {
       kind: 'debug',
-      label: '输出回读搜索词',
+      label: '输出保存路径',
       value: {
         type: 'node_output',
-        node_id: READ_SEARCH_VALUE_NODE_ID,
-        output: 'value',
-      },
-      runState: 'idle',
-    },
-  },
-  {
-    id: 'close_find_dialog_1',
-    kind: 'ui',
-    position: { x: 562, y: 360 },
-    size: { ...WORKFLOW_NODE_SIZES.ui },
-    data: {
-      kind: 'ui',
-      label: '关闭查找对话框',
-      operation: {
-        type: 'click',
-        target: createNotepadppUiaTarget(
-          'dialog(name = "查找") >> button(name = "取消")',
-        ),
+        node_id: WRITE_NEWS_NODE_ID,
+        output: 'stdout',
       },
       runState: 'idle',
     },
@@ -245,94 +159,51 @@ export const DEFAULT_NODES = [
   {
     id: 'end_1',
     kind: 'end',
-    position: { x: 762, y: 360 },
+    position: { x: 794, y: 238 },
     size: { ...WORKFLOW_NODE_SIZES.end },
     data: { kind: 'end', label: '结束', runState: 'idle' },
   },
 ] as const satisfies ReadonlyArray<WorkflowCanvasNode>;
 
-/** 默认模板按蛇形布局串联一条可追踪的真实执行路径。 */
+/** 默认模板按两行蛇形布局串联完整数据路径。 */
 export const DEFAULT_EDGES = [
-  createDefaultEdge('edge_start_application', 'start_1', NOTEPADPP_APPLICATION_NODE_ID),
+  createDefaultEdge('edge_start_browser', 'start_1', BAIDU_BROWSER_NODE_ID),
   createDefaultEdge(
-    'edge_application_ready',
-    NOTEPADPP_APPLICATION_NODE_ID,
-    'wait_notepadpp_ready_1',
+    'edge_browser_wait',
+    BAIDU_BROWSER_NODE_ID,
+    'wait_baidu_ready_1',
   ),
   createDefaultEdge(
-    'edge_ready_find',
-    'wait_notepadpp_ready_1',
-    'open_search_menu_1',
+    'edge_wait_collect',
+    'wait_baidu_ready_1',
+    COLLECT_NEWS_NODE_ID,
   ),
   createDefaultEdge(
-    'edge_search_menu_wait',
-    'open_search_menu_1',
-    'wait_search_menu_1',
+    'edge_collect_write',
+    COLLECT_NEWS_NODE_ID,
+    WRITE_NEWS_NODE_ID,
   ),
   createDefaultEdge(
-    'edge_menu_find',
-    'wait_search_menu_1',
-    'open_find_dialog_1',
-  ),
-  createDefaultEdge(
-    'edge_find_wait',
-    'open_find_dialog_1',
-    'wait_find_dialog_1',
+    'edge_write_debug',
+    WRITE_NEWS_NODE_ID,
+    'debug_output_path_1',
     'bottom',
-    'top',
-  ),
-  createDefaultEdge(
-    'edge_wait_set',
-    'wait_find_dialog_1',
-    'set_find_value_1',
-    'left',
     'right',
   ),
   createDefaultEdge(
-    'edge_set_count',
-    'set_find_value_1',
-    'count_matches_1',
-    'left',
-    'right',
+    'edge_debug_end',
+    'debug_output_path_1',
+    'end_1',
   ),
-  createDefaultEdge(
-    'edge_count_wait',
-    'count_matches_1',
-    'wait_match_count_1',
-    'left',
-    'right',
-  ),
-  createDefaultEdge(
-    'edge_wait_read',
-    'wait_match_count_1',
-    READ_SEARCH_VALUE_NODE_ID,
-    'bottom',
-    'top',
-  ),
-  createDefaultEdge(
-    'edge_read_debug',
-    READ_SEARCH_VALUE_NODE_ID,
-    'debug_match_count_1',
-    'right',
-    'left',
-  ),
-  createDefaultEdge(
-    'edge_debug_close',
-    'debug_match_count_1',
-    'close_find_dialog_1',
-    'right',
-    'left',
-  ),
-  createDefaultEdge('edge_close_end', 'close_find_dialog_1', 'end_1'),
 ] as const satisfies ReadonlyArray<WorkflowCanvasEdge>;
 
-/** 为默认节点建立绑定同一 AppSession 且强制走 Windows UIA 的查询目标。 */
-function createNotepadppUiaTarget(source: string): AutomationTarget {
+/** 为默认采集节点绑定 Browser.session 并强制使用 CDP 原生 CSS fast path。 */
+function createBaiduCdpTarget(source: string): AutomationTarget {
   return {
     scope: {
-      type: 'application',
+      type: 'browser',
       resource: {
-        producer_node_id: NOTEPADPP_APPLICATION_NODE_ID,
+        producer_node_id: BAIDU_BROWSER_NODE_ID,
         output_name: 'session',
       },
     },
@@ -340,7 +211,7 @@ function createNotepadppUiaTarget(source: string): AutomationTarget {
       type: 'query',
       query: { language_version: 1, source },
     },
-    backend_preference: 'windows_uia',
+    backend_preference: 'browser_cdp',
   };
 }
 

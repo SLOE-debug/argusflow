@@ -55,6 +55,7 @@ pub(crate) fn validate_data_references(
             | WorkflowNodeKind::Delay { .. }
             | WorkflowNodeKind::Condition { .. }
             | WorkflowNodeKind::Application { .. }
+            | WorkflowNodeKind::Browser { .. }
             | WorkflowNodeKind::End => {}
         }
     }
@@ -68,8 +69,10 @@ fn validate_scope(
     dominators: &HashMap<String, HashSet<String>>,
     issues: &mut Vec<ValidationIssue>,
 ) {
-    let TargetScope::Application { resource } = scope else {
-        return;
+    let (resource, expected_browser, resource_name) = match scope {
+        TargetScope::Current => return,
+        TargetScope::Application { resource } => (resource, false, "Application"),
+        TargetScope::Browser { resource } => (resource, true, "Browser"),
     };
     let Some(producer) = nodes.get(resource.producer_node_id.as_str()) else {
         issues.push(reference_issue(
@@ -80,14 +83,17 @@ fn validate_scope(
         ));
         return;
     };
-    if resource.output_name != "session"
-        || !matches!(&producer.kind, WorkflowNodeKind::Application { .. })
-    {
+    let producer_matches = match (&producer.kind, expected_browser) {
+        (WorkflowNodeKind::Application { .. }, false)
+        | (WorkflowNodeKind::Browser { .. }, true) => true,
+        _ => false,
+    };
+    if resource.output_name != "session" || !producer_matches {
         issues.push(reference_issue(
             ValidationIssueCode::InvalidResourceReference,
             consumer,
             &resource,
-            "引用不是 Application 节点的 session 资源端口",
+            &format!("引用不是 {resource_name} 节点的 session 资源端口"),
         ));
         return;
     }
@@ -97,8 +103,8 @@ fn validate_scope(
         dominators,
         ValidationIssueCode::ReferenceNotDominating,
         format!(
-            "应用资源 '{}.{}' 并非在所有到达消费节点的路径上先执行",
-            resource.producer_node_id, resource.output_name,
+            "{} 资源 '{}.{}' 并非在所有到达消费节点的路径上先执行",
+            resource_name, resource.producer_node_id, resource.output_name,
         ),
         issues,
     );
@@ -189,6 +195,9 @@ fn node_exposes_text(node: &WorkflowNode, output: &str) -> bool {
         WorkflowNodeKind::Ui {
             operation: UiOperation::GetValue { .. },
         } => output == "value",
+        WorkflowNodeKind::Ui {
+            operation: UiOperation::CollectLinks { .. },
+        } => output == "text",
         WorkflowNodeKind::Command { .. } => matches!(output, "stdout" | "stderr"),
         WorkflowNodeKind::Start
         | WorkflowNodeKind::Log { .. }
@@ -196,6 +205,7 @@ fn node_exposes_text(node: &WorkflowNode, output: &str) -> bool {
         | WorkflowNodeKind::Delay { .. }
         | WorkflowNodeKind::Condition { .. }
         | WorkflowNodeKind::Application { .. }
+        | WorkflowNodeKind::Browser { .. }
         | WorkflowNodeKind::Ui { .. }
         | WorkflowNodeKind::End => false,
     }

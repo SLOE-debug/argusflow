@@ -1,5 +1,6 @@
 import type {
   BackendPreference,
+  TargetScope,
   TargetLocatorKind,
   UiOperation,
   UiOperationKind,
@@ -32,6 +33,7 @@ const OPERATION_KIND_OPTIONS = [
   { value: 'set_value', label: '输入文字' },
   { value: 'get_text', label: '读取文本' },
   { value: 'get_value', label: '读取值' },
+  { value: 'collect_links', label: '批量读取链接' },
 ] as const;
 
 const LOCATOR_KIND_OPTIONS = [
@@ -43,6 +45,7 @@ const LOCATOR_KIND_OPTIONS = [
 const SCOPE_OPTIONS = [
   { value: 'current', label: '当前上下文' },
   { value: 'application', label: '应用会话' },
+  { value: 'browser', label: '浏览器会话' },
 ] as const;
 
 const BACKEND_OPTIONS = [
@@ -58,6 +61,8 @@ const VISUAL_MATCH_OPTIONS = [
 
 /** 编辑 UI 操作、资源作用域、定位方式和后端偏好。 */
 export function ActionNodeFields({ operation, onChange }: ActionNodeFieldsProps) {
+  /** 当前资源作用域的局部不可变快照，供 JSX 回调保留判别联合收窄。 */
+  const scope = operation.target.scope;
   return (
     <div className="flex flex-col gap-2.5">
       <InspectorField label="操作">
@@ -76,42 +81,36 @@ export function ActionNodeFields({ operation, onChange }: ActionNodeFieldsProps)
         />
       ) : null}
       <InspectorField label="应用范围">
-        <Select<'current' | 'application'>
-          value={operation.target.scope.type}
+        <Select<'current' | 'application' | 'browser'>
+          value={scope.type}
           options={SCOPE_OPTIONS}
           containerClassName="border-slate-300 bg-white"
           onValueChange={(type) => onChange(changeTargetScope(
             operation,
-            type === 'current'
-              ? { type }
-              : {
-                  type,
-                  resource: {
-                    producer_node_id: '',
-                    output_name: 'session',
-                  },
-                },
+            createEmptyScope(type),
           ))}
         />
       </InspectorField>
-      {operation.target.scope.type === 'application' ? (
+      {scope.type !== 'current' ? (
         <div className="flex flex-col gap-2.5 rounded-md border border-blue-100 bg-blue-50/40 p-2.5">
-          <InspectorField label="应用节点 ID">
+          <InspectorField label={scope.type === 'browser'
+            ? '浏览器节点 ID'
+            : '应用节点 ID'}>
             <Input
               aria-label="应用资源生产节点 ID"
-              value={operation.target.scope.resource.producer_node_id}
+              value={scope.resource.producer_node_id}
               containerClassName="border-slate-300 bg-white"
               onChange={(event) => onChange(changeTargetScope(operation, {
-                ...operation.target.scope,
+                ...scope,
                 resource: {
-                  ...operation.target.scope.resource,
+                  ...scope.resource,
                   producer_node_id: event.target.value,
                 },
               }))}
             />
           </InspectorField>
           <p className={INSPECTOR_HELP_CLASS_NAME}>
-            Runtime 会验证该 Application 节点在所有到达路径上先执行。
+            Runtime 会验证对应资源节点在所有到达路径上先执行。
           </p>
         </div>
       ) : null}
@@ -146,6 +145,20 @@ export function ActionNodeFields({ operation, onChange }: ActionNodeFieldsProps)
       ) : null}
     </div>
   );
+}
+
+/** 为资源作用域建立字段完整的判别联合。 */
+function createEmptyScope(type: TargetScope['type']): TargetScope {
+  if (type === 'current') {
+    return { type };
+  }
+  return {
+    type,
+    resource: {
+      producer_node_id: '',
+      output_name: 'session',
+    },
+  };
 }
 
 /** 编辑 AQL 目标及其高级后端约束。 */

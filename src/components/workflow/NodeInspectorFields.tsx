@@ -14,6 +14,7 @@ import {
 } from '../../features/workflow/workflowModel';
 import { ActionNodeFields } from './ActionNodeFields';
 import { ApplicationNodeFields } from './ApplicationNodeFields';
+import { BrowserNodeFields } from './BrowserNodeFields';
 import { CommandNodeFields } from './CommandNodeFields';
 import {
   INSPECTOR_CONTROL_CLASS_NAME,
@@ -65,6 +66,7 @@ const NODE_KIND_LABELS: Readonly<Record<WorkflowNodeData['kind'], string>> = {
   delay: '延迟节点',
   condition: '条件判断',
   application: '应用资源',
+  browser: '浏览器资源',
   ui: '界面操作',
   command: '命令节点',
   end: '结束节点',
@@ -73,9 +75,11 @@ const NODE_KIND_LABELS: Readonly<Record<WorkflowNodeData['kind'], string>> = {
 /** 节点运行状态的稳定中文名称。 */
 const RUN_STATE_LABELS: Readonly<Record<NonNullable<WorkflowNodeData['runState']>, string>> = {
   idle: '等待执行',
+  pending: '排队等待',
   running: '正在运行',
   success: '执行成功',
   error: '执行失败',
+  skipped: '未执行',
 };
 
 /** 编辑当前选中节点的基本信息和类型专属字段。 */
@@ -301,6 +305,15 @@ function NodeKindFields({
         <ApplicationNodeFields
           spec={data.spec}
           onChange={(spec) => onUpdate((current) => current.kind === 'application'
+            ? { ...current, spec, invalid: false }
+            : current)}
+        />
+      );
+    case 'browser':
+      return (
+        <BrowserNodeFields
+          spec={data.spec}
+          onChange={(spec) => onUpdate((current) => current.kind === 'browser'
             ? { ...current, spec, invalid: false }
             : current)}
         />

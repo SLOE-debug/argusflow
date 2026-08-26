@@ -3,7 +3,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::{
-    ApplicationSpec, CommandOperation, ConditionPredicate, UiOperation, ValueExpr,
+    ApplicationSpec, BrowserSpec, CommandOperation, ConditionPredicate, UiOperation, ValueExpr,
     WorkflowInputDefinition, WorkflowPermissions,
 };
 
@@ -79,6 +79,11 @@ pub enum WorkflowNodeKind {
     Application {
         /// 应用身份、获取策略和生命周期策略。
         spec: ApplicationSpec,
+    },
+    /// 启动隔离 Chromium 实例并获取可复用的 CDP 页面会话。
+    Browser {
+        /// 浏览器可执行文件、初始 URL 和启动时限。
+        spec: BrowserSpec,
     },
     /// 将语义界面操作交给 Planner 选择等价后端执行。
     Ui {

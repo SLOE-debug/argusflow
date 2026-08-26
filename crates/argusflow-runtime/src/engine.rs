@@ -1,16 +1,17 @@
 use std::{collections::HashMap, sync::Arc};
 
 use argusflow_core::{
-    ApplicationSessionProvider, ConditionBranch, ExecutionEvent, ExecutionEventKind,
-    ExecutionEventPayload, RunInputs, RunStarted, WorkflowDefinition, WorkflowEdge, WorkflowNode,
-    WorkflowNodeKind,
+    ApplicationSessionProvider, BrowserSessionProvider, ConditionBranch, ExecutionEvent,
+    ExecutionEventKind, ExecutionEventPayload, RunInputs, RunStarted, WorkflowDefinition,
+    WorkflowEdge, WorkflowNode, WorkflowNodeKind,
 };
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::{
     ActionDispatcher, RunContext, RuntimeError, UnavailableApplicationSessionProvider,
-    node_executor::WorkflowNodeExecutor, run_inputs::validate_run_inputs, validate_workflow,
+    UnavailableBrowserSessionProvider, node_executor::WorkflowNodeExecutor,
+    run_inputs::validate_run_inputs, validate_workflow,
 };
 
 /// 接收工作流执行事件的线程安全目标。
@@ -30,7 +31,11 @@ pub struct WorkflowEngine {
 impl WorkflowEngine {
     /// 创建没有平台应用资源能力的工作流引擎。
     pub fn new(dispatcher: Arc<dyn ActionDispatcher>) -> Self {
-        Self::with_application_provider(dispatcher, Arc::new(UnavailableApplicationSessionProvider))
+        Self::with_resource_providers(
+            dispatcher,
+            Arc::new(UnavailableApplicationSessionProvider),
+            Arc::new(UnavailableBrowserSessionProvider),
+        )
     }
 
     /// 创建同时装配 UI Planner 与平台应用资源能力的工作流引擎。
@@ -38,9 +43,22 @@ impl WorkflowEngine {
         dispatcher: Arc<dyn ActionDispatcher>,
         applications: Arc<dyn ApplicationSessionProvider>,
     ) -> Self {
+        Self::with_resource_providers(
+            dispatcher,
+            applications,
+            Arc::new(UnavailableBrowserSessionProvider),
+        )
+    }
+
+    /// 创建同时装配 UI Planner、桌面应用与浏览器资源能力的工作流引擎。
+    pub fn with_resource_providers(
+        dispatcher: Arc<dyn ActionDispatcher>,
+        applications: Arc<dyn ApplicationSessionProvider>,
+        browsers: Arc<dyn BrowserSessionProvider>,
+    ) -> Self {
         Self {
             active_run: Mutex::new(None),
-            nodes: WorkflowNodeExecutor::new(dispatcher, applications),
+            nodes: WorkflowNodeExecutor::new(dispatcher, applications, browsers),
         }
     }
 
@@ -297,6 +315,7 @@ fn select_next_edge<'a>(
         | WorkflowNodeKind::Debug { .. }
         | WorkflowNodeKind::Delay { .. }
         | WorkflowNodeKind::Application { .. }
+        | WorkflowNodeKind::Browser { .. }
         | WorkflowNodeKind::Ui { .. }
         | WorkflowNodeKind::Command { .. } => Ok(outgoing
             .get(node_id)
@@ -348,6 +367,7 @@ fn node_label(kind: &WorkflowNodeKind) -> String {
         WorkflowNodeKind::Delay { milliseconds } => format!("Delay {milliseconds}ms"),
         WorkflowNodeKind::Condition { .. } => "Condition".to_owned(),
         WorkflowNodeKind::Application { .. } => "Application".to_owned(),
+        WorkflowNodeKind::Browser { .. } => "Browser".to_owned(),
         WorkflowNodeKind::Ui { operation } => ui_node_label(operation).to_owned(),
         WorkflowNodeKind::Command { operation } => format!("Command {:?}", operation.runner),
         WorkflowNodeKind::End => "End".to_owned(),
@@ -361,5 +381,6 @@ fn ui_node_label(operation: &argusflow_core::UiOperation) -> &'static str {
         argusflow_core::UiOperation::SetValue { .. } => "UI SetValue",
         argusflow_core::UiOperation::GetText { .. } => "UI GetText",
         argusflow_core::UiOperation::GetValue { .. } => "UI GetValue",
+        argusflow_core::UiOperation::CollectLinks { .. } => "UI CollectLinks",
     }
 }

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use argusflow_agent::{
     ActionBackend, ActionRouter, EvidenceCapturePolicy, EvidenceSettings, FileSystemEvidenceSink,
 };
-use argusflow_browser::CdpBackend;
+use argusflow_browser::{CdpBackend, CdpRuntime};
 use argusflow_runtime::WorkflowEngine;
 use argusflow_vision::UnavailableVisionBackend;
 use argusflow_windows::{
@@ -28,10 +28,12 @@ impl AppState {
     pub fn new() -> Self {
         // UIA runtime 初始化失败不会阻止应用启动；候选会以 Unavailable 进入 Explain。
         let uia_runtime = Arc::new(UiaRuntime::start());
+        // Browser 节点与 CdpBackend 共享唯一 runtime，确保资源 scope 精确绑定同一页面会话。
+        let cdp_runtime = Arc::new(CdpRuntime::new());
         // 注册顺序不决定执行优先级；ActionRouter 会比较支持等级、成本与用户偏好。
         let backends: Vec<Arc<dyn ActionBackend>> = vec![
             Arc::new(UiaBackend::new(uia_runtime.clone())),
-            Arc::new(CdpBackend),
+            Arc::new(CdpBackend::new(&cdp_runtime)),
             Arc::new(UnavailableVisionBackend::visual_cache()),
             Arc::new(UnavailableVisionBackend::ocr_tiny()),
             Arc::new(UnavailableVisionBackend::ocr_medium()),
@@ -52,9 +54,10 @@ impl AppState {
         );
 
         Self {
-            engine: Arc::new(WorkflowEngine::with_application_provider(
+            engine: Arc::new(WorkflowEngine::with_resource_providers(
                 router.clone(),
                 Arc::new(WindowsApplicationSessionProvider),
+                cdp_runtime,
             )),
             router,
         }

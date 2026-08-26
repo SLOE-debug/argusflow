@@ -36,6 +36,10 @@ impl ActionDispatcher for CapturingDispatcher {
             AutomationAction::Click { .. }
             | AutomationAction::SetValue { .. }
             | AutomationAction::GetValue { .. } => BTreeMap::new(),
+            AutomationAction::CollectLinks { .. } => BTreeMap::from([
+                ("text".to_owned(), Value::String(String::new())),
+                ("links".to_owned(), Value::Array(Vec::new())),
+            ]),
         };
         Ok(ActionOutcome {
             backend: BackendKind::WindowsUia,
@@ -120,7 +124,7 @@ async fn read_output_is_resolved_for_debug_and_the_following_set_value() {
 /// 构造 Start → GetText → Debug/SetValue(NodeOutput) → End 的最小数据流。
 fn read_then_write_workflow() -> WorkflowDefinition {
     WorkflowDefinition {
-        schema_version: 5,
+        schema_version: 6,
         id: Uuid::new_v4(),
         name: "Read then write".to_owned(),
         inputs: Vec::new(),

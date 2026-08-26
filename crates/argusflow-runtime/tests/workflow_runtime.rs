@@ -203,7 +203,7 @@ fn validation_rejects_browser_cdp_for_a_desktop_application_resource() {
         backend_preference: BackendPreference::BrowserCdp,
     };
     let workflow = WorkflowDefinition {
-        schema_version: 5,
+        schema_version: 6,
         id: Uuid::new_v4(),
         name: "Application backend validation".to_owned(),
         inputs: Vec::new(),
@@ -478,7 +478,7 @@ fn assert_has_issue(workflow: &WorkflowDefinition, code: ValidationIssueCode) {
 /// 在测试中构造一条可执行的 Start -> Log -> Delay -> End 线性链。
 fn demo_workflow(milliseconds: u64) -> WorkflowDefinition {
     WorkflowDefinition {
-        schema_version: 5,
+        schema_version: 6,
         id: Uuid::new_v4(),
         name: "Demo".to_owned(),
         inputs: Vec::new(),
@@ -526,7 +526,7 @@ fn edge(source: &str, target: &str) -> WorkflowEdge {
 /// 构造两条分支最终汇合到 End 的条件 DAG。
 fn condition_workflow(enabled: bool) -> WorkflowDefinition {
     WorkflowDefinition {
-        schema_version: 5,
+        schema_version: 6,
         id: Uuid::new_v4(),
         name: "Condition".to_owned(),
         inputs: Vec::new(),

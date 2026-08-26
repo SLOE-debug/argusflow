@@ -2,10 +2,10 @@
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 export type JsonObject = { [key: string]: JsonValue };
 
-/** 与 Rust 后端交换的 schema v5 工作流。 */
+/** 与 Rust 后端交换的 schema v6 工作流。 */
 export type WorkflowDefinition = {
   /** 当前契约固定版本。 */
-  schema_version: 5;
+  schema_version: 6;
   /** 工作流稳定 ID。 */
   id: string;
   /** 面向用户的名称。 */
@@ -49,6 +49,7 @@ export type WorkflowNodeKind =
   | { type: 'delay'; milliseconds: number }
   | { type: 'condition'; predicate: ConditionPredicate }
   | { type: 'application'; spec: ApplicationSpec }
+  | { type: 'browser'; spec: BrowserSpec }
   | { type: 'ui'; operation: UiOperation }
   | { type: 'command'; operation: CommandOperation }
   | { type: 'end' };
@@ -58,7 +59,8 @@ export type UiOperation =
   | { type: 'click'; target: AutomationTarget }
   | { type: 'set_value'; target: AutomationTarget; value: ValueExpr }
   | { type: 'get_text'; target: AutomationTarget }
-  | { type: 'get_value'; target: AutomationTarget };
+  | { type: 'get_value'; target: AutomationTarget }
+  | { type: 'collect_links'; target: AutomationTarget };
 
 /** UI 节点允许选择的强类型操作类别。 */
 export type UiOperationKind = UiOperation['type'];
@@ -95,7 +97,8 @@ export type ResourceRef = {
 /** UI 操作使用的逻辑资源作用域。 */
 export type TargetScope =
   | { type: 'current' }
-  | { type: 'application'; resource: ResourceRef };
+  | { type: 'application'; resource: ResourceRef }
+  | { type: 'browser'; resource: ResourceRef };
 
 /** 节点参数的数据来源表达式。 */
 export type ValueExpr =
@@ -137,6 +140,16 @@ export type ApplicationSpec = {
   cleanup_policy: CleanupPolicy;
   /** 获取时的窗口激活要求。 */
   activation_policy: ActivationPolicy;
+};
+
+/** 每次运行都创建隔离 profile 和随机 CDP 端口的 Chromium 启动契约。 */
+export type BrowserSpec = {
+  /** Chromium 系浏览器可执行文件的绝对路径。 */
+  executable_path: string;
+  /** 新页面首次导航的绝对 HTTP(S) URL。 */
+  initial_url: string;
+  /** 等待浏览器公开 CDP page target 的最长毫秒数。 */
+  launch_timeout_ms: number;
 };
 
 export type AcquirePolicy = 'attach_or_start' | 'attach_only' | 'always_start_new';
@@ -342,6 +355,7 @@ export type ValidationIssueCode =
   | 'invalid_delay'
   | 'invalid_aql_query'
   | 'invalid_application_spec'
+  | 'invalid_browser_spec'
   | 'application_permission_denied'
   | 'invalid_backend_preference'
   | 'invalid_command'
@@ -409,6 +423,7 @@ export const COMMAND_ERROR_CODES = [
   'execution_invariant_failed',
   'automation_failed',
   'application_failed',
+  'browser_failed',
   'command_failed',
   'runtime_data_failed',
 ] as const;

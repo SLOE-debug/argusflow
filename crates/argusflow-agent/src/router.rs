@@ -97,7 +97,7 @@ impl ActionRouter {
     /// 使用宿主提供器的最新上下文生成 Planner Explain。
     pub fn inspect_current(&self, action: &AutomationAction) -> PlanningReport {
         let mut context = self.context_provider.snapshot();
-        if matches!(&action.target().scope, TargetScope::Application { .. }) {
+        if !matches!(&action.target().scope, TargetScope::Current) {
             context.foreground_window = None;
             context.active_process = None;
             context.browser_session = None;
@@ -166,6 +166,20 @@ impl ActionDispatcher for ActionRouter {
             if !capabilities.windows_uia {
                 context.accessibility.ready = false;
             }
+        } else if let AutomationExecutionScope::Browser {
+            session_id,
+            target_id,
+        } = scope
+        {
+            context.foreground_window = None;
+            context.active_process = None;
+            context.browser_session = Some(crate::BrowserSessionContext {
+                session_id,
+                target_id,
+                attached: true,
+            });
+            context.accessibility.ready = false;
+            context.visual_cache.ready = false;
         }
         self.prepare(action, &context)?.execute().await
     }

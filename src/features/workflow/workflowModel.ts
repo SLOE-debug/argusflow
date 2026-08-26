@@ -1,6 +1,7 @@
 import type { FlowEdge, FlowNode, FlowPoint } from '../../flow/types';
 import type {
   ApplicationSpec,
+  BrowserSpec,
   CommandOperation,
   ConditionBranch,
   ConditionOperator,
@@ -16,6 +17,7 @@ import type {
 } from './contracts';
 import { createDefaultUiOperation } from './workflowAction';
 import { createDefaultApplicationSpec } from './workflowApplication';
+import { createDefaultBrowserSpec } from './workflowBrowser';
 import { createDefaultCommandOperation } from './workflowCommand';
 
 /** 节点在单次工作流运行中的展示状态。 */
@@ -47,6 +49,7 @@ export type WorkflowNodeData =
       operand: JsonValue;
     }
   | WorkflowNodeDataBase & { kind: 'application'; spec: ApplicationSpec }
+  | WorkflowNodeDataBase & { kind: 'browser'; spec: BrowserSpec }
   | WorkflowNodeDataBase & { kind: 'ui'; operation: UiOperation }
   | WorkflowNodeDataBase & { kind: 'command'; operation: CommandOperation }
   | WorkflowNodeDataBase & { kind: 'end' };
@@ -69,6 +72,7 @@ export const WORKFLOW_NODE_SIZES = {
   delay: { width: 136, height: 52 },
   condition: { width: 132, height: 52 },
   application: { width: 172, height: 52 },
+  browser: { width: 172, height: 52 },
   ui: { width: 164, height: 52 },
   command: { width: 164, height: 52 },
   end: { width: 122, height: 52 },
@@ -101,7 +105,7 @@ export function createEdge(source: string, target: string, nodes: ReadonlyArray<
   return { id: `edge-${crypto.randomUUID()}`, source: { nodeId: source, side: sourceSide }, target: { nodeId: target, side: targetSide }, data: { branch } };
 }
 
-/** 将画布状态转换为后端 schema v5 契约。 */
+/** 将画布状态转换为后端 schema v6 契约。 */
 export function toWorkflowDefinition(
   workflowId: string,
   name: string,
@@ -112,7 +116,7 @@ export function toWorkflowDefinition(
   edges: ReadonlyArray<WorkflowCanvasEdge>,
 ): WorkflowDefinition {
   return {
-    schema_version: 5,
+    schema_version: 6,
     id: workflowId,
     name,
     inputs: [...inputs],
@@ -186,6 +190,7 @@ function toNodeKind(data: WorkflowNodeData): WorkflowNodeKind {
     case 'delay': return { type: 'delay', milliseconds: data.milliseconds };
     case 'condition': return { type: 'condition', predicate: { pointer: data.pointer, operator: data.operator, operand: isUnary(data.operator) ? null : data.operand } };
     case 'application': return { type: 'application', spec: data.spec };
+    case 'browser': return { type: 'browser', spec: data.spec };
     case 'ui': return { type: 'ui', operation: data.operation };
     case 'command': return { type: 'command', operation: data.operation };
     case 'end': return { type: 'end' };
@@ -224,6 +229,13 @@ function createNodeData(kind: EditableNodeKind): WorkflowNodeData {
         kind,
         label: '打开或连接应用',
         spec: createDefaultApplicationSpec(),
+        runState: 'idle',
+      };
+    case 'browser':
+      return {
+        kind,
+        label: '打开浏览器',
+        spec: createDefaultBrowserSpec(),
         runState: 'idle',
       };
     case 'ui':
