@@ -5,6 +5,7 @@ import {
   DEFAULT_EDGES,
   DEFAULT_NODES,
   DEFAULT_WORKFLOW_NAME,
+  DEFAULT_WORKFLOW_INPUTS,
   DEFAULT_WORKFLOW_PERMISSIONS,
   DEFAULT_WORKFLOW_VARIABLES,
 } from './defaultWorkflowTemplate';
@@ -18,9 +19,17 @@ import {
 } from './workflowModel';
 
 describe('workflow model', () => {
-  it('maps the empty canvas to the schema v4 Rust contract', () => {
-    const workflow = toWorkflowDefinition('6d7d7a91-4e19-42c9-b1d8-011d4cf94330', 'Demo', { enabled: true }, DEFAULT_WORKFLOW_PERMISSIONS, [], []);
-    expect(workflow.schema_version).toBe(4);
+  it('maps the empty canvas to the schema v5 Rust contract', () => {
+    const workflow = toWorkflowDefinition(
+      '6d7d7a91-4e19-42c9-b1d8-011d4cf94330',
+      'Demo',
+      DEFAULT_WORKFLOW_INPUTS,
+      { enabled: true },
+      DEFAULT_WORKFLOW_PERMISSIONS,
+      [],
+      [],
+    );
+    expect(workflow.schema_version).toBe(5);
     expect(workflow.variables).toEqual({ enabled: true });
     expect(workflow.nodes).toEqual([]);
   });
@@ -41,6 +50,7 @@ describe('workflow model', () => {
     const workflow = toWorkflowDefinition(
       '6d7d7a91-4e19-42c9-b1d8-011d4cf94330',
       'UI automation',
+      DEFAULT_WORKFLOW_INPUTS,
       {},
       DEFAULT_WORKFLOW_PERMISSIONS,
       [action],
@@ -68,6 +78,7 @@ describe('workflow model', () => {
     const workflow = toWorkflowDefinition(
       '6d7d7a91-4e19-42c9-b1d8-011d4cf94330',
       DEFAULT_WORKFLOW_NAME,
+      DEFAULT_WORKFLOW_INPUTS,
       DEFAULT_WORKFLOW_VARIABLES,
       DEFAULT_WORKFLOW_PERMISSIONS,
       DEFAULT_NODES,

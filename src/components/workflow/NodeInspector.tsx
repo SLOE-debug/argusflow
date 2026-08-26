@@ -25,13 +25,25 @@ type NodeInspectorProps = Readonly<{
   variablesDraft: string;
   /** JSON 变量错误。 */
   variablesError: string | null;
-  /** 工作流命令权限。 */
+  /** 运行输入声明草稿。 */
+  inputDefinitionsDraft: string;
+  /** 运行输入声明错误。 */
+  inputDefinitionsError: string | null;
+  /** 本次运行输入草稿。 */
+  runInputValuesDraft: string;
+  /** 本次运行输入错误。 */
+  runInputValuesError: string | null;
+  /** 工作流系统能力声明。 */
   permissions: WorkflowPermissions;
   /** 修改工作流名称。 */
   onNameChange: (name: string) => void;
   /** 修改 JSON 变量。 */
   onVariablesChange: (draft: string) => void;
-  /** 修改工作流命令权限。 */
+  /** 修改运行输入声明。 */
+  onInputDefinitionsChange: (draft: string) => void;
+  /** 修改本次运行输入。 */
+  onRunInputValuesChange: (draft: string) => void;
+  /** 修改工作流系统能力声明。 */
   onPermissionsChange: (permissions: WorkflowPermissions) => void;
   /** 修改节点字段。 */
   onUpdateNode: (updater: WorkflowNodeUpdater) => void;
@@ -78,9 +90,15 @@ export function NodeInspector(props: NodeInspectorProps) {
             workflowName={props.workflowName}
             variablesDraft={props.variablesDraft}
             variablesError={props.variablesError}
+            inputDefinitionsDraft={props.inputDefinitionsDraft}
+            inputDefinitionsError={props.inputDefinitionsError}
+            runInputValuesDraft={props.runInputValuesDraft}
+            runInputValuesError={props.runInputValuesError}
             permissions={props.permissions}
             onNameChange={props.onNameChange}
             onVariablesChange={props.onVariablesChange}
+            onInputDefinitionsChange={props.onInputDefinitionsChange}
+            onRunInputValuesChange={props.onRunInputValuesChange}
             onPermissionsChange={props.onPermissionsChange}
           />
         ) : null}

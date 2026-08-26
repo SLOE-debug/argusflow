@@ -6,6 +6,7 @@ import type {
   WorkflowEdgeData,
   WorkflowNodeData,
 } from '../../features/workflow/workflowModel';
+import { DEFAULT_WORKFLOW_PERMISSIONS } from '../../features/workflow/defaultWorkflowTemplate';
 import { NodeInspector } from './NodeInspector';
 
 describe('NodeInspector', () => {
@@ -25,8 +26,16 @@ describe('NodeInspector', () => {
         workflowName="测试流程"
         variablesDraft="{}"
         variablesError={null}
+        inputDefinitionsDraft="[]"
+        inputDefinitionsError={null}
+        runInputValuesDraft="{}"
+        runInputValuesError={null}
+        permissions={DEFAULT_WORKFLOW_PERMISSIONS}
         onNameChange={vi.fn()}
         onVariablesChange={vi.fn()}
+        onInputDefinitionsChange={vi.fn()}
+        onRunInputValuesChange={vi.fn()}
+        onPermissionsChange={vi.fn()}
         onUpdateNode={vi.fn()}
         onUpdateEdgeBranch={vi.fn()}
         onDelete={vi.fn()}

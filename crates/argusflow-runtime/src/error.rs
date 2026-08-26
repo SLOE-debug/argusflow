@@ -1,4 +1,4 @@
-use argusflow_core::{ApplicationError, AutomationError, ResourceRef};
+use argusflow_core::{ApplicationError, AutomationError, ResourceRef, WorkflowCapability};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -13,6 +13,12 @@ pub enum RuntimeError {
     ValidationFailed {
         /// 包含所有校验失败项，供调用方展示或记录。
         report: ValidationReport,
+    },
+    /// 调用方提供的本次运行输入与工作流声明不一致。
+    #[error("invalid workflow run inputs: {message}")]
+    InvalidRunInputs {
+        /// 缺失、多余或类型错误的输入说明。
+        message: String,
     },
     /// 当前引擎已有尚未结束的运行，拒绝并发启动。
     #[error("workflow run {run_id} is already active")]
@@ -37,6 +43,12 @@ pub enum RuntimeError {
     ValueTypeMismatch {
         /// 节点参数所需的稳定类型名称。
         expected: &'static str,
+    },
+    /// 节点尝试使用工作流没有声明的系统能力。
+    #[error("workflow capability was denied: {capability}")]
+    CapabilityDenied {
+        /// 被拒绝的稳定能力名称。
+        capability: WorkflowCapability,
     },
     /// ResourceRef 在当前运行中没有绑定真实资源。
     #[error("runtime resource is unavailable: {}.{}", reference.producer_node_id, reference.output_name)]

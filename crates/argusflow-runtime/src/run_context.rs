@@ -98,14 +98,18 @@ pub struct RunContext {
 }
 
 impl RunContext {
-    /// 从工作流提供的 JSON 对象创建运行上下文。
-    pub fn new(run_id: Uuid, inputs: Map<String, Value>) -> Self {
+    /// 从独立的运行输入和工作流初始变量创建运行上下文。
+    pub fn new(
+        run_id: Uuid,
+        workflow_inputs: Map<String, Value>,
+        variables: Map<String, Value>,
+    ) -> Self {
         Self {
             run_id,
-            workflow_inputs: inputs.clone(),
+            workflow_inputs,
             node_outputs: HashMap::new(),
             resources: ResourceTable::default(),
-            variables: inputs,
+            variables,
         }
     }
 
@@ -179,7 +183,11 @@ mod tests {
             .as_object()
             .expect("fixture inputs should be an object")
             .clone();
-        let mut context = RunContext::new(Uuid::new_v4(), inputs);
+        let variables = json!({ "region": "east" })
+            .as_object()
+            .expect("fixture variables should be an object")
+            .clone();
+        let mut context = RunContext::new(Uuid::new_v4(), inputs, variables);
         context.record_outcome(
             "read-order".to_owned(),
             NodeOutcome::values(BTreeMap::from([(
@@ -199,10 +207,10 @@ mod tests {
         assert_eq!(
             context
                 .resolve_text(&ValueExpr::Variable {
-                    name: "order_id".to_owned(),
+                    name: "region".to_owned(),
                 })
                 .expect("initial runtime variable should resolve"),
-            "ACME-10086",
+            "east",
         );
         assert_eq!(
             context

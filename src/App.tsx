@@ -166,9 +166,15 @@ export default function App() {
                   workflowName={studio.workflowName}
                   variablesDraft={studio.variablesDraft}
                   variablesError={studio.variablesError}
+                  inputDefinitionsDraft={studio.inputDefinitionsDraft}
+                  inputDefinitionsError={studio.inputDefinitionsError}
+                  runInputValuesDraft={studio.runInputValuesDraft}
+                  runInputValuesError={studio.runInputValuesError}
                   permissions={studio.permissions}
                   onNameChange={studio.setWorkflowName}
                   onVariablesChange={studio.updateVariables}
+                  onInputDefinitionsChange={studio.updateInputDefinitions}
+                  onRunInputValuesChange={studio.updateRunInputValues}
                   onPermissionsChange={studio.updatePermissions}
                   onUpdateNode={studio.updateNode}
                   onUpdateEdgeBranch={studio.updateEdgeBranch}

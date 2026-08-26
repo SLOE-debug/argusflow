@@ -5,7 +5,9 @@ use std::{
     time::Duration,
 };
 
-use argusflow_core::{CommandOperation, CommandRunner, WorkflowPermissions};
+use argusflow_core::{
+    CommandOperation, CommandRunner, WorkflowPermissions, required_command_capability,
+};
 use serde_json::Value;
 use thiserror::Error;
 use tokio::{
@@ -117,8 +119,8 @@ impl CommandExecutor {
         };
         let stdout_limit = operation.max_stdout_bytes;
         let stderr_limit = operation.max_stderr_bytes;
-        let mut stdout_task = tokio::spawn(read_bounded(stdout, stdout_limit));
-        let mut stderr_task = tokio::spawn(read_bounded(stderr, stderr_limit));
+        let mut stdout_task = tokio::spawn(read_bounded(stdout, "stdout", stdout_limit));
+        let mut stderr_task = tokio::spawn(read_bounded(stderr, "stderr", stderr_limit));
 
         if let Some(stdin) = stdin {
             let mut stdin_pipe = match child_stdin.take() {
@@ -161,16 +163,38 @@ impl CommandExecutor {
         drop(child_stdin);
 
         let lifecycle = async {
-            let status = child
-                .wait()
-                .await
-                .map_err(|error| CommandError::ProcessFailed {
-                    message: error.to_string(),
-                })?;
-            // 根进程退出即终止仍存活的后代，确保继承的 stdout/stderr 写端可以关闭。
-            job.terminate();
-            let stdout = join_output(&mut stdout_task, "stdout", stdout_limit).await?;
-            let stderr = join_output(&mut stderr_task, "stderr", stderr_limit).await?;
+            let mut status = None;
+            let mut stdout = None;
+            let mut stderr = None;
+            loop {
+                if status.is_some() && stdout.is_some() && stderr.is_some() {
+                    break;
+                }
+                tokio::select! {
+                    result = child.wait(), if status.is_none() => {
+                        status = Some(result.map_err(|error| CommandError::ProcessFailed {
+                            message: error.to_string(),
+                        })?);
+                        // 根进程退出即终止仍存活的后代，确保继承的输出管道写端关闭。
+                        job.terminate();
+                    }
+                    result = &mut stdout_task, if stdout.is_none() => {
+                        stdout = Some(resolve_output(result)?);
+                    }
+                    result = &mut stderr_task, if stderr.is_none() => {
+                        stderr = Some(resolve_output(result)?);
+                    }
+                }
+            }
+            let status = status.ok_or_else(|| CommandError::ProcessFailed {
+                message: "command status was not observed".to_owned(),
+            })?;
+            let stdout = stdout.ok_or_else(|| CommandError::ProcessFailed {
+                message: "command stdout was not observed".to_owned(),
+            })?;
+            let stderr = stderr.ok_or_else(|| CommandError::ProcessFailed {
+                message: "command stderr was not observed".to_owned(),
+            })?;
             Ok::<_, RuntimeError>((status, stdout, stderr))
         };
         let (status, stdout, stderr) = match tokio::time::timeout_at(deadline, lifecycle).await {
@@ -223,19 +247,10 @@ fn ensure_permissions(
     runner: CommandRunner,
     permissions: WorkflowPermissions,
 ) -> Result<(), CommandError> {
-    if !permissions.process_spawn {
+    let capability = required_command_capability(runner);
+    if !permissions.allows(capability) {
         return Err(CommandError::PermissionDenied {
-            message: "process_spawn permission is required".to_owned(),
-        });
-    }
-    if matches!(runner, CommandRunner::PowerShell) && !permissions.powershell {
-        return Err(CommandError::PermissionDenied {
-            message: "powershell permission is required".to_owned(),
-        });
-    }
-    if matches!(runner, CommandRunner::Cmd) && !permissions.cmd {
-        return Err(CommandError::PermissionDenied {
-            message: "cmd permission is required".to_owned(),
+            message: format!("{} permission is required", capability.as_str()),
         });
     }
     Ok(())
@@ -345,42 +360,41 @@ fn required_script(
     Ok(script)
 }
 
-/// 持续排空子进程流并只保留限制内数据，避免管道阻塞或无界内存增长。
+/// 读取子进程流；发现首个越界字节就返回，以便调用方立即终止进程树。
 async fn read_bounded(
     mut reader: impl AsyncRead + Unpin,
+    stream: &'static str,
     limit: usize,
-) -> Result<(Vec<u8>, bool), std::io::Error> {
+) -> Result<Vec<u8>, CommandError> {
     let mut retained = Vec::with_capacity(limit.min(8 * 1024));
     let mut buffer = [0_u8; 8 * 1024];
-    let mut exceeded = false;
     loop {
-        let count = reader.read(&mut buffer).await?;
+        let count =
+            reader
+                .read(&mut buffer)
+                .await
+                .map_err(|error| CommandError::ProcessFailed {
+                    message: error.to_string(),
+                })?;
         if count == 0 {
             break;
         }
         let remaining = limit.saturating_sub(retained.len());
-        retained.extend_from_slice(&buffer[..count.min(remaining)]);
-        exceeded |= count > remaining;
+        if count > remaining {
+            return Err(CommandError::OutputLimitExceeded { stream, limit });
+        }
+        retained.extend_from_slice(&buffer[..count]);
     }
-    Ok((retained, exceeded))
+    Ok(retained)
 }
 
-/// 解包输出读取任务并将 I/O、Join 和上限错误映射到命令边界。
-async fn join_output(
-    task: &mut tokio::task::JoinHandle<Result<(Vec<u8>, bool), std::io::Error>>,
-    stream: &'static str,
-    limit: usize,
+/// 解包已经完成的输出任务并将 Join 错误映射到命令边界。
+fn resolve_output(
+    result: Result<Result<Vec<u8>, CommandError>, tokio::task::JoinError>,
 ) -> Result<Vec<u8>, RuntimeError> {
-    let (output, exceeded) = task
-        .await
+    result
         .map_err(|error| CommandError::ProcessFailed {
             message: error.to_string(),
         })?
-        .map_err(|error| CommandError::ProcessFailed {
-            message: error.to_string(),
-        })?;
-    if exceeded {
-        return Err(CommandError::OutputLimitExceeded { stream, limit }.into());
-    }
-    Ok(output)
+        .map_err(RuntimeError::from)
 }

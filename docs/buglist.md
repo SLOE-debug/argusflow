@@ -1,34 +1,423 @@
-**本轮阻断项已完成修复。**
+继续审计了最新提交：
 
-当前 `main` 最新提交仍是 **`3c0711661455168a148d86eecf9d0ddd3d484df1` — `fix: 修正查询分支规划与 UIA 执行边界`**。上一轮两个核心 UIA P0——跨 backend `any` 顺序和逐分支 Action capability——这次总体上已经按正确架构修掉了；UIA 的 TreeWalker 硬预算和分代 worker recovery 也明显改善。
+**`9d37937d46bb2ffaf1f9b6ef16f9e093506daa28` — `fix: 修复规划爆炸与命令进程树超时`**
 
-但这轮仍有几个阻断项：
+结论：本轮列出的实现问题已经修复；编译与 CI 结果仍需由后续流水线确认。
 
-1. **当前最新提交 CI 是红的。** `Rust compiler and runtime tests` 的 `Run workspace tests` 明确失败，因此当前 SHA 本身不能判通过。
-   失败点是新增的嵌套 `any` BranchPath 测试。这里还有一个契约冲突：测试要求 `any(A, any(B,C))` 保留源树路径 `[0] / [1,1]`，但现有 normalizer 明确定义为**扁平化嵌套 `any`**，因此编译器看到的是等价的 `any(A,B,C)`。
-   这不一定意味着运行顺序已经错——扁平化仍可保持 A→B→C——但现在 **BranchPath 究竟描述 source AST 还是 normalized AST 没统一**。必须先明确契约并让 CI 通过。
+本次修复同时把工作流契约升级到 schema v5。没有加入旧 schema、旧权限字段或旧启动接口的兼容分支。
 
-2. **BranchPath 的正确语义修复引入了无上限的组合爆炸。** UIA/CDP 在关系表达式两侧都存在 alternatives 时直接做笛卡尔积；CDP 当前实现也明确如此。 AQL parser 对 `any` 分支数量和嵌套/关系深度没有相应上限。
-   因而类似：
+以下各节保留修复前的审计证据和代码片段；节首“已修复”说明描述当前实现。
 
-   ```text
-   any(A0,A1) >> any(B0,B1) >> ... >> any(T0,T1)
-   ```
+### 1. 已修复：Command 生命周期回归改用确定性 helper
 
-   20 组就是约 **2²⁰ = 1,048,576 个 prepared alternatives**。这是实际的 CPU/内存 DoS 风险。建议 compiler 加 `max_alternatives` 硬预算并在乘法前 `checked_mul`，长期再考虑 lazy expansion。
+原先依赖 `cmd.exe start /B` 的 fixture 已删除。集成测试现在直接再次启动当前测试二进制：根 helper 创建一个继承 stdout/stderr 的后代 helper 后立即退出，后代持续持有管道。该场景不再依赖交互 shell 或 GitHub runner 的 `start` 行为。
 
-3. **Command 节点的 `timeout_ms` 还没有覆盖完整命令生命周期。** 当前 deadline 包住 stdin 写入和 `child.wait()`，但主进程退出后，`stdout_task` / `stderr_task` 是无 deadline 的 `.await`；而超时时只 `kill()` 直接 child，没有 Windows Job Object/process-tree containment。
-   如果命令生成一个继承 stdout/stderr 管道的后代进程，然后父进程先退出，`child.wait()` 会成功，但管道不会 EOF，随后 `join_output()` 可以无限等待。Node executor 外层也没有额外 timeout，会直接等待 CommandExecutor。
-   建议把 **wait + 两个 pipe drain** 全部放入同一个 deadline，并在 Windows 下用 Job Object（`KILL_ON_JOB_CLOSE`）控制整个进程树。
+测试仍验证同一事实：根进程退出后，Job Object 必须终止后代、关闭继承的管道，并在 Command 自身 deadline 前返回。
 
-还有一个安全边界需要继续保留在披露里：`WorkflowPermissions` 目前属于 workflow 自身可序列化、可在 UI 中开启的字段，runtime 直接信任这些布尔值；它更像“能力声明”，不是宿主独立授予的安全授权。  在全部 workflow 都是本机可信创建的前提下可以接受，但**在导入/分享/模板市场/远程 workflow 上线前必须拆成 RequestedPermissions 与 HostGrantedPermissions**。
+最新 SHA 的 Windows CI 已经完成，`Rust compiler and runtime tests` 的 `Run workspace tests` 明确是 `failure`。
 
-因此本轮建议优先级是：**先修红 CI/明确 BranchPath 契约 → 给 alternative expansion 加硬预算 → 修 Command 全生命周期 timeout/process tree**。这三项完成并跑绿后，再做下一轮“是否通过”的审计。
+这次不是 BranchPath。前面的测试实际上已经证明：
 
-## 本轮处理结果
+* Router 跨 backend fallback 测试通过；
+* CDP alternative 4096 hard limit 测试通过；
+* query 层 checked overflow/budget 测试通过；
+* AQL 测试全部通过。
 
-1. **BranchPath 契约已统一。** `BranchPath` 明确描述 `normalize_query()` 输出的规范化 AST；嵌套 `any` 在保持顺序的扁平化后使用 `[0] / [1] / [2]`。原失败测试已经对齐为 UIA 实际支持的 `[0] / [2]`。
-2. **替代方案展开已有硬预算。** query 层提供共享 `AlternativeExpansionBudget`，UIA/CDP compiler 的单个中间表达式最多物化 `4_096` 个 alternatives；`any` 累加和关系笛卡尔积都在分配前执行 checked arithmetic，溢出或超限返回结构化错误。
-3. **Command deadline 已覆盖完整生命周期。** 根进程使用 `CREATE_SUSPENDED` 启动，在执行用户代码前纳入带 `KILL_ON_JOB_CLOSE` 的 Windows Job Object，再恢复主线程；stdin、根进程等待、后代清理和 stdout/stderr drain 共用同一 deadline。根进程退出、超时或 I/O 失败都会终止整个进程树。
+真正失败的是新加的：
 
-`WorkflowPermissions` 的宿主授权边界本轮继续作为已知披露保留：当前仅适用于本机可信创建的 workflow；引入不可信来源前仍必须拆分 `RequestedPermissions` 与 `HostGrantedPermissions`。
+```text
+command_finishes_after_killing_a_descendant_that_inherits_output_pipes
+```
+
+GitHub Windows runner 上实际结果：
+
+```text
+Command(Timeout { timeout_ms: 3000 })
+```
+
+约 3 秒后失败。
+
+因此这次不能再说“Job Object 修复已经完成验证”。更准确的状态是：
+
+> **实现方向正确，但专门用于证明这个问题已经修复的回归测试自己失败了。**
+
+这里有两种可能：
+
+1. 当前 `cmd / start /B` 测试 fixture 在 CI 的非交互 Windows 环境下并不具备你假设的“父进程立即退出”语义；
+2. Job Object / suspended child / pipe 生命周期实现还有实际缺陷。
+
+无论哪一个，都必须修。当前 CI 红灯足以阻止“通过”。
+
+我建议不要继续拿 `cmd.exe start /B` 当核心生命周期证明。写一个非常小的 **test helper executable**：
+
+```text
+parent-helper.exe
+    ├─ CreateProcess(child-helper.exe, inherit stdout/stderr)
+    └─ 立即退出
+
+child-helper.exe
+    └─ 持有 stdout/stderr 并 sleep 20s
+```
+
+这样测试的事实完全由你控制：
+
+```text
+root exited
+descendant still alive
+descendant inherited pipes
+ArgusFlow terminates job
+pipes EOF
+CommandExecutor returns before deadline
+```
+
+比 shell 行为稳定得多。
+
+---
+
+### 2. 上一轮的 alternative explosion：这项可以划掉
+
+这次新增共享 `AlternativeExpansionBudget`，并且 UIA/CDP 都在：
+
+```text
+any:
+    checked_add
+
+relation Cartesian product:
+    checked_mul
+```
+
+之后、真正分配之前检查 `4096` hard limit。
+
+新 UIA 测试也覆盖了 13 个二选一关系产生 `8192` alternatives 时拒绝编译。
+
+所以之前的：
+
+```text
+2^20 prepared alternatives
+```
+
+DoS 路径已经被实质封住。
+
+这一项 **通过**。
+
+---
+
+### 3. BranchPath 契约也基本关闭
+
+你现在正式选择了：
+
+> `BranchPath` 描述 **normalize_query() 后的 AST**，而不是 source AST。
+
+所以：
+
+```text
+any(
+  A,
+  any(B, C)
+)
+```
+
+规范化成：
+
+```text
+any(A, B, C)
+```
+
+路径就是：
+
+```text
+[0]
+[1]
+[2]
+```
+
+UIA 若只支持 A/C：
+
+```text
+[0]
+[2]
+```
+
+这和 normalizer 的 flatten 语义一致，之前 CI 失败的测试也已经改成这个契约。
+
+`BranchPath` 类型本身也明确规定 compiler 必须一条 path 一个 candidate。
+
+所以这项我也认为 **通过**。
+
+---
+
+### 4. 已修复：`WorkflowInput` 已拥有独立运行时输入
+
+新增了持久化 `WorkflowInputDefinition`、瞬时 `RunInputs` 和文本输入类型。`WorkflowEngine::start`、Tauri `run_workflow` 与前端调用现在都显式传入本次运行输入。
+
+`RunContext` 分别接收 `RunInputs.values` 与 `workflow.variables`，不再克隆同一对象充当两个数据面。Validator 只按输入声明校验 `WorkflowInput` 引用；启动时另行拒绝缺失、多余或类型不符的实际值。编辑器也分别提供“运行输入声明”和“不写回工作流的本次运行输入”区域。
+
+这个是本轮新发现，而且属于比较核心的数据面契约问题。
+
+`RunContext` 明确区分：
+
+```text
+workflow_inputs
+variables
+```
+
+并把 `WorkflowInput` 描述成启动时冻结的输入。
+
+但现在：
+
+```rust
+WorkflowEngine::start(
+    workflow,
+    sink,
+)
+```
+
+根本没有 `inputs` 参数。
+
+实际执行时做的是：
+
+```rust
+let inputs = workflow.variables.as_object().cloned()?;
+let mut context = RunContext::new(run_id, inputs);
+```
+
+于是同一份持久化：
+
+```text
+workflow.variables
+```
+
+同时成为：
+
+```text
+WorkflowInput
++
+Variable
+```
+
+Tauri 边界也是：
+
+```rust
+run_workflow(
+    workflow: WorkflowDefinition
+)
+```
+
+没有单独的运行参数。
+
+validator 甚至要求 `WorkflowInput { key }` 必须存在于 `workflow.variables` 中。
+
+也就是说现在：
+
+```text
+WorkflowInput
+```
+
+只是名字叫 input，本质上仍是 workflow JSON 里的静态变量。
+
+这以后会直接阻塞：
+
+```text
+每次运行输入不同订单号
+CLI/API 调用 workflow(params)
+Credential / secret injection
+Schedule trigger payload
+Webhook payload
+Parent workflow → subflow args
+```
+
+而且秘密数据如果想通过 `WorkflowInput` 使用，现在只能塞进持久化 workflow。
+
+建议尽早改成：
+
+```rust
+pub struct RunInputs {
+    pub values: Map<String, Value>,
+}
+
+WorkflowEngine::start(
+    workflow,
+    inputs: RunInputs,
+    sink,
+)
+```
+
+然后：
+
+```text
+WorkflowInput → RunInputs
+Variable      → runtime variable store
+workflow.variables → initial/default variables
+```
+
+Validator 应验证 **input schema/reference**，而不是验证当前持久化值一定存在。
+
+我列 **P1**。
+
+---
+
+### 5. 已修复：Application 与 Command 使用统一能力边界
+
+含义模糊的 `process_spawn` 已删除，替换为四个明确能力：
+
+```text
+application_launch
+direct_command
+powershell
+cmd
+```
+
+Application 的 `attach_or_start` 与 `always_start_new` 必须声明 `application_launch`，`attach_only` 不需要启动能力；Validator 和节点执行器都执行该约束。三种 Command runner 分别只检查自身对应能力。
+
+按既定范围，本次没有把绝对 EXE 改成 `ApplicationRef`，也没有实现宿主批准绑定；这不影响本轮修复 Application 绕过进程能力声明的问题。
+
+这比之前“WorkflowPermissions 自我授权”又多一层。
+
+当前权限：
+
+```rust
+WorkflowPermissions {
+    process_spawn,
+    powershell,
+    cmd,
+}
+```
+
+`process_spawn` 的注释是允许创建任意子进程。
+
+Command validator 的确检查：
+
+```rust
+permissions.process_spawn
+```
+
+但 Application 节点走的是：
+
+```rust
+WorkflowNodeKind::Application { spec } => {
+    validate_application_spec(...)
+}
+```
+
+只检查：
+
+```text
+EXE absolute path
+window title
+launch timeout
+```
+
+**完全不检查 `process_spawn`。**
+
+而 Application resource 本身在找不到进程时会启动它。
+
+所以现在：
+
+```text
+permissions.process_spawn = false
+
+Application {
+    executable_path = "C:\\...\\anything.exe"
+}
+```
+
+仍然可以产生新进程。
+
+因此目前这个字段实际上不是：
+
+```text
+workflow may spawn processes
+```
+
+而只是：
+
+```text
+Command node may spawn processes
+```
+
+这两个语义最好不要混。
+
+比较干净的模型是：
+
+```text
+RequestedCapabilities:
+    application_launch
+    direct_command
+    powershell
+    cmd
+
+HostGrantedCapabilities:
+    application bindings / allowed apps
+    direct_command
+    powershell
+    cmd
+```
+
+尤其 Application 最终建议还是：
+
+```text
+ApplicationRef("notepad-plus-plus")
+```
+
+绑定本机批准的 EXE，而不是共享 workflow 自带绝对 EXE。
+
+现在项目明确限定“可信本地 workflow”时，我仍然只定为 **P1 security architecture**；一旦有 import/share/marketplace/sync，它会升级。
+
+---
+
+### 6. 已修复：Command 输出超限立即终止进程树
+
+stdout/stderr 读取任务现在发现第一个越界字节就返回 `OutputLimitExceeded`。Command 生命周期并发观察根进程和两个输出任务；任一输出超限都会立即触发 Job Object 终止，不再继续 drain 到进程自然退出。
+
+新增的 helper 回归会持续输出数据，并验证节点在自身 deadline 之前返回精确的 stream/limit 错误。
+
+现在：
+
+```text
+max_stdout_bytes
+max_stderr_bytes
+```
+
+代码的做法大致是：
+
+```text
+达到 limit
+→ 不再保留更多数据
+→ 但继续 drain 管道
+→ 等进程结束
+→ 最后返回 OutputLimitExceeded
+```
+
+所以这个 limit 是：
+
+> **内存 capture 上限**
+
+而不是真正：
+
+> **进程输出超过 limit 就立即终止**
+
+但公开契约写的是“超限会终止节点”。
+
+这意味着一个已获 Command 权限的程序可以在 timeout 内持续输出巨量数据，ArgusFlow 不会吃巨量内存，但仍会消耗 pipe I/O/CPU。
+
+不是高危，我列 **P2**。要么改文档为 `capture_limit`，要么 read task 一检测 exceeded 就通知主任务 `TerminateJobObject`。
+
+---
+
+## 当前状态
+
+| 项目                                  | 状态          |
+| ----------------------------------- | ----------- |
+| 跨 backend `any` 顺序                  | ✅           |
+| branch-specific action capability   | ✅           |
+| normalized BranchPath 契约            | ✅           |
+| alternative 组合爆炸 hard limit         | ✅           |
+| UIA TreeWalker hard budget          | ✅           |
+| UIA generation recovery             | ✅           |
+| Command Job Object 架构               | ✅           |
+| Command descendant/pipe 确定性回归测试    | 🟡 已修复，待 CI |
+| 真正的 runtime `WorkflowInput`         | ✅           |
+| Application / Command 统一能力边界       | ✅           |
+| output byte limit 精确语义              | ✅           |
+
+所以这一轮的核心结论是：实现层面的四个未关闭项均已处理，剩余动作是由 Windows 编译和 CI 确认确定性 helper 回归及完整工作区测试。

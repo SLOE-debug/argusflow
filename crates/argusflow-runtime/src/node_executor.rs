@@ -2,8 +2,8 @@ use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use argusflow_core::{
     ApplicationSessionProvider, AutomationAction, AutomationExecutionScope, ExecutionEventKind,
-    ExecutionEventPayload, ResourceRef, TargetScope, UiOperation, WorkflowNode, WorkflowNodeKind,
-    WorkflowPermissions,
+    ExecutionEventPayload, ResourceRef, TargetScope, UiOperation, WorkflowCapability, WorkflowNode,
+    WorkflowNodeKind, WorkflowPermissions,
 };
 
 use crate::{ActionDispatcher, CommandExecutor, NodeOutcome, RunContext, RuntimeError};
@@ -84,6 +84,13 @@ impl WorkflowNodeExecutor {
                 Ok(NodeExecution::default())
             }
             WorkflowNodeKind::Application { spec } => {
+                if spec.acquire_policy.may_launch()
+                    && !permissions.allows(WorkflowCapability::ApplicationLaunch)
+                {
+                    return Err(RuntimeError::CapabilityDenied {
+                        capability: WorkflowCapability::ApplicationLaunch,
+                    });
+                }
                 let session = self.applications.acquire(spec).await?;
                 let output_name = "session".to_owned();
                 context.resources_mut().insert_application(

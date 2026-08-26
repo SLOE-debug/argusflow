@@ -5,6 +5,7 @@ import type {
   AutomationTarget,
   BackendCommandErrorCode,
   CommandError,
+  RunInputs,
   RunStarted,
   ValidationReport,
   WorkflowDefinition,
@@ -33,8 +34,11 @@ export function validateWorkflow(workflow: WorkflowDefinition): Promise<Validati
 }
 
 /** 请求后端启动工作流，成功时返回本次运行 ID；命令失败时 Promise 会拒绝。 */
-export function runWorkflow(workflow: WorkflowDefinition): Promise<RunStarted> {
-  return invoke<RunStarted>('run_workflow', { workflow });
+export function runWorkflow(
+  workflow: WorkflowDefinition,
+  inputs: RunInputs,
+): Promise<RunStarted> {
+  return invoke<RunStarted>('run_workflow', { workflow, inputs });
 }
 
 /** 将 Tauri 抛出的未知值归一化为界面可安全展示的命令错误。 */

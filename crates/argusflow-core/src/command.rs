@@ -1,3 +1,5 @@
+use std::fmt;
+
 use serde::{Deserialize, Serialize};
 
 use crate::ValueExpr;
@@ -12,6 +14,38 @@ pub enum CommandRunner {
     PowerShell,
     /// 使用 Windows CMD 执行脚本。
     Cmd,
+}
+
+/// 工作流可以按最小粒度声明的进程创建能力。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkflowCapability {
+    /// Application 节点可以按获取策略启动应用。
+    ApplicationLaunch,
+    /// Command 节点可以不经过 shell 直接启动程序。
+    DirectCommand,
+    /// Command 节点可以启动 PowerShell 运行脚本。
+    PowerShell,
+    /// Command 节点可以启动 CMD 运行脚本。
+    Cmd,
+}
+
+impl WorkflowCapability {
+    /// 返回与序列化字段一致的稳定能力名称。
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ApplicationLaunch => "application_launch",
+            Self::DirectCommand => "direct_command",
+            Self::PowerShell => "powershell",
+            Self::Cmd => "cmd",
+        }
+    }
+}
+
+impl fmt::Display for WorkflowCapability {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
 }
 
 /// 传给子进程的单个环境变量绑定。
@@ -53,8 +87,10 @@ pub struct CommandOperation {
 /// 工作流对高风险系统能力的显式授权。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkflowPermissions {
-    /// 允许创建任意子进程；三种 CommandRunner 都需要。
-    pub process_spawn: bool,
+    /// 允许 Application 节点按获取策略启动目标应用。
+    pub application_launch: bool,
+    /// 允许 Command 节点不经过 shell 直接启动程序。
+    pub direct_command: bool,
     /// 允许使用 PowerShell 语言运行器。
     pub powershell: bool,
     /// 允许使用 CMD shell 运行器。
@@ -63,11 +99,36 @@ pub struct WorkflowPermissions {
 
 impl WorkflowPermissions {
     /// 创建只允许无 shell 直接启动程序的最小命令权限。
-    pub const fn direct_process_only() -> Self {
+    pub const fn direct_command_only() -> Self {
         Self {
-            process_spawn: true,
+            application_launch: false,
+            direct_command: true,
             powershell: false,
             cmd: false,
         }
+    }
+
+    /// 判断工作流是否声明了指定系统能力。
+    pub const fn allows(self, capability: WorkflowCapability) -> bool {
+        match capability {
+            WorkflowCapability::ApplicationLaunch => self.application_launch,
+            WorkflowCapability::DirectCommand => self.direct_command,
+            WorkflowCapability::PowerShell => self.powershell,
+            WorkflowCapability::Cmd => self.cmd,
+        }
+    }
+
+    /// 判断权限是否明确允许所选命令运行器。
+    pub const fn allows_command(self, runner: CommandRunner) -> bool {
+        self.allows(required_command_capability(runner))
+    }
+}
+
+/// 返回所选命令运行器创建进程所需的唯一能力。
+pub const fn required_command_capability(runner: CommandRunner) -> WorkflowCapability {
+    match runner {
+        CommandRunner::Direct => WorkflowCapability::DirectCommand,
+        CommandRunner::PowerShell => WorkflowCapability::PowerShell,
+        CommandRunner::Cmd => WorkflowCapability::Cmd,
     }
 }

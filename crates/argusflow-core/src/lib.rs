@@ -8,6 +8,7 @@ mod command;
 mod condition;
 mod error;
 mod execution;
+mod input;
 mod query;
 mod resource;
 mod value;
@@ -19,10 +20,14 @@ pub use automation::{
     BackendPreference, ScreenPoint, TargetLocator, TargetScope, UiOperation, VisualQuery,
     WindowTitleMatcher,
 };
-pub use command::{CommandOperation, CommandRunner, EnvironmentBinding, WorkflowPermissions};
+pub use command::{
+    CommandOperation, CommandRunner, EnvironmentBinding, WorkflowCapability, WorkflowPermissions,
+    required_command_capability,
+};
 pub use condition::{ConditionEvaluationError, ConditionOperator, ConditionPredicate};
 pub use error::AutomationError;
 pub use execution::{ExecutionEvent, ExecutionEventKind, ExecutionEventPayload, RunStarted};
+pub use input::{RunInputs, WorkflowInputDefinition, WorkflowInputType};
 pub use query::{
     AqlQuery, DomAttribute, ElementMatcher, ElementRole, MatchOperator, PredicateValue,
     PropertyPredicate, QueryExpr, QueryLanguageVersion, RegexLiteral, SelectorAttribute, UiQuery,

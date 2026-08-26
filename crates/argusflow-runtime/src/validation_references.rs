@@ -125,15 +125,10 @@ fn validate_value(
             }
         }
         ValueExpr::WorkflowInput { key } => {
-            if key.trim().is_empty()
-                || !workflow
-                    .variables
-                    .get(key.as_str())
-                    .is_some_and(serde_json::Value::is_string)
-            {
+            if key.trim().is_empty() || !workflow.inputs.iter().any(|input| input.key == *key) {
                 issues.push(issue(
                     ValidationIssueCode::InvalidValueReference,
-                    format!("工作流输入 '{key}' 不存在或不是字符串"),
+                    format!("工作流输入 '{key}' 没有声明"),
                     Some(consumer.id.clone()),
                     None,
                 ));

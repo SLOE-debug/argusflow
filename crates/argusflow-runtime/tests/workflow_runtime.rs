@@ -8,8 +8,9 @@ use argusflow_core::{
     AcquirePolicy, ActivationPolicy, ApplicationSpec, AqlQuery, AutomationTarget,
     BackendPreference, CleanupPolicy, CommandOperation, CommandRunner, ConditionBranch,
     ConditionOperator, ConditionPredicate, ExecutionEvent, ExecutionEventKind, Position,
-    ResourceRef, TargetLocator, TargetScope, UiOperation, ValueExpr, WindowTitleMatcher,
-    WorkflowDefinition, WorkflowEdge, WorkflowNode, WorkflowNodeKind, WorkflowPermissions,
+    ResourceRef, RunInputs, TargetLocator, TargetScope, UiOperation, ValueExpr, WindowTitleMatcher,
+    WorkflowDefinition, WorkflowEdge, WorkflowInputDefinition, WorkflowInputType, WorkflowNode,
+    WorkflowNodeKind, WorkflowPermissions,
 };
 use argusflow_runtime::{
     ExecutionEventSink, RuntimeError, UnavailableActionDispatcher, ValidationIssueCode,
@@ -202,9 +203,10 @@ fn validation_rejects_browser_cdp_for_a_desktop_application_resource() {
         backend_preference: BackendPreference::BrowserCdp,
     };
     let workflow = WorkflowDefinition {
-        schema_version: 4,
+        schema_version: 5,
         id: Uuid::new_v4(),
         name: "Application backend validation".to_owned(),
+        inputs: Vec::new(),
         variables: json!({}),
         permissions: no_permissions(),
         nodes: vec![
@@ -255,8 +257,94 @@ fn validation_requires_explicit_command_permissions() {
     };
 
     assert_has_issue(&workflow, ValidationIssueCode::CommandPermissionDenied);
-    workflow.permissions = WorkflowPermissions::direct_process_only();
+    workflow.permissions = WorkflowPermissions::direct_command_only();
     assert!(validate_workflow(&workflow).valid);
+}
+
+#[test]
+fn validation_uses_input_declarations_instead_of_persisted_variables() {
+    let mut workflow = demo_workflow(1);
+    workflow.inputs = vec![WorkflowInputDefinition {
+        key: "secret".to_owned(),
+        value_type: WorkflowInputType::Text,
+    }];
+    workflow.variables = json!({ "secret": 42 });
+    workflow.nodes[1].kind = WorkflowNodeKind::Debug {
+        value: ValueExpr::WorkflowInput {
+            key: "secret".to_owned(),
+        },
+    };
+
+    assert!(validate_workflow(&workflow).valid);
+}
+
+#[test]
+fn validation_requires_application_launch_permission_only_for_launching_policies() {
+    let mut workflow = demo_workflow(1);
+    workflow.nodes[1].kind = WorkflowNodeKind::Application {
+        spec: test_application_spec(),
+    };
+    assert_has_issue(&workflow, ValidationIssueCode::ApplicationPermissionDenied);
+
+    let WorkflowNodeKind::Application { spec } = &mut workflow.nodes[1].kind else {
+        panic!("fixture node should remain an Application node");
+    };
+    spec.acquire_policy = AcquirePolicy::AttachOnly;
+    assert!(validate_workflow(&workflow).valid);
+}
+
+#[tokio::test]
+async fn runtime_requires_and_resolves_separate_run_inputs() {
+    let mut workflow = demo_workflow(1);
+    workflow.inputs = vec![WorkflowInputDefinition {
+        key: "secret".to_owned(),
+        value_type: WorkflowInputType::Text,
+    }];
+    workflow.nodes[1].kind = WorkflowNodeKind::Debug {
+        value: ValueExpr::WorkflowInput {
+            key: "secret".to_owned(),
+        },
+    };
+    let engine = Arc::new(WorkflowEngine::new(Arc::new(UnavailableActionDispatcher)));
+    let (sender, mut receiver) = mpsc::unbounded_channel();
+
+    let missing_error = engine
+        .start(
+            workflow.clone(),
+            RunInputs::default(),
+            Arc::new(ChannelSink(sender.clone())),
+        )
+        .await
+        .expect_err("a required run input must be provided");
+    assert!(matches!(
+        missing_error,
+        RuntimeError::InvalidRunInputs { .. }
+    ));
+
+    let input_values = json!({ "secret": "ephemeral" })
+        .as_object()
+        .expect("fixture run inputs should be an object")
+        .clone();
+    engine
+        .start(
+            workflow,
+            RunInputs {
+                values: input_values,
+            },
+            Arc::new(ChannelSink(sender)),
+        )
+        .await
+        .expect("declared run inputs should be accepted");
+
+    let mut observed = false;
+    while let Some(event) = receiver.recv().await {
+        observed |=
+            event.kind == ExecutionEventKind::Log && event.message.as_deref() == Some("ephemeral");
+        if event.kind == ExecutionEventKind::WorkflowCompleted {
+            break;
+        }
+    }
+    assert!(observed);
 }
 
 #[tokio::test]
@@ -264,7 +352,11 @@ async fn runtime_emits_ordered_log_and_completion_events() {
     let engine = Arc::new(WorkflowEngine::new(Arc::new(UnavailableActionDispatcher)));
     let (sender, mut receiver) = mpsc::unbounded_channel();
     engine
-        .start(demo_workflow(1), Arc::new(ChannelSink(sender)))
+        .start(
+            demo_workflow(1),
+            RunInputs::default(),
+            Arc::new(ChannelSink(sender)),
+        )
         .await
         .expect("run should start");
 
@@ -304,7 +396,11 @@ async fn runtime_only_executes_the_selected_condition_branch() {
     let engine = Arc::new(WorkflowEngine::new(Arc::new(UnavailableActionDispatcher)));
     let (sender, mut receiver) = mpsc::unbounded_channel();
     engine
-        .start(condition_workflow(false), Arc::new(ChannelSink(sender)))
+        .start(
+            condition_workflow(false),
+            RunInputs::default(),
+            Arc::new(ChannelSink(sender)),
+        )
         .await
         .expect("run should start");
     let mut edge_ids = Vec::new();
@@ -327,11 +423,11 @@ async fn runtime_rejects_a_second_active_run() {
     let sink = Arc::new(ChannelSink(sender));
 
     engine
-        .start(demo_workflow(1_000), sink.clone())
+        .start(demo_workflow(1_000), RunInputs::default(), sink.clone())
         .await
         .expect("first run should start");
     let error = engine
-        .start(demo_workflow(1_000), sink)
+        .start(demo_workflow(1_000), RunInputs::default(), sink)
         .await
         .expect_err("second run should be rejected");
 
@@ -350,7 +446,11 @@ async fn runtime_emits_a_failure_for_an_unavailable_action_backend() {
     };
 
     engine
-        .start(workflow, Arc::new(ChannelSink(sender)))
+        .start(
+            workflow,
+            RunInputs::default(),
+            Arc::new(ChannelSink(sender)),
+        )
         .await
         .expect("run should be accepted before asynchronous execution");
 
@@ -378,9 +478,10 @@ fn assert_has_issue(workflow: &WorkflowDefinition, code: ValidationIssueCode) {
 /// 在测试中构造一条可执行的 Start -> Log -> Delay -> End 线性链。
 fn demo_workflow(milliseconds: u64) -> WorkflowDefinition {
     WorkflowDefinition {
-        schema_version: 4,
+        schema_version: 5,
         id: Uuid::new_v4(),
         name: "Demo".to_owned(),
+        inputs: Vec::new(),
         variables: json!({}),
         permissions: no_permissions(),
         nodes: vec![
@@ -425,9 +526,10 @@ fn edge(source: &str, target: &str) -> WorkflowEdge {
 /// 构造两条分支最终汇合到 End 的条件 DAG。
 fn condition_workflow(enabled: bool) -> WorkflowDefinition {
     WorkflowDefinition {
-        schema_version: 4,
+        schema_version: 5,
         id: Uuid::new_v4(),
         name: "Condition".to_owned(),
+        inputs: Vec::new(),
         variables: json!({ "enabled": enabled }),
         permissions: no_permissions(),
         nodes: vec![
@@ -482,7 +584,8 @@ fn condition_workflow(enabled: bool) -> WorkflowDefinition {
 /// 普通工作流测试默认不授予任何命令能力。
 fn no_permissions() -> WorkflowPermissions {
     WorkflowPermissions {
-        process_spawn: false,
+        application_launch: false,
+        direct_command: false,
         powershell: false,
         cmd: false,
     }

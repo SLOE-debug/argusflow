@@ -33,10 +33,12 @@ pub struct ValidationIssue {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ValidationIssueCode {
-    /// schema 版本不是 4。
+    /// schema 版本不是 5。
     UnsupportedSchemaVersion,
     /// 工作流名称为空。
     EmptyWorkflowName,
+    /// 运行输入声明存在空名称或重复名称。
+    InvalidWorkflowInputs,
     /// variables 根值不是 JSON 对象。
     InvalidVariables,
     /// 节点 ID 为空。
@@ -75,6 +77,8 @@ pub enum ValidationIssueCode {
     InvalidAqlQuery,
     /// 应用节点缺少有效 EXE、窗口标题或策略配置。
     InvalidApplicationSpec,
+    /// WorkflowPermissions 没有授权 Application 节点所需的启动能力。
+    ApplicationPermissionDenied,
     /// UI 节点的后端偏好与目标资源作用域能力不兼容。
     InvalidBackendPreference,
     /// CommandOperation 的 runner 与字段组合或资源上限无效。
@@ -89,7 +93,7 @@ pub enum ValidationIssueCode {
     ReferenceNotDominating,
 }
 
-/// 校验 schema v4 条件 DAG、节点参数、数据流和资源支配关系。
+/// 校验 schema v5 条件 DAG、节点参数、数据流和资源支配关系。
 pub fn validate_workflow(workflow: &WorkflowDefinition) -> ValidationReport {
     let mut issues = Vec::new();
     validate_workflow_metadata(workflow, &mut issues);
@@ -138,10 +142,10 @@ pub fn validate_workflow(workflow: &WorkflowDefinition) -> ValidationReport {
 
 /// 校验工作流级契约。
 fn validate_workflow_metadata(workflow: &WorkflowDefinition, issues: &mut Vec<ValidationIssue>) {
-    if workflow.schema_version != 4 {
+    if workflow.schema_version != 5 {
         issues.push(issue(
             ValidationIssueCode::UnsupportedSchemaVersion,
-            "schema_version 必须为 4",
+            "schema_version 必须为 5",
             None,
             None,
         ));
@@ -153,6 +157,17 @@ fn validate_workflow_metadata(workflow: &WorkflowDefinition, issues: &mut Vec<Va
             None,
             None,
         ));
+    }
+    let mut input_keys = HashSet::new();
+    for input in &workflow.inputs {
+        if input.key.trim().is_empty() || !input_keys.insert(input.key.as_str()) {
+            issues.push(issue(
+                ValidationIssueCode::InvalidWorkflowInputs,
+                "工作流输入名称必须非空且唯一",
+                None,
+                None,
+            ));
+        }
     }
     if !workflow.variables.is_object() {
         issues.push(issue(

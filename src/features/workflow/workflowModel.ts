@@ -10,6 +10,7 @@ import type {
   UiOperation,
   ValueExpr,
   WorkflowDefinition,
+  WorkflowInputDefinition,
   WorkflowNodeKind,
   WorkflowPermissions,
 } from './contracts';
@@ -93,12 +94,21 @@ export function createEdge(source: string, target: string, nodes: ReadonlyArray<
   return { id: `edge-${crypto.randomUUID()}`, source: { nodeId: source, side: sourceSide }, target: { nodeId: target, side: targetSide }, data: { branch } };
 }
 
-/** 将画布状态转换为后端 schema v4 契约。 */
-export function toWorkflowDefinition(workflowId: string, name: string, variables: JsonObject, permissions: WorkflowPermissions, nodes: ReadonlyArray<WorkflowCanvasNode>, edges: ReadonlyArray<WorkflowCanvasEdge>): WorkflowDefinition {
+/** 将画布状态转换为后端 schema v5 契约。 */
+export function toWorkflowDefinition(
+  workflowId: string,
+  name: string,
+  inputs: ReadonlyArray<WorkflowInputDefinition>,
+  variables: JsonObject,
+  permissions: WorkflowPermissions,
+  nodes: ReadonlyArray<WorkflowCanvasNode>,
+  edges: ReadonlyArray<WorkflowCanvasEdge>,
+): WorkflowDefinition {
   return {
-    schema_version: 4,
+    schema_version: 5,
     id: workflowId,
     name,
+    inputs: [...inputs],
     variables,
     permissions,
     nodes: nodes.map((node) => ({ id: node.id, position: node.position, ...toNodeKind(node.data) })),

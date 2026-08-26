@@ -5,7 +5,7 @@ use std::{collections::BTreeMap, sync::Arc};
 use argusflow_core::{
     ActionOutcome, AqlQuery, AutomationAction, AutomationError, AutomationExecutionScope,
     AutomationTarget, BackendKind, ExecutionEvent, ExecutionEventKind, ExecutionEventPayload,
-    Position, UiOperation, ValueExpr, WorkflowDefinition, WorkflowEdge, WorkflowNode,
+    Position, RunInputs, UiOperation, ValueExpr, WorkflowDefinition, WorkflowEdge, WorkflowNode,
     WorkflowNodeKind, WorkflowPermissions,
 };
 use argusflow_runtime::{ActionDispatcher, ExecutionEventSink, WorkflowEngine};
@@ -61,7 +61,11 @@ async fn read_output_is_resolved_for_debug_and_the_following_set_value() {
     let (sender, mut receiver) = mpsc::unbounded_channel();
 
     engine
-        .start(read_then_write_workflow(), Arc::new(ChannelSink(sender)))
+        .start(
+            read_then_write_workflow(),
+            RunInputs::default(),
+            Arc::new(ChannelSink(sender)),
+        )
         .await
         .expect("data-flow workflow should start");
 
@@ -100,12 +104,14 @@ async fn read_output_is_resolved_for_debug_and_the_following_set_value() {
 /// 构造 Start → GetText → Debug/SetValue(NodeOutput) → End 的最小数据流。
 fn read_then_write_workflow() -> WorkflowDefinition {
     WorkflowDefinition {
-        schema_version: 4,
+        schema_version: 5,
         id: Uuid::new_v4(),
         name: "Read then write".to_owned(),
+        inputs: Vec::new(),
         variables: json!({}),
         permissions: WorkflowPermissions {
-            process_spawn: false,
+            application_launch: false,
+            direct_command: false,
             powershell: false,
             cmd: false,
         },

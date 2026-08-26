@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use argusflow_core::{ExecutionEvent, RunStarted, WorkflowDefinition};
+use argusflow_core::{ExecutionEvent, RunInputs, RunStarted, WorkflowDefinition};
 use argusflow_runtime::{
     ExecutionEventSink, RuntimeError, ValidationIssue, ValidationReport,
     validate_workflow as validate,
@@ -29,12 +29,13 @@ pub async fn run_workflow(
     app: AppHandle,
     state: State<'_, AppState>,
     workflow: WorkflowDefinition,
+    inputs: RunInputs,
 ) -> Result<RunStarted, CommandError> {
     // 将运行时事件桥接到当前 Tauri 应用，供前端实时订阅执行进度。
     let sink = Arc::new(TauriEventSink { app });
     state
         .engine
-        .start(workflow, sink)
+        .start(workflow, inputs, sink)
         .await
         .map_err(CommandError::from)
 }
@@ -92,6 +93,11 @@ impl From<RuntimeError> for CommandError {
                 message: "工作流校验失败".to_owned(),
                 issues: report.issues,
             },
+            RuntimeError::InvalidRunInputs { message } => Self {
+                code: CommandErrorCode::RuntimeDataFailed,
+                message,
+                issues: Vec::new(),
+            },
             RuntimeError::RunInProgress { run_id } => Self {
                 code: CommandErrorCode::RunInProgress,
                 message: format!("工作流运行 {run_id} 尚未结束"),
@@ -115,6 +121,11 @@ impl From<RuntimeError> for CommandError {
             RuntimeError::ValueTypeMismatch { expected } => Self {
                 code: CommandErrorCode::RuntimeDataFailed,
                 message: format!("运行时值类型不匹配，需要 {expected}"),
+                issues: Vec::new(),
+            },
+            RuntimeError::CapabilityDenied { capability } => Self {
+                code: CommandErrorCode::RuntimeDataFailed,
+                message: format!("工作流能力未授权：{}", capability.as_str()),
                 issues: Vec::new(),
             },
             RuntimeError::ResourceUnavailable { reference } => Self {

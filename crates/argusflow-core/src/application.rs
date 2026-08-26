@@ -34,6 +34,13 @@ pub enum AcquirePolicy {
     AlwaysStartNew,
 }
 
+impl AcquirePolicy {
+    /// 判断该策略是否可能创建新的应用进程。
+    pub const fn may_launch(self) -> bool {
+        !matches!(self, Self::AttachOnly)
+    }
+}
+
 /// 工作流结束时应用会话的资源回收策略。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

@@ -13,7 +13,7 @@ use argusflow_agent::{ActionBackend, ActionRouter};
 use argusflow_core::{
     AcquirePolicy, ActivationPolicy, ApplicationSessionProvider, ApplicationSpec,
     BackendPreference, CleanupPolicy, ExecutionEvent, ExecutionEventKind, Position, ResourceRef,
-    TargetLocator, TargetScope, UiOperation, WindowIdentity, WindowTitleMatcher,
+    RunInputs, TargetLocator, TargetScope, UiOperation, WindowIdentity, WindowTitleMatcher,
     WorkflowDefinition, WorkflowEdge, WorkflowNode, WorkflowNodeKind, WorkflowPermissions,
 };
 use argusflow_runtime::{ExecutionEventSink, WorkflowEngine};
@@ -90,6 +90,7 @@ async fn workflow_application_resource_scopes_a_real_uia_action() {
     engine
         .start(
             application_workflow(spec.clone()),
+            RunInputs::default(),
             Arc::new(ChannelSink(event_sender)),
         )
         .await
@@ -139,12 +140,14 @@ async fn workflow_application_resource_scopes_a_real_uia_action() {
 /// 构造 Start → Application → Ui → End 的真实资源数据路径。
 fn application_workflow(spec: ApplicationSpec) -> WorkflowDefinition {
     WorkflowDefinition {
-        schema_version: 4,
+        schema_version: 5,
         id: Uuid::new_v4(),
         name: "Notepad++ AppSession E2E".to_owned(),
+        inputs: Vec::new(),
         variables: json!({}),
         permissions: WorkflowPermissions {
-            process_spawn: false,
+            application_launch: true,
+            direct_command: false,
             powershell: false,
             cmd: false,
         },

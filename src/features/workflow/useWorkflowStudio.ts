@@ -8,12 +8,14 @@ import type {
   ExecutionEvent,
   JsonObject,
   ValidationReport,
+  WorkflowInputDefinition,
   WorkflowPermissions,
 } from './contracts';
 import {
   DEFAULT_EDGES,
   DEFAULT_NODES,
   DEFAULT_SELECTED_NODE_ID,
+  DEFAULT_WORKFLOW_INPUTS,
   DEFAULT_WORKFLOW_NAME,
   DEFAULT_WORKFLOW_PERMISSIONS,
   DEFAULT_WORKFLOW_VARIABLES,
@@ -29,6 +31,7 @@ import {
   type WorkflowNodeData,
   type WorkflowNodeUpdater,
 } from './workflowModel';
+import { useWorkflowInputs } from './useWorkflowInputs';
 import {
   isDesktopRuntime,
   normalizeCommandError,
@@ -46,6 +49,7 @@ export function useWorkflowStudio() {
     const store = createFlowStore<WorkflowNodeData, WorkflowEdgeData>({
       metadata: {
         workflowName: DEFAULT_WORKFLOW_NAME,
+        inputs: DEFAULT_WORKFLOW_INPUTS,
         variables: DEFAULT_WORKFLOW_VARIABLES,
         permissions: DEFAULT_WORKFLOW_PERMISSIONS,
       },
@@ -67,6 +71,7 @@ export function useWorkflowStudio() {
     flowStore,
     (state) => state.metadata.permissions as WorkflowPermissions,
   );
+  const workflowInputs = useWorkflowInputs(flowStore);
   const [variablesDraft, setVariablesDraft] = useState(
     JSON.stringify(DEFAULT_WORKFLOW_VARIABLES, null, 2),
   );
@@ -139,6 +144,7 @@ export function useWorkflowStudio() {
     return toWorkflowDefinition(
       workflowId,
       state.metadata.workflowName as string,
+      state.metadata.inputs as WorkflowInputDefinition[],
       state.metadata.variables as JsonObject,
       state.metadata.permissions as WorkflowPermissions,
       state.nodes,
@@ -148,8 +154,9 @@ export function useWorkflowStudio() {
 
   const validate = useCallback(async () => {
     setErrorMessage(null);
-    if (variablesError) {
-      setErrorMessage(variablesError);
+    const draftError = variablesError ?? workflowInputs.inputDefinitionsError;
+    if (draftError) {
+      setErrorMessage(draftError);
       return null;
     }
     try {
@@ -169,7 +176,7 @@ export function useWorkflowStudio() {
       setErrorMessage(normalizeCommandError(error).message);
       return null;
     }
-  }, [currentWorkflow, flowStore, variablesError]);
+  }, [currentWorkflow, flowStore, variablesError, workflowInputs.inputDefinitionsError]);
 
   const run = useCallback(async () => {
     setEvents([]);
@@ -182,17 +189,23 @@ export function useWorkflowStudio() {
     })), false);
     const nextReport = await validate();
     if (!nextReport?.valid) return;
+    if (workflowInputs.runInputValuesError) {
+      setErrorMessage(workflowInputs.runInputValuesError);
+      return;
+    }
 
     setRunning(true);
     try {
-      const started = await runWorkflow(currentWorkflow());
+      const started = await runWorkflow(currentWorkflow(), {
+        values: workflowInputs.runInputValues,
+      });
       setRunId(started.run_id);
     } catch (error) {
       const commandError = normalizeCommandError(error);
       setErrorMessage(commandError.message);
       setRunning(false);
     }
-  }, [currentWorkflow, flowStore, validate]);
+  }, [currentWorkflow, flowStore, validate, workflowInputs]);
 
   const addNode = useCallback((kind: EditableNodeKind, position: FlowPoint) => {
     const state = flowStore.getState();
@@ -388,6 +401,7 @@ export function useWorkflowStudio() {
     variablesDraft,
     variablesError,
     updateVariables,
+    ...workflowInputs,
     report,
     events,
     running,

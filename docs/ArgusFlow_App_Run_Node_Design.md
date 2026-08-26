@@ -1126,6 +1126,23 @@ pub enum ValueExpr {
 }
 ```
 
+`WorkflowInput` 的声明和值必须分离：声明属于持久化 schema，实际值只属于一次运行。
+
+```rust
+pub struct WorkflowInputDefinition {
+    pub key: String,
+    pub value_type: WorkflowInputType,
+}
+
+pub struct RunInputs {
+    pub values: Map<String, Value>,
+}
+
+WorkflowEngine::start(workflow, inputs, sink)
+```
+
+`workflow.variables` 只负责初始化运行内变量，不能同时充当 `WorkflowInput`。
+
 例如：
 
 ```text
@@ -1433,7 +1450,8 @@ script: String
 
 ```rust
 pub struct WorkflowPermissions {
-    pub process_spawn: bool,
+    pub application_launch: bool,
+    pub direct_command: bool,
     pub powershell: bool,
     pub cmd: bool,
     pub filesystem_read: Vec<PathPolicy>,
@@ -1441,6 +1459,8 @@ pub struct WorkflowPermissions {
     pub network: bool,
 }
 ```
+
+`Application` 的可启动策略和三种 Command runner 必须分别检查对应能力；不能用只覆盖 Command 的 `process_spawn` 暗示全局进程边界。
 
 Command 还应该支持：
 
@@ -2997,13 +3017,13 @@ ResourceRef
 
 ---
 
-# 61. 推荐 Schema v4 的方向
+# 61. 推荐 Schema v5 的方向
 
 示意，不建议现在照抄字段名：
 
 ```json
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "nodes": [
     {
       "id": "app-a",

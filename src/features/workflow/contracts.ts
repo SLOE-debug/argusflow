@@ -2,14 +2,16 @@
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 export type JsonObject = { [key: string]: JsonValue };
 
-/** 与 Rust 后端交换的 schema v4 工作流。 */
+/** 与 Rust 后端交换的 schema v5 工作流。 */
 export type WorkflowDefinition = {
   /** 当前契约固定版本。 */
-  schema_version: 4;
+  schema_version: 5;
   /** 工作流稳定 ID。 */
   id: string;
   /** 面向用户的名称。 */
   name: string;
+  /** 瞬时运行输入的持久化声明，不包含实际值。 */
+  inputs: WorkflowInputDefinition[];
   /** Condition 读取的只读 JSON 对象。 */
   variables: JsonObject;
   /** 对进程和 shell 能力的显式授权。 */
@@ -69,6 +71,19 @@ export type AutomationTarget = {
   locator: TargetLocator;
   /** `auto` 默认根据查询能力规划，另外两项用于显式强制后端。 */
   backend_preference: BackendPreference;
+};
+
+export type WorkflowInputType = 'text';
+
+/** 一个必须由每次运行单独提供的输入声明。 */
+export type WorkflowInputDefinition = {
+  key: string;
+  value_type: WorkflowInputType;
+};
+
+/** 一次运行的瞬时输入，不写回工作流定义。 */
+export type RunInputs = {
+  values: JsonObject;
 };
 
 /** 资源引用与普通 JSON 值引用保持独立。 */
@@ -159,9 +174,10 @@ export type CommandOperation = {
   max_stderr_bytes: number;
 };
 
-/** 工作流对命令能力的显式授权。 */
+/** 工作流对所有进程创建路径的最小粒度能力声明。 */
 export type WorkflowPermissions = {
-  process_spawn: boolean;
+  application_launch: boolean;
+  direct_command: boolean;
   powershell: boolean;
   cmd: boolean;
 };
@@ -306,6 +322,7 @@ export type WorkflowEdgeContract = {
 export type ValidationIssueCode =
   | 'unsupported_schema_version'
   | 'empty_workflow_name'
+  | 'invalid_workflow_inputs'
   | 'invalid_variables'
   | 'empty_node_id'
   | 'duplicate_node_id'
@@ -325,6 +342,8 @@ export type ValidationIssueCode =
   | 'invalid_delay'
   | 'invalid_aql_query'
   | 'invalid_application_spec'
+  | 'application_permission_denied'
+  | 'invalid_backend_preference'
   | 'invalid_command'
   | 'command_permission_denied'
   | 'invalid_value_reference'

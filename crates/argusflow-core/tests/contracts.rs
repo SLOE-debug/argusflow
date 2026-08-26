@@ -6,7 +6,8 @@ use argusflow_core::{
     AcquirePolicy, ActivationPolicy, ApplicationSpec, AqlQuery, AutomationTarget,
     BackendPreference, CleanupPolicy, CommandOperation, CommandRunner, Position, ResourceRef,
     TargetLocator, TargetScope, UiOperation, ValueExpr, WindowTitleMatcher, WorkflowDefinition,
-    WorkflowEdge, WorkflowNode, WorkflowNodeKind, WorkflowPermissions,
+    WorkflowEdge, WorkflowInputDefinition, WorkflowInputType, WorkflowNode, WorkflowNodeKind,
+    WorkflowPermissions,
 };
 use serde_json::json;
 use uuid::Uuid;
@@ -15,12 +16,14 @@ use uuid::Uuid;
 fn workflow_contract_round_trips_through_json() {
     // 使用包含动作选择器和多条连线的最小完整工作流，覆盖扁平化节点类型及嵌套枚举。
     let workflow = WorkflowDefinition {
-        schema_version: 4,
+        schema_version: 5,
         id: Uuid::new_v4(),
         name: "契约测试".to_owned(),
+        inputs: Vec::new(),
         variables: json!({ "enabled": true }),
         permissions: WorkflowPermissions {
-            process_spawn: false,
+            application_launch: false,
+            direct_command: false,
             powershell: false,
             cmd: false,
         },
@@ -71,13 +74,20 @@ fn workflow_contract_round_trips_through_json() {
 }
 
 #[test]
-fn schema_v4_resources_values_and_commands_round_trip_through_json() {
+fn schema_v5_inputs_resources_values_and_commands_round_trip_through_json() {
     let workflow = WorkflowDefinition {
-        schema_version: 4,
+        schema_version: 5,
         id: Uuid::new_v4(),
         name: "资源与数据契约".to_owned(),
+        inputs: vec![WorkflowInputDefinition {
+            key: "token".to_owned(),
+            value_type: WorkflowInputType::Text,
+        }],
         variables: json!({ "input": "ArgusFlow" }),
-        permissions: WorkflowPermissions::direct_process_only(),
+        permissions: WorkflowPermissions {
+            application_launch: true,
+            ..WorkflowPermissions::direct_command_only()
+        },
         nodes: vec![
             node("start", 0.0, WorkflowNodeKind::Start),
             node(
@@ -149,13 +159,14 @@ fn schema_v4_resources_values_and_commands_round_trip_through_json() {
         ],
     };
 
-    let serialized = serde_json::to_string(&workflow).expect("schema v4 should serialize");
+    let serialized = serde_json::to_string(&workflow).expect("schema v5 should serialize");
     let decoded: WorkflowDefinition =
-        serde_json::from_str(&serialized).expect("schema v4 should deserialize");
+        serde_json::from_str(&serialized).expect("schema v5 should deserialize");
 
     assert!(serialized.contains("\"producer_node_id\":\"application\""));
     assert!(serialized.contains("\"type\":\"node_output\""));
     assert!(serialized.contains("\"runner\":\"direct\""));
+    assert!(serialized.contains("\"value_type\":\"text\""));
     assert_eq!(decoded, workflow);
 }
 

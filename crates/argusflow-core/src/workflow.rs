@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::{
     ApplicationSpec, CommandOperation, ConditionPredicate, UiOperation, ValueExpr,
-    WorkflowPermissions,
+    WorkflowInputDefinition, WorkflowPermissions,
 };
 
 /// 可序列化的完整工作流定义。
@@ -16,6 +16,8 @@ pub struct WorkflowDefinition {
     pub id: Uuid,
     /// 面向用户显示的工作流名称。
     pub name: String,
+    /// 本工作流引用的瞬时运行输入声明；不保存任何一次运行的实际值。
+    pub inputs: Vec<WorkflowInputDefinition>,
     /// 条件节点读取的只读 JSON 变量；根值必须是对象。
     pub variables: Value,
     /// 对进程和 shell 等高风险能力的显式授权。

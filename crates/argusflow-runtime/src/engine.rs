@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use argusflow_core::{
     ApplicationSessionProvider, ConditionBranch, ExecutionEvent, ExecutionEventKind,
-    ExecutionEventPayload, RunStarted, WorkflowDefinition, WorkflowEdge, WorkflowNode,
+    ExecutionEventPayload, RunInputs, RunStarted, WorkflowDefinition, WorkflowEdge, WorkflowNode,
     WorkflowNodeKind,
 };
 use tokio::sync::Mutex;
@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::{
     ActionDispatcher, RunContext, RuntimeError, UnavailableApplicationSessionProvider,
-    node_executor::WorkflowNodeExecutor, validate_workflow,
+    node_executor::WorkflowNodeExecutor, run_inputs::validate_run_inputs, validate_workflow,
 };
 
 /// 接收工作流执行事件的线程安全目标。
@@ -53,12 +53,14 @@ impl WorkflowEngine {
     pub async fn start(
         self: &Arc<Self>,
         workflow: WorkflowDefinition,
+        inputs: RunInputs,
         sink: Arc<dyn ExecutionEventSink>,
     ) -> Result<RunStarted, RuntimeError> {
         let report = validate_workflow(&workflow);
         if !report.valid {
             return Err(RuntimeError::ValidationFailed { report });
         }
+        validate_run_inputs(&workflow, &inputs)?;
         let run_id = Uuid::new_v4();
         {
             let mut active_run = self.active_run.lock().await;
@@ -70,7 +72,7 @@ impl WorkflowEngine {
         }
         let engine = Arc::clone(self);
         tokio::spawn(async move {
-            let _ = engine.execute(run_id, workflow, sink).await;
+            let _ = engine.execute(run_id, workflow, inputs, sink).await;
             let mut active_run = engine.active_run.lock().await;
             if *active_run == Some(run_id) {
                 *active_run = None;
@@ -84,13 +86,14 @@ impl WorkflowEngine {
         &self,
         run_id: Uuid,
         workflow: WorkflowDefinition,
+        inputs: RunInputs,
         sink: Arc<dyn ExecutionEventSink>,
     ) -> Result<(), RuntimeError> {
         // Validator 已保证 variables 是对象；这里保留结构约束错误以防未来绕过入口。
-        let inputs = workflow.variables.as_object().cloned().ok_or_else(|| {
+        let variables = workflow.variables.as_object().cloned().ok_or_else(|| {
             RuntimeError::ExecutionInvariant("workflow variables are not an object".to_owned())
         })?;
-        let mut context = RunContext::new(run_id, inputs);
+        let mut context = RunContext::new(run_id, inputs.values, variables);
         let mut sequence = 0;
         emit_event(
             &sink,

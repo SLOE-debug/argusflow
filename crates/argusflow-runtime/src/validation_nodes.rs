@@ -2,7 +2,7 @@ use std::{collections::HashSet, path::Path};
 
 use argusflow_core::{
     ApplicationSpec, BackendPreference, CommandOperation, CommandRunner, TargetLocator,
-    TargetScope, WorkflowDefinition, WorkflowNode, WorkflowNodeKind,
+    TargetScope, WorkflowCapability, WorkflowDefinition, WorkflowNode, WorkflowNodeKind,
 };
 use argusflow_query::parse_stored_query;
 
@@ -48,6 +48,18 @@ pub(crate) fn validate_node_parameters(
         }
         WorkflowNodeKind::Application { spec } => {
             validate_application_spec(spec, &node.id, issues);
+            if spec.acquire_policy.may_launch()
+                && !workflow
+                    .permissions
+                    .allows(WorkflowCapability::ApplicationLaunch)
+            {
+                issues.push(issue(
+                    ValidationIssueCode::ApplicationPermissionDenied,
+                    "工作流权限未授权 Application 节点启动应用",
+                    Some(node.id.clone()),
+                    None,
+                ));
+            }
         }
         WorkflowNodeKind::Ui { operation } => {
             let target = operation.target();
@@ -186,11 +198,7 @@ fn validate_command(
     }
     validate_environment(command, node_id, issues);
 
-    let permissions = workflow.permissions;
-    let allowed = permissions.process_spawn
-        && (!matches!(command.runner, CommandRunner::PowerShell) || permissions.powershell)
-        && (!matches!(command.runner, CommandRunner::Cmd) || permissions.cmd);
-    if !allowed {
+    if !workflow.permissions.allows_command(command.runner) {
         issues.push(issue(
             ValidationIssueCode::CommandPermissionDenied,
             "工作流权限未授权所选命令运行方式",

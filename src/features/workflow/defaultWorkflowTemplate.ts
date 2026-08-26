@@ -1,4 +1,8 @@
-import type { JsonObject, WorkflowPermissions } from './contracts';
+import type {
+  JsonObject,
+  WorkflowInputDefinition,
+  WorkflowPermissions,
+} from './contracts';
 import {
   WORKFLOW_NODE_SIZES,
   type WorkflowCanvasEdge,
@@ -11,9 +15,16 @@ export const DEFAULT_WORKFLOW_NAME = '打开或连接 Notepad++ 并读取窗口�
 /** 默认模板不制造未被节点消费的演示变量。 */
 export const DEFAULT_WORKFLOW_VARIABLES = {} as const satisfies JsonObject;
 
-/** 默认模板不授权命令执行能力。 */
+/** 默认模板不声明运行时输入。 */
+export const DEFAULT_WORKFLOW_INPUTS = [] as const satisfies ReadonlyArray<WorkflowInputDefinition>;
+
+/** 默认模板本次运行没有瞬时输入值。 */
+export const DEFAULT_RUN_INPUT_VALUES = {} as const satisfies JsonObject;
+
+/** 默认模板只授权示例 Application 节点可能需要的启动能力。 */
 export const DEFAULT_WORKFLOW_PERMISSIONS = {
-  process_spawn: false,
+  application_launch: true,
+  direct_command: false,
   powershell: false,
   cmd: false,
 } as const satisfies WorkflowPermissions;
