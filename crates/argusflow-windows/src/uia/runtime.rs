@@ -295,7 +295,7 @@ pub(super) struct UiaRuntimeConfig {
     pub(super) transaction_timeout: Duration,
     /// 包含 worker 排队时间的 ArgusFlow 请求总时限。
     pub(super) execution_timeout: Duration,
-    /// 单次请求允许通过 RawView TreeWalker 访问的 provider 节点总数。
+    /// 单次请求允许由进程查询返回或通过 RawView TreeWalker 访问的节点总数。
     pub(super) max_traversal_nodes: usize,
     /// 单次请求允许展开的关系根总数。
     pub(super) max_relation_roots: usize,

@@ -33,7 +33,7 @@ use windows::Win32::{
 };
 use windows::core::BOOL;
 
-use support::uia_dump::has_name_for_process;
+use support::uia_dump::has_name_prefix_for_process;
 
 /// 只在显式提供 Notepad++ EXE 时运行，避免普通测试意外启动桌面程序。
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -74,7 +74,7 @@ async fn app_session_launches_then_restores_the_same_notepadpp_window() {
 
 /// 产品完整路径必须产生 AppSession、解析资源作用域并执行真实 UIA Invoke。
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "requires an interactive Windows desktop and 64-bit English Notepad++"]
+#[ignore = "requires an interactive Windows desktop and 64-bit Chinese Notepad++"]
 async fn workflow_application_resource_scopes_a_real_uia_action() {
     let (spec, document) = create_spec("uia-invoke");
     let runtime = Arc::new(UiaRuntime::start());
@@ -127,11 +127,11 @@ async fn workflow_application_resource_scopes_a_real_uia_action() {
             && event
                 .message
                 .as_deref()
-                .is_some_and(|message| message.contains("InvokePattern"))
+                .is_some_and(|message| message.contains("UI Automation"))
     }));
     assert!(
-        has_name_for_process(window.process_id, "About Notepad++"),
-        "Help menu invocation should expose the real About Notepad++ menu item"
+        has_name_prefix_for_process(window.process_id, "查找(F)..."),
+        "展开中文搜索菜单后应公开真实的查找菜单项"
     );
 
     drop(cleanup);
@@ -168,7 +168,7 @@ fn application_workflow(spec: ApplicationSpec) -> WorkflowDefinition {
                             },
                             locator: TargetLocator::Query {
                                 query: argusflow_core::AqlQuery::v1(
-                                    r#"first(window(name contains "Notepad++") >> menu_item(name = "?"))"#,
+                                    r#"menu_item(name = "搜索(S)")"#,
                                 ),
                             },
                             backend_preference: BackendPreference::WindowsUia,
@@ -237,7 +237,7 @@ fn create_spec(scenario: &str) -> (ApplicationSpec, PathBuf) {
     (spec, document)
 }
 
-/// 只读等待测试创建的唯一标题窗口，避免重新激活导致展开菜单关闭。
+/// 只读等待测试创建的唯一标题窗口，避免重新激活改变 UIA 操作上下文。
 fn wait_for_test_window(title_fragment: &str, timeout: Duration) -> Option<WindowIdentity> {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {

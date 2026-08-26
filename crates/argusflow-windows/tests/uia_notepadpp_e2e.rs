@@ -1,4 +1,4 @@
-//! 真实 Notepad++ provider 上的 HWND scoped UIA 查询与 pattern E2E。
+//! 真实 Notepad++ provider 上的 process-scoped UIA 查询与 pattern E2E。
 
 #![cfg(windows)]
 
@@ -16,7 +16,7 @@ use argusflow_windows::uia::{UiaBackend, UiaRuntime};
 use support::{notepadpp::NotepadPlusPlus, uia_dump::has_value};
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "requires interactive Windows desktop and 64-bit English Notepad++"]
+#[ignore = "requires interactive Windows desktop and 64-bit Chinese Notepad++"]
 async fn notepadpp_standard_controls_complete_real_uia_e2e() {
     let notepadpp = NotepadPlusPlus::launch();
     let runtime = Arc::new(UiaRuntime::start());
@@ -31,8 +31,7 @@ async fn notepadpp_standard_controls_complete_real_uia_e2e() {
     let router = ActionRouter::with_context_provider(backends, context_provider);
 
     // Case 1: compiler、runtime availability 与冻结 Notepad++ HWND 进入同一 PreparedPlan。
-    let prepared_action =
-        click(r#"window(name contains "Notepad++") >> menu_item(name = "Search")"#);
+    let prepared_action = click(r#"menu_item(name = "搜索(S)")"#);
     let report = router.inspect_current(&prepared_action);
     let prepared_explain = report
         .candidates
@@ -41,51 +40,47 @@ async fn notepadpp_standard_controls_complete_real_uia_e2e() {
     assert_eq!(report.selected_backend, Some(BackendKind::WindowsUia));
     assert_eq!(prepared_explain.availability, RuntimeAvailability::Ready);
 
-    // Case 2: Search 菜单项必须通过 InvokePattern 打开，禁止物理输入回退。
-    let search_outcome = execute(
-        &router,
-        &context,
-        click(r#"window(name contains "Notepad++") >> menu_item(name = "Search")"#),
-    )
-    .await
-    .expect("Search menu item should expose InvokePattern");
+    // Case 2: 按中文可访问名称展开“搜索”菜单，不依赖应用内部命令编号。
+    let search_outcome = execute(&router, &context, prepared_action)
+        .await
+        .expect("中文搜索菜单应公开可展开的 UIA 动作能力");
     assert_eq!(search_outcome.backend, BackendKind::WindowsUia);
     tokio::time::sleep(Duration::from_millis(300)).await;
 
-    // Case 3: 从已展开菜单调用 Find，并等待真实 Find dialog provider 出现。
+    // Case 3: 子菜单名称包含快捷键后缀，使用中文前缀定位并打开“查找”对话框。
     let find_outcome = execute(
         &router,
         &context,
-        click(r#"first(menu_item(name starts_with "Find"))"#),
+        click(r#"menu_item(name starts_with "查找(F)...")"#),
     )
     .await
-    .expect("Find menu item should expose InvokePattern");
+    .expect("中文查找菜单项应公开 UIA 调用能力");
     assert_eq!(find_outcome.backend, BackendKind::WindowsUia);
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    // Case 4: Edit/ComboBox provider 差异由 AQL any 表达，写入必须使用 ValuePattern。
+    // Case 4: 按中文对话框关系定位输入框，写入必须使用 ValuePattern。
     let expected_value = "argusflow-uia-e2e";
     let set_outcome = execute(
         &router,
         &context,
         set_value(
-            r#"dialog(name contains "Find") >> first(any(textbox(name contains "Find what"), combobox(name contains "Find what")))"#,
+            r#"dialog(name = "查找") >> textbox(name = "查找目标(F) :")"#,
             expected_value,
         ),
     )
     .await
-    .expect("Find what control should expose writable ValuePattern");
+    .expect("Find input control should expose writable ValuePattern");
     assert_eq!(set_outcome.backend, BackendKind::WindowsUia);
     assert!(
         has_value(&notepadpp.window(), expected_value),
         "ValuePattern write should be readable from the real provider"
     );
 
-    // Case 6: 未显式选择多个 button 时必须报告歧义，不能偷偷取第一个。
+    // Case 5: 未显式选择对话框内多个 button 时必须报告歧义，不能偷偷取第一个。
     let ambiguous = execute(
         &router,
         &context,
-        click(r#"dialog(name contains "Find") >> button()"#),
+        click(r#"dialog(name = "查找") >> button()"#),
     )
     .await;
     assert!(matches!(
@@ -93,7 +88,7 @@ async fn notepadpp_standard_controls_complete_real_uia_e2e() {
         Err(AutomationError::AmbiguousTarget { matches, .. }) if matches > 1
     ));
 
-    // Case 7: 空结果是 TargetNotFound，不得误报 runtime 不可用触发 backend fallback。
+    // Case 6: 空结果是 TargetNotFound，不得误报 runtime 不可用触发 backend fallback。
     let missing = execute(
         &router,
         &context,
@@ -105,9 +100,8 @@ async fn notepadpp_standard_controls_complete_real_uia_e2e() {
         Err(AutomationError::TargetNotFound { .. })
     ));
 
-    // Case 8 + Case 5: regex 必须走 CacheRequest/residual，再用 InvokePattern 关闭对话框。
-    let close_action =
-        click(r#"dialog(name contains "Find") >> any(button(name matches /Close/i), button())"#);
+    // Case 7: 中文名称 regex 必须走 CacheRequest/residual，再调用“取消”关闭对话框。
+    let close_action = click(r#"dialog(name = "查找") >> button(name matches /^取消$/)"#);
     let close_report = router.inspect(&close_action, &context);
     let close_explain = close_report
         .candidates
@@ -127,14 +121,14 @@ async fn notepadpp_standard_controls_complete_real_uia_e2e() {
     );
     let close_outcome = execute(&router, &context, close_action)
         .await
-        .expect("Close button should expose InvokePattern");
+        .expect("Find cancel button should expose InvokePattern");
     assert_eq!(close_outcome.backend, BackendKind::WindowsUia);
     tokio::time::sleep(Duration::from_millis(300)).await;
 
     let closed_dialog = execute(
         &router,
         &context,
-        click(r#"dialog(name contains "Find") >> button(name matches /Close/i)"#),
+        click(r#"dialog(name = "查找") >> button(name = "取消")"#),
     )
     .await;
     assert!(matches!(

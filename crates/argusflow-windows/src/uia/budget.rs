@@ -9,7 +9,7 @@ use super::error::{UiaBudgetResource, UiaError};
 pub(crate) struct UiaExecutionBudget {
     /// 包含排队时间的请求截止时刻。
     deadline: Instant,
-    /// 单次请求允许通过有界 TreeWalker 访问的最大 provider 节点数。
+    /// 单次请求允许由进程查询返回或通过 TreeWalker 访问的最大 provider 节点数。
     max_traversal_nodes: usize,
     /// 关系查询允许展开的最大父级/祖先根总数。
     max_relation_roots: usize,
@@ -37,7 +37,7 @@ impl UiaExecutionBudget {
 pub(crate) struct UiaBudgetTracker {
     /// 不随递归查询变化的请求限制。
     budget: UiaExecutionBudget,
-    /// 所有有界 TreeWalker 扫描累计访问的 provider 节点数。
+    /// 所有进程查询候选与有界 TreeWalker 扫描累计观察到的 provider 节点数。
     traversal_nodes: usize,
     /// 所有 Child/Descendant 展开的累计关系根数。
     relation_roots: usize,

@@ -1,4 +1,4 @@
-//! HWND scoped UIA query algebra 执行、唯一目标解析与有限 stale 重试。
+//! HWND/PID 校验后的进程级 UIA 查询、关系解析与有限 stale 重试。
 
 use std::ffi::c_void;
 
@@ -14,8 +14,7 @@ use windows::Win32::{
     },
     UI::{
         Accessibility::{
-            IUIAutomation, IUIAutomationCacheRequest, IUIAutomationCondition, IUIAutomationElement,
-            IUIAutomationTreeWalker, TreeScope_Element,
+            IUIAutomation, IUIAutomationCacheRequest, IUIAutomationElement, IUIAutomationTreeWalker,
         },
         WindowsAndMessaging::{GetWindowThreadProcessId, IsWindow},
     },
@@ -25,9 +24,10 @@ use super::{
     action::execute_action,
     budget::{UiaBudgetTracker, UiaExecutionBudget},
     cache::build_cache_request,
-    condition::build_match_condition,
+    current_match::matches_current,
     error::{UiaError, UiaOperation},
     plan::{UiaMatcherPlan, UiaPlanExpr},
+    process_search::find_process_matches,
     property::matches_residual,
     runtime::{PreparedWindowTarget, UiaExecuteRequest},
 };
@@ -60,7 +60,9 @@ impl<'automation> UiaExecutor<'automation> {
             };
             let candidates = match self.execute_expression(
                 &root,
-                SearchScope::Subtree,
+                SearchScope::Process {
+                    process_id: request.window.process_id,
+                },
                 &request.plan.query.expression,
                 &mut budget,
             ) {
@@ -181,25 +183,24 @@ impl<'automation> UiaExecutor<'automation> {
         budget: &mut UiaBudgetTracker,
     ) -> Result<Vec<ResolvedElement>, UiaError> {
         budget.check_deadline()?;
-        let condition = build_match_condition(self.automation, matcher)?;
-        let cache = build_cache_request(self.automation, &matcher.cache)?;
+        if let SearchScope::Process { process_id } = scope {
+            return self.execute_process_match(process_id, matcher, budget);
+        }
+        // 关系查询同样只为真正存在的 residual 谓词创建属性缓存。
+        let cache = if matcher.residual.is_empty() {
+            None
+        } else {
+            Some(build_cache_request(self.automation, &matcher.cache)?)
+        };
         // SAFETY: automation client 及 walker 都留在当前 UIA worker apartment。
         let walker = unsafe { self.automation.RawViewWalker() }
             .map_err(|source| UiaError::from_native(UiaOperation::NavigateTree, source))?;
         let mut matches = Vec::new();
-        if matches!(scope, SearchScope::Subtree) {
-            budget.observe_traversal_nodes(1)?;
-            if let Some(element) =
-                self.match_element(root, &condition, &cache, &matcher.residual, budget)?
-            {
-                append_unique(&mut matches, [element]);
-            }
-        }
         let children = self.direct_children(root, &walker, budget)?;
         if matches!(scope, SearchScope::Children) {
             for child in children {
                 if let Some(element) =
-                    self.match_element(&child, &condition, &cache, &matcher.residual, budget)?
+                    self.match_element(&child, matcher, cache.as_ref(), &matcher.residual, budget)?
                 {
                     append_unique(&mut matches, [element]);
                 }
@@ -211,7 +212,7 @@ impl<'automation> UiaExecutor<'automation> {
         pending.reverse();
         while let Some(element) = pending.pop() {
             if let Some(resolved) =
-                self.match_element(&element, &condition, &cache, &matcher.residual, budget)?
+                self.match_element(&element, matcher, cache.as_ref(), &matcher.residual, budget)?
             {
                 append_unique(&mut matches, [resolved]);
             }
@@ -222,32 +223,47 @@ impl<'automation> UiaExecutor<'automation> {
         Ok(matches)
     }
 
+    /// 从目标进程各顶层窗口的独立 UIA 子树中解析并按 runtime id 去重。
+    fn execute_process_match(
+        &self,
+        process_id: u32,
+        matcher: &UiaMatcherPlan,
+        budget: &mut UiaBudgetTracker,
+    ) -> Result<Vec<ResolvedElement>, UiaError> {
+        let elements = find_process_matches(self.automation, process_id, matcher, budget)?;
+        let mut matches = Vec::with_capacity(elements.len());
+        for element in elements {
+            append_unique(
+                &mut matches,
+                [ResolvedElement {
+                    runtime_id: runtime_id(&element)?,
+                    element,
+                }],
+            );
+        }
+        Ok(matches)
+    }
+
     /// 只在当前元素上执行原生 condition，避免一次性物化完整 subtree 数组。
     fn match_element(
         &self,
         element: &IUIAutomationElement,
-        condition: &IUIAutomationCondition,
-        cache: &IUIAutomationCacheRequest,
+        matcher: &UiaMatcherPlan,
+        cache: Option<&IUIAutomationCacheRequest>,
         residual: &[super::native::UiaResidualPredicate],
         budget: &mut UiaBudgetTracker,
     ) -> Result<Option<ResolvedElement>, UiaError> {
         budget.check_deadline()?;
-        // SAFETY: Element scope 不会遍历后代；element、condition 与 cache 同属当前 apartment。
-        let elements = unsafe { element.FindAllBuildCache(TreeScope_Element, condition, cache) }
-            .map_err(|source| UiaError::from_native(UiaOperation::FindAll, source))?;
-        budget.check_deadline()?;
-        // SAFETY: element array 没有离开创建它的 UIA worker apartment。
-        let length = unsafe { elements.Length() }
-            .map_err(|source| UiaError::from_native(UiaOperation::FindAll, source))?;
-        if !(0..=1).contains(&length) {
-            return Err(UiaError::InvalidCandidateCount { count: length });
-        }
-        if length == 0 {
+        if !matches_current(element, matcher)? {
             return Ok(None);
         }
-        // SAFETY: 已确认数组恰有一个元素，索引 0 有效且 array 留在当前 apartment。
-        let element = unsafe { elements.GetElement(0) }
-            .map_err(|source| UiaError::from_native(UiaOperation::FindAll, source))?;
+        let element = if let Some(cache) = cache {
+            // SAFETY: element 与 cache 同属当前 UIA worker apartment，cache 仅请求 Element scope。
+            unsafe { element.BuildUpdatedCache(cache) }
+                .map_err(|source| UiaError::from_native(UiaOperation::BuildCache, source))?
+        } else {
+            element.clone()
+        };
         if !matches_residual(&element, residual)? {
             return Ok(None);
         }
@@ -282,8 +298,11 @@ impl<'automation> UiaExecutor<'automation> {
 /// 当前表达式相对于根元素使用的原生 TreeScope。
 #[derive(Clone, Copy)]
 enum SearchScope {
-    /// 初始查询包含冻结 HWND 对应的根元素。
-    Subtree,
+    /// 初始查询覆盖冻结应用进程的全部独立 UIA provider fragment。
+    Process {
+        /// prepare 阶段通过 HWND 校验过的进程 ID。
+        process_id: u32,
+    },
     /// 关系查询的严格后代。
     Descendants,
     /// 关系查询的直接子元素。

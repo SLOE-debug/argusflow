@@ -30,10 +30,10 @@ pub(crate) struct NotepadPlusPlus {
 }
 
 impl NotepadPlusPlus {
-    /// 从 `ARGUSFLOW_NOTEPADPP_EXE` 启动固定英文测试环境要求的进程。
+    /// 从 `ARGUSFLOW_NOTEPADPP_EXE` 启动独立的中文测试进程。
     pub(crate) fn launch() -> Self {
         let executable = env::var_os("ARGUSFLOW_NOTEPADPP_EXE").unwrap_or_else(|| {
-            panic!("ARGUSFLOW_NOTEPADPP_EXE must point to a 64-bit English Notepad++ executable")
+            panic!("ARGUSFLOW_NOTEPADPP_EXE must point to a 64-bit Chinese Notepad++ executable")
         });
         let mut child = Command::new(executable)
             .args(["-multiInst", "-nosession", "-noPlugin"])

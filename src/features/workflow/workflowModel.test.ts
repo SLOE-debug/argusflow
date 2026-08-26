@@ -4,6 +4,7 @@ import { workflowNodeRegistry } from '../../components/workflow/WorkflowNodeCard
 import {
   DEFAULT_EDGES,
   DEFAULT_NODES,
+  DEFAULT_RUN_INPUT_VALUES,
   DEFAULT_WORKFLOW_NAME,
   DEFAULT_WORKFLOW_INPUTS,
   DEFAULT_WORKFLOW_PERMISSIONS,
@@ -74,7 +75,7 @@ describe('workflow model', () => {
     vi.unstubAllGlobals();
   });
 
-  it('uses a practical Notepad++ application workflow as the default template', () => {
+  it('uses a multi-step Notepad++ UIA workflow as the default template', () => {
     const workflow = toWorkflowDefinition(
       '6d7d7a91-4e19-42c9-b1d8-011d4cf94330',
       DEFAULT_WORKFLOW_NAME,
@@ -85,21 +86,103 @@ describe('workflow model', () => {
       DEFAULT_EDGES,
     );
 
-    expect(workflow.name).toBe('打开或连接 Notepad++ 并读取窗口文本');
+    expect(workflow.name).toBe('用 UIA 驱动 Notepad++ 查找');
+    expect(workflow.inputs).toEqual([
+      { key: 'search_text', value_type: 'text' },
+    ]);
+    expect(DEFAULT_RUN_INPUT_VALUES).toEqual({
+      search_text: 'UIA',
+    });
     expect(workflow.nodes.some((node) => node.type === 'condition')).toBe(false);
-    expect(workflow.edges).toHaveLength(4);
+    expect(workflow.edges).toHaveLength(13);
     expect(workflow.edges.every((edge) => edge.branch === null)).toBe(true);
+    expect(workflow.nodes).toContainEqual(expect.objectContaining({
+      id: 'wait_notepadpp_ready_1',
+      type: 'delay',
+      milliseconds: 1_000,
+    }));
     expect(workflow.nodes).toContainEqual(expect.objectContaining({
       type: 'application',
       spec: expect.objectContaining({ acquire_policy: 'attach_or_start' }),
     }));
     expect(workflow.nodes).toContainEqual(expect.objectContaining({
+      id: 'open_search_menu_1',
+      type: 'ui',
+      operation: expect.objectContaining({
+        type: 'click',
+        target: expect.objectContaining({
+          locator: expect.objectContaining({
+            query: expect.objectContaining({
+              source: 'menu_item(name = "搜索(S)")',
+            }),
+          }),
+        }),
+      }),
+    }));
+    expect(workflow.nodes).toContainEqual(expect.objectContaining({
+      id: 'open_find_dialog_1',
+      type: 'ui',
+      operation: expect.objectContaining({
+        type: 'click',
+        target: expect.objectContaining({
+          locator: expect.objectContaining({
+            query: expect.objectContaining({
+              source: 'menu_item(name starts_with "查找(F)...")',
+            }),
+          }),
+        }),
+      }),
+    }));
+    expect(workflow.nodes).toContainEqual(expect.objectContaining({
+      id: 'set_find_value_1',
+      type: 'ui',
+      operation: expect.objectContaining({
+        type: 'set_value',
+        value: { type: 'workflow_input', key: 'search_text' },
+      }),
+    }));
+    expect(workflow.nodes).toContainEqual(expect.objectContaining({
+      id: 'count_matches_1',
+      type: 'ui',
+      operation: expect.objectContaining({ type: 'click' }),
+    }));
+    expect(workflow.nodes).toContainEqual(expect.objectContaining({
+      id: 'read_search_value_1',
+      type: 'ui',
+      operation: expect.objectContaining({
+        type: 'get_value',
+        target: expect.objectContaining({
+          locator: expect.objectContaining({
+            query: expect.objectContaining({
+              source: 'dialog(name = "查找") >> textbox(name = "查找目标(F) :")',
+            }),
+          }),
+        }),
+      }),
+    }));
+    expect(workflow.nodes).toContainEqual(expect.objectContaining({
       type: 'debug',
       value: {
         type: 'node_output',
-        node_id: 'read_notepadpp_title_1',
-        output: 'text',
+        node_id: 'read_search_value_1',
+        output: 'value',
       },
+    }));
+    expect(workflow.nodes).toContainEqual(expect.objectContaining({
+      id: 'close_find_dialog_1',
+      type: 'ui',
+      operation: expect.objectContaining({
+        type: 'click',
+        target: expect.objectContaining({
+          backend_preference: 'windows_uia',
+          locator: expect.objectContaining({
+            type: 'query',
+            query: expect.objectContaining({
+              source: 'dialog(name = "查找") >> button(name = "取消")',
+            }),
+          }),
+        }),
+      }),
     }));
   });
 

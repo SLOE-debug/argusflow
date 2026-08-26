@@ -24,6 +24,8 @@ pub(crate) enum UiaOperation {
     ConfigureTimeouts,
     /// 从冻结 HWND 创建根元素。
     ElementFromHandle,
+    /// 获取进程级 provider fragment 查询使用的桌面根元素。
+    GetDesktopRoot,
     /// 物化原生查询 condition。
     CreateCondition,
     /// 创建或配置 CacheRequest。
@@ -40,6 +42,10 @@ pub(crate) enum UiaOperation {
     GetPattern,
     /// 调用 InvokePattern。
     Invoke,
+    /// 调用 ExpandCollapsePattern 展开目标。
+    Expand,
+    /// 调用 LegacyIAccessiblePattern 默认动作。
+    LegacyDefaultAction,
     /// 调用 ValuePattern。
     SetValue,
     /// 读取元素当前 Name。
@@ -51,7 +57,7 @@ pub(crate) enum UiaOperation {
 /// UIA 请求预算限制的强类型资源类别。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum UiaBudgetResource {
-    /// 有界 TreeWalker 已访问的累计 provider 节点数。
+    /// 进程查询与有界 TreeWalker 累计观察到的 provider 节点数。
     TraversalNodes,
     /// Child/Descendant 关系展开的累计根元素数。
     RelationRoots,
@@ -60,8 +66,8 @@ pub(crate) enum UiaBudgetResource {
 /// UIA 动作所需的原生 pattern。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum UiaPattern {
-    /// 语义调用。
-    Invoke,
+    /// 可通过 Invoke、ExpandCollapse 或 LegacyIAccessible 执行的语义点击。
+    Click,
     /// 直接值写入。
     Value,
 }
@@ -74,6 +80,12 @@ pub(crate) enum UiaError {
     WindowUnavailable {
         /// 句柄校验失败原因。
         message: String,
+    },
+    /// Windows PID 无法表示为 UIA ProcessId property 要求的 VT_I4。
+    #[error("process id {process_id} cannot be represented by UI Automation")]
+    InvalidProcessId {
+        /// prepare 阶段从 HWND 读取的原始 Windows PID。
+        process_id: u32,
     },
     /// 元素在查询和动作之间失效。
     #[error("UI Automation element became unavailable")]
@@ -112,8 +124,16 @@ pub(crate) enum UiaError {
         /// 类型不一致的 UIA 属性。
         property: UiaProperty,
     },
+    /// provider 的 pattern availability 属性没有返回布尔值。
+    #[error(
+        "UI Automation pattern availability property {property:?} returned an unexpected value type"
+    )]
+    PatternAvailabilityTypeMismatch {
+        /// UIA 固定 pattern availability property id。
+        property: windows::Win32::UI::Accessibility::UIA_PROPERTY_ID,
+    },
     /// 目标实例没有动作要求的 pattern。
-    #[error("target does not expose required {pattern:?}Pattern")]
+    #[error("target does not expose a supported {pattern:?} UI Automation capability")]
     RequiredPatternUnavailable {
         /// 缺失的原生动作 pattern。
         pattern: UiaPattern,
@@ -164,8 +184,10 @@ impl UiaError {
             | Self::ExecutionDeadlineExceeded => true,
             Self::NativeCallFailed { source, .. } => is_transient_provider_failure(source),
             Self::BudgetExceeded { .. }
+            | Self::InvalidProcessId { .. }
             | Self::InvalidCandidateCount { .. }
             | Self::PropertyTypeMismatch { .. }
+            | Self::PatternAvailabilityTypeMismatch { .. }
             | Self::RequiredPatternUnavailable { .. }
             | Self::ReadOnlyValue
             | Self::InvalidRuntimeId => false,

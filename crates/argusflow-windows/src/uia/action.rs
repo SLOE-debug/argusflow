@@ -1,12 +1,16 @@
-//! 已解析唯一 UIA 元素上的 InvokePattern 与 ValuePattern 动作。
+//! 已解析唯一 UIA 元素上的可调用能力与 ValuePattern 动作。
 
 use std::collections::BTreeMap;
 
 use serde_json::Value;
 use windows::{
     Win32::UI::Accessibility::{
-        IUIAutomationElement, IUIAutomationInvokePattern, IUIAutomationValuePattern,
-        UIA_InvokePatternId, UIA_ValuePatternId,
+        IUIAutomationElement, IUIAutomationExpandCollapsePattern, IUIAutomationInvokePattern,
+        IUIAutomationLegacyIAccessiblePattern, IUIAutomationValuePattern,
+        UIA_ExpandCollapsePatternId, UIA_InvokePatternId,
+        UIA_IsExpandCollapsePatternAvailablePropertyId, UIA_IsInvokePatternAvailablePropertyId,
+        UIA_IsLegacyIAccessiblePatternAvailablePropertyId, UIA_LegacyIAccessiblePatternId,
+        UIA_PROPERTY_ID, UIA_ValuePatternId,
     },
     core::BSTR,
 };
@@ -37,19 +41,68 @@ pub(crate) struct ExecutedUiaAction {
     pub(crate) outputs: BTreeMap<String, Value>,
 }
 
-/// 要求并调用真正的 UIA InvokePattern。
+/// 按目标公开的 UIA 能力执行语义点击。
+///
+/// 普通按钮使用 InvokePattern，菜单容器使用 ExpandCollapsePattern；传统 Win32/MSAA
+/// 控件通过 UIA 的 LegacyIAccessiblePattern 执行默认动作。能力由 UIA 属性显式选择，
+/// 不依赖鼠标坐标或应用内部命令 ID。
 fn invoke(element: &IUIAutomationElement) -> Result<ExecutedUiaAction, UiaError> {
-    // SAFETY: element 与返回的 pattern 都只在创建它们的 UIA worker apartment 中使用。
-    let pattern: IUIAutomationInvokePattern =
-        unsafe { element.GetCurrentPatternAs(UIA_InvokePatternId) }
-            .map_err(|source| pattern_error(source, UiaPattern::Invoke))?;
-    // SAFETY: pattern 由上面的 typed QueryInterface 成功创建，且没有跨线程传播。
-    unsafe { pattern.Invoke() }
-        .map_err(|source| UiaError::from_native(UiaOperation::Invoke, source))?;
-    Ok(ExecutedUiaAction {
-        message: "已通过 UI Automation InvokePattern 调用目标",
-        outputs: BTreeMap::new(),
+    if pattern_available(element, UIA_IsInvokePatternAvailablePropertyId)? {
+        // SAFETY: availability 属性由同一 element/provider 返回，pattern 留在 worker apartment。
+        let pattern: IUIAutomationInvokePattern =
+            unsafe { element.GetCurrentPatternAs(UIA_InvokePatternId) }
+                .map_err(|source| pattern_error(source, UiaPattern::Click))?;
+        // SAFETY: typed pattern 没有跨线程传播。
+        unsafe { pattern.Invoke() }
+            .map_err(|source| UiaError::from_native(UiaOperation::Invoke, source))?;
+        return Ok(click_outcome("已通过 UI Automation InvokePattern 调用目标"));
+    }
+    if pattern_available(element, UIA_IsExpandCollapsePatternAvailablePropertyId)? {
+        // SAFETY: availability 属性由同一 element/provider 返回，pattern 留在 worker apartment。
+        let pattern: IUIAutomationExpandCollapsePattern =
+            unsafe { element.GetCurrentPatternAs(UIA_ExpandCollapsePatternId) }
+                .map_err(|source| pattern_error(source, UiaPattern::Click))?;
+        // SAFETY: typed pattern 没有跨线程传播；Expand 是菜单项的语义打开动作。
+        unsafe { pattern.Expand() }
+            .map_err(|source| UiaError::from_native(UiaOperation::Expand, source))?;
+        return Ok(click_outcome(
+            "已通过 UI Automation ExpandCollapsePattern 展开目标",
+        ));
+    }
+    if pattern_available(element, UIA_IsLegacyIAccessiblePatternAvailablePropertyId)? {
+        // SAFETY: LegacyIAccessiblePattern 仍是 UIA 暴露的强类型动作边界。
+        let pattern: IUIAutomationLegacyIAccessiblePattern =
+            unsafe { element.GetCurrentPatternAs(UIA_LegacyIAccessiblePatternId) }
+                .map_err(|source| pattern_error(source, UiaPattern::Click))?;
+        // SAFETY: 默认动作由 UIA provider 定义，不发送应用私有消息或坐标点击。
+        unsafe { pattern.DoDefaultAction() }
+            .map_err(|source| UiaError::from_native(UiaOperation::LegacyDefaultAction, source))?;
+        return Ok(click_outcome(
+            "已通过 UI Automation LegacyIAccessiblePattern 调用目标",
+        ));
+    }
+    Err(UiaError::RequiredPatternUnavailable {
+        pattern: UiaPattern::Click,
     })
+}
+
+/// 读取 UIA pattern availability 布尔属性，并拒绝 provider 返回的意外 VARIANT 类型。
+fn pattern_available(
+    element: &IUIAutomationElement,
+    property: UIA_PROPERTY_ID,
+) -> Result<bool, UiaError> {
+    // SAFETY: property 来自 UIA 固定 availability 属性，element 留在 worker apartment。
+    let value = unsafe { element.GetCurrentPropertyValue(property) }
+        .map_err(|source| UiaError::from_native(UiaOperation::ReadProperty, source))?;
+    bool::try_from(&value).map_err(|_| UiaError::PatternAvailabilityTypeMismatch { property })
+}
+
+/// 创建无输出的语义点击结果。
+fn click_outcome(message: &'static str) -> ExecutedUiaAction {
+    ExecutedUiaAction {
+        message,
+        outputs: BTreeMap::new(),
+    }
 }
 
 /// 要求可写 ValuePattern 并直接设置 BSTR 值。

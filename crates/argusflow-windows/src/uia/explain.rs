@@ -22,7 +22,9 @@ pub(super) fn explain_uia_action(
     PlanStepExplain {
         kind: PlanStepKind::Action,
         summary: match action {
-            UiaActionPlan::Invoke => format!("InvokePattern::Invoke ({pattern_check})"),
+            UiaActionPlan::Invoke => {
+                format!("Invoke/ExpandCollapse/LegacyIAccessible semantic action ({pattern_check})")
+            }
             UiaActionPlan::SetValue { .. } => {
                 format!("ValuePattern::SetValue ({pattern_check})")
             }
