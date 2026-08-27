@@ -23,6 +23,8 @@ import { AqlEditor } from './AqlEditor';
 import { ValueExprFields } from './ValueExprFields';
 
 type ActionNodeFieldsProps = Readonly<{
+  /** 当前 UI 节点的稳定标识，用于隔离 Monaco 文档。 */
+  nodeId: string;
   /** 当前 UI 节点的完整语义操作契约。 */
   operation: UiOperation;
   /** 写回字段完整的新操作。 */
@@ -61,7 +63,7 @@ const VISUAL_MATCH_OPTIONS = [
 ] as const;
 
 /** 编辑 UI 操作、资源作用域、定位方式和后端偏好。 */
-export function ActionNodeFields({ operation, onChange }: ActionNodeFieldsProps) {
+export function ActionNodeFields({ nodeId, operation, onChange }: ActionNodeFieldsProps) {
   /** 当前资源作用域的局部不可变快照，供 JSX 回调保留判别联合收窄。 */
   const scope = operation.target.scope;
   return (
@@ -125,6 +127,7 @@ export function ActionNodeFields({ operation, onChange }: ActionNodeFieldsProps)
       </InspectorField>
       {operation.target.locator.type === 'query' ? (
         <QueryTargetFields
+          nodeId={nodeId}
           operation={operation}
           locator={operation.target.locator}
           onChange={onChange}
@@ -164,16 +167,27 @@ function createEmptyScope(type: TargetScope['type']): TargetScope {
 
 /** 编辑 AQL 目标及其高级后端约束。 */
 function QueryTargetFields({
+  nodeId,
   operation,
   locator,
   onChange,
 }: Readonly<{
+  nodeId: string;
   operation: UiOperation;
   locator: Extract<UiOperation['target']['locator'], { type: 'query' }>;
   onChange: (operation: UiOperation) => void;
 }>) {
   return (
     <>
+      <AqlEditor
+        query={locator.query}
+        target={operation.target}
+        modelUri={`inmemory://argusflow/workflow/${encodeURIComponent(nodeId)}/locator-aql`}
+        onChange={(query) => onChange(changeTargetLocator(operation, {
+          ...locator,
+          query,
+        }))}
+      />
       <details className="rounded-md border border-slate-200 bg-slate-50/70 px-2.5 py-2">
         <summary className="cursor-pointer select-none text-[10px] font-medium text-slate-600">
           高级设置
@@ -191,14 +205,6 @@ function QueryTargetFields({
           </InspectorField>
         </div>
       </details>
-      <AqlEditor
-        query={locator.query}
-        target={operation.target}
-        onChange={(query) => onChange(changeTargetLocator(operation, {
-          ...locator,
-          query,
-        }))}
-      />
     </>
   );
 }

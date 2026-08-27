@@ -8,7 +8,7 @@ import type {
   RuntimeAvailability,
 } from '../../workflow/contracts';
 import type { AqlInspectionState } from '../../workflow/useAqlInspection';
-import { diagnosticLabel } from './DiagnosticPopup';
+import { diagnosticLabel } from '../language/messages';
 
 const BACKEND_LABELS: Readonly<Record<BackendKind, string>> = {
   windows_uia: 'Windows UI',

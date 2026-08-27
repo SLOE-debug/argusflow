@@ -16,6 +16,7 @@
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
     "lucide-react": "^1.33.0",
+    "monaco-editor": "^0.56.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "zustand": "^5.0.15"

@@ -12,9 +12,12 @@ import {
   INSPECTOR_HELP_CLASS_NAME,
   InspectorField,
 } from './InspectorControls';
+import { CommandScriptField } from './CommandScriptField';
 import { ValueExprFields } from './ValueExprFields';
 
 type CommandNodeFieldsProps = Readonly<{
+  /** 当前命令节点的稳定标识，用于隔离 Monaco 文档。 */
+  nodeId: string;
   /** 当前命令执行契约。 */
   operation: CommandOperation;
   /** 写回字段完整的新契约。 */
@@ -29,6 +32,7 @@ const RUNNER_OPTIONS = [
 
 /** 编辑 Direct、PowerShell 和 CMD 共用的命令输入输出契约。 */
 export function CommandNodeFields({
+  nodeId,
   operation,
   onChange,
 }: CommandNodeFieldsProps) {
@@ -60,8 +64,9 @@ export function CommandNodeFields({
         />
       ) : null}
       {operation.runner !== 'direct' && operation.script ? (
-        <ExpressionSection
-          title="脚本"
+        <CommandScriptField
+          runner={operation.runner}
+          nodeId={nodeId}
           value={operation.script}
           onChange={(script) => onChange({ ...operation, script })}
         />

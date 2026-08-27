@@ -321,6 +321,7 @@ function NodeKindFields({
     case 'ui':
       return (
         <ActionNodeFields
+          nodeId={node.id}
           operation={data.operation}
           onChange={(operation) => onUpdate((current) => current.kind === 'ui'
             ? { ...current, operation, invalid: false }
@@ -330,6 +331,7 @@ function NodeKindFields({
     case 'command':
       return (
         <CommandNodeFields
+          nodeId={node.id}
           operation={data.operation}
           onChange={(operation) => onUpdate((current) => current.kind === 'command'
             ? { ...current, operation, invalid: false }

@@ -23,11 +23,15 @@ describe('ActionNodeFields', () => {
       },
     };
 
-    render(<ActionNodeFields operation={operation} onChange={onChange} />);
+    render(<ActionNodeFields nodeId="ui-save" operation={operation} onChange={onChange} />);
 
     expect(screen.getByRole('textbox', { name: 'AQL 查询' })).toHaveValue(
       'button(name = "保存")',
     );
+    const aqlHeading = screen.getByRole('heading', { name: '查找规则' });
+    const advancedSettings = screen.getByText('高级设置');
+    expect(aqlHeading.compareDocumentPosition(advancedSettings)
+      & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
     expect(screen.getByText('运行环境评估仅在 ArgusFlow 桌面应用中可用。')).toBeVisible();
 
     fireEvent.change(screen.getByRole('textbox', { name: 'AQL 查询' }), {

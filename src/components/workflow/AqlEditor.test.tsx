@@ -65,6 +65,7 @@ describe('AqlEditor', () => {
     render(
       <AqlEditor
         query={query}
+        modelUri="inmemory://test/aql-format"
         target={{
           scope: { type: 'current' },
           locator: { type: 'query', query },
@@ -88,12 +89,13 @@ describe('AqlEditor', () => {
     });
   });
 
-  it('pairs brackets while keeping textarea as the input model', () => {
+  it('writes Monaco document changes back to the versioned query', () => {
     const onChange = vi.fn();
     const query = { language_version: 1 as const, source: 'button' };
     render(
       <AqlEditor
         query={query}
+        modelUri="inmemory://test/aql-edit"
         target={{
           scope: { type: 'current' },
           locator: { type: 'query', query },
@@ -102,12 +104,67 @@ describe('AqlEditor', () => {
         onChange={onChange}
       />,
     );
-    const input = screen.getByRole('textbox', { name: 'AQL 查询' }) as HTMLTextAreaElement;
-    input.setSelectionRange(6, 6);
-    fireEvent.select(input);
-    fireEvent.keyDown(input, { key: '(' });
+    const input = screen.getByRole('textbox', { name: 'AQL 查询' });
+    expect(input).toHaveAttribute('data-language', 'argusflow-aql');
+    fireEvent.change(input, { target: { value: 'button()' } });
 
     expect(onChange).toHaveBeenCalledWith({ language_version: 1, source: 'button()' });
+  });
+
+  it('does not expose a separate token-help button', () => {
+    const query = { language_version: 1 as const, source: 'button' };
+    const { rerender } = render(
+      <AqlEditor
+        query={query}
+        modelUri="inmemory://test/aql-hover"
+        target={{
+          scope: { type: 'current' },
+          locator: { type: 'query', query },
+          backend_policy: { allow: [], deny: [], prefer: [] },
+        }}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: '说明' })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole('textbox', { name: 'AQL 查询' }), {
+      target: { value: 'button(name = "保存")' },
+    });
+    rerender(
+      <AqlEditor
+        query={{ ...query, source: 'button(name = "保存")' }}
+        modelUri="inmemory://test/aql-hover"
+        target={{
+          scope: { type: 'current' },
+          locator: { type: 'query', query: { ...query, source: 'button(name = "保存")' } },
+          backend_policy: { allow: [], deny: [], prefer: [] },
+        }}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('textbox', { name: 'AQL 查询' })).toHaveValue(
+      'button(name = "保存")',
+    );
+  });
+
+  it('expands the same controlled AQL editor into a dialog', () => {
+    const query = { language_version: 1 as const, source: 'button' };
+    render(
+      <AqlEditor
+        query={query}
+        modelUri="inmemory://test/aql-expand"
+        target={{
+          scope: { type: 'current' },
+          locator: { type: 'query', query },
+          backend_policy: { allow: [], deny: [], prefer: [] },
+        }}
+        onChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '展开编辑查找规则' }));
+
+    expect(screen.getByRole('dialog', { name: '查找规则' })).toBeVisible();
+    expect(screen.getByRole('textbox', { name: 'AQL 查询' })).toHaveValue('button');
   });
 
   it('keeps native composition input as the document source', () => {
@@ -119,6 +176,7 @@ describe('AqlEditor', () => {
       return (
         <AqlEditor
           query={query}
+          modelUri="inmemory://test/aql-composition"
           target={{
             scope: { type: 'current' },
             locator: { type: 'query', query },
