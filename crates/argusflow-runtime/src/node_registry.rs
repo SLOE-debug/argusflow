@@ -83,6 +83,11 @@ impl<'node> ValueInput<'node> {
     pub fn text(expression: &'node ValueExpr) -> Self {
         Self::new(expression, ValueTypeId::text())
     }
+
+    /// 创建接受任意普通 JSON 值的内置输入声明。
+    pub fn json(expression: &'node ValueExpr) -> Self {
+        Self::new(expression, ValueTypeId::json())
+    }
 }
 
 /// 节点自身参数校验可读取的不可变工作流上下文。
@@ -148,10 +153,7 @@ pub trait PreparedNode: fmt::Debug + Send + Sync {
     }
 
     /// 条件节点选择分支；普通节点沿用默认的无分支结果。
-    fn select_branch(
-        &self,
-        _variables: &serde_json::Value,
-    ) -> Result<Option<ControlPortId>, RuntimeError> {
+    fn select_branch(&self, _context: &RunContext) -> Result<Option<ControlPortId>, RuntimeError> {
         Ok(None)
     }
 

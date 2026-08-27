@@ -6,7 +6,8 @@ use serde::Deserialize;
 
 use crate::{
     NodeEvent, NodeExecution, NodeFlow, NodeValidationContext, PreparedNode, RunContext,
-    RuntimeError, ValidationIssue, ValidationIssueCode,
+    RuntimeError, ValidationIssue, ValidationIssueCode, ValueInput,
+    value_runtime::format_runtime_value,
 };
 
 /// Log 节点的强类型 payload。
@@ -21,7 +22,7 @@ pub(super) struct LogPayload {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct DebugPayload {
-    /// 执行时解析并展示的文本表达式。
+    /// 执行时解析并展示的任意 JSON 表达式。
     value: ValueExpr,
 }
 
@@ -64,7 +65,7 @@ struct LogNode {
 /// 显式解析值表达式并写入调试日志的节点。
 #[derive(Debug)]
 struct DebugNode {
-    /// 已解码的值来源。
+    /// 已解码的任意 JSON 值来源。
     value: ValueExpr,
 }
 
@@ -124,7 +125,7 @@ impl PreparedNode for DebugNode {
     }
 
     fn value_inputs(&self) -> Vec<crate::ValueInput<'_>> {
-        vec![crate::ValueInput::text(&self.value)]
+        vec![ValueInput::json(&self.value)]
     }
 
     async fn execute(
@@ -133,11 +134,12 @@ impl PreparedNode for DebugNode {
         _permissions: &WorkflowPermissions,
         context: &mut RunContext,
     ) -> Result<NodeExecution, RuntimeError> {
+        let value = context.resolve_value(&self.value)?;
         Ok(NodeExecution {
             events: vec![NodeEvent {
                 kind: ExecutionEventKind::Log,
                 // Debug 节点由用户显式放置，因此允许把解析值写入开发日志。
-                message: Some(context.resolve_text(&self.value)?),
+                message: Some(format_runtime_value(&value)),
                 payload: None,
             }],
             ..NodeExecution::default()

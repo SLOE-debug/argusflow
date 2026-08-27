@@ -179,7 +179,7 @@ async fn engine_executes_a_registered_node_without_central_dispatch_changes() {
 /// 创建 start -> test.emit -> end 的最小开放节点工作流。
 fn single_node_workflow(message: &str) -> WorkflowDefinition {
     WorkflowDefinition {
-        schema_version: 7,
+        schema_version: 8,
         id: Uuid::new_v4(),
         name: "节点扩展契约".to_owned(),
         inputs: Vec::new(),
@@ -197,12 +197,13 @@ fn single_node_workflow(message: &str) -> WorkflowDefinition {
     }
 }
 
-/// 创建 schema v7 节点定义。
+/// 创建 schema v8 节点定义。
 fn node(id: &str, type_id: &str, payload: serde_json::Value) -> WorkflowNode {
     WorkflowNode {
         id: id.to_owned(),
         position: Position { x: 0.0, y: 0.0 },
         definition: NodeEnvelope::new(type_id, 1, payload),
+        output_bindings: Default::default(),
     }
 }
 

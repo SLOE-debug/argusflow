@@ -41,7 +41,7 @@ function createExecutionEvent(
 }
 
 describe('workflow model', () => {
-  it('maps the empty canvas to the schema v7 Rust contract', () => {
+  it('maps the empty canvas to the schema v8 Rust contract', () => {
     const workflow = toWorkflowDefinition(
       '6d7d7a91-4e19-42c9-b1d8-011d4cf94330',
       'Demo',
@@ -51,7 +51,7 @@ describe('workflow model', () => {
       [],
       [],
     );
-    expect(workflow.schema_version).toBe(7);
+    expect(workflow.schema_version).toBe(8);
     expect(workflow.variables).toEqual({ enabled: true });
     expect(workflow.nodes).toEqual([]);
   });
@@ -162,9 +162,9 @@ describe('workflow model', () => {
         operation: expect.objectContaining({
           runner: 'power_shell',
           stdin: {
-            type: 'node_output',
-            node_id: 'collect_baidu_news_1',
-            output: 'text',
+            type: 'ref',
+            source: { type: 'node', node_id: 'collect_baidu_news_1' },
+            pointer: '/text',
           },
         }),
       },

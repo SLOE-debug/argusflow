@@ -1,8 +1,10 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::{WorkflowInputDefinition, WorkflowPermissions};
+use crate::{ValueExpr, WorkflowInputDefinition, WorkflowPermissions};
 
 /// 可序列化的完整工作流定义。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -15,7 +17,7 @@ pub struct WorkflowDefinition {
     pub name: String,
     /// 本工作流引用的瞬时运行输入声明；不保存任何一次运行的实际值。
     pub inputs: Vec<WorkflowInputDefinition>,
-    /// 条件节点读取的只读 JSON 变量；根值必须是对象。
+    /// 每次运行复制出的 Runtime Variables 初始值；根值必须是 JSON 对象。
     pub variables: Value,
     /// 对进程和 shell 等高风险能力的显式授权。
     pub permissions: WorkflowPermissions,
@@ -35,6 +37,8 @@ pub struct WorkflowNode {
     /// 开放节点定义；序列化时类型、版本和 payload 会被展开到节点对象中。
     #[serde(flatten)]
     pub definition: NodeEnvelope,
+    /// 在原生节点结果的冻结快照上计算并原子合并的公开输出。
+    pub output_bindings: BTreeMap<String, ValueExpr>,
 }
 
 /// 编辑器画布中的二维位置。

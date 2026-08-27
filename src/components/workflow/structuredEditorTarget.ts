@@ -1,3 +1,5 @@
+import type { ValueExprLocation } from '../../features/workflow/workflowValueExpressions';
+
 /** 工作区一次只打开一个结构化文档，目标由文档类别与所属节点共同标识。 */
 export type StructuredEditorTarget =
   | {
@@ -11,6 +13,14 @@ export type StructuredEditorTarget =
       readonly type: 'command_script';
       /** 文档所属工作流节点 ID。 */
       readonly nodeId: string;
+    }
+  | {
+      /** Runtime Value Plane 的受限 Rhai 表达式。 */
+      readonly type: 'expression';
+      /** 文档所属工作流节点 ID。 */
+      readonly nodeId: string;
+      /** 节点内具体 ValueExpr 字段的稳定路径。 */
+      readonly location: ValueExprLocation;
     };
 
 /** 结构化编辑器在中央工作区中的两种非模态布局。 */

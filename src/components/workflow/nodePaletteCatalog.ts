@@ -2,6 +2,7 @@ import {
   AlarmClock,
   AppWindow,
   Bell,
+  Braces,
   Bug,
   Clock3,
   Globe2,
@@ -107,6 +108,14 @@ export const PALETTE_ITEMS = [
     group: 'trigger',
     icon: PlayCircle,
     iconClassName: 'bg-emerald-50 text-emerald-700',
+  },
+  {
+    kind: 'variable',
+    title: '设置变量',
+    description: '事务式更新运行变量',
+    group: 'data',
+    icon: Braces,
+    iconClassName: 'bg-teal-50 text-teal-700',
   },
   {
     kind: null,

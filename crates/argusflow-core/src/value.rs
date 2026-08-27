@@ -3,7 +3,7 @@ use serde_json::Value;
 
 /// 工作流节点参数可引用的运行时值表达式。
 ///
-/// 表达式只描述数据来源，不在核心层执行；Runtime 会在节点准备阶段把它解析成冻结值。
+/// 普通用户通过结构化引用获得静态校验，高级用户可以使用由 Runtime 受限执行的表达式。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ValueExpr {
@@ -12,22 +12,38 @@ pub enum ValueExpr {
         /// 不依赖运行状态的常量值。
         value: Value,
     },
-    /// 读取本次运行启动时提供的输入字段。
+    /// 从一种稳定数据来源读取根值或其 RFC 6901 子路径。
+    Ref {
+        /// 工作流输入、运行变量或已发布节点结果。
+        source: ValueSource,
+        /// 空字符串表示完整根值，其它值必须是 RFC 6901 JSON Pointer。
+        pointer: String,
+    },
+    /// 在受限、无副作用的 Rhai 表达式环境中计算一个 JSON 值。
+    Expression {
+        /// 只能读取 `input`、`vars`、`nodes` 及输出映射阶段的 `result`。
+        source: String,
+    },
+}
+
+/// 结构化值引用的稳定数据来源。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ValueSource {
+    /// 本次运行启动时冻结的输入字段。
     WorkflowInput {
-        /// 输入对象中的一级字段名。
+        /// 工作流输入声明中的稳定字段名。
         key: String,
     },
-    /// 读取一个已经成功执行节点的值输出端口。
-    NodeOutput {
-        /// 产生值的节点 ID。
-        node_id: String,
-        /// 节点公开的值输出端口名称。
-        output: String,
-    },
-    /// 读取本次运行的可变变量存储。
+    /// 本次运行内可由变量节点更新的字段。
     Variable {
-        /// 变量存储中的一级字段名。
+        /// 变量对象中的一级字段名。
         name: String,
+    },
+    /// 一个已经成功执行节点的完整 Published Outputs 对象。
+    Node {
+        /// 生产节点的稳定 ID；显示名变更不得影响引用。
+        node_id: String,
     },
 }
 
@@ -36,6 +52,16 @@ impl ValueExpr {
     pub fn text(value: impl Into<String>) -> Self {
         Self::Literal {
             value: Value::String(value.into()),
+        }
+    }
+
+    /// 创建指向节点公开输出对象中指定 JSON Pointer 的结构化引用。
+    pub fn node(node_id: impl Into<String>, pointer: impl Into<String>) -> Self {
+        Self::Ref {
+            source: ValueSource::Node {
+                node_id: node_id.into(),
+            },
+            pointer: pointer.into(),
         }
     }
 }

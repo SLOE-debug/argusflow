@@ -12,6 +12,7 @@ use crate::{
     UnavailableBrowserSessionProvider, builtin_nodes,
     validation_graph::{build_graph, validate_graph_shape, validate_node_degrees},
     validation_references::validate_data_references,
+    value_runtime::{RuntimeValuePlan, RuntimeValuePlanBuilder},
 };
 
 /// 工作流结构校验的汇总结果。
@@ -122,6 +123,9 @@ validation_issue_codes! {
     InvalidCommand => "invalid_command",
     CommandPermissionDenied => "command_permission_denied",
     InvalidValueReference => "invalid_value_reference",
+    InvalidExpression => "invalid_expression",
+    InvalidOutputBinding => "invalid_output_binding",
+    InvalidVariableAssignment => "invalid_variable_assignment",
     InvalidResourceReference => "invalid_resource_reference",
     ReferenceNotDominating => "reference_not_dominating",
     UnknownNodeType => "unknown_node_type",
@@ -134,9 +138,11 @@ pub(crate) struct PreparedWorkflow {
     pub(crate) definition: WorkflowDefinition,
     /// 每个节点 ID 对应的强类型冻结执行对象。
     pub(crate) nodes: HashMap<String, Arc<dyn PreparedNode>>,
+    /// 所有 ValueExpr::Expression 在 prepare 阶段编译得到的共享 AST。
+    pub(crate) value_plan: Arc<RuntimeValuePlan>,
 }
 
-/// 使用内置节点注册表校验 schema v7 工作流。
+/// 使用内置节点注册表校验 schema v8 工作流。
 pub fn validate_workflow(workflow: &WorkflowDefinition) -> ValidationReport {
     let registry = builtin_nodes::registry(
         Arc::new(UnavailableActionDispatcher),
@@ -151,7 +157,7 @@ pub fn validate_workflow_with_registry(
     workflow: &WorkflowDefinition,
     registry: &NodeTypeRegistry,
 ) -> ValidationReport {
-    validate_and_compile(workflow, registry).1
+    validate_and_compile(workflow, registry).2
 }
 
 /// 编译并校验工作流；成功结果保证执行阶段不再读取动态 payload。
@@ -159,11 +165,12 @@ pub(crate) fn prepare_workflow(
     workflow: WorkflowDefinition,
     registry: &NodeTypeRegistry,
 ) -> Result<PreparedWorkflow, ValidationReport> {
-    let (nodes, report) = validate_and_compile(&workflow, registry);
+    let (nodes, value_plan, report) = validate_and_compile(&workflow, registry);
     if report.valid {
         Ok(PreparedWorkflow {
             definition: workflow,
             nodes,
+            value_plan,
         })
     } else {
         Err(report)
@@ -174,7 +181,11 @@ pub(crate) fn prepare_workflow(
 fn validate_and_compile(
     workflow: &WorkflowDefinition,
     registry: &NodeTypeRegistry,
-) -> (HashMap<String, Arc<dyn PreparedNode>>, ValidationReport) {
+) -> (
+    HashMap<String, Arc<dyn PreparedNode>>,
+    Arc<RuntimeValuePlan>,
+    ValidationReport,
+) {
     let mut issues = Vec::new();
     validate_workflow_metadata(workflow, &mut issues);
 
@@ -195,6 +206,18 @@ fn validate_and_compile(
             issues.push(issue(
                 ValidationIssueCode::DuplicateNodeId,
                 format!("节点 ID '{}' 重复", node.id),
+                Some(node.id.clone()),
+                None,
+            ));
+        }
+        if node
+            .output_bindings
+            .keys()
+            .any(|output_name| output_name.trim().is_empty())
+        {
+            issues.push(issue(
+                ValidationIssueCode::InvalidOutputBinding,
+                "自定义输出名称不能为空",
                 Some(node.id.clone()),
                 None,
             ));
@@ -247,8 +270,11 @@ fn validate_and_compile(
         );
     }
 
+    let value_plan = compile_value_plan(workflow, &prepared_nodes, &mut issues);
+
     (
         prepared_nodes,
+        value_plan,
         ValidationReport {
             valid: issues.is_empty(),
             issues,
@@ -256,12 +282,46 @@ fn validate_and_compile(
     )
 }
 
+/// 编译所有节点输入与通用输出映射中的高级表达式，并定位语法错误。
+fn compile_value_plan(
+    workflow: &WorkflowDefinition,
+    prepared_nodes: &HashMap<String, Arc<dyn PreparedNode>>,
+    issues: &mut Vec<ValidationIssue>,
+) -> Arc<RuntimeValuePlan> {
+    let mut builder = RuntimeValuePlanBuilder::default();
+    for node in &workflow.nodes {
+        if let Some(prepared) = prepared_nodes.get(&node.id) {
+            for input in prepared.value_inputs() {
+                if let Err(message) = builder.compile(input.expression) {
+                    issues.push(issue(
+                        ValidationIssueCode::InvalidExpression,
+                        format!("表达式编译失败：{message}"),
+                        Some(node.id.clone()),
+                        None,
+                    ));
+                }
+            }
+        }
+        for (output_name, expression) in &node.output_bindings {
+            if let Err(message) = builder.compile(expression) {
+                issues.push(issue(
+                    ValidationIssueCode::InvalidExpression,
+                    format!("输出 '{output_name}' 的表达式编译失败：{message}"),
+                    Some(node.id.clone()),
+                    None,
+                ));
+            }
+        }
+    }
+    builder.finish()
+}
+
 /// 校验工作流级契约。
 fn validate_workflow_metadata(workflow: &WorkflowDefinition, issues: &mut Vec<ValidationIssue>) {
-    if workflow.schema_version != 7 {
+    if workflow.schema_version != 8 {
         issues.push(issue(
             ValidationIssueCode::UnsupportedSchemaVersion,
-            "schema_version 必须为 7",
+            "schema_version 必须为 8",
             None,
             None,
         ));

@@ -1,11 +1,11 @@
-//! schema v7 工作流结构、节点与引用校验契约。
+//! schema v8 工作流结构、节点与引用校验契约。
 
 mod workflow_fixture;
 
 use argusflow_core::{
     AcquirePolicy, AqlQuery, AutomationTarget, BackendKind, BackendPolicy, CommandOperation,
     CommandRunner, ControlPortId, NodeEnvelope, Position, ResourceRef, TargetLocator, TargetScope,
-    UiOperation, ValueExpr, WorkflowDefinition, WorkflowEdge, WorkflowInputDefinition,
+    UiOperation, ValueExpr, ValueSource, WorkflowDefinition, WorkflowEdge, WorkflowInputDefinition,
     WorkflowInputType, WorkflowNode, WorkflowPermissions,
 };
 use argusflow_runtime::{ValidationIssueCode, validate_workflow};
@@ -87,6 +87,7 @@ fn validation_rejects_duplicate_ids_unknown_edges_cycles_branches_and_unreachabl
                 message: "branch".to_owned(),
             }
             .into(),
+            output_bindings: Default::default(),
         },
     );
     branch.edges.push(WorkflowEdge {
@@ -105,6 +106,7 @@ fn validation_rejects_duplicate_ids_unknown_edges_cycles_branches_and_unreachabl
             message: "orphan".to_owned(),
         }
         .into(),
+        output_bindings: Default::default(),
     });
     assert_has_issue(&unreachable, ValidationIssueCode::UnreachableNode);
 }
@@ -122,6 +124,7 @@ fn validation_requires_exactly_one_start_and_end() {
         id: "another-start".to_owned(),
         position: Position { x: 0.0, y: 100.0 },
         definition: WorkflowNodeKind::Start.into(),
+        output_bindings: Default::default(),
     });
     assert_has_issue(&workflow, ValidationIssueCode::InvalidStartCount);
 }
@@ -205,7 +208,7 @@ fn validation_rejects_browser_cdp_for_a_desktop_application_resource() {
         backend_policy: BackendPolicy::only(BackendKind::BrowserCdp),
     };
     let workflow = WorkflowDefinition {
-        schema_version: 7,
+        schema_version: 8,
         id: Uuid::new_v4(),
         name: "Application backend validation".to_owned(),
         inputs: Vec::new(),
@@ -273,13 +276,57 @@ fn validation_uses_input_declarations_instead_of_persisted_variables() {
     }];
     workflow.variables = json!({ "secret": 42 });
     workflow.nodes[1].definition = WorkflowNodeKind::Debug {
-        value: ValueExpr::WorkflowInput {
-            key: "secret".to_owned(),
+        value: ValueExpr::Ref {
+            source: ValueSource::WorkflowInput {
+                key: "secret".to_owned(),
+            },
+            pointer: String::new(),
         },
     }
     .into();
 
     assert!(validate_workflow(&workflow).valid);
+}
+
+#[test]
+fn validation_compiles_expressions_during_prepare() {
+    let mut workflow = demo_workflow(1);
+    workflow.nodes[1].definition = WorkflowNodeKind::Debug {
+        value: ValueExpr::Expression {
+            source: "input.[broken".to_owned(),
+        },
+    }
+    .into();
+
+    let report = validate_workflow(&workflow);
+    let issue = report
+        .issues
+        .iter()
+        .find(|issue| issue.code == ValidationIssueCode::InvalidExpression)
+        .expect("invalid Rhai syntax should fail workflow preparation");
+    assert_eq!(issue.node_id.as_deref(), Some("log"));
+    assert!(issue.message.contains("表达式编译失败"));
+}
+
+#[test]
+fn validation_rejects_empty_output_and_variable_assignment_names() {
+    let mut workflow = demo_workflow(1);
+    workflow.nodes[1]
+        .output_bindings
+        .insert("  ".to_owned(), ValueExpr::Literal { value: json!(1) });
+    assert_has_issue(&workflow, ValidationIssueCode::InvalidOutputBinding);
+
+    workflow.nodes[1].output_bindings.clear();
+    workflow.nodes[1].definition = NodeEnvelope::new(
+        "argus.variable.set",
+        1,
+        json!({
+            "assignments": [
+                { "name": "", "value": { "type": "literal", "value": 1 } }
+            ]
+        }),
+    );
+    assert_has_issue(&workflow, ValidationIssueCode::InvalidVariableAssignment);
 }
 
 #[test]

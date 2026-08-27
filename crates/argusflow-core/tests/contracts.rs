@@ -15,7 +15,7 @@ use uuid::Uuid;
 #[test]
 fn workflow_contract_round_trips_through_json() {
     let workflow = WorkflowDefinition {
-        schema_version: 7,
+        schema_version: 8,
         id: Uuid::new_v4(),
         name: "契约测试".to_owned(),
         inputs: Vec::new(),
@@ -51,7 +51,7 @@ fn workflow_contract_round_trips_through_json() {
 }
 
 #[test]
-fn schema_v7_inputs_resources_values_and_commands_round_trip_through_json() {
+fn schema_v8_inputs_resources_values_and_commands_round_trip_through_json() {
     let application_spec = ApplicationSpec {
         executable_path: r"C:\Program Files\Example\example.exe".to_owned(),
         arguments: vec!["--automation".to_owned()],
@@ -80,10 +80,7 @@ fn schema_v7_inputs_resources_values_and_commands_round_trip_through_json() {
     let command_operation = CommandOperation {
         runner: CommandRunner::Direct,
         program: Some(ValueExpr::text(r"C:\Windows\System32\whoami.exe")),
-        arguments: vec![ValueExpr::NodeOutput {
-            node_id: "read".to_owned(),
-            output: "text".to_owned(),
-        }],
+        arguments: vec![ValueExpr::node("read", "/text")],
         script: None,
         working_directory: None,
         environment: Vec::new(),
@@ -94,7 +91,7 @@ fn schema_v7_inputs_resources_values_and_commands_round_trip_through_json() {
         max_stderr_bytes: 1_048_576,
     };
     let workflow = WorkflowDefinition {
-        schema_version: 7,
+        schema_version: 8,
         id: Uuid::new_v4(),
         name: "资源与数据契约".to_owned(),
         inputs: vec![WorkflowInputDefinition {
@@ -136,23 +133,25 @@ fn schema_v7_inputs_resources_values_and_commands_round_trip_through_json() {
         ],
     };
 
-    let serialized = serde_json::to_string(&workflow).expect("schema v7 should serialize");
+    let serialized = serde_json::to_string(&workflow).expect("schema v8 should serialize");
     let decoded: WorkflowDefinition =
-        serde_json::from_str(&serialized).expect("schema v7 should deserialize");
+        serde_json::from_str(&serialized).expect("schema v8 should deserialize");
 
     assert!(serialized.contains("\"producer_node_id\":\"application\""));
-    assert!(serialized.contains("\"type\":\"node_output\""));
+    assert!(serialized.contains("\"type\":\"ref\""));
+    assert!(serialized.contains("\"pointer\":\"/text\""));
     assert!(serialized.contains("\"runner\":\"direct\""));
     assert!(serialized.contains("\"value_type\":\"text\""));
     assert_eq!(decoded, workflow);
 }
 
-/// 以稳定布局构造 schema v7 开放节点。
+/// 以稳定布局构造 schema v8 开放节点。
 fn node(id: &str, x: f64, type_id: &str, payload: Value) -> WorkflowNode {
     WorkflowNode {
         id: id.to_owned(),
         position: Position { x, y: 0.0 },
         definition: NodeEnvelope::new(type_id, 1, payload),
+        output_bindings: Default::default(),
     }
 }
 

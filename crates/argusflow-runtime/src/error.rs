@@ -38,11 +38,57 @@ pub enum RuntimeError {
         /// 无法解析的数据来源。
         description: String,
     },
-    /// 节点参数要求字符串，但表达式解析成了其它 JSON 类型。
-    #[error("runtime value type mismatch: expected {expected}")]
+    /// 结构化引用携带了不合法的 RFC 6901 JSON Pointer。
+    #[error("invalid runtime JSON Pointer: {pointer}")]
+    InvalidValuePointer {
+        /// 持久化定义中的原始指针。
+        pointer: String,
+    },
+    /// JSON Pointer 没有在所选数据源中命中值。
+    #[error("runtime JSON Pointer did not match a value: {pointer}")]
+    ValuePointerNotFound {
+        /// 已通过格式校验但没有命中的指针。
+        pointer: String,
+    },
+    /// 节点参数要求的类型与表达式实际结果不一致。
+    #[error("runtime value type mismatch: expected {expected}, got {actual}")]
     ValueTypeMismatch {
         /// 节点参数所需的稳定类型名称。
         expected: &'static str,
+        /// 不包含敏感业务内容的实际类型摘要。
+        actual: &'static str,
+    },
+    /// 预编译表达式在受限作用域中求值失败。
+    #[error("expression evaluation failed: {message}")]
+    ExpressionEvaluation {
+        /// Rhai 提供的安全错误摘要。
+        message: String,
+    },
+    /// 表达式产生了不能回到 JSON 数据面的 Rhai 值。
+    #[error("expression result is not a JSON value: {message}")]
+    ExpressionResultNotJson {
+        /// serde bridge 提供的类型错误摘要。
+        message: String,
+    },
+    /// Set Variables 中的一个字段失败，整个赋值事务不会提交。
+    #[error("variable assignment failed at node '{node_id}', variable '{variable}': {message}")]
+    VariableAssignmentFailed {
+        /// 发生失败的节点 ID。
+        node_id: String,
+        /// 未提交的变量名称。
+        variable: String,
+        /// 底层值解析错误摘要。
+        message: String,
+    },
+    /// 节点自定义输出映射失败，原生与自定义输出都不会发布。
+    #[error("output mapping failed at node '{node_id}', output '{output_name}': {message}")]
+    OutputMappingFailed {
+        /// 发生失败的节点 ID。
+        node_id: String,
+        /// 未发布的自定义输出名称。
+        output_name: String,
+        /// 底层值解析错误摘要。
+        message: String,
     },
     /// 节点尝试使用工作流没有声明的系统能力。
     #[error("workflow capability was denied: {capability}")]

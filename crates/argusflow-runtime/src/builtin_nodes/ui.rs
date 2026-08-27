@@ -225,7 +225,6 @@ impl PreparedNode for UiNode {
             UiOperation::CollectLinks { .. } => AutomationAction::CollectLinks { target },
         };
         let action_outcome = self.dispatcher.execute(&action, scope).await?;
-        let output_names = action_outcome.outputs.keys().cloned().collect::<Vec<_>>();
         // 失败现场在 fallback 前产生，因此事件顺序也先于最终成功后端。
         let mut events = action_outcome
             .diagnostic_evidence
@@ -248,13 +247,6 @@ impl PreparedNode for UiNode {
                 backend: action_outcome.backend,
             }),
         });
-        if !output_names.is_empty() {
-            events.push(NodeEvent {
-                kind: ExecutionEventKind::NodeOutputProduced,
-                message: Some(format!("已产生 {} 个值输出", output_names.len())),
-                payload: Some(ExecutionEventPayload::NodeOutputsProduced { output_names }),
-            });
-        }
         Ok(NodeExecution {
             outcome: NodeOutcome::values(action_outcome.outputs),
             events,

@@ -17,6 +17,7 @@ use crate::{
     run_inputs::validate_run_inputs,
     scheduler::ResourceScheduler,
     validator::{PreparedWorkflow, prepare_workflow},
+    value_runtime::publish_outcome,
 };
 
 /// 接收工作流执行事件的线程安全目标。
@@ -138,7 +139,12 @@ impl WorkflowEngine {
             .ok_or_else(|| {
                 RuntimeError::ExecutionInvariant("workflow variables are not an object".to_owned())
             })?;
-        let mut context = RunContext::new(run_id, inputs.values, variables);
+        let mut context = RunContext::with_value_plan(
+            run_id,
+            inputs.values,
+            variables,
+            Arc::clone(&workflow.value_plan),
+        );
         let mut sequence = 0;
         emit_event(
             &sink,
@@ -274,7 +280,36 @@ impl WorkflowEngine {
                 }
             };
             drop(access_guard);
-            context.record_outcome(node.id.clone(), execution.outcome);
+            let published_outcome = match publish_outcome(
+                context,
+                &node.id,
+                execution.outcome,
+                &node.output_bindings,
+            ) {
+                Ok(outcome) => outcome,
+                Err(error) => {
+                    emit_event(
+                        sink,
+                        build_event(
+                            context.run_id,
+                            workflow.definition.id,
+                            sequence,
+                            Some(node.id.clone()),
+                            None,
+                            ExecutionEventKind::NodeFailed,
+                            Some(error.to_string()),
+                            None,
+                        ),
+                    )?;
+                    return Err(error);
+                }
+            };
+            let published_output_names = published_outcome
+                .outputs
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>();
+            context.record_outcome(node.id.clone(), published_outcome);
             for node_event in execution.events {
                 emit_event(
                     sink,
@@ -287,6 +322,26 @@ impl WorkflowEngine {
                         node_event.kind,
                         node_event.message,
                         node_event.payload,
+                    ),
+                )?;
+            }
+            if !published_output_names.is_empty() {
+                emit_event(
+                    sink,
+                    build_event(
+                        context.run_id,
+                        workflow.definition.id,
+                        sequence,
+                        Some(node.id.clone()),
+                        None,
+                        ExecutionEventKind::NodeOutputProduced,
+                        Some(format!(
+                            "已产生 {} 个公开值输出",
+                            published_output_names.len()
+                        )),
+                        Some(ExecutionEventPayload::NodeOutputsProduced {
+                            output_names: published_output_names,
+                        }),
                     ),
                 )?;
             }
@@ -304,12 +359,7 @@ impl WorkflowEngine {
                 ),
             )?;
 
-            let next_edge = select_next_edge(
-                prepared.as_ref(),
-                node_id,
-                &outgoing,
-                &workflow.definition.variables,
-            )?;
+            let next_edge = select_next_edge(prepared.as_ref(), node_id, &outgoing, context)?;
             if let Some(edge) = next_edge {
                 emit_event(
                     sink,
@@ -338,12 +388,12 @@ fn select_next_edge<'edge>(
     node: &dyn PreparedNode,
     node_id: &str,
     outgoing: &'edge HashMap<&str, Vec<&'edge WorkflowEdge>>,
-    variables: &serde_json::Value,
+    context: &RunContext,
 ) -> Result<Option<&'edge WorkflowEdge>, RuntimeError> {
     if matches!(node.flow(), NodeFlow::End) {
         return Ok(None);
     }
-    let selected_branch = node.select_branch(variables)?;
+    let selected_branch = node.select_branch(context)?;
     Ok(outgoing
         .get(node_id)
         .into_iter()

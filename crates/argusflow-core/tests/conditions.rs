@@ -1,43 +1,90 @@
-//! JSON 条件谓词求值回归测试。
+//! 已求值 JSON 操作数的条件比较回归测试。
 
-use argusflow_core::{ConditionOperator, ConditionPredicate};
+use argusflow_core::ConditionOperator;
 use serde_json::{Value, json};
 
 #[test]
-fn condition_predicates_cover_json_value_shapes() {
-    let variables = json!({
-        "enabled": true,
-        "count": 8,
-        "name": "ArgusFlow Studio",
-        "tags": ["flow", "rpa"],
-        "settings": { "theme": "daylight" },
-        "empty": []
-    });
-
-    assert!(evaluate(&variables, "/enabled", ConditionOperator::Equal, Some(json!(true))));
-    assert!(evaluate(&variables, "/enabled", ConditionOperator::NotEqual, Some(json!(false))));
-    assert!(evaluate(&variables, "/count", ConditionOperator::GreaterThan, Some(json!(3))));
-    assert!(evaluate(&variables, "/count", ConditionOperator::GreaterThanOrEqual, Some(json!(8))));
-    assert!(evaluate(&variables, "/count", ConditionOperator::LessThan, Some(json!(9))));
-    assert!(evaluate(&variables, "/count", ConditionOperator::LessThanOrEqual, Some(json!(8))));
-    assert!(evaluate(&variables, "/name", ConditionOperator::Contains, Some(json!("Studio"))));
-    assert!(evaluate(&variables, "/tags", ConditionOperator::Contains, Some(json!("rpa"))));
-    assert!(evaluate(&variables, "/settings", ConditionOperator::Contains, Some(json!("theme"))));
-    assert!(evaluate(&variables, "/empty", ConditionOperator::IsEmpty, None));
-    assert!(evaluate(&variables, "/tags", ConditionOperator::NotEmpty, None));
-    assert!(evaluate(&variables, "/enabled", ConditionOperator::Exists, None));
-    assert!(evaluate(&variables, "/missing", ConditionOperator::NotExists, None));
+fn condition_operators_cover_json_value_shapes() {
+    assert!(evaluate(
+        json!(true),
+        ConditionOperator::Equal,
+        Some(json!(true))
+    ));
+    assert!(evaluate(
+        json!(true),
+        ConditionOperator::NotEqual,
+        Some(json!(false))
+    ));
+    assert!(evaluate(
+        json!(8),
+        ConditionOperator::GreaterThan,
+        Some(json!(3))
+    ));
+    assert!(evaluate(
+        json!(8),
+        ConditionOperator::GreaterThanOrEqual,
+        Some(json!(8))
+    ));
+    assert!(evaluate(
+        json!(8),
+        ConditionOperator::LessThan,
+        Some(json!(9))
+    ));
+    assert!(evaluate(
+        json!(8),
+        ConditionOperator::LessThanOrEqual,
+        Some(json!(8))
+    ));
+    assert!(evaluate(
+        json!("ArgusFlow Studio"),
+        ConditionOperator::Contains,
+        Some(json!("Studio"))
+    ));
+    assert!(evaluate(
+        json!(["flow", "rpa"]),
+        ConditionOperator::Contains,
+        Some(json!("rpa"))
+    ));
+    assert!(evaluate(
+        json!({ "theme": "daylight" }),
+        ConditionOperator::Contains,
+        Some(json!("theme"))
+    ));
+    assert!(evaluate(json!([]), ConditionOperator::IsEmpty, None));
+    assert!(evaluate(json!(["flow"]), ConditionOperator::NotEmpty, None));
+    assert!(
+        ConditionOperator::Exists
+            .evaluate(Some(&json!(true)), None)
+            .expect("exists should evaluate")
+    );
+    assert!(
+        ConditionOperator::NotExists
+            .evaluate(None, None)
+            .expect("not exists should evaluate")
+    );
 }
 
 #[test]
-fn condition_rejects_invalid_pointer_and_type_pairs() {
-    let variables = json!({ "name": "ArgusFlow" });
-    let invalid_pointer = ConditionPredicate { pointer: "name".to_owned(), operator: ConditionOperator::Exists, operand: None };
-    assert!(invalid_pointer.evaluate(&variables).is_err());
-    let invalid_type = ConditionPredicate { pointer: "/name".to_owned(), operator: ConditionOperator::GreaterThan, operand: Some(json!(2)) };
-    assert!(invalid_type.evaluate(&variables).is_err());
+fn condition_rejects_invalid_operand_shapes_and_types() {
+    assert!(
+        ConditionOperator::GreaterThan
+            .evaluate(Some(&json!("ArgusFlow")), Some(&json!(2)))
+            .is_err()
+    );
+    assert!(
+        ConditionOperator::Equal
+            .evaluate(Some(&json!(1)), None)
+            .is_err()
+    );
+    assert!(
+        ConditionOperator::Exists
+            .evaluate(Some(&json!(1)), Some(&json!(true)))
+            .is_err()
+    );
 }
 
-fn evaluate(variables: &Value, pointer: &str, operator: ConditionOperator, operand: Option<Value>) -> bool {
-    ConditionPredicate { pointer: pointer.to_owned(), operator, operand }.evaluate(variables).expect("predicate should evaluate")
+fn evaluate(left: Value, operator: ConditionOperator, right: Option<Value>) -> bool {
+    operator
+        .evaluate(Some(&left), right.as_ref())
+        .expect("condition should evaluate")
 }

@@ -147,7 +147,7 @@ async fn read_output_is_resolved_for_debug_and_the_following_set_value() {
 /// 构造 Start → GetText → Debug/SetValue(NodeOutput) → End 的最小数据流。
 fn read_then_write_workflow() -> WorkflowDefinition {
     WorkflowDefinition {
-        schema_version: 7,
+        schema_version: 8,
         id: Uuid::new_v4(),
         name: "Read then write".to_owned(),
         inputs: Vec::new(),
@@ -170,10 +170,7 @@ fn read_then_write_workflow() -> WorkflowDefinition {
                 "debug",
                 360.0,
                 WorkflowNodeKind::Debug {
-                    value: ValueExpr::NodeOutput {
-                        node_id: "read".to_owned(),
-                        output: "text".to_owned(),
-                    },
+                    value: ValueExpr::node("read", "/text"),
                 },
             ),
             node(
@@ -184,10 +181,7 @@ fn read_then_write_workflow() -> WorkflowDefinition {
                         target: AutomationTarget::query(AqlQuery::v1(
                             "first(textbox(name = \"订单编号\"))",
                         )),
-                        value: ValueExpr::NodeOutput {
-                            node_id: "read".to_owned(),
-                            output: "text".to_owned(),
-                        },
+                        value: ValueExpr::node("read", "/text"),
                     },
                 },
             ),
@@ -208,6 +202,7 @@ fn node(id: &str, x: f64, kind: WorkflowNodeKind) -> WorkflowNode {
         id: id.to_owned(),
         position: Position { x, y: 0.0 },
         definition: kind.into(),
+        output_bindings: Default::default(),
     }
 }
 

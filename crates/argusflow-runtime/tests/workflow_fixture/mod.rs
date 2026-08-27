@@ -1,13 +1,12 @@
-//! 工作流 Runtime 集成测试共享的强类型 schema v7 fixture。
+//! 工作流 Runtime 集成测试共享的强类型 schema v8 fixture。
 
 // 每个集成测试会独立编译该模块，因此只使用共享 fixture 的一个职责子集。
 #![allow(dead_code)]
 
 use argusflow_core::{
     AcquirePolicy, ActivationPolicy, ApplicationSpec, CleanupPolicy, CommandOperation,
-    ConditionOperator, ConditionPredicate, ControlPortId, NodeEnvelope, Position, UiOperation,
-    ValueExpr, WindowTitleMatcher, WorkflowDefinition, WorkflowEdge, WorkflowNode,
-    WorkflowPermissions,
+    ConditionOperator, ControlPortId, NodeEnvelope, Position, UiOperation, ValueExpr, ValueSource,
+    WindowTitleMatcher, WorkflowDefinition, WorkflowEdge, WorkflowNode, WorkflowPermissions,
 };
 use serde_json::json;
 use uuid::Uuid;
@@ -15,13 +14,33 @@ use uuid::Uuid;
 /// 测试 fixture 使用的强类型内置节点构造器；生产契约仍只暴露 NodeEnvelope。
 pub(crate) enum WorkflowNodeKind {
     Start,
-    Log { message: String },
-    Debug { value: ValueExpr },
-    Delay { milliseconds: u64 },
-    Condition { predicate: ConditionPredicate },
-    Application { spec: ApplicationSpec },
-    Ui { operation: UiOperation },
-    Command { operation: CommandOperation },
+    Log {
+        message: String,
+    },
+    Debug {
+        value: ValueExpr,
+    },
+    Delay {
+        milliseconds: u64,
+    },
+    Condition {
+        left: ValueExpr,
+        operator: ConditionOperator,
+        right: Option<ValueExpr>,
+    },
+    SetVariable {
+        name: String,
+        value: ValueExpr,
+    },
+    Application {
+        spec: ApplicationSpec,
+    },
+    Ui {
+        operation: UiOperation,
+    },
+    Command {
+        operation: CommandOperation,
+    },
     End,
 }
 
@@ -38,9 +57,24 @@ impl From<WorkflowNodeKind> for NodeEnvelope {
             WorkflowNodeKind::Delay { milliseconds } => {
                 Self::new("argus.delay", 1, json!({ "milliseconds": milliseconds }))
             }
-            WorkflowNodeKind::Condition { predicate } => {
-                Self::new("argus.condition", 1, json!({ "predicate": predicate }))
-            }
+            WorkflowNodeKind::Condition {
+                left,
+                operator,
+                right,
+            } => Self::new(
+                "argus.condition",
+                1,
+                json!({
+                    "left": left,
+                    "operator": operator,
+                    "right": right,
+                }),
+            ),
+            WorkflowNodeKind::SetVariable { name, value } => Self::new(
+                "argus.variable.set",
+                1,
+                json!({ "assignments": [{ "name": name, "value": value }] }),
+            ),
             WorkflowNodeKind::Application { spec } => {
                 Self::new("argus.application", 1, json!({ "spec": spec }))
             }
@@ -58,7 +92,7 @@ impl From<WorkflowNodeKind> for NodeEnvelope {
 /// 在测试中构造一条可执行的 Start -> Log -> Delay -> End 线性链。
 pub(crate) fn demo_workflow(milliseconds: u64) -> WorkflowDefinition {
     WorkflowDefinition {
-        schema_version: 7,
+        schema_version: 8,
         id: Uuid::new_v4(),
         name: "Demo".to_owned(),
         inputs: Vec::new(),
@@ -90,6 +124,7 @@ pub(crate) fn node(id: &str, x: f64, kind: WorkflowNodeKind) -> WorkflowNode {
         id: id.to_owned(),
         position: Position { x, y: 0.0 },
         definition: kind.into(),
+        output_bindings: Default::default(),
     }
 }
 
@@ -106,7 +141,7 @@ pub(crate) fn edge(source: &str, target: &str) -> WorkflowEdge {
 /// 构造两条分支最终汇合到 End 的条件 DAG。
 pub(crate) fn condition_workflow(enabled: bool) -> WorkflowDefinition {
     WorkflowDefinition {
-        schema_version: 7,
+        schema_version: 8,
         id: Uuid::new_v4(),
         name: "Condition".to_owned(),
         inputs: Vec::new(),
@@ -118,11 +153,14 @@ pub(crate) fn condition_workflow(enabled: bool) -> WorkflowDefinition {
                 "condition",
                 160.0,
                 WorkflowNodeKind::Condition {
-                    predicate: ConditionPredicate {
-                        pointer: "/enabled".to_owned(),
-                        operator: ConditionOperator::Equal,
-                        operand: Some(json!(true)),
+                    left: ValueExpr::Ref {
+                        source: ValueSource::Variable {
+                            name: "enabled".to_owned(),
+                        },
+                        pointer: String::new(),
                     },
+                    operator: ConditionOperator::Equal,
+                    right: Some(ValueExpr::Literal { value: json!(true) }),
                 },
             ),
             node(

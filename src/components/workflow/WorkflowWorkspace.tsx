@@ -101,6 +101,7 @@ export function WorkflowWorkspace({
     <WorkspaceStructuredEditor
       target={editorState.target}
       nodes={nodes}
+      report={report}
       onUpdateNode={onUpdateNode}
     />
   ) : null;

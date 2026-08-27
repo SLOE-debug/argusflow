@@ -170,21 +170,13 @@ impl PreparedNode for CommandNode {
                     "command outcome did not contain an i32 exit_code".to_owned(),
                 )
             })?;
-        let output_names = outcome.outputs.keys().cloned().collect::<Vec<_>>();
         Ok(NodeExecution {
             outcome,
-            events: vec![
-                NodeEvent {
-                    kind: ExecutionEventKind::CommandExited,
-                    message: Some(format!("命令执行完成，退出代码 {exit_code}")),
-                    payload: Some(ExecutionEventPayload::CommandExited { exit_code }),
-                },
-                NodeEvent {
-                    kind: ExecutionEventKind::NodeOutputProduced,
-                    message: Some(format!("已产生 {} 个值输出", output_names.len())),
-                    payload: Some(ExecutionEventPayload::NodeOutputsProduced { output_names }),
-                },
-            ],
+            events: vec![NodeEvent {
+                kind: ExecutionEventKind::CommandExited,
+                message: Some(format!("命令执行完成，退出代码 {exit_code}")),
+                payload: Some(ExecutionEventPayload::CommandExited { exit_code }),
+            }],
         })
     }
 }

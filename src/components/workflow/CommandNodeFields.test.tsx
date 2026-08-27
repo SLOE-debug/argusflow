@@ -7,6 +7,7 @@ import type {
   CommandRunner,
 } from '../../features/workflow/contracts';
 import { CommandNodeFields } from './CommandNodeFields';
+import { ValueExprEditorProvider } from './ValueExprFields';
 
 /** 创建字段完整的 shell 命令，供 runner 差异测试复用。 */
 function createShellOperation(runner: Exclude<CommandRunner, 'direct'>): CommandOperation {
@@ -57,21 +58,32 @@ describe('CommandNodeFields', () => {
   it('keeps non-literal script sources as reference fields', () => {
     const operation: CommandOperation = {
       ...createShellOperation('power_shell'),
-      script: { type: 'workflow_input', key: 'maintenance_script' },
+      script: {
+        type: 'ref',
+        source: { type: 'workflow_input', key: 'maintenance_script' },
+        pointer: '',
+      },
     };
     render(
-      <CommandNodeFields
-        nodeId="shell-reference"
-        operation={operation}
-        onChange={vi.fn()}
-        onOpenEditor={vi.fn()}
-      />,
+      <ValueExprEditorProvider
+        value={{
+          upstreamNodes: [],
+          workflowInputs: [{ key: 'maintenance_script', value_type: 'text' }],
+          variableNames: [],
+          onOpenExpression: vi.fn(),
+        }}
+      >
+        <CommandNodeFields
+          nodeId="shell-reference"
+          operation={operation}
+          onChange={vi.fn()}
+          onOpenEditor={vi.fn()}
+        />
+      </ValueExprEditorProvider>,
     );
 
     expect(screen.queryByRole('textbox', { name: '脚本内容' })).not.toBeInTheDocument();
-    expect(screen.getByRole('textbox', { name: '工作流输入字段' })).toHaveValue(
-      'maintenance_script',
-    );
+    expect(screen.getByText('maintenance_script')).toBeVisible();
     expect(screen.queryByRole('button', { name: '展开编辑脚本' })).not.toBeInTheDocument();
   });
 

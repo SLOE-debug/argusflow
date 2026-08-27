@@ -7,9 +7,9 @@ import type {
   ConditionOperator,
   ExecutionEvent,
   JsonObject,
-  JsonValue,
   UiOperation,
   ValueExpr,
+  VariableAssignment,
   WorkflowDefinition,
   WorkflowInputDefinition,
   WorkflowPermissions,
@@ -32,6 +32,8 @@ export type NodeRunState =
 /** 所有工作流节点共享的编辑器状态。 */
 type WorkflowNodeDataBase = {
   label: string;
+  /** 所有节点共享的 Published Outputs 自定义映射。 */
+  outputBindings: Readonly<Record<string, ValueExpr>>;
   runState?: NodeRunState;
   invalid?: boolean;
 };
@@ -44,10 +46,11 @@ export type WorkflowNodeData =
   | WorkflowNodeDataBase & { kind: 'delay'; milliseconds: number }
   | WorkflowNodeDataBase & {
       kind: 'condition';
-      pointer: string;
+      left: ValueExpr;
       operator: ConditionOperator;
-      operand: JsonValue;
+      right: ValueExpr | null;
     }
+  | WorkflowNodeDataBase & { kind: 'variable'; assignments: VariableAssignment[] }
   | WorkflowNodeDataBase & { kind: 'application'; spec: ApplicationSpec }
   | WorkflowNodeDataBase & { kind: 'browser'; spec: BrowserSpec }
   | WorkflowNodeDataBase & { kind: 'ui'; operation: UiOperation }
@@ -71,6 +74,7 @@ export const WORKFLOW_NODE_SIZES = {
   debug: { width: 156, height: 52 },
   delay: { width: 136, height: 52 },
   condition: { width: 132, height: 52 },
+  variable: { width: 148, height: 52 },
   application: { width: 172, height: 52 },
   browser: { width: 172, height: 52 },
   ui: { width: 164, height: 52 },
@@ -105,7 +109,7 @@ export function createEdge(source: string, target: string, nodes: ReadonlyArray<
   return { id: `edge-${crypto.randomUUID()}`, source: { nodeId: source, side: sourceSide }, target: { nodeId: target, side: targetSide }, data: { branch } };
 }
 
-/** 将画布状态转换为后端 schema v7 开放节点契约。 */
+/** 将画布状态转换为后端 schema v8 开放节点契约。 */
 export function toWorkflowDefinition(
   workflowId: string,
   name: string,
@@ -116,7 +120,7 @@ export function toWorkflowDefinition(
   edges: ReadonlyArray<WorkflowCanvasEdge>,
 ): WorkflowDefinition {
   return {
-    schema_version: 7,
+    schema_version: 8,
     id: workflowId,
     name,
     inputs: [...inputs],
@@ -125,6 +129,7 @@ export function toWorkflowDefinition(
     nodes: nodes.map((node) => ({
       id: node.id,
       position: node.position,
+      output_bindings: node.data.outputBindings,
       ...encodeNodeDefinition(node.data),
     })),
     edges: edges.map((edge) => ({ id: edge.id, source: edge.source.nodeId, target: edge.target.nodeId, branch: edge.data.branch })),

@@ -4,6 +4,7 @@ mod command;
 mod control;
 mod ui;
 mod utility;
+mod variable;
 
 use std::{marker::PhantomData, sync::Arc};
 
@@ -26,6 +27,7 @@ pub(crate) fn registry(
         typed_compiler::<utility::DebugPayload>("argus.debug", utility::prepare_debug),
         typed_compiler::<utility::DelayPayload>("argus.delay", utility::prepare_delay),
         typed_compiler::<control::ConditionPayload>("argus.condition", control::prepare_condition),
+        typed_compiler::<variable::SetVariablesPayload>("argus.variable.set", variable::prepare),
         application::compiler(applications),
         browser::compiler(browsers),
         ui::compiler(dispatcher),

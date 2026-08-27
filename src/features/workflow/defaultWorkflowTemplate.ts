@@ -54,7 +54,7 @@ export const DEFAULT_NODES = [
     kind: 'start',
     position: { x: 28, y: 104 },
     size: { ...WORKFLOW_NODE_SIZES.start },
-    data: { kind: 'start', label: '开始', runState: 'idle' },
+    data: { kind: 'start', label: '开始', outputBindings: {}, runState: 'idle' },
   },
   {
     id: BAIDU_BROWSER_NODE_ID,
@@ -64,6 +64,7 @@ export const DEFAULT_NODES = [
     data: {
       kind: 'browser',
       label: '打开 Chrome 并访问百度',
+      outputBindings: {},
       spec: {
         executable_path: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
         initial_url: 'https://www.baidu.com/',
@@ -80,6 +81,7 @@ export const DEFAULT_NODES = [
     data: {
       kind: 'delay',
       label: '等待百度热搜渲染',
+      outputBindings: {},
       milliseconds: 1_500,
       runState: 'idle',
     },
@@ -92,6 +94,7 @@ export const DEFAULT_NODES = [
     data: {
       kind: 'ui',
       label: '批量获取热搜标题和链接',
+      outputBindings: {},
       operation: {
         type: 'collect_links',
         target: createBaiduCdpTarget(
@@ -128,9 +131,9 @@ export const DEFAULT_NODES = [
         working_directory: null,
         environment: [],
         stdin: {
-          type: 'node_output',
-          node_id: COLLECT_NEWS_NODE_ID,
-          output: 'text',
+          type: 'ref',
+          source: { type: 'node', node_id: COLLECT_NEWS_NODE_ID },
+          pointer: '/text',
         },
         timeout_ms: 30_000,
         accepted_exit_codes: [0],
@@ -138,6 +141,9 @@ export const DEFAULT_NODES = [
         max_stderr_bytes: 65_536,
       },
       runState: 'idle',
+      outputBindings: {
+        output: { type: 'expression', source: 'result.stdout' },
+      },
     },
   },
   {
@@ -148,10 +154,11 @@ export const DEFAULT_NODES = [
     data: {
       kind: 'debug',
       label: '输出保存路径',
+      outputBindings: {},
       value: {
-        type: 'node_output',
-        node_id: WRITE_NEWS_NODE_ID,
-        output: 'stdout',
+        type: 'ref',
+        source: { type: 'node', node_id: WRITE_NEWS_NODE_ID },
+        pointer: '/output',
       },
       runState: 'idle',
     },
@@ -161,7 +168,7 @@ export const DEFAULT_NODES = [
     kind: 'end',
     position: { x: 794, y: 238 },
     size: { ...WORKFLOW_NODE_SIZES.end },
-    data: { kind: 'end', label: '结束', runState: 'idle' },
+    data: { kind: 'end', label: '结束', outputBindings: {}, runState: 'idle' },
   },
 ] as const satisfies ReadonlyArray<WorkflowCanvasNode>;
 

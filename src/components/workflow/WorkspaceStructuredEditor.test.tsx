@@ -14,6 +14,7 @@ function createCommandNode(): WorkflowCanvasNode {
     data: {
       kind: 'command',
       label: '写入文件',
+      outputBindings: {},
       operation: {
         runner: 'power_shell',
         program: null,

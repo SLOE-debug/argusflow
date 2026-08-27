@@ -164,7 +164,7 @@ async fn workflow_application_resource_scopes_a_real_uia_action() {
 /// 构造 Start → Application → Ui → End 的真实资源数据路径。
 fn application_workflow(spec: ApplicationSpec) -> WorkflowDefinition {
     WorkflowDefinition {
-        schema_version: 7,
+        schema_version: 8,
         id: Uuid::new_v4(),
         name: "Notepad++ AppSession E2E".to_owned(),
         inputs: Vec::new(),
@@ -211,6 +211,7 @@ fn node(id: &str, x: f64, kind: WorkflowNodeKind) -> WorkflowNode {
         id: id.to_owned(),
         position: Position { x, y: 0.0 },
         definition: kind.into(),
+        output_bindings: Default::default(),
     }
 }
 

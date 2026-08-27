@@ -118,9 +118,47 @@ impl From<RuntimeError> for CommandError {
                 message: description,
                 issues: Vec::new(),
             },
-            RuntimeError::ValueTypeMismatch { expected } => Self {
+            RuntimeError::InvalidValuePointer { pointer } => Self {
                 code: CommandErrorCode::RuntimeDataFailed,
-                message: format!("运行时值类型不匹配，需要 {expected}"),
+                message: format!("运行时 JSON Pointer 格式无效：{pointer}"),
+                issues: Vec::new(),
+            },
+            RuntimeError::ValuePointerNotFound { pointer } => Self {
+                code: CommandErrorCode::RuntimeDataFailed,
+                message: format!("运行时 JSON Pointer 未匹配到值：{pointer}"),
+                issues: Vec::new(),
+            },
+            RuntimeError::ValueTypeMismatch { expected, actual } => Self {
+                code: CommandErrorCode::RuntimeDataFailed,
+                message: format!("运行时值类型不匹配，需要 {expected}，实际为 {actual}"),
+                issues: Vec::new(),
+            },
+            RuntimeError::ExpressionEvaluation { message } => Self {
+                code: CommandErrorCode::RuntimeDataFailed,
+                message: format!("表达式求值失败：{message}"),
+                issues: Vec::new(),
+            },
+            RuntimeError::ExpressionResultNotJson { message } => Self {
+                code: CommandErrorCode::RuntimeDataFailed,
+                message: format!("表达式结果不是 JSON 值：{message}"),
+                issues: Vec::new(),
+            },
+            RuntimeError::VariableAssignmentFailed {
+                node_id,
+                variable,
+                message,
+            } => Self {
+                code: CommandErrorCode::RuntimeDataFailed,
+                message: format!("节点 {node_id} 的变量 {variable} 赋值失败：{message}"),
+                issues: Vec::new(),
+            },
+            RuntimeError::OutputMappingFailed {
+                node_id,
+                output_name,
+                message,
+            } => Self {
+                code: CommandErrorCode::RuntimeDataFailed,
+                message: format!("节点 {node_id} 的输出 {output_name} 映射失败：{message}"),
                 issues: Vec::new(),
             },
             RuntimeError::CapabilityDenied { capability } => Self {

@@ -1,6 +1,7 @@
 import {
   AppWindow,
   Bug,
+  Braces,
   Globe2,
   CircleCheck,
   CircleX,
@@ -47,6 +48,7 @@ const NODE_ICONS: Readonly<Record<WorkflowNodeKind, LucideIcon>> = {
   debug: Bug,
   delay: Clock3,
   condition: GitBranch,
+  variable: Braces,
   application: AppWindow,
   browser: Globe2,
   ui: MousePointerClick,
@@ -78,6 +80,10 @@ const NODE_TONES: Readonly<Record<
   condition: {
     accent: 'bg-violet-500',
     icon: 'bg-violet-50 text-violet-600',
+  },
+  variable: {
+    accent: 'bg-teal-500',
+    icon: 'bg-teal-50 text-teal-700',
   },
   application: {
     accent: 'bg-indigo-500',
@@ -127,6 +133,7 @@ export const workflowNodeRegistry = {
   debug: createDefinition('debug', '调试输出', WORKFLOW_NODE_SIZES.debug),
   delay: createDefinition('delay', '等待', WORKFLOW_NODE_SIZES.delay),
   condition: createDefinition('condition', '条件', WORKFLOW_NODE_SIZES.condition),
+  variable: createDefinition('variable', '设置变量', WORKFLOW_NODE_SIZES.variable),
   application: createDefinition('application', '应用', WORKFLOW_NODE_SIZES.application),
   browser: createDefinition('browser', '浏览器', WORKFLOW_NODE_SIZES.browser),
   ui: createDefinition('ui', '界面操作', WORKFLOW_NODE_SIZES.ui),
@@ -208,7 +215,9 @@ function resolveNodeDetail(data: WorkflowNodeData): string {
     case 'delay':
       return `等待 ${data.milliseconds / 1000} 秒`;
     case 'condition':
-      return `${data.pointer} ${data.operator}`;
+      return `${valueExprDetail(data.left)} · ${data.operator}`;
+    case 'variable':
+      return `${data.assignments.length} 个变量赋值`;
     case 'application':
       return `${data.spec.acquire_policy} · ${data.spec.window_title.value}`;
     case 'browser':
@@ -254,15 +263,24 @@ function resolveSurfaceTone(status: NodeRunState, selected: boolean): string {
 function valueExprDetail(value: ValueExpr): string {
   switch (value.type) {
     case 'literal':
-      return typeof value.value === 'string' && value.value.length > 0
-        ? value.value
-        : '固定文本';
+      if (typeof value.value === 'string') return value.value || '空字符串';
+      return JSON.stringify(value.value);
+    case 'expression':
+      return value.source || '空表达式';
+    case 'ref':
+      return `${valueSourceDetail(value.source)}${value.pointer}`;
+  }
+}
+
+/** 将结构化 ValueSource 压缩为卡片短标签。 */
+function valueSourceDetail(source: Extract<ValueExpr, { type: 'ref' }>['source']): string {
+  switch (source.type) {
     case 'workflow_input':
-      return `输入 · ${value.key}`;
-    case 'node_output':
-      return `${value.node_id}.${value.output}`;
+      return `输入 · ${source.key}`;
+    case 'node':
+      return source.node_id;
     case 'variable':
-      return `变量 · ${value.name}`;
+      return `变量 · ${source.name}`;
   }
 }
 

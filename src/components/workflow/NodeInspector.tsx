@@ -9,6 +9,10 @@ import type {
   WorkflowNodeUpdater,
 } from '../../features/workflow/workflowModel';
 import type { WorkflowPermissions } from '../../features/workflow/contracts';
+import type {
+  JsonObject,
+  WorkflowInputDefinition,
+} from '../../features/workflow/contracts';
 import {
   EdgeInspectorFields,
   MultipleSelection,
@@ -16,6 +20,7 @@ import {
 } from './NodeInspectorFields';
 import { WorkflowInspectorFields } from './WorkflowInspectorFields';
 import type { StructuredEditorTarget } from './structuredEditorTarget';
+import { ValueExprEditorProvider } from './ValueExprFields';
 
 type NodeInspectorProps = Readonly<{
   /** 属性面板按选择状态订阅的工作流 Store。 */
@@ -56,6 +61,12 @@ type NodeInspectorProps = Readonly<{
   onDelete: () => void;
 }>;
 
+/** 通用 Flow Store 尚未装配工作流 metadata 时使用的稳定空值。 */
+const EMPTY_WORKFLOW_INPUTS: ReadonlyArray<WorkflowInputDefinition> = [];
+
+/** 空画布或独立组件测试中使用的稳定初始变量对象。 */
+const EMPTY_WORKFLOW_VARIABLES: JsonObject = {};
+
 /** 工作流和当前选择共用的单一右侧属性检查器。 */
 export function NodeInspector(props: NodeInspectorProps) {
   const selectedCount = useStore(
@@ -70,6 +81,20 @@ export function NodeInspector(props: NodeInspectorProps) {
   const edge = useStore(props.store, (state): WorkflowCanvasEdge | null => (
     state.edges.find((candidate) => candidate.id === state.selectedEdgeId) ?? null
   ));
+  const nodes = useStore(props.store, (state) => state.nodes);
+  const edges = useStore(props.store, (state) => state.edges);
+  const workflowInputs = useStore(
+    props.store,
+    (state) => (
+      state.metadata.inputs as WorkflowInputDefinition[] | undefined
+    ) ?? EMPTY_WORKFLOW_INPUTS,
+  );
+  const variables = useStore(
+    props.store,
+    (state) => (
+      state.metadata.variables as JsonObject | undefined
+    ) ?? EMPTY_WORKFLOW_VARIABLES,
+  );
 
   const inspectorContext = node
     ? '节点'
@@ -109,12 +134,25 @@ export function NodeInspector(props: NodeInspectorProps) {
           <MultipleSelection count={selectedCount} />
         ) : null}
         {node ? (
-          <NodeInspectorFields
-            node={node}
-            onUpdate={props.onUpdateNode}
-            onOpenStructuredEditor={props.onOpenStructuredEditor}
-            onDelete={props.onDelete}
-          />
+          <ValueExprEditorProvider
+            value={{
+              upstreamNodes: resolveDominatingNodes(node.id, nodes, edges),
+              workflowInputs,
+              variableNames: Object.keys(variables).sort(),
+              onOpenExpression: (location) => props.onOpenStructuredEditor({
+                type: 'expression',
+                nodeId: node.id,
+                location,
+              }),
+            }}
+          >
+            <NodeInspectorFields
+              node={node}
+              onUpdate={props.onUpdateNode}
+              onOpenStructuredEditor={props.onOpenStructuredEditor}
+              onDelete={props.onDelete}
+            />
+          </ValueExprEditorProvider>
         ) : null}
         {edge ? (
           <EdgeInspectorFields
@@ -126,4 +164,49 @@ export function NodeInspector(props: NodeInspectorProps) {
       </div>
     </aside>
   );
+}
+
+/** 计算严格支配当前节点的上游节点，避免选择只存在于部分分支的输出。 */
+function resolveDominatingNodes(
+  nodeId: string,
+  nodes: ReadonlyArray<WorkflowCanvasNode>,
+  edges: ReadonlyArray<WorkflowCanvasEdge>,
+): WorkflowCanvasNode[] {
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const predecessors = new Map<string, string[]>();
+  for (const edge of edges) {
+    const current = predecessors.get(edge.target.nodeId) ?? [];
+    predecessors.set(edge.target.nodeId, [...current, edge.source.nodeId]);
+  }
+  /** 无入边节点作为当前不完整画布的入口，避免编辑中间态产生虚假支配关系。 */
+  const entryIds = new Set(nodes
+    .filter((node) => (predecessors.get(node.id)?.length ?? 0) === 0)
+    .map((node) => node.id));
+  const dominators = new Map(nodes.map((node) => [
+    node.id,
+    entryIds.has(node.id) ? new Set([node.id]) : new Set(nodeIds),
+  ]));
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const node of nodes) {
+      if (entryIds.has(node.id)) continue;
+      const nodePredecessors = predecessors.get(node.id) ?? [];
+      const next = nodePredecessors
+        .map((predecessor) => dominators.get(predecessor) ?? new Set<string>())
+        .reduce<Set<string>>((intersection, candidate) => new Set(
+          [...intersection].filter((id) => candidate.has(id)),
+        ), new Set(nodeIds));
+      next.add(node.id);
+      const current = dominators.get(node.id) ?? new Set<string>();
+      if (current.size !== next.size || [...current].some((id) => !next.has(id))) {
+        dominators.set(node.id, next);
+        changed = true;
+      }
+    }
+  }
+  const currentDominators = dominators.get(nodeId) ?? new Set<string>();
+  return nodes.filter((candidate) => (
+    candidate.id !== nodeId && currentDominators.has(candidate.id)
+  ));
 }

@@ -49,7 +49,7 @@ fn validation_accepts_collect_links_from_a_dominating_browser_resource() {
         backend_policy: BackendPolicy::only(BackendKind::BrowserCdp),
     };
     let workflow = WorkflowDefinition {
-        schema_version: 7,
+        schema_version: 8,
         id: Uuid::new_v4(),
         name: "Browser resource validation".to_owned(),
         inputs: Vec::new(),
@@ -94,6 +94,7 @@ fn node(id: &str, x: f64, kind: WorkflowNodeKind) -> WorkflowNode {
         id: id.to_owned(),
         position: Position { x, y: 0.0 },
         definition: kind.into(),
+        output_bindings: Default::default(),
     }
 }
 

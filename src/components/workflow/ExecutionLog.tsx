@@ -27,6 +27,7 @@ const NODE_LOG_TONES = {
   debug: 'border-fuchsia-500 text-fuchsia-700',
   delay: 'border-amber-500 text-amber-700',
   condition: 'border-violet-500 text-violet-700',
+  variable: 'border-teal-500 text-teal-700',
   application: 'border-indigo-500 text-indigo-700',
   browser: 'border-sky-500 text-sky-700',
   ui: 'border-cyan-500 text-cyan-700',

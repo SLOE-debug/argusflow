@@ -134,7 +134,7 @@ export function WorkspaceDockPanel({
       ) : null}
       {editorTarget ? (
         <WorkspaceEditorHeader
-          languageLabel={editorTarget.type === 'aql' ? 'AQL' : resolveScriptLabel(editorNode)}
+          languageLabel={resolveEditorLanguage(editorTarget, editorNode)}
           nodeLabel={editorNode?.data.label ?? '节点已删除'}
           nodeId={editorTarget.nodeId}
           active={activeTab === 'structured_editor'}
@@ -237,8 +237,13 @@ function resolveDockContent(
   }
 }
 
-/** 解析 shell 文档页签标签；失效目标仍使用通用脚本名称。 */
-function resolveScriptLabel(node: WorkflowCanvasNode | null): string {
+/** 解析结构化文档的稳定语言标签。 */
+function resolveEditorLanguage(
+  target: StructuredEditorTarget,
+  node: WorkflowCanvasNode | null,
+): string {
+  if (target.type === 'aql') return 'AQL';
+  if (target.type === 'expression') return '表达式';
   if (node?.data.kind !== 'command') return '脚本';
   switch (node.data.operation.runner) {
     case 'power_shell':

@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use argusflow_core::{
     AqlQuery, AutomationTarget, ExecutionEvent, ExecutionEventKind, RunInputs, UiOperation,
-    ValueExpr, WorkflowInputDefinition, WorkflowInputType,
+    ValueExpr, ValueSource, WorkflowInputDefinition, WorkflowInputType,
 };
 use argusflow_runtime::{
     ExecutionEventSink, RuntimeError, UnavailableActionDispatcher, WorkflowEngine,
@@ -34,8 +34,11 @@ async fn runtime_requires_and_resolves_separate_run_inputs() {
         value_type: WorkflowInputType::Text,
     }];
     workflow.nodes[1].definition = WorkflowNodeKind::Debug {
-        value: ValueExpr::WorkflowInput {
-            key: "secret".to_owned(),
+        value: ValueExpr::Ref {
+            source: ValueSource::WorkflowInput {
+                key: "secret".to_owned(),
+            },
+            pointer: String::new(),
         },
     }
     .into();
@@ -153,6 +156,49 @@ async fn runtime_only_executes_the_selected_condition_branch() {
     }
     assert!(edge_ids.contains(&"condition-false".to_owned()));
     assert!(!edge_ids.contains(&"condition-true".to_owned()));
+}
+
+#[tokio::test]
+async fn condition_reads_variables_committed_by_a_prior_variable_node() {
+    let engine = Arc::new(WorkflowEngine::new(Arc::new(UnavailableActionDispatcher)));
+    let (sender, mut receiver) = mpsc::unbounded_channel();
+    let mut workflow = condition_workflow(false);
+    workflow.nodes.insert(
+        1,
+        workflow_fixture::node(
+            "set-enabled",
+            80.0,
+            WorkflowNodeKind::SetVariable {
+                name: "enabled".to_owned(),
+                value: ValueExpr::Literal { value: json!(true) },
+            },
+        ),
+    );
+    workflow.edges.retain(|edge| edge.id != "start-condition");
+    workflow
+        .edges
+        .push(workflow_fixture::edge("start", "set-enabled"));
+    workflow
+        .edges
+        .push(workflow_fixture::edge("set-enabled", "condition"));
+
+    engine
+        .start(
+            workflow,
+            RunInputs::default(),
+            Arc::new(ChannelSink(sender)),
+        )
+        .await
+        .expect("variable-driven condition should start");
+
+    let mut selected_true = false;
+    while let Some(event) = receiver.recv().await {
+        selected_true |= event.edge_id.as_deref() == Some("condition-true");
+        if event.kind == ExecutionEventKind::WorkflowCompleted {
+            break;
+        }
+    }
+    assert!(selected_true);
 }
 
 #[tokio::test(start_paused = true)]

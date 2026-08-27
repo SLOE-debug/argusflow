@@ -88,6 +88,7 @@ export function ActionNodeFields({
         <ValueExprFields
           value={operation.value}
           literalLabel="输入内容"
+          expressionLocation={{ type: 'ui_set_value' }}
           onChange={(value) => onChange(changeSetValue(operation, value))}
         />
       ) : null}

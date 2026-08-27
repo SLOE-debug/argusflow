@@ -26,7 +26,7 @@ pub use command::{
     CommandOperation, CommandRunner, EnvironmentBinding, WorkflowCapabilityId, WorkflowPermissions,
     required_command_capability,
 };
-pub use condition::{ConditionEvaluationError, ConditionOperator, ConditionPredicate};
+pub use condition::{ConditionEvaluationError, ConditionOperator};
 pub use error::{ActionCapability, AutomationError};
 pub use execution::{ExecutionEvent, ExecutionEventKind, ExecutionEventPayload, RunStarted};
 pub use input::{RunInputs, WorkflowInputDefinition, WorkflowInputType};
@@ -40,7 +40,7 @@ pub use resource::{
     BrowserSessionProvider, CapabilityId, CapabilitySet, ProcessIdentity, ResourceId, ResourceRef,
     ResourceTypeId, WindowIdentity,
 };
-pub use value::ValueExpr;
+pub use value::{ValueExpr, ValueSource};
 pub use workflow::{
     ControlPortId, NodeEnvelope, NodeTypeId, Position, WorkflowDefinition, WorkflowEdge,
     WorkflowNode,

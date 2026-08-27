@@ -17,7 +17,7 @@ describe('NodeInspector', () => {
         kind: 'log',
         position: { x: 10, y: 20 },
         size: { width: 142, height: 52 },
-        data: { kind: 'log', label: '日志', message: '测试' },
+        data: { kind: 'log', label: '日志', outputBindings: {}, message: '测试' },
       }],
     });
     render(

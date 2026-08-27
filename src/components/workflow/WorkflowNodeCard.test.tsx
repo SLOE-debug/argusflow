@@ -13,6 +13,7 @@ describe('WorkflowNodeCard', () => {
       size: { width: 142, height: 52 },
       data: {
         kind: 'log',
+        outputBindings: {},
         label: '写入日志',
         message: '记录结果',
       },
@@ -38,6 +39,7 @@ describe('WorkflowNodeCard', () => {
       size: { width: 164, height: 52 },
       data: {
         kind: 'ui',
+        outputBindings: {},
         label: '填写记事本',
         operation: {
           type: 'set_value',
@@ -71,18 +73,19 @@ describe('WorkflowNodeCard', () => {
       size: { width: 156, height: 52 },
       data: {
         kind: 'debug',
+        outputBindings: {},
         label: '输出窗口标题',
         value: {
-          type: 'node_output',
-          node_id: 'read-title',
-          output: 'text',
+          type: 'ref',
+          source: { type: 'node', node_id: 'read-title' },
+          pointer: '/text',
         },
       },
     };
 
     render(<WorkflowNodeCard node={node} selected={false} />);
 
-    expect(screen.getByText('read-title.text')).toBeVisible();
+    expect(screen.getByText('read-title/text')).toBeVisible();
   });
 
   it.each([
@@ -99,6 +102,7 @@ describe('WorkflowNodeCard', () => {
       size: { width: 142, height: 52 },
       data: {
         kind: 'log',
+        outputBindings: {},
         label: '写入日志',
         message: '记录结果',
         runState,

@@ -7,6 +7,7 @@ import type {
   ValueExpr,
 } from '../../features/workflow/contracts';
 import { changeCommandRunner } from '../../features/workflow/workflowCommand';
+import type { ValueExprLocation } from '../../features/workflow/workflowValueExpressions';
 import { Checkbox, Input, Select } from '../ui';
 import {
   INSPECTOR_HELP_CLASS_NAME,
@@ -54,6 +55,7 @@ export function CommandNodeFields({
         <ExpressionSection
           title="程序"
           value={operation.program}
+          expressionLocation={{ type: 'command_field', field: 'program' }}
           onChange={(program) => onChange({ ...operation, program })}
         />
       ) : null}
@@ -61,6 +63,7 @@ export function CommandNodeFields({
         <ValueList
           title="参数"
           values={operation.arguments}
+          locationType="command_argument"
           onChange={(argumentsValue) => onChange({
             ...operation,
             arguments: argumentsValue,
@@ -76,16 +79,19 @@ export function CommandNodeFields({
             type: 'command_script',
             nodeId,
           })}
+          expressionLocation={{ type: 'command_field', field: 'script' }}
         />
       ) : null}
       <OptionalExpression
         title="工作目录"
         value={operation.working_directory}
+        expressionLocation={{ type: 'command_field', field: 'working_directory' }}
         onChange={(working_directory) => onChange({ ...operation, working_directory })}
       />
       <OptionalExpression
         title="标准输入"
         value={operation.stdin}
+        expressionLocation={{ type: 'command_field', field: 'stdin' }}
         onChange={(stdin) => onChange({ ...operation, stdin })}
       />
       <EnvironmentFields
@@ -151,16 +157,23 @@ export function CommandNodeFields({
 function ExpressionSection({
   title,
   value,
+  expressionLocation,
   onChange,
 }: Readonly<{
   title: string;
   value: ValueExpr;
+  expressionLocation: ValueExprLocation;
   onChange: (value: ValueExpr) => void;
 }>) {
   return (
     <div className="flex flex-col gap-1">
       <span className="text-[10px] font-medium text-slate-500">{title}</span>
-      <ValueExprFields value={value} onChange={onChange} literalLabel={title} />
+      <ValueExprFields
+        value={value}
+        literalLabel={title}
+        expressionLocation={expressionLocation}
+        onChange={onChange}
+      />
     </div>
   );
 }
@@ -169,10 +182,12 @@ function ExpressionSection({
 function OptionalExpression({
   title,
   value,
+  expressionLocation,
   onChange,
 }: Readonly<{
   title: string;
   value: ValueExpr | null;
+  expressionLocation: ValueExprLocation;
   onChange: (value: ValueExpr | null) => void;
 }>) {
   return (
@@ -187,7 +202,12 @@ function OptionalExpression({
         {title}
       </label>
       {value ? (
-        <ValueExprFields value={value} onChange={onChange} literalLabel={title} />
+        <ValueExprFields
+          value={value}
+          literalLabel={title}
+          expressionLocation={expressionLocation}
+          onChange={onChange}
+        />
       ) : null}
     </div>
   );
@@ -197,10 +217,12 @@ function OptionalExpression({
 function ValueList({
   title,
   values,
+  locationType,
   onChange,
 }: Readonly<{
   title: string;
   values: ValueExpr[];
+  locationType: 'command_argument';
   onChange: (values: ValueExpr[]) => void;
 }>) {
   return (
@@ -221,6 +243,7 @@ function ValueList({
           <ValueExprFields
             value={value}
             literalLabel={`参数 ${index + 1}`}
+            expressionLocation={{ type: locationType, index }}
             onChange={(nextValue) => onChange(values.map((candidate, candidateIndex) => (
               candidateIndex === index ? nextValue : candidate
             )))}
@@ -283,6 +306,7 @@ function EnvironmentFields({
           <ValueExprFields
             value={binding.value}
             literalLabel="变量值"
+            expressionLocation={{ type: 'command_environment', index }}
             onChange={(value) => onChange(bindings.map((candidate, candidateIndex) => (
               candidateIndex === index ? { ...candidate, value } : candidate
             )))}

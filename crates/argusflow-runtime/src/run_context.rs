@@ -1,15 +1,23 @@
-use std::collections::{BTreeMap, HashMap};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
+};
 
-use argusflow_core::ValueExpr;
+use argusflow_core::{ValueExpr, ValueSource};
 use serde_json::{Map, Value};
 use uuid::Uuid;
 
-use crate::{ResourceTable, RuntimeError};
+use crate::{
+    ResourceTable, RuntimeError,
+    value_runtime::{
+        RuntimeValuePlan, RuntimeValueScope, evaluate_expression, validate_json_pointer,
+    },
+};
 
 /// 一个工作流节点成功后保存在运行上下文中的结构化结果。
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct NodeOutcome {
-    /// 可被后续 ValueExpr 引用的值输出。
+    /// 可被后续 ValueExpr 引用的 Published Outputs。
     pub outputs: BTreeMap<String, Value>,
     /// 本次节点产生的逻辑资源输出名称。
     pub resources: Vec<String>,
@@ -32,20 +40,37 @@ pub struct RunContext {
     pub run_id: Uuid,
     /// 启动时冻结的只读输入对象。
     workflow_inputs: Map<String, Value>,
-    /// 已成功执行节点的结构化结果。
+    /// 已成功执行节点的 Published Outputs 与资源端口。
     node_outputs: HashMap<String, NodeOutcome>,
     /// 本次运行独占的真实资源表。
     resources: ResourceTable,
-    /// 可由未来变量节点更新的运行内变量存储。
+    /// 可由变量节点事务式更新的运行内 JSON 变量存储。
     variables: Map<String, Value>,
+    /// prepare 阶段编译、所有运行只读共享的表达式计划。
+    value_plan: Arc<RuntimeValuePlan>,
 }
 
 impl RunContext {
-    /// 从独立的运行输入和工作流初始变量创建运行上下文。
+    /// 从独立的运行输入和工作流初始变量创建没有高级表达式的运行上下文。
     pub fn new(
         run_id: Uuid,
         workflow_inputs: Map<String, Value>,
         variables: Map<String, Value>,
+    ) -> Self {
+        Self::with_value_plan(
+            run_id,
+            workflow_inputs,
+            variables,
+            RuntimeValuePlan::empty(),
+        )
+    }
+
+    /// 从 prepare 后的共享表达式计划创建 RunWorld 数据面。
+    pub(crate) fn with_value_plan(
+        run_id: Uuid,
+        workflow_inputs: Map<String, Value>,
+        variables: Map<String, Value>,
+        value_plan: Arc<RuntimeValuePlan>,
     ) -> Self {
         Self {
             run_id,
@@ -53,6 +78,7 @@ impl RunContext {
             node_outputs: HashMap::new(),
             resources: ResourceTable::default(),
             variables,
+            value_plan,
         }
     }
 
@@ -66,47 +92,124 @@ impl RunContext {
         &mut self.resources
     }
 
-    /// 保存一个成功节点的结果，覆盖同一节点的旧结果以支持未来重试语义。
+    /// 保存一个成功节点的结果，覆盖同一节点的旧结果以支持重试语义。
     pub fn record_outcome(&mut self, node_id: String, outcome: NodeOutcome) {
         self.node_outputs.insert(node_id, outcome);
     }
 
     /// 解析 ValueExpr，并克隆出不依赖上下文借用的冻结 JSON 值。
     pub fn resolve_value(&self, expression: &ValueExpr) -> Result<Value, RuntimeError> {
-        match expression {
-            ValueExpr::Literal { value } => Ok(value.clone()),
-            ValueExpr::WorkflowInput { key } => {
-                self.workflow_inputs.get(key).cloned().ok_or_else(|| {
-                    RuntimeError::ValueUnavailable {
-                        description: format!("workflow input '{key}' is unavailable"),
-                    }
-                })
-            }
-            ValueExpr::NodeOutput { node_id, output } => self
-                .node_outputs
-                .get(node_id)
-                .and_then(|outcome| outcome.outputs.get(output))
-                .cloned()
-                .ok_or_else(|| RuntimeError::ValueUnavailable {
-                    description: format!("node output '{node_id}.{output}' is unavailable"),
-                }),
-            ValueExpr::Variable { name } => {
-                self.variables
-                    .get(name)
-                    .cloned()
-                    .ok_or_else(|| RuntimeError::ValueUnavailable {
-                        description: format!("runtime variable '{name}' is unavailable"),
-                    })
-            }
+        let scope = self.value_scope(None);
+        self.resolve_in_scope(expression, &scope)
+    }
+
+    /// 解析可能缺失的结构化引用；其它表达式错误仍然必须显式返回。
+    pub fn resolve_optional_value(
+        &self,
+        expression: &ValueExpr,
+    ) -> Result<Option<Value>, RuntimeError> {
+        match self.resolve_value(expression) {
+            Ok(value) => Ok(Some(value)),
+            Err(RuntimeError::ValuePointerNotFound { .. })
+            | Err(RuntimeError::ValueUnavailable { .. }) => Ok(None),
+            Err(error) => Err(error),
         }
     }
 
     /// 解析必须为字符串的节点参数，不对数字或布尔值做隐式转换。
     pub fn resolve_text(&self, expression: &ValueExpr) -> Result<String, RuntimeError> {
-        self.resolve_value(expression)?
+        let value = self.resolve_value(expression)?;
+        value
             .as_str()
             .map(str::to_owned)
-            .ok_or_else(|| RuntimeError::ValueTypeMismatch { expected: "string" })
+            .ok_or_else(|| RuntimeError::ValueTypeMismatch {
+                expected: "string",
+                actual: json_type_name(&value),
+            })
+    }
+
+    /// 原子提交一次 Set Variables 节点已经全部求值成功的字段集合。
+    pub(crate) fn commit_variables(&mut self, assignments: BTreeMap<String, Value>) {
+        self.variables.extend(assignments);
+    }
+
+    /// 建立当前 input/vars/nodes 与可选原生 result 的一致求值快照。
+    pub(crate) fn value_scope(
+        &self,
+        result: Option<&BTreeMap<String, Value>>,
+    ) -> RuntimeValueScope {
+        RuntimeValueScope::new(
+            &self.workflow_inputs,
+            &self.variables,
+            &self.node_outputs,
+            result,
+        )
+    }
+
+    /// 在调用方提供的冻结快照上解析表达式，保证批量映射顺序无关。
+    pub(crate) fn resolve_in_scope(
+        &self,
+        expression: &ValueExpr,
+        scope: &RuntimeValueScope,
+    ) -> Result<Value, RuntimeError> {
+        match expression {
+            ValueExpr::Literal { value } => Ok(value.clone()),
+            ValueExpr::Ref { source, pointer } => {
+                if !validate_json_pointer(pointer) {
+                    return Err(RuntimeError::InvalidValuePointer {
+                        pointer: pointer.clone(),
+                    });
+                }
+                let root = match source {
+                    ValueSource::WorkflowInput { key } => {
+                        scope
+                            .input
+                            .get(key)
+                            .ok_or_else(|| RuntimeError::ValueUnavailable {
+                                description: format!("workflow input '{key}' is unavailable"),
+                            })?
+                    }
+                    ValueSource::Variable { name } => {
+                        scope
+                            .variables
+                            .get(name)
+                            .ok_or_else(|| RuntimeError::ValueUnavailable {
+                                description: format!("runtime variable '{name}' is unavailable"),
+                            })?
+                    }
+                    ValueSource::Node { node_id } => {
+                        scope
+                            .nodes
+                            .get(node_id)
+                            .ok_or_else(|| RuntimeError::ValueUnavailable {
+                                description: format!(
+                                    "published outputs for node '{node_id}' are unavailable"
+                                ),
+                            })?
+                    }
+                };
+                root.pointer(pointer)
+                    .cloned()
+                    .ok_or_else(|| RuntimeError::ValuePointerNotFound {
+                        pointer: pointer.clone(),
+                    })
+            }
+            ValueExpr::Expression { source } => {
+                evaluate_expression(&self.value_plan, source, scope)
+            }
+        }
+    }
+}
+
+/// 返回不泄漏具体业务值的 JSON 类型名称。
+fn json_type_name(value: &Value) -> &'static str {
+    match value {
+        Value::Null => "null",
+        Value::Bool(_) => "boolean",
+        Value::Number(_) => "number",
+        Value::String(_) => "string",
+        Value::Array(_) => "array",
+        Value::Object(_) => "object",
     }
 }
 
@@ -114,15 +217,15 @@ impl RunContext {
 mod tests {
     use std::collections::BTreeMap;
 
-    use argusflow_core::ValueExpr;
+    use argusflow_core::{ValueExpr, ValueSource};
     use serde_json::{Value, json};
     use uuid::Uuid;
 
     use super::{NodeOutcome, RunContext};
 
     #[test]
-    fn resolves_inputs_variables_and_prior_node_outputs_without_coercion() {
-        let inputs = json!({ "order_id": "ACME-10086" })
+    fn resolves_whole_nodes_and_json_pointer_fields() {
+        let inputs = json!({ "order": { "id": "ACME-10086" } })
             .as_object()
             .expect("fixture inputs should be an object")
             .clone();
@@ -133,36 +236,63 @@ mod tests {
         let mut context = RunContext::new(Uuid::new_v4(), inputs, variables);
         context.record_outcome(
             "read-order".to_owned(),
-            NodeOutcome::values(BTreeMap::from([(
-                "text".to_owned(),
-                Value::String("ACME-10086".to_owned()),
-            )])),
+            NodeOutcome::values(BTreeMap::from([
+                ("text".to_owned(), Value::String("ACME-10086".to_owned())),
+                ("count".to_owned(), Value::from(1)),
+            ])),
         );
 
         assert_eq!(
             context
-                .resolve_text(&ValueExpr::WorkflowInput {
-                    key: "order_id".to_owned(),
-                })
-                .expect("workflow input should resolve"),
-            "ACME-10086",
+                .resolve_value(&ValueExpr::node("read-order", ""))
+                .expect("whole node output should resolve"),
+            json!({ "count": 1, "text": "ACME-10086" }),
         );
         assert_eq!(
             context
-                .resolve_text(&ValueExpr::Variable {
-                    name: "region".to_owned(),
+                .resolve_text(&ValueExpr::Ref {
+                    source: ValueSource::Node {
+                        node_id: "read-order".to_owned(),
+                    },
+                    pointer: "/text".to_owned(),
                 })
-                .expect("initial runtime variable should resolve"),
-            "east",
-        );
-        assert_eq!(
-            context
-                .resolve_text(&ValueExpr::NodeOutput {
-                    node_id: "read-order".to_owned(),
-                    output: "text".to_owned(),
-                })
-                .expect("prior node output should resolve"),
+                .expect("node pointer should resolve"),
             "ACME-10086",
         );
+    }
+
+    #[test]
+    fn retry_outcomes_replace_previous_published_outputs() {
+        let mut context = RunContext::new(Uuid::new_v4(), Default::default(), Default::default());
+        context.record_outcome(
+            "worker".to_owned(),
+            NodeOutcome::values(BTreeMap::from([("attempt".to_owned(), json!(1))])),
+        );
+        context.record_outcome(
+            "worker".to_owned(),
+            NodeOutcome::values(BTreeMap::from([("attempt".to_owned(), json!(2))])),
+        );
+
+        assert_eq!(
+            context
+                .resolve_value(&ValueExpr::node("worker", ""))
+                .unwrap(),
+            json!({ "attempt": 2 })
+        );
+    }
+
+    #[test]
+    fn text_consumers_report_json_type_mismatches() {
+        let context = RunContext::new(Uuid::new_v4(), Default::default(), Default::default());
+
+        assert!(matches!(
+            context.resolve_text(&ValueExpr::Literal {
+                value: json!({ "not": "text" }),
+            }),
+            Err(crate::RuntimeError::ValueTypeMismatch {
+                expected: "string",
+                ..
+            })
+        ));
     }
 }

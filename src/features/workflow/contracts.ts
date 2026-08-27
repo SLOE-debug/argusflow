@@ -2,17 +2,17 @@
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 export type JsonObject = { [key: string]: JsonValue };
 
-/** 与 Rust 后端交换的 schema v7 工作流。 */
+/** 与 Rust 后端交换的 schema v8 工作流。 */
 export type WorkflowDefinition = {
   /** 当前契约固定版本。 */
-  schema_version: 7;
+  schema_version: 8;
   /** 工作流稳定 ID。 */
   id: string;
   /** 面向用户的名称。 */
   name: string;
   /** 瞬时运行输入的持久化声明，不包含实际值。 */
   inputs: WorkflowInputDefinition[];
-  /** Condition 读取的只读 JSON 对象。 */
+  /** 每次运行复制后可由变量节点事务式更新的初始 JSON 对象。 */
   variables: JsonObject;
   /** 对进程和 shell 能力的显式授权。 */
   permissions: WorkflowPermissions;
@@ -34,22 +34,14 @@ export type WorkflowNodeContract = {
   version: number;
   /** 只由对应注册编译器解码的节点参数。 */
   payload: JsonValue;
+  /** 在原生结果冻结快照上计算并原子合并的公开输出。 */
+  output_bindings: Readonly<Record<string, ValueExpr>>;
 };
 
 export type ConditionOperator =
   | 'equal' | 'not_equal' | 'greater_than' | 'greater_than_or_equal'
   | 'less_than' | 'less_than_or_equal' | 'contains' | 'exists'
   | 'not_exists' | 'is_empty' | 'not_empty';
-
-/** 使用 JSON Pointer 读取变量的结构化安全条件。 */
-export type ConditionPredicate = {
-  /** RFC 6901 JSON Pointer。 */
-  pointer: string;
-  /** 安全结构化运算符。 */
-  operator: ConditionOperator;
-  /** 二元运算符的 JSON 右值。 */
-  operand: JsonValue | null;
-};
 
 /** Workflow 层保存的语义界面操作。 */
 export type UiOperation =
@@ -97,14 +89,32 @@ export type TargetScope =
   | { type: 'application'; resource: ResourceRef }
   | { type: 'browser'; resource: ResourceRef };
 
-/** 节点参数的数据来源表达式。 */
+/** 结构化引用的稳定来源。 */
+export type ValueSource =
+  | { type: 'workflow_input'; key: string }
+  | { type: 'variable'; name: string }
+  | { type: 'node'; node_id: string };
+
+/** 节点参数的数据来源或纯计算表达式。 */
 export type ValueExpr =
   | { type: 'literal'; value: JsonValue }
-  | { type: 'workflow_input'; key: string }
-  | { type: 'node_output'; node_id: string; output: string }
-  | { type: 'variable'; name: string };
+  | { type: 'ref'; source: ValueSource; pointer: string }
+  | { type: 'expression'; source: string };
 
 export type ValueExprKind = ValueExpr['type'];
+
+/** 编辑器用于列出已知节点输出的只读展示描述。 */
+export type ValueOutputDescriptor = Readonly<{
+  name: string;
+  valueType: 'text' | 'json';
+  label: string;
+}>;
+
+/** Set Variables 节点中的一个显式、事务式赋值。 */
+export type VariableAssignment = Readonly<{
+  name: string;
+  value: ValueExpr;
+}>;
 
 /** 查询规划时独立于 AQL 语义的开放后端集合策略。 */
 export type BackendPolicy = {
@@ -366,6 +376,9 @@ export type BuiltinValidationIssueCode =
   | 'invalid_command'
   | 'command_permission_denied'
   | 'invalid_value_reference'
+  | 'invalid_expression'
+  | 'invalid_output_binding'
+  | 'invalid_variable_assignment'
   | 'invalid_resource_reference'
   | 'reference_not_dominating'
   | 'unknown_node_type'

@@ -1,4 +1,8 @@
-import type { JsonValue, WorkflowNodeContract } from './contracts';
+import type {
+  JsonValue,
+  ValueOutputDescriptor,
+  WorkflowNodeContract,
+} from './contracts';
 import { createDefaultApplicationSpec } from './workflowApplication';
 import { createDefaultBrowserSpec } from './workflowBrowser';
 import { createDefaultCommandOperation } from './workflowCommand';
@@ -19,6 +23,8 @@ type NodeDefinitionSpec<Kind extends EditableNodeKind> = Readonly<{
   create: () => NodeDataOf<Kind>;
   /** 只编码对应节点类型的业务 payload。 */
   encode: (data: NodeDataOf<Kind>) => JsonValue;
+  /** 返回随节点业务配置变化的已知原生值输出。 */
+  outputs?: (data: NodeDataOf<Kind>) => ReadonlyArray<ValueOutputDescriptor>;
 }>;
 
 /** workflowModel 可以按 kind 统一调用的类型擦除 codec 边界。 */
@@ -29,6 +35,7 @@ export type WorkflowNodeDefinitionCodec = Readonly<{
   version: number;
   create: () => WorkflowNodeData;
   encode: (data: WorkflowNodeData) => JsonValue;
+  outputs: (data: WorkflowNodeData) => ReadonlyArray<ValueOutputDescriptor>;
 }>;
 
 /**
@@ -47,6 +54,7 @@ function defineNode<Kind extends EditableNodeKind>(
     version: spec.version,
     create: spec.create,
     encode: (data) => spec.encode(data as NodeDataOf<Kind>),
+    outputs: (data) => spec.outputs?.(data as NodeDataOf<Kind>) ?? [],
   };
 }
 
@@ -55,7 +63,12 @@ export const WORKFLOW_NODE_DEFINITIONS = {
   start: defineNode('start', {
     typeId: 'argus.start',
     version: 1,
-    create: () => ({ kind: 'start', label: '开始', runState: 'idle' }),
+    create: () => ({
+      kind: 'start',
+      label: '开始',
+      outputBindings: {},
+      runState: 'idle',
+    }),
     encode: () => ({}),
   }),
   log: defineNode('log', {
@@ -64,6 +77,7 @@ export const WORKFLOW_NODE_DEFINITIONS = {
     create: () => ({
       kind: 'log',
       label: '日志',
+      outputBindings: {},
       message: '记录一条运行信息',
       runState: 'idle',
     }),
@@ -75,6 +89,7 @@ export const WORKFLOW_NODE_DEFINITIONS = {
     create: () => ({
       kind: 'debug',
       label: '调试输出',
+      outputBindings: {},
       value: { type: 'literal', value: '' },
       runState: 'idle',
     }),
@@ -83,7 +98,13 @@ export const WORKFLOW_NODE_DEFINITIONS = {
   delay: defineNode('delay', {
     typeId: 'argus.delay',
     version: 1,
-    create: () => ({ kind: 'delay', label: '等待', milliseconds: 500, runState: 'idle' }),
+    create: () => ({
+      kind: 'delay',
+      label: '等待',
+      outputBindings: {},
+      milliseconds: 500,
+      runState: 'idle',
+    }),
     encode: (data) => ({ milliseconds: data.milliseconds }),
   }),
   condition: defineNode('condition', {
@@ -92,18 +113,33 @@ export const WORKFLOW_NODE_DEFINITIONS = {
     create: () => ({
       kind: 'condition',
       label: '条件',
-      pointer: '/enabled',
+      outputBindings: {},
+      left: {
+        type: 'ref',
+        source: { type: 'variable', name: 'enabled' },
+        pointer: '',
+      },
       operator: 'equal',
-      operand: true,
+      right: { type: 'literal', value: true },
       runState: 'idle',
     }),
     encode: (data) => ({
-      predicate: {
-        pointer: data.pointer,
-        operator: data.operator,
-        operand: isUnaryCondition(data.operator) ? null : data.operand,
-      },
+      left: data.left,
+      operator: data.operator,
+      right: isUnaryCondition(data.operator) ? null : data.right,
     }),
+  }),
+  variable: defineNode('variable', {
+    typeId: 'argus.variable.set',
+    version: 1,
+    create: () => ({
+      kind: 'variable',
+      label: '设置变量',
+      outputBindings: {},
+      assignments: [{ name: 'value', value: { type: 'literal', value: null } }],
+      runState: 'idle',
+    }),
+    encode: (data) => ({ assignments: data.assignments }),
   }),
   application: defineNode('application', {
     typeId: 'argus.application',
@@ -111,6 +147,7 @@ export const WORKFLOW_NODE_DEFINITIONS = {
     create: () => ({
       kind: 'application',
       label: '打开或连接应用',
+      outputBindings: {},
       spec: createDefaultApplicationSpec(),
       runState: 'idle',
     }),
@@ -122,6 +159,7 @@ export const WORKFLOW_NODE_DEFINITIONS = {
     create: () => ({
       kind: 'browser',
       label: '打开浏览器',
+      outputBindings: {},
       spec: createDefaultBrowserSpec(),
       runState: 'idle',
     }),
@@ -133,10 +171,27 @@ export const WORKFLOW_NODE_DEFINITIONS = {
     create: () => ({
       kind: 'ui',
       label: '界面操作',
+      outputBindings: {},
       operation: createDefaultUiOperation(),
       runState: 'idle',
     }),
     encode: (data) => ({ operation: data.operation }),
+    outputs: (data) => {
+      switch (data.operation.type) {
+        case 'get_text':
+          return [{ name: 'text', valueType: 'text', label: '文本' }];
+        case 'get_value':
+          return [{ name: 'value', valueType: 'text', label: '值' }];
+        case 'collect_links':
+          return [
+            { name: 'text', valueType: 'text', label: '链接文本' },
+            { name: 'links', valueType: 'json', label: '链接数组' },
+          ];
+        case 'click':
+        case 'set_value':
+          return [];
+      }
+    },
   }),
   command: defineNode('command', {
     typeId: 'argus.command',
@@ -144,15 +199,26 @@ export const WORKFLOW_NODE_DEFINITIONS = {
     create: () => ({
       kind: 'command',
       label: '执行命令',
+      outputBindings: {},
       operation: createDefaultCommandOperation(),
       runState: 'idle',
     }),
     encode: (data) => ({ operation: data.operation }),
+    outputs: () => [
+      { name: 'stdout', valueType: 'text', label: '标准输出' },
+      { name: 'stderr', valueType: 'text', label: '错误输出' },
+      { name: 'exit_code', valueType: 'json', label: '退出代码' },
+    ],
   }),
   end: defineNode('end', {
     typeId: 'argus.end',
     version: 1,
-    create: () => ({ kind: 'end', label: '结束', runState: 'idle' }),
+    create: () => ({
+      kind: 'end',
+      label: '结束',
+      outputBindings: {},
+      runState: 'idle',
+    }),
     encode: () => ({}),
   }),
 } satisfies Readonly<Record<EditableNodeKind, WorkflowNodeDefinitionCodec>>;
@@ -174,7 +240,38 @@ export function createRegisteredNodeData(kind: EditableNodeKind): WorkflowNodeDa
   return WORKFLOW_NODE_DEFINITIONS[kind].create();
 }
 
-/** Condition 一元运算符不保存 operand。 */
+/** 返回节点原生输出与用户自定义输出组成的可枚举 Published Outputs。 */
+export function getNodeValueOutputs(
+  data: WorkflowNodeData,
+): ReadonlyArray<ValueOutputDescriptor> {
+  const nativeOutputs = getNativeNodeValueOutputs(data);
+  const customNames = new Set(Object.keys(data.outputBindings));
+  const visibleNativeOutputs = nativeOutputs.map((output) => customNames.has(output.name)
+    ? {
+        ...output,
+        valueType: 'json' as const,
+        label: `${output.label}（已覆盖）`,
+      }
+    : output);
+  const nativeNames = new Set(nativeOutputs.map((output) => output.name));
+  const additionalCustomOutputs = [...customNames]
+    .filter((name) => !nativeNames.has(name))
+    .map((name) => ({
+      name,
+      valueType: 'json' as const,
+      label: `${name}（自定义）`,
+    }));
+  return [...visibleNativeOutputs, ...additionalCustomOutputs];
+}
+
+/** 返回注册节点自身公开、尚未叠加用户映射的输出描述。 */
+export function getNativeNodeValueOutputs(
+  data: WorkflowNodeData,
+): ReadonlyArray<ValueOutputDescriptor> {
+  return WORKFLOW_NODE_DEFINITIONS[data.kind].outputs(data);
+}
+
+/** Condition 一元运算符不保存右表达式。 */
 export const isUnaryCondition = (operator?: string): boolean => (
   operator === 'exists'
   || operator === 'not_exists'

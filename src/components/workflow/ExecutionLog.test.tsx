@@ -51,7 +51,12 @@ describe('ExecutionLog', () => {
       kind: 'log',
       position: { x: 0, y: 0 },
       size: { width: 142, height: 52 },
-      data: { kind: 'log', label: '记录启动状态', message: 'ArgusFlow 已启动' },
+      data: {
+        kind: 'log',
+        label: '记录启动状态',
+        outputBindings: {},
+        message: 'ArgusFlow 已启动',
+      },
     }];
 
     render(

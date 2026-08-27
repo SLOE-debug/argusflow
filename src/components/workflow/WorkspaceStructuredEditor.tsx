@@ -1,11 +1,19 @@
-import type { AqlQuery } from '../../features/workflow/contracts';
+import type {
+  AqlQuery,
+  ValidationReport,
+} from '../../features/workflow/contracts';
 import { AqlEditor } from '../../features/aql-editor/view/AqlEditor';
 import { changeTargetLocator } from '../../features/workflow/workflowAction';
+import {
+  readNodeValueExpr,
+  updateNodeValueExpr,
+} from '../../features/workflow/workflowValueExpressions';
 import type {
   WorkflowCanvasNode,
   WorkflowNodeUpdater,
 } from '../../features/workflow/workflowModel';
 import { CommandScriptEditor } from './CommandScriptEditor';
+import { ExpressionEditor } from './ExpressionEditor';
 import type { StructuredEditorTarget } from './structuredEditorTarget';
 
 type WorkspaceStructuredEditorProps = Readonly<{
@@ -13,6 +21,8 @@ type WorkspaceStructuredEditorProps = Readonly<{
   target: StructuredEditorTarget;
   /** 实时工作流节点集合。 */
   nodes: ReadonlyArray<WorkflowCanvasNode>;
+  /** 最近一次 Runtime 校验结果，用于表达式编译诊断。 */
+  report?: ValidationReport | null;
   /** 按目标节点写回，不依赖当前画布选择。 */
   onUpdateNode: (nodeId: string, updater: WorkflowNodeUpdater) => void;
 }>;
@@ -21,6 +31,7 @@ type WorkspaceStructuredEditorProps = Readonly<{
 export function WorkspaceStructuredEditor({
   target,
   nodes,
+  report = null,
   onUpdateNode,
 }: WorkspaceStructuredEditorProps) {
   const node = nodes.find((candidate) => candidate.id === target.nodeId);
@@ -65,6 +76,28 @@ export function WorkspaceStructuredEditor({
           source={script.value}
           onChange={(source) => onUpdateNode(node.id, (current) => (
             updateCommandScript(current, source)
+          ))}
+        />
+      );
+    }
+    case 'expression': {
+      const expression = readNodeValueExpr(node.data, target.location);
+      if (expression?.type !== 'expression') {
+        return <UnavailableEditor message="该字段已不再使用运行时表达式。" />;
+      }
+      /** location 进入 URI，确保同一节点的不同表达式保留各自 Monaco 模型。 */
+      const locationKey = encodeURIComponent(JSON.stringify(target.location));
+      const compileError = report?.issues.find((issue) => (
+        issue.code === 'invalid_expression' && issue.node_id === node.id
+      ))?.message ?? null;
+      return (
+        <ExpressionEditor
+          modelUri={`inmemory://argusflow/workflow/${encodeURIComponent(node.id)}/expression/${locationKey}`}
+          source={expression.source}
+          nodes={nodes}
+          compileError={compileError}
+          onChange={(source) => onUpdateNode(node.id, (current) => (
+            updateNodeValueExpr(current, target.location, { type: 'expression', source })
           ))}
         />
       );

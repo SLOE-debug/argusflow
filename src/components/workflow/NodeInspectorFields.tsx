@@ -1,12 +1,5 @@
 import { ArrowRight } from 'lucide-react';
-import { useEffect, useState, type ChangeEvent } from 'react';
-
-import type {
-  ConditionOperator,
-  JsonValue,
-} from '../../features/workflow/contracts';
 import {
-  isUnary,
   type WorkflowCanvasEdge,
   type WorkflowCanvasNode,
   type WorkflowNodeData,
@@ -16,6 +9,7 @@ import { ActionNodeFields } from './ActionNodeFields';
 import { ApplicationNodeFields } from './ApplicationNodeFields';
 import { BrowserNodeFields } from './BrowserNodeFields';
 import { CommandNodeFields } from './CommandNodeFields';
+import { ConditionNodeFields } from './ConditionNodeFields';
 import {
   INSPECTOR_CONTROL_CLASS_NAME,
   INSPECTOR_HELP_CLASS_NAME,
@@ -23,7 +17,9 @@ import {
   InspectorField,
   InspectorSection,
 } from './InspectorControls';
+import { NodeOutputBindingsFields } from './NodeOutputBindingsFields';
 import { ValueExprFields } from './ValueExprFields';
+import { VariableNodeFields } from './VariableNodeFields';
 import type { StructuredEditorTarget } from './structuredEditorTarget';
 
 type NodeInspectorFieldsProps = Readonly<{
@@ -46,21 +42,6 @@ type EdgeInspectorFieldsProps = Readonly<{
   onDelete: () => void;
 }>;
 
-/** 条件运算符的稳定显示名称。 */
-const OPERATOR_LABELS: Readonly<Record<ConditionOperator, string>> = {
-  equal: '等于',
-  not_equal: '不等于',
-  greater_than: '大于',
-  greater_than_or_equal: '大于等于',
-  less_than: '小于',
-  less_than_or_equal: '小于等于',
-  contains: '包含',
-  exists: '存在',
-  not_exists: '不存在',
-  is_empty: '为空',
-  not_empty: '不为空',
-};
-
 /** 节点类型的稳定中文名称。 */
 const NODE_KIND_LABELS: Readonly<Record<WorkflowNodeData['kind'], string>> = {
   start: '开始节点',
@@ -68,6 +49,7 @@ const NODE_KIND_LABELS: Readonly<Record<WorkflowNodeData['kind'], string>> = {
   debug: '调试输出',
   delay: '延迟节点',
   condition: '条件判断',
+  variable: '设置变量',
   application: '应用资源',
   browser: '浏览器资源',
   ui: '界面操作',
@@ -92,32 +74,6 @@ export function NodeInspectorFields({
   onOpenStructuredEditor,
   onDelete,
 }: NodeInspectorFieldsProps) {
-  const conditionData = node.data.kind === 'condition' ? node.data : null;
-  const [operandDraft, setOperandDraft] = useState(
-    JSON.stringify(conditionData?.operand ?? null, null, 2),
-  );
-  const [operandError, setOperandError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setOperandDraft(JSON.stringify(conditionData?.operand ?? null, null, 2));
-    setOperandError(null);
-  }, [conditionData?.operand, node.id]);
-
-  const updateOperand = (event: ChangeEvent<HTMLTextAreaElement>) => {
-    const draft = event.target.value;
-    setOperandDraft(draft);
-    try {
-      /** JSON.parse 成功后结果属于契约允许的递归 JSON 值。 */
-      const operand = JSON.parse(draft) as JsonValue;
-      onUpdate((current) => current.kind === 'condition'
-        ? { ...current, operand, invalid: false }
-        : current);
-      setOperandError(null);
-    } catch (error) {
-      setOperandError(error instanceof Error ? error.message : 'JSON 格式无效');
-    }
-  };
-
   return (
     <>
       <InspectorSection title="基本信息">
@@ -149,11 +105,14 @@ export function NodeInspectorFields({
       <InspectorSection title="参数配置">
         <NodeKindFields
           node={node}
-          operandDraft={operandDraft}
-          operandError={operandError}
-          onOperandChange={updateOperand}
           onUpdate={onUpdate}
           onOpenStructuredEditor={onOpenStructuredEditor}
+        />
+      </InspectorSection>
+      <InspectorSection title="公开输出">
+        <NodeOutputBindingsFields
+          data={node.data}
+          onUpdate={onUpdate}
         />
       </InspectorSection>
       <InspectorSection title="执行状态">
@@ -202,9 +161,6 @@ export function NodeInspectorFields({
 
 type NodeKindFieldsProps = Readonly<{
   node: WorkflowCanvasNode;
-  operandDraft: string;
-  operandError: string | null;
-  onOperandChange: (event: ChangeEvent<HTMLTextAreaElement>) => void;
   onUpdate: (updater: WorkflowNodeUpdater) => void;
   onOpenStructuredEditor: (target: StructuredEditorTarget) => void;
 }>;
@@ -212,9 +168,6 @@ type NodeKindFieldsProps = Readonly<{
 /** 根据节点判别联合穷尽渲染专属配置。 */
 function NodeKindFields({
   node,
-  operandDraft,
-  operandError,
-  onOperandChange,
   onUpdate,
   onOpenStructuredEditor,
 }: NodeKindFieldsProps) {
@@ -239,7 +192,9 @@ function NodeKindFields({
       return (
         <ValueExprFields
           value={data.value}
-          literalLabel="调试文本"
+          literalLabel="调试值"
+          literalMode="json"
+          expressionLocation={{ type: 'debug_value' }}
           onChange={(value) => {
             onUpdate((current) => current.kind === 'debug'
               ? { ...current, value, invalid: false }
@@ -267,49 +222,17 @@ function NodeKindFields({
       );
     case 'condition':
       return (
-        <>
-          <InspectorField label="JSON Pointer">
-            <input
-              className={`${INSPECTOR_CONTROL_CLASS_NAME} h-8`}
-              placeholder="/user/active"
-              value={data.pointer}
-              onChange={(event) => {
-                const pointer = event.target.value;
-                onUpdate((current) => current.kind === 'condition'
-                  ? { ...current, pointer, invalid: false }
-                  : current);
-              }}
-            />
-          </InspectorField>
-          <InspectorField label="运算符">
-            <select
-              className={`${INSPECTOR_CONTROL_CLASS_NAME} h-8`}
-              value={data.operator}
-              onChange={(event) => {
-                const operator = event.target.value as ConditionOperator;
-                onUpdate((current) => current.kind === 'condition'
-                  ? { ...current, operator, invalid: false }
-                  : current);
-              }}
-            >
-              {Object.entries(OPERATOR_LABELS).map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
-          </InspectorField>
-          {!isUnary(data.operator) ? (
-            <InspectorField label="右操作数">
-              <textarea
-                className={`${INSPECTOR_CONTROL_CLASS_NAME} h-[76px] resize-none py-2 font-mono leading-[18px]`}
-                value={operandDraft}
-                onChange={onOperandChange}
-              />
-              {operandError ? (
-                <span className="mt-1 block text-[11px] text-rose-600">{operandError}</span>
-              ) : null}
-            </InspectorField>
-          ) : null}
-        </>
+        <ConditionNodeFields
+          data={data}
+          onUpdate={onUpdate}
+        />
+      );
+    case 'variable':
+      return (
+        <VariableNodeFields
+          data={data}
+          onUpdate={onUpdate}
+        />
       );
     case 'application':
       return (
