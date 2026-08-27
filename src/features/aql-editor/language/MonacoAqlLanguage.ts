@@ -20,21 +20,19 @@ import type {
 /** Monaco 中稳定的 AQL 语言标识。 */
 export const AQL_LANGUAGE_ID = 'argusflow-aql';
 
-/** Monaco semantic token 类型顺序；索引是 provider 协议的一部分。 */
+/** Monaco semantic token 使用的 Light+ TextMate scope；顺序是 provider 协议的一部分。 */
 const SEMANTIC_TOKEN_TYPES = [
-  'role',
-  'function',
-  'property',
-  'namespace',
-  'operator',
+  'entity.name.type',
+  'entity.name.function',
+  'variable.other.property',
+  'entity.name.namespace',
+  'keyword.operator',
   'string',
-  'regex',
-  'boolean',
-  'integer',
+  'string.regexp',
+  'constant.language',
+  'constant.numeric',
   'punctuation',
-  'trivia',
-  'unknown',
-] as const satisfies readonly SyntaxTokenKind[];
+] as const;
 
 /** semantic token 类别到协议索引的强类型映射。 */
 const SEMANTIC_TOKEN_INDEX = {
@@ -48,9 +46,60 @@ const SEMANTIC_TOKEN_INDEX = {
   boolean: 7,
   integer: 8,
   punctuation: 9,
-  trivia: 10,
-  unknown: 11,
-} as const satisfies Readonly<Record<SyntaxTokenKind, number>>;
+} as const satisfies Readonly<Record<HighlightableSyntaxTokenKind, number>>;
+
+/** 需要覆盖 Monarch 基础着色的 Rust semantic token 类别。 */
+type HighlightableSyntaxTokenKind = Exclude<SyntaxTokenKind, 'trivia' | 'unknown'>;
+
+/** WASM 初始化前供 Monarch 使用的 AQL 函数清单。 */
+const AQL_FALLBACK_FUNCTIONS = ['any', 'not', 'first', 'nth', 'css'] as const;
+
+/** WASM 初始化前供 Monarch 使用的 AQL 属性清单。 */
+const AQL_FALLBACK_PROPERTIES = [
+  'name',
+  'key',
+  'value',
+  'enabled',
+  'visible',
+  'focused',
+  'checked',
+  'selected',
+] as const;
+
+/** WASM 初始化前供 Monarch 使用的单词运算符清单。 */
+const AQL_FALLBACK_OPERATORS = [
+  'contains',
+  'starts_with',
+  'ends_with',
+  'matches',
+] as const;
+
+/** WASM 初始化前供 Monarch 使用的 AQL v1 角色清单。 */
+const AQL_FALLBACK_ROLES = [
+  'window',
+  'dialog',
+  'pane',
+  'button',
+  'textbox',
+  'checkbox',
+  'radio',
+  'combobox',
+  'list',
+  'list_item',
+  'tree',
+  'tree_item',
+  'tab',
+  'tab_item',
+  'menu',
+  'menu_item',
+  'link',
+  'image',
+  'table',
+  'row',
+  'cell',
+  'document',
+  'text',
+] as const;
 
 /** 当前 WASM 服务由 provider 闭包读取，避免重复注册全局语言。 */
 let activeService: AqlLanguageService | null = null;
@@ -94,7 +143,7 @@ export function registerAqlMonacoLanguage(
   monaco.editor.getModels().forEach((model) => attachDiagnostics(monaco, model));
 }
 
-/** 注册括号、自动闭合和最低成本 Monarch tokenizer。 */
+/** 注册括号、自动闭合和 WASM 就绪前即可生效的 Monarch 着色。 */
 function registerLanguageDefinition(monaco: MonacoApi): void {
   monaco.languages.register({
     id: AQL_LANGUAGE_ID,
@@ -117,16 +166,29 @@ function registerLanguageDefinition(monaco: MonacoApi): void {
   });
   monaco.languages.setMonarchTokensProvider(AQL_LANGUAGE_ID, {
     defaultToken: 'unknown',
+    functions: AQL_FALLBACK_FUNCTIONS,
+    properties: AQL_FALLBACK_PROPERTIES,
+    wordOperators: AQL_FALLBACK_OPERATORS,
+    roles: AQL_FALLBACK_ROLES,
     tokenizer: {
       root: [
         [/\s+/, 'trivia'],
         [/"(?:\\.|[^"\\])*"?/, 'string'],
-        [/\/(?:\\.|[^/\\])+\/[a-z]*/, 'regex'],
-        [/\b(?:true|false)\b/, 'boolean'],
-        [/\b\d+\b/, 'integer'],
-        [/(?:!=|~=|\^=|\$=|\*=|>=|<=|=|>|<)/, 'operator'],
+        [/\/(?:\\.|[^/\\])+\/[a-z]*/, 'string.regexp'],
+        [/\b(?:true|false)\b/, 'constant.language'],
+        [/\b\d+\b/, 'constant.numeric'],
+        [/(?:!=|~=|\^=|\$=|\*=|>=|<=|=|>|<)/, 'keyword.operator'],
         [/[(),]/, 'punctuation'],
-        [/[A-Za-z_][\w-]*/, 'identifier'],
+        [/\b(?:uia|dom)\.[A-Za-z_][\w-]*/, 'entity.name.namespace'],
+        [/[A-Za-z_][\w-]*/, {
+          cases: {
+            '@functions': 'entity.name.function',
+            '@properties': 'variable.other.property',
+            '@wordOperators': 'keyword.operator',
+            '@roles': 'entity.name.type',
+            '@default': 'source',
+          },
+        }],
       ],
     },
   });
@@ -289,6 +351,7 @@ function completionKind(
 /** 把排序后的单行 Rust token 编码为 Monaco delta token 流。 */
 function encodeSemanticTokens(tokens: readonly SyntaxToken[]): Uint32Array {
   const orderedTokens = [...tokens]
+    .filter(isHighlightableToken)
     .filter((token) => token.range.start.line === token.range.end.line)
     .filter((token) => token.range.end.utf16_column > token.range.start.utf16_column)
     .sort((left, right) => left.range.start.line - right.range.start.line
@@ -310,6 +373,13 @@ function encodeSemanticTokens(tokens: readonly SyntaxToken[]): Uint32Array {
     previousColumn = column;
   });
   return Uint32Array.from(data);
+}
+
+/** 空白与未知标识符沿用 Monarch 结果，避免 semantic token 覆盖基础主题。 */
+function isHighlightableToken(
+  token: SyntaxToken,
+): token is SyntaxToken & { readonly kind: HighlightableSyntaxTokenKind } {
+  return token.kind !== 'trivia' && token.kind !== 'unknown';
 }
 
 /** 将 Rust code action 编辑映射到 Monaco workspace edit。 */

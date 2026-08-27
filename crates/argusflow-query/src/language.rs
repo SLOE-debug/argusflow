@@ -186,27 +186,6 @@ pub fn hover(source: &str, position: EditorPosition) -> Option<Hover> {
     })
 }
 
-/// 返回光标相邻括号及其匹配括号的 UTF-16 范围。
-pub fn bracket_pair(source: &str, position: EditorPosition) -> Option<Vec<EditorRange>> {
-    let parsed = parse_document(source);
-    let token_index = parsed.syntax.tokens.iter().position(|token| {
-        matches!(
-            token.kind,
-            RawTokenKind::LeftParen | RawTokenKind::RightParen
-        ) && (token.range.start == position || token.range.end == position)
-    })?;
-    let token = &parsed.syntax.tokens[token_index];
-    let matching_index = match token.kind {
-        RawTokenKind::LeftParen => find_closing_parenthesis(&parsed.syntax.tokens, token_index),
-        RawTokenKind::RightParen => find_opening_parenthesis(&parsed.syntax.tokens, token_index),
-        _ => None,
-    }?;
-    Some(vec![
-        token.range,
-        parsed.syntax.tokens[matching_index].range,
-    ])
-}
-
 /// 为常见错误提供由 Rust grammar 生成的安全文本修改。
 pub fn code_actions(source: &str) -> Vec<TextEdit> {
     let Some(open_bracket) = source.find('[') else {
@@ -342,42 +321,6 @@ fn unmatched_left_parentheses(tokens: &[RawToken]) -> usize {
             RawTokenKind::RightParen => depth.saturating_sub(1),
             _ => depth,
         })
-}
-
-/// 从左括号向后查找同层右括号。
-fn find_closing_parenthesis(tokens: &[RawToken], start: usize) -> Option<usize> {
-    let mut depth = 0_usize;
-    for (index, token) in tokens.iter().enumerate().skip(start) {
-        match token.kind {
-            RawTokenKind::LeftParen => depth += 1,
-            RawTokenKind::RightParen => {
-                depth = depth.saturating_sub(1);
-                if depth == 0 {
-                    return Some(index);
-                }
-            }
-            _ => {}
-        }
-    }
-    None
-}
-
-/// 从右括号向前查找同层左括号。
-fn find_opening_parenthesis(tokens: &[RawToken], start: usize) -> Option<usize> {
-    let mut depth = 0_usize;
-    for (index, token) in tokens.iter().enumerate().take(start + 1).rev() {
-        match token.kind {
-            RawTokenKind::RightParen => depth += 1,
-            RawTokenKind::LeftParen => {
-                depth = depth.saturating_sub(1);
-                if depth == 0 {
-                    return Some(index);
-                }
-            }
-            _ => {}
-        }
-    }
-    None
 }
 
 /// 计算光标位置所在 ASCII 标识符的替换范围。

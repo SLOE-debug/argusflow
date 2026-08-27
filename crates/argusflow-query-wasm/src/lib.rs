@@ -1,8 +1,8 @@
 //! `argusflow-query` 到 WebView 的窄 WASM 语言服务边界。
 
 use argusflow_query::{
-    EditorPosition, bracket_pair as query_bracket_pair, code_actions as query_code_actions,
-    completions as query_completions, hover as query_hover, inspect_document,
+    EditorPosition, code_actions as query_code_actions, completions as query_completions,
+    hover as query_hover, inspect_document,
 };
 use wasm_bindgen::prelude::*;
 
@@ -31,15 +31,6 @@ pub fn hover(source: &str, line: u32, utf16_column: u32) -> Result<JsValue, JsVa
 #[wasm_bindgen]
 pub fn code_actions(source: &str) -> Result<JsValue, JsValue> {
     serialize(&query_code_actions(source))
-}
-
-/// 返回光标相邻括号及其匹配括号范围。
-#[wasm_bindgen]
-pub fn bracket_pair(source: &str, line: u32, utf16_column: u32) -> Result<JsValue, JsValue> {
-    serialize(&query_bracket_pair(
-        source,
-        EditorPosition { line, utf16_column },
-    ))
 }
 
 /// 使用 `serde-wasm-bindgen` 保持 Rust 与 TypeScript 的结构化协议。

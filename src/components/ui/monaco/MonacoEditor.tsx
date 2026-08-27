@@ -9,6 +9,7 @@ import type * as Monaco from 'monaco-editor/editor/editor.api';
 
 import { acquireMonacoModel, releaseMonacoModel } from './modelRegistry';
 import { loadMonacoEditor, type MonacoApi } from './monacoLoader';
+import { MONACO_EDITOR_THEME } from './shellSyntaxHighlighting';
 
 /** Monaco 完成挂载前允许业务语言注册自己的 provider。 */
 export type MonacoConfigurator = (monaco: MonacoApi) => void | Promise<void>;
@@ -115,6 +116,7 @@ export const MonacoEditor = forwardRef<MonacoEditorHandle, MonacoEditorProps>(
             ariaLabel,
             fontFamily: 'Cascadia Code, Consolas, monospace',
             fontSize: 12,
+            fixedOverflowWidgets: true,
             lineHeight: 20,
             minimap: { enabled: false },
             overviewRulerLanes: 0,
@@ -122,7 +124,7 @@ export const MonacoEditor = forwardRef<MonacoEditorHandle, MonacoEditorProps>(
             renderLineHighlight: 'line',
             scrollBeyondLastLine: false,
             'semanticHighlighting.enabled': true,
-            theme: 'argusflow-light',
+            theme: MONACO_EDITOR_THEME,
             ...optionsRef.current,
             model,
           });

@@ -6,8 +6,9 @@
 
 - Monaco 负责文本模型、光标与选区、undo/redo、括号、补全 UI、Hover UI、诊断装饰、快速修复入口和展开布局。
 - AQL 继续以 `argusflow-query-wasm` 为唯一语言事实来源，通过自定义 Monaco language provider 提供语义能力。
-- PowerShell 使用 Monaco 内置 `powershell` 语言定义。
-- CMD 使用 Monaco 内置 `bat` 语言定义。
+- PowerShell 使用 Shiki 的 `powershell` TextMate Grammar。
+- CMD 使用 Shiki 的 `bat` TextMate Grammar（包含 `batch`、`cmd` 别名）。
+- 两种 shell 与 AQL 共用 Shiki 提供的 VS Code `light-plus` 主题。
 - 本次不接入 PowerShell Editor Services，也不实现 CMD language server。
 - 不修改 `AqlQuery`、`CommandOperation`、`ValueExpr` 或工作流 JSON 契约。
 
@@ -29,7 +30,7 @@
 ### PowerShell / CMD
 
 - 固定文本脚本使用 Monaco 多行编辑器，保留换行与长行。
-- 编辑器显示行号与对应 shell 的基础语法着色。
+- 编辑器显示行号，并通过 Shiki/VS Code TextMate Grammar 提供完整语法着色。
 - 非 literal 脚本继续显示 `workflow_input`、`node_output` 或 `variable` 引用字段。
 - Direct runner 的程序、参数等字段继续使用单行控件。
 - runner 切换只改变 Monaco language id 和 badge，不清空脚本。
@@ -40,7 +41,8 @@
 components/ui/monaco
 ├── MonacoEditor.tsx       通用受控编辑器与命令句柄
 ├── modelRegistry.ts       稳定 URI 模型和延迟释放
-└── monacoLoader.ts        Monaco、Worker、shell 语言和主题按需加载
+├── monacoLoader.ts        Monaco、Worker 与语言能力按需加载
+└── shellSyntaxHighlighting.ts  Shiki shell grammar 与 Light+ 主题注册
 
 features/aql-editor/language
 ├── LanguageClient.ts      Rust/WASM 边界
@@ -168,6 +170,7 @@ type LiteralPresentation =
 
 - [x] PowerShell literal 使用 `powershell` Monaco language。
 - [x] CMD literal 使用 `bat` Monaco language。
+- [x] PowerShell 与 CMD 使用第三方 TextMate Grammar 和 VS Code Light+ 主题。
 - [x] 多行内容原样写回，不丢失换行。
 - [x] 非 literal ValueExpr 保持引用配置。
 - [x] Direct runner 单行字段不受影响。

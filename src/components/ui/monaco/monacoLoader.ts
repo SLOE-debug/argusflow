@@ -1,6 +1,8 @@
 import EditorWorker from 'monaco-editor/editor/editor.worker?worker';
 import type * as Monaco from 'monaco-editor/editor/editor.api';
 
+import { registerShellSyntaxHighlighting } from './shellSyntaxHighlighting';
+
 /** 应用内按需加载的 Monaco 公共 API。 */
 export type MonacoApi = typeof Monaco;
 
@@ -30,29 +32,7 @@ async function initializeMonaco(): Promise<MonacoApi> {
     import('monaco-editor/languages/definitions/bat/register'),
   ]);
 
-  monaco.editor.defineTheme('argusflow-light', {
-    base: 'vs',
-    inherit: true,
-    colors: {
-      'editor.background': '#ffffff',
-      'editor.lineHighlightBackground': '#f8fafc',
-      'editorGutter.background': '#ffffff',
-      'editorHoverWidget.background': '#ffffff',
-      'editorHoverWidget.border': '#cbd5e1',
-    },
-    rules: [
-      { token: 'role', foreground: '1D4ED8', fontStyle: 'bold' },
-      { token: 'function', foreground: '7C3AED' },
-      { token: 'property', foreground: '0369A1' },
-      { token: 'namespace', foreground: '0F766E' },
-      { token: 'operator', foreground: 'BE123C' },
-      { token: 'string', foreground: '15803D' },
-      { token: 'regex', foreground: 'B45309' },
-      { token: 'boolean', foreground: '6D28D9' },
-      { token: 'integer', foreground: 'B45309' },
-      { token: 'punctuation', foreground: '475569' },
-    ],
-  });
+  await registerShellSyntaxHighlighting(monaco);
 
   return monaco;
 }

@@ -64,6 +64,5 @@ export type AqlLanguageService = Readonly<{
   inspect: (source: string) => LanguageDocument;
   completions: (source: string, position: EditorPosition) => readonly CompletionItem[];
   hover: (source: string, position: EditorPosition) => Hover | null;
-  bracketPair: (source: string, position: EditorPosition) => readonly EditorRange[] | null;
   codeActions: (source: string) => readonly TextEdit[];
 }>;

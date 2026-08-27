@@ -26,8 +26,8 @@ pub use diagnostic::{Diagnostic, DiagnosticCode, DiagnosticParams, DiagnosticSev
 pub use error::{AqlError, AqlErrorKind, SourceSpan};
 pub use formatter::{canonicalize_query, format_query, format_source};
 pub use language::{
-    LanguageDocument, ParsedDocument, bracket_pair, code_actions, completions, hover,
-    inspect_document, parse_document,
+    LanguageDocument, ParsedDocument, code_actions, completions, hover, inspect_document,
+    parse_document,
 };
 pub use normalize::normalize_query;
 pub use parser::{parse_query, parse_stored_query};

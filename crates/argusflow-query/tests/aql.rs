@@ -6,8 +6,8 @@ use argusflow_core::{
 };
 use argusflow_query::{
     AqlErrorKind, DiagnosticCode, EditorPosition, QueryBackend, QueryPortability, analyze_query,
-    bracket_pair, byte_range_to_editor_range, canonicalize_query, code_actions, completions,
-    format_query, format_source, hover, parse_document, parse_query,
+    byte_range_to_editor_range, canonicalize_query, code_actions, completions, format_query,
+    format_source, hover, parse_document, parse_query,
 };
 
 #[test]
@@ -297,23 +297,6 @@ fn editor_ranges_use_utf16_columns_for_emoji() {
         }
     );
     assert_eq!(range.end.utf16_column, 19);
-}
-
-#[test]
-fn language_service_matches_nested_brackets_from_lossless_tokens() {
-    let source = "first(button(name = \"保存\"))";
-    let ranges = bracket_pair(
-        source,
-        EditorPosition {
-            line: 0,
-            utf16_column: 5,
-        },
-    )
-    .expect("function left parenthesis should have a matching pair");
-
-    assert_eq!(ranges.len(), 2);
-    assert_eq!(ranges[0].start.utf16_column, 5);
-    assert_eq!(ranges[1].start.utf16_column, 25);
 }
 
 #[test]

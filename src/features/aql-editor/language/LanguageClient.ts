@@ -1,4 +1,4 @@
-import type { EditorPosition, EditorRange } from '../../workflow/contracts';
+import type { EditorPosition } from '../../workflow/contracts';
 import type {
   AqlLanguageService,
   CompletionItem,
@@ -13,7 +13,6 @@ type WasmLanguageModule = Readonly<{
   inspect: (source: string) => LanguageDocument;
   completions: (source: string, line: number, column: number) => readonly CompletionItem[];
   hover: (source: string, line: number, column: number) => Hover | null;
-  bracket_pair: (source: string, line: number, column: number) => readonly EditorRange[] | null;
   code_actions: (source: string) => readonly TextEdit[];
 }>;
 
@@ -44,11 +43,6 @@ async function loadWasmModule(): Promise<AqlLanguageService> {
       position.utf16_column,
     ),
     hover: (source, position: EditorPosition) => loadedModule.hover(
-      source,
-      position.line,
-      position.utf16_column,
-    ),
-    bracketPair: (source, position: EditorPosition) => loadedModule.bracket_pair(
       source,
       position.line,
       position.utf16_column,

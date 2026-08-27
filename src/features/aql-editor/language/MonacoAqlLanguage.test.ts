@@ -112,7 +112,6 @@ describe('MonacoAqlLanguage', () => {
         symbol: 'button',
         description_code: 'aql.hover.role',
       })),
-      bracketPair: vi.fn(() => null),
       codeActions: vi.fn(() => [{
         range: {
           start: { line: 0, utf16_column: 0 },
@@ -126,6 +125,13 @@ describe('MonacoAqlLanguage', () => {
     expect(monaco.languages.register).toHaveBeenCalledWith(expect.objectContaining({
       id: AQL_LANGUAGE_ID,
     }));
+    expect(monaco.languages.setMonarchTokensProvider).toHaveBeenCalledWith(
+      AQL_LANGUAGE_ID,
+      expect.objectContaining({
+        functions: expect.arrayContaining(['css']),
+        roles: expect.arrayContaining(['button']),
+      }),
+    );
     expect(semanticProvider).toBeNull();
 
     registerAqlMonacoLanguage(monaco, service);

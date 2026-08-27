@@ -53,7 +53,6 @@ describe('AqlEditor', () => {
         inspect: vi.fn(() => languageDocument),
         completions: vi.fn(() => []),
         hover: vi.fn(() => null),
-        bracketPair: vi.fn(() => null),
         codeActions: vi.fn(() => []),
       },
     });

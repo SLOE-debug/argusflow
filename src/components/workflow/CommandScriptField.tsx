@@ -34,7 +34,7 @@ const SCRIPT_RUNNER_LABELS: Readonly<Record<ScriptRunner, string>> = {
   cmd: 'CMD',
 };
 
-/** runner 对应的 Monaco 内置语言标识。 */
+/** runner 对应的 Shiki TextMate Grammar / Monaco 语言标识。 */
 const SCRIPT_LANGUAGE_IDS: Readonly<Record<ScriptRunner, string>> = {
   power_shell: 'powershell',
   cmd: 'bat',
