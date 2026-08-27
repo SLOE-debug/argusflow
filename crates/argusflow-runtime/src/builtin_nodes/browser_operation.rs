@@ -2,15 +2,15 @@ use std::sync::Arc;
 
 use argusflow_core::{
     BrowserOperation, BrowserSession, BrowserSessionProvider, NodeEnvelope, NodeTypeId,
-    ResourceRef, ResourceTypeId, WorkflowPermissions,
+    ResourceTypeId, WorkflowPermissions,
 };
 use async_trait::async_trait;
 use serde::Deserialize;
 
 use crate::{
     AccessSet, NodeCompileError, NodeCompiler, NodeExecution, NodeFlow, NodeOutcome,
-    NodeValidationContext, PreparedNode, ResourceAccessKey, ResourceInput, RunContext,
-    RuntimeError, ValidationIssue, ValidationIssueCode, ValueInput,
+    NodeValidationContext, PreparedNode, ResourceInput, RunContext, RuntimeError, ValidationIssue,
+    ValidationIssueCode, ValueInput,
 };
 
 /// Browser Operation 节点的强类型 payload。

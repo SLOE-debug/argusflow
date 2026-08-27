@@ -2,7 +2,7 @@ import type {
   AqlDiagnostic,
   EditorPosition,
   EditorRange,
-} from '../../workflow/contracts';
+} from '../../workflow';
 
 /** Rust AQL language service 返回的语法高亮类别。 */
 export type SyntaxTokenKind =

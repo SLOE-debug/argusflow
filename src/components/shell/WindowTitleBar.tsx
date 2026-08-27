@@ -18,9 +18,9 @@ import {
 } from 'react';
 
 import appIcon from '../../assets/argusflow-icon.png';
-import type { ValidationReport } from '../../features/workflow/contracts';
+import type { ValidationReport } from '../../features/workflow';
 import { Input } from '../ui';
-import { resolveWorkflowStatus } from '../workflow/workflowStatus';
+import { resolveWorkflowStatus } from '../workflow';
 
 type WindowTitleBarProps = Readonly<{
   /** 编辑器命令插槽；Home 视图不传入。 */
@@ -47,7 +47,7 @@ type WindowTitleBarProps = Readonly<{
 const WINDOW_BUTTON_CLASS_NAME = [
   'flex h-10 w-11 items-center justify-center border-0 bg-transparent',
   'text-slate-600 outline-none focus-visible:ring-2',
-  'focus-visible:ring-inset focus-visible:ring-blue-500 [&>svg]:size-[13px]',
+  'focus-visible:ring-inset focus-visible:ring-blue-500 [&>svg]:size-[13px] [&>svg]:shrink-0',
 ].join(' ');
 
 /** Windows 标题栏及参考图中的工作区、搜索和服务状态控件。 */
@@ -201,7 +201,7 @@ export function WindowTitleBar({
             aria-label="打开搜索"
             className="flex size-[26px] items-center justify-center rounded-md text-slate-600 hover:bg-slate-100 hover:text-slate-900 min-[1600px]:hidden"
           >
-            <Search className="size-3.5" aria-hidden="true" />
+            <Search className="size-3.5 shrink-0" aria-hidden="true" />
           </button>
           <button
             type="button"
@@ -212,10 +212,10 @@ export function WindowTitleBar({
             <span className="hidden min-[1500px]:inline">运行环境</span>
           </button>
           <button type="button" aria-label="通知" className="hidden text-slate-600 hover:text-slate-900 min-[1380px]:block">
-            <Bell className="size-[15px]" aria-hidden="true" />
+            <Bell className="size-[15px] shrink-0" aria-hidden="true" />
           </button>
           <button type="button" aria-label="帮助" className="hidden text-slate-600 hover:text-slate-900 min-[1380px]:block">
-            <CircleHelp className="size-[15px]" aria-hidden="true" />
+            <CircleHelp className="size-[15px] shrink-0" aria-hidden="true" />
           </button>
           <span className="h-4 w-px bg-slate-200" />
         </div>

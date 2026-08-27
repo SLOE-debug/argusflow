@@ -6,7 +6,7 @@ import type {
   AqlDiagnosticSeverity,
   EditorPosition,
   EditorRange,
-} from '../../workflow/contracts';
+} from '../../workflow';
 import { diagnosticLabel, hoverLabel } from './messages';
 import type {
   AqlLanguageService,

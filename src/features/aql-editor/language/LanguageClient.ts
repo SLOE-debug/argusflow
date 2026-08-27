@@ -1,4 +1,4 @@
-import type { EditorPosition } from '../../workflow/contracts';
+import type { EditorPosition } from '../../workflow';
 import type {
   AqlLanguageService,
   CompletionItem,
@@ -32,7 +32,7 @@ export function resetAqlLanguageService(): void {
 
 async function loadWasmModule(): Promise<AqlLanguageService> {
   // 生成模块必须进入 Vite 源码图，才能在开发和生产构建中正确处理其 WASM URL。
-  const loadedModule = await import('../generated/argusflow_query_wasm.js') as WasmLanguageModule;
+  const loadedModule = await import('../generated/argusflow_query_wasm') as WasmLanguageModule;
   await loadedModule.default();
 
   return {

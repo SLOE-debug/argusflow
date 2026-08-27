@@ -7,8 +7,8 @@ import type {
   QueryCost,
   QuerySupportLevel,
   RuntimeAvailability,
-} from '../../workflow/contracts';
-import type { AqlInspectionState } from '../../workflow/useAqlInspection';
+} from '../../workflow';
+import type { AqlInspectionState } from '../../workflow';
 import { diagnosticLabel } from '../language/messages';
 
 const BACKEND_LABELS: Readonly<Record<BackendKind, string>> = {
@@ -60,7 +60,7 @@ export function PlanExplanation({ state }: Readonly<{ state: AqlInspectionState 
   if (state.phase === 'loading') {
     return (
       <p className="flex items-center gap-1.5 text-[10px] text-slate-500" role="status">
-        <LoaderCircle className="size-3 animate-spin" aria-hidden="true" />
+        <LoaderCircle className="size-3 shrink-0 animate-spin" aria-hidden="true" />
         正在检查运行环境…
       </p>
     );

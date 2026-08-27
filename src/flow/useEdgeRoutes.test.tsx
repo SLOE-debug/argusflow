@@ -1,11 +1,11 @@
 import { act, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { edgeRouteFingerprint } from './routeFingerprint';
+import { edgeRouteFingerprint } from './routing/routeFingerprint';
 import type {
   ExactEdgeRouteResponse,
   ExactRouteRequest,
-} from './routingWorkerProtocol';
+} from './routing/routingWorkerProtocol';
 import type {
   FlowEdge,
   FlowNode,

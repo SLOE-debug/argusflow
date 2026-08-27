@@ -8,10 +8,11 @@ use argusflow_core::{
 use async_trait::async_trait;
 use serde::Deserialize;
 
+use crate::resource::BrowserResourceCleanup;
 use crate::{
     NodeCompileError, NodeCompiler, NodeEvent, NodeExecution, NodeFlow, NodeOutcome,
     NodeValidationContext, PreparedNode, ResourceAccessKey, RunContext, RuntimeError,
-    ValidationIssue, ValidationIssueCode, resource_cleanup::BrowserResourceCleanup,
+    ValidationIssue, ValidationIssueCode,
 };
 
 /// Browser 节点的强类型 payload。

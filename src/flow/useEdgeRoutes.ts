@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { FlowRouteEngine } from './routeEngine';
+import { FlowRouteEngine } from './routing/routeEngine';
 import type {
   ExactRouteRequest,
   ExactRouteResponse,
-} from './routingWorkerProtocol';
+} from './routing/routingWorkerProtocol';
 import type {
   FlowEdge,
   FlowNode,
@@ -60,7 +60,7 @@ export function useEdgeRoutes(
 
   useEffect(() => {
     const currentWorker = new Worker(
-      new URL('./routing.worker.ts', import.meta.url),
+      new URL('./routing/routing.worker.ts', import.meta.url),
       { type: 'module' },
     );
     /** Worker 空闲时发送最后一份快照，保证队列不会随编辑持续增长。 */

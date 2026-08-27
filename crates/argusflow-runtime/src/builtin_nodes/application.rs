@@ -8,10 +8,11 @@ use argusflow_core::{
 use async_trait::async_trait;
 use serde::Deserialize;
 
+use crate::resource::ApplicationResourceCleanup;
 use crate::{
     AccessSet, NodeCompileError, NodeCompiler, NodeEvent, NodeExecution, NodeFlow, NodeOutcome,
     NodeValidationContext, PreparedNode, ResourceAccessKey, RunContext, RuntimeError,
-    ValidationIssue, ValidationIssueCode, resource_cleanup::ApplicationResourceCleanup,
+    ValidationIssue, ValidationIssueCode,
 };
 
 /// Application 节点的强类型 payload。

@@ -10,46 +10,34 @@ mod application;
 mod browser;
 mod builtin_nodes;
 mod command;
-mod command_job;
-mod component_expander;
-mod component_registry;
-mod component_rewrite;
-mod dispatcher;
-mod engine;
+mod component;
 mod error;
-mod execution_events;
-mod node_execution;
+mod execution;
 mod node_registry;
-mod resource_cleanup;
-mod resource_table;
-mod run_context;
-mod run_inputs;
-mod scheduler;
-mod validation_graph;
-mod validation_references;
-mod validator;
+mod resource;
+mod validation;
 mod value_runtime;
 
 pub use application::UnavailableApplicationSessionProvider;
 pub use browser::UnavailableBrowserSessionProvider;
 pub use command::{CommandError, CommandExecutor};
-pub use component_expander::{
+pub use component::{
     ComponentExpansionError, ComponentSourceFrame, ComponentSourceMap, ExpandedWorkflow,
     MAX_COMPONENT_DEPTH, expand_components,
 };
-pub use component_registry::{ComponentRegistry, ComponentRegistryError};
-pub use dispatcher::{ActionDispatcher, UnavailableActionDispatcher};
-pub use engine::{ExecutionEventSink, WorkflowEngine};
+pub use component::{ComponentRegistry, ComponentRegistryError};
 pub use error::RuntimeError;
-pub use node_execution::{NodeEvent, NodeExecution};
+pub use execution::{AccessSet, ResourceAccess, ResourceAccessKey, ResourceAccessMode};
+pub use execution::{ActionDispatcher, UnavailableActionDispatcher};
+pub use execution::{ExecutionEventSink, WorkflowEngine};
+pub use execution::{NodeEvent, NodeExecution};
+pub use execution::{NodeOutcome, RunContext};
 pub use node_registry::{
     NodeCompileError, NodeCompiler, NodeFlow, NodeRegistryError, NodeTypeRegistry,
     NodeValidationContext, PreparedNode, ResourceInput, ValueInput, ValueTypeId,
 };
-pub use resource_table::{ResourceCleanup, ResourceEntry, ResourceTable};
-pub use run_context::{NodeOutcome, RunContext};
-pub use scheduler::{AccessSet, ResourceAccess, ResourceAccessKey, ResourceAccessMode};
-pub use validator::{
+pub use resource::{ResourceCleanup, ResourceEntry, ResourceTable};
+pub use validation::{
     ValidationIssue, ValidationIssueCode, ValidationReport, validate_workflow,
     validate_workflow_with_components, validate_workflow_with_registry,
 };

@@ -1,4 +1,4 @@
-import type { AqlDiagnostic, AqlDiagnosticCode } from '../../workflow/contracts';
+import type { AqlDiagnostic, AqlDiagnosticCode } from '../../workflow';
 
 /** AQL 诊断代码对应的默认产品文案。 */
 const DIAGNOSTIC_LABELS: Readonly<Record<AqlDiagnosticCode, string>> = {

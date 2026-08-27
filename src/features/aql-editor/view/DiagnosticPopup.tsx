@@ -1,6 +1,6 @@
 import { AlertTriangle } from 'lucide-react';
 
-import type { AqlDiagnostic } from '../../workflow/contracts';
+import type { AqlDiagnostic } from '../../workflow';
 import { diagnosticLabel } from '../language/messages';
 
 /** 展示第一个高优先级诊断；完整列表仍保留在 decoration 与 Explain 中。 */

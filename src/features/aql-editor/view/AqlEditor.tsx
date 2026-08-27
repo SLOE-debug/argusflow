@@ -20,8 +20,8 @@ import type {
   AqlDiagnostic,
   AqlQuery,
   AutomationTarget,
-} from '../../workflow/contracts';
-import { useAqlInspection } from '../../workflow/useAqlInspection';
+} from '../../workflow';
+import { useAqlInspection } from '../../workflow';
 import {
   AQL_LANGUAGE_ID,
   registerAqlMonacoLanguage,
@@ -89,7 +89,7 @@ export function AqlEditor({ query, target, modelUri, onChange }: AqlEditorProps)
   /** Toolbar 与 Shift+Alt+F 都进入 Monaco 的同一个 Format Document 动作。 */
   const editorActions = formatAvailability.type === 'clean' ? (
     <span className="flex h-7 items-center gap-1 px-2 text-[10px] font-medium text-emerald-700">
-      <CheckCircle2 className="size-3" aria-hidden="true" />
+      <CheckCircle2 className="size-3 shrink-0" aria-hidden="true" />
       {formatAvailability.label}
     </span>
   ) : (
@@ -105,9 +105,9 @@ export function AqlEditor({ query, target, modelUri, onChange }: AqlEditorProps)
       onClick={() => void editorRef.current?.formatDocument()}
     >
       {formatAvailability.type === 'loading' ? (
-        <LoaderCircle className="size-3 animate-spin" aria-hidden="true" />
+        <LoaderCircle className="size-3 shrink-0 animate-spin" aria-hidden="true" />
       ) : (
-        <WandSparkles className="size-3" aria-hidden="true" />
+        <WandSparkles className="size-3 shrink-0" aria-hidden="true" />
       )}
       {formatAvailability.label}
     </button>
@@ -118,7 +118,7 @@ export function AqlEditor({ query, target, modelUri, onChange }: AqlEditorProps)
     <>
       {languageState.phase === 'loading' ? (
         <p className="flex items-center gap-1.5 text-[10px] text-slate-500" role="status">
-          <LoaderCircle className="size-3 animate-spin" aria-hidden="true" />
+          <LoaderCircle className="size-3 shrink-0 animate-spin" aria-hidden="true" />
           正在检查查找条件…
         </p>
       ) : null}
@@ -131,19 +131,19 @@ export function AqlEditor({ query, target, modelUri, onChange }: AqlEditorProps)
         <DiagnosticPopup diagnostics={diagnostics} />
       ) : plannerState.phase === 'unavailable' ? (
         <p className="flex items-center gap-1.5 text-[10px] text-amber-700" role="status">
-          <AlertTriangle className="size-3" aria-hidden="true" />
+          <AlertTriangle className="size-3 shrink-0" aria-hidden="true" />
           查找条件已通过语法检查，但运行环境暂不可用
         </p>
       ) : plannerState.phase === 'ready'
         && plannerState.inspection.status === 'valid'
         && plannerState.inspection.planning.selected_backend === null ? (
         <p className="flex items-center gap-1.5 text-[10px] text-amber-700" role="status">
-          <AlertTriangle className="size-3" aria-hidden="true" />
+          <AlertTriangle className="size-3 shrink-0" aria-hidden="true" />
           查找条件已通过语法检查，但当前环境不能运行
         </p>
       ) : (
         <p className="flex items-center gap-1.5 text-[10px] text-emerald-700" role="status">
-          <CheckCircle2 className="size-3" aria-hidden="true" />
+          <CheckCircle2 className="size-3 shrink-0" aria-hidden="true" />
           查找条件可以使用
         </p>
       )}

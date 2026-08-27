@@ -1,20 +1,22 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 
 import { WindowTitleBar } from './components/shell/WindowTitleBar';
-import { EditorPrimaryActions } from './components/workflow/EditorPrimaryActions';
-import { EditorToolbarControls } from './components/workflow/EditorToolbarControls';
-import { NodeInspector } from './components/workflow/NodeInspector';
-import { NodePalette } from './components/workflow/NodePalette';
-import { WorkflowCanvas } from './components/workflow/WorkflowCanvas';
-import { ComponentDrillDown } from './components/workflow/ComponentDrillDown';
-import { WorkflowOverview } from './components/workflow/WorkflowOverview';
-import { WorkflowWorkspace } from './components/workflow/WorkflowWorkspace';
-import { WorkspaceStatusBar } from './components/workflow/WorkspaceStatusBar';
+import {
+  ComponentDrillDown,
+  EditorPrimaryActions,
+  EditorToolbarControls,
+  NodeInspector,
+  NodePalette,
+  resolveWorkflowStatus,
+  useWorkspaceEditor,
+  WorkflowCanvas,
+  WorkflowOverview,
+  WorkflowWorkspace,
+  WorkspaceStatusBar,
+} from './components/workflow';
+import type { StructuredEditorTarget } from './components/workflow';
 import { PanelResizeHandle } from './components/ui';
-import { resolveWorkflowStatus } from './components/workflow/workflowStatus';
-import type { StructuredEditorTarget } from './components/workflow/structuredEditorTarget';
-import { useWorkspaceEditor } from './components/workflow/useWorkspaceEditor';
-import { useWorkflowStudio } from './features/workflow/useWorkflowStudio';
+import { useWorkflowStudio, type WorkflowCanvasNode } from './features/workflow';
 
 /** 左侧节点库的默认与可调整宽度边界。 */
 const LIBRARY_PANEL_WIDTH = {
@@ -123,7 +125,7 @@ export default function App() {
       ) : (
         <>
           <div
-            className="grid min-h-0"
+            className="grid h-full min-h-0"
             style={mainGridStyle}
           >
             <div className="relative min-h-0 min-w-0">
@@ -224,7 +226,7 @@ export default function App() {
 
 /** 从当前组件实例的精确版本引用解析下钻定义。 */
 function resolveDrillDownDefinition(
-  nodes: ReadonlyArray<import('./features/workflow/workflowModel').WorkflowCanvasNode>,
+  nodes: ReadonlyArray<WorkflowCanvasNode>,
   nodeId: string | null,
 ) {
   if (!nodeId) return null;
