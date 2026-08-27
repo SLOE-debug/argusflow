@@ -56,7 +56,7 @@ describe('WorkspaceDockPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '运行记录' }));
     expect(screen.getByRole('heading', { name: '暂无运行记录' })).toBeVisible();
-    fireEvent.click(screen.getByRole('button', { name: '日志' }));
-    expect(screen.getByRole('heading', { name: '执行日志' })).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '运行日志' }));
+    expect(screen.getByRole('heading', { name: '运行日志' })).toBeVisible();
   });
 });

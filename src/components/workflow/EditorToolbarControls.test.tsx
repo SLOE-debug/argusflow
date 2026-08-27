@@ -15,7 +15,7 @@ const node: FlowNode<WorkflowNodeData> = {
   kind: 'log',
   position: { x: 0, y: 0 },
   size: { width: 168, height: 52 },
-  data: { kind: 'log', label: '日志', outputBindings: {}, message: '测试日志' },
+  data: { kind: 'log', label: '记录日志', outputBindings: {}, message: '测试日志' },
 };
 
 describe('editor title bar controls', () => {
@@ -50,7 +50,7 @@ describe('editor title bar controls', () => {
       />,
     );
 
-    expect(screen.getByRole('button', { name: '校验' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '检查工作流' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '运行中…' })).toBeDisabled();
   });
 });

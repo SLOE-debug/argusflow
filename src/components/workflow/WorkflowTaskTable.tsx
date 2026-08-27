@@ -61,12 +61,12 @@ export function WorkflowTaskTable() {
           <thead className="sticky top-0 z-10 h-8 bg-slate-50 text-[11px] font-medium text-slate-700">
             <tr className="border-y border-slate-200">
               <th className="w-9 px-3"><SelectionBox label="选择全部任务" /></th>
-              <th className="w-[140px] px-1">任务名</th>
+              <th className="w-[140px] px-1">任务名称</th>
               <th className="w-[108px] border-l border-slate-200 px-3">状态</th>
-              <th className="w-24 border-l border-slate-200 px-3">执行人</th>
-              <th className="w-[164px] border-l border-slate-200 px-3">最近运行</th>
+              <th className="w-24 border-l border-slate-200 px-3">运行者</th>
+              <th className="w-[164px] border-l border-slate-200 px-3">最近运行时间</th>
               <th className="w-24 border-l border-slate-200 px-3">耗时</th>
-              <th className="w-36 border-l border-slate-200 px-3">成功/总数</th>
+              <th className="w-36 border-l border-slate-200 px-3">成功次数/总次数</th>
               <th className="w-24 border-l border-slate-200 px-3">操作</th>
             </tr>
           </thead>
@@ -102,14 +102,14 @@ function TaskToolbar() {
         type="button"
         className="flex h-7 items-center gap-1 rounded-[4px] border border-slate-300 bg-white px-2.5 text-[11px] text-slate-700"
       >
-        更多
+        更多操作
         <span className="text-[9px]">⌄</span>
       </button>
       <label className="ml-auto flex h-7 w-40 items-center rounded-[4px] border border-slate-300 bg-white px-2 text-slate-400 focus-within:border-blue-400">
         <Search className="size-3.5 shrink-0" aria-hidden="true" />
         <input
-          aria-label="搜索任务"
-          placeholder="搜索任务"
+          aria-label="搜索任务名称"
+          placeholder="搜索任务名称"
           className="min-w-0 flex-1 border-0 bg-transparent pl-1.5 text-[11px] text-slate-700 outline-none placeholder:text-slate-400"
         />
       </label>

@@ -102,12 +102,12 @@ export function NodeInspector(props: NodeInspectorProps) {
   );
 
   const inspectorContext = node
-    ? '节点'
-    : edge
-      ? '连线'
-      : selectedCount > 1
-        ? `${selectedCount} 项`
-        : '流程';
+      ? '节点'
+      : edge
+        ? '连线'
+        : selectedCount > 1
+        ? `${selectedCount} 个节点`
+        : '工作流';
 
   return (
     <aside className="z-10 flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-l border-slate-200 bg-white">

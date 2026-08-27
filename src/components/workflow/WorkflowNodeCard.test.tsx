@@ -65,7 +65,7 @@ describe('WorkflowNodeCard', () => {
 
     render(<WorkflowNodeCard node={node} selected={false} />);
 
-    expect(screen.getByText('填写 · AQL')).toBeVisible();
+    expect(screen.getByText('输入文字')).toBeVisible();
   });
 
   it('shows the selected upstream output on a debug node', () => {
@@ -88,7 +88,7 @@ describe('WorkflowNodeCard', () => {
 
     render(<WorkflowNodeCard node={node} selected={false} />);
 
-    expect(screen.getByText('read-title/text')).toBeVisible();
+    expect(screen.getByText('上游输出/text')).toBeVisible();
   });
 
   it.each([

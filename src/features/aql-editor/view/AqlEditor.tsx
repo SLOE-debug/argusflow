@@ -1,4 +1,5 @@
 import {
+  AlertTriangle,
   CheckCircle2,
   LoaderCircle,
   WandSparkles,
@@ -42,7 +43,7 @@ type AqlEditorProps = Readonly<{
 
 /** Toolbar 对格式化命令可用性的明确说明。 */
 type FormatAvailability =
-  | { readonly type: 'loading'; readonly label: '语言服务启动中' }
+  | { readonly type: 'loading'; readonly label: '正在检查查找条件' }
   | { readonly type: 'invalid'; readonly label: string }
   | { readonly type: 'clean'; readonly label: '已格式化' }
   | { readonly type: 'dirty'; readonly label: '格式化' };
@@ -99,8 +100,8 @@ export function AqlEditor({ query, target, modelUri, onChange }: AqlEditorProps)
       title={formatAvailability.type === 'invalid'
         ? formatAvailability.label
         : formatAvailability.type === 'loading'
-          ? 'AQL 语言服务正在启动'
-          : '使用 AQL Formatter 格式化文档'}
+          ? '正在检查查找条件'
+          : '整理查找条件'}
       onClick={() => void editorRef.current?.formatDocument()}
     >
       {formatAvailability.type === 'loading' ? (
@@ -118,20 +119,32 @@ export function AqlEditor({ query, target, modelUri, onChange }: AqlEditorProps)
       {languageState.phase === 'loading' ? (
         <p className="flex items-center gap-1.5 text-[10px] text-slate-500" role="status">
           <LoaderCircle className="size-3 animate-spin" aria-hidden="true" />
-          正在启动 AQL 语言服务…
+          正在检查查找条件…
         </p>
       ) : null}
       {languageState.phase === 'unavailable' ? (
         <p className="rounded-md bg-amber-50 px-2.5 py-2 text-[10px] leading-4 text-amber-700">
-          AQL 本地语言服务不可用；请先生成 Rust WASM 资源。{languageState.message}
+          查找条件暂时无法检查，请稍后重试。
         </p>
       ) : null}
       {diagnostics.some((diagnostic) => diagnostic.severity === 'error') ? (
         <DiagnosticPopup diagnostics={diagnostics} />
+      ) : plannerState.phase === 'unavailable' ? (
+        <p className="flex items-center gap-1.5 text-[10px] text-amber-700" role="status">
+          <AlertTriangle className="size-3" aria-hidden="true" />
+          查找条件已通过语法检查，但运行环境暂不可用
+        </p>
+      ) : plannerState.phase === 'ready'
+        && plannerState.inspection.status === 'valid'
+        && plannerState.inspection.planning.selected_backend === null ? (
+        <p className="flex items-center gap-1.5 text-[10px] text-amber-700" role="status">
+          <AlertTriangle className="size-3" aria-hidden="true" />
+          查找条件已通过语法检查，但当前环境不能运行
+        </p>
       ) : (
         <p className="flex items-center gap-1.5 text-[10px] text-emerald-700" role="status">
           <CheckCircle2 className="size-3" aria-hidden="true" />
-          查询可用
+          查找条件可以使用
         </p>
       )}
       {diagnostics.length > 0
@@ -150,7 +163,7 @@ export function AqlEditor({ query, target, modelUri, onChange }: AqlEditorProps)
       <div className="min-h-0 flex-1 p-2">
         <MonacoEditor
           ref={editorRef}
-          ariaLabel="AQL 查询"
+          ariaLabel="AQL 查找条件"
           value={query.source}
           language={AQL_LANGUAGE_ID}
           modelUri={modelUri}
@@ -174,10 +187,10 @@ function resolveFormatAvailability(
   diagnostics: readonly AqlDiagnostic[],
 ): FormatAvailability {
   if (languageState.phase === 'loading') {
-    return { type: 'loading', label: '语言服务启动中' };
+    return { type: 'loading', label: '正在检查查找条件' };
   }
   if (languageState.phase === 'unavailable') {
-    return { type: 'invalid', label: 'AQL 语言服务不可用' };
+    return { type: 'invalid', label: '查找条件暂时无法检查' };
   }
   if (diagnostics.some((diagnostic) => diagnostic.severity === 'error')) {
     return { type: 'invalid', label: '请先修复语法错误' };

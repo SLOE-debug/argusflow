@@ -138,18 +138,18 @@ export function ComponentDrillDown({
           );
         })}
         <aside className="absolute right-4 top-4 w-52 rounded-lg border border-slate-200 bg-white/95 p-3 shadow-sm">
-          <strong className="text-[10px] text-slate-700">公开端口</strong>
+          <strong className="text-[10px] text-slate-700">组件数据</strong>
           <p className="mt-2 text-[9px] font-semibold text-slate-500">输入</p>
           <p className="mt-0.5 font-mono text-[9px] text-slate-600">
-            {activeDefinition.inputs.map((input) => input.key).join(', ') || '无'}
+            {activeDefinition.inputs.map((input) => input.key).join(', ') || '暂无'}
           </p>
           <p className="mt-2 text-[9px] font-semibold text-slate-500">输出</p>
           <p className="mt-0.5 font-mono text-[9px] text-slate-600">
-            {activeDefinition.outputs.map((output) => output.name).join(', ') || '无'}
+            {activeDefinition.outputs.map((output) => output.name).join(', ') || '暂无'}
           </p>
         </aside>
         <p className="absolute bottom-4 left-4 rounded bg-white/90 px-2 py-1 text-[10px] text-slate-500 shadow-sm">
-          已发布组件版本为只读；实例输入在主流程属性面板中编辑。
+          这里仅供查看；要修改输入，请返回主流程的属性面板。
         </p>
       </div>
     </section>
@@ -210,11 +210,11 @@ function componentNodeLabel(typeId: string): string {
   const labels: Readonly<Record<string, string>> = {
     'argus.start': '开始',
     'argus.end': '结束',
-    'argus.browser': '获取浏览器',
-    'argus.browser.operation': '访问网址',
-    'argus.ui': '界面操作',
-    'argus.data.format': '格式化文本',
+    'argus.browser': '打开浏览器',
+    'argus.browser.operation': '打开网页',
+    'argus.ui': '操作界面',
+    'argus.data.format': '整理文本',
     'argus.component': '嵌套组件',
   };
-  return labels[typeId] ?? typeId;
+  return labels[typeId] ?? '未识别节点';
 }

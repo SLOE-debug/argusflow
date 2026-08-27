@@ -83,7 +83,7 @@ export function WorkspaceDockResizeHandle({
   return (
     <div
       role="separator"
-      aria-label="调整工作区 Dock 高度"
+      aria-label="调整底部面板高度"
       aria-orientation="horizontal"
       aria-valuemin={Math.round(minHeight)}
       aria-valuemax={Math.round(maxHeight)}

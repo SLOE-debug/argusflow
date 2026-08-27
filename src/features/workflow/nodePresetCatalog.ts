@@ -20,23 +20,23 @@ export type NodePresetDefinition = Readonly<{
 
 /** Studio 内置的单节点易用性预设。 */
 export const NODE_PRESET_CATALOG = [
-  defineUiPreset('click', '点击', '定位并点击一个界面目标', '点击目标', () => (
+  defineUiPreset('click', '点击', '点击界面上的元素', '点击', () => (
     createDefaultUiOperation()
   )),
-  defineUiPreset('set-value', '输入文本', '向界面目标写入文本', '输入文本', () => ({
+  defineUiPreset('set-value', '输入文字', '在界面上输入文字', '输入文字', () => ({
     ...createDefaultUiOperation(),
     type: 'set_value',
     value: { type: 'literal', value: '' },
   })),
-  defineUiPreset('get-text', '读取文本', '读取一个界面目标的可见文本', '读取文本', () => ({
+  defineUiPreset('get-text', '读取文字', '读取界面上的文字', '读取文字', () => ({
     ...createDefaultUiOperation(),
     type: 'get_text',
   })),
-  defineUiPreset('get-value', '读取值', '读取一个界面目标的控件值', '读取值', () => ({
+  defineUiPreset('get-value', '读取控件值', '读取控件里的值', '读取控件值', () => ({
     ...createDefaultUiOperation(),
     type: 'get_value',
   })),
-  defineUiPreset('extract-links', '提取链接列表', '批量投影链接标题和绝对地址', '提取链接列表', () => ({
+  defineUiPreset('extract-links', '读取网页链接', '批量读取网页上的链接', '读取网页链接', () => ({
     type: 'extract',
     target: {
       ...createDefaultUiOperation().target,

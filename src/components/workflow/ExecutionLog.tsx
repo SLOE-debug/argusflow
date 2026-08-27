@@ -62,17 +62,17 @@ export function ExecutionLog({ events, nodes, report }: ExecutionLogProps) {
       <div className="min-w-0 overflow-auto px-2 py-1.5">
         <div className="mb-1 flex items-center justify-between">
           <h2 className="text-[10px] font-semibold text-slate-500">
-            执行日志
+            运行日志
           </h2>
           <div className="flex items-center gap-1.5">
-            <span className="text-[11px] text-slate-400">{events.length} 条事件</span>
+            <span className="text-[11px] text-slate-400">{events.length} 条记录</span>
             <button
               type="button"
-              aria-label="复制完整执行日志"
+              aria-label="复制运行日志"
               className="flex size-5 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
               disabled={events.length === 0}
               onClick={() => void navigator.clipboard.writeText(completeLog)}
-              title="复制完整执行日志"
+              title="复制运行日志"
             >
               <Copy className="size-3" aria-hidden="true" />
             </button>
@@ -80,7 +80,7 @@ export function ExecutionLog({ events, nodes, report }: ExecutionLogProps) {
         </div>
         <div className="space-y-0.5 overflow-y-auto font-mono text-[10px] leading-4">
           {events.length === 0 && (
-            <p className="text-slate-400">运行工作流后，事件会显示在这里。</p>
+            <p className="text-slate-400">运行工作流后，日志会显示在这里。</p>
           )}
           {entries.map((entry) => {
             const nodeTone = entry.nodeKind
@@ -114,17 +114,17 @@ export function ExecutionLog({ events, nodes, report }: ExecutionLogProps) {
       </div>
       <div className="min-w-0 overflow-auto border-l border-slate-200 px-2 py-1.5">
         <h2 className="mb-1 text-[10px] font-semibold text-slate-500">
-          校验结果
+          检查结果
         </h2>
         <div className="overflow-y-auto text-[11px] leading-4">
-          {!report && <p className="text-slate-400">尚未校验</p>}
+          {!report && <p className="text-slate-400">还没有检查</p>}
           {report?.valid && (
             <p className="flex items-center gap-1.5 text-emerald-700">
               <CircleCheck
                 className="size-3.5 shrink-0"
                 aria-hidden="true"
               />
-              工作流结构有效
+              流程结构没有问题
             </p>
           )}
           {report?.issues.map((issue, index) => (

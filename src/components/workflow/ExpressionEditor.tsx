@@ -39,7 +39,7 @@ export function ExpressionEditor({
     <section className="flex h-full min-h-0 flex-col bg-white">
       <div className="flex min-h-9 shrink-0 items-center border-b border-slate-200 bg-slate-50/70 px-3 py-1.5">
         <p className="text-[10px] text-slate-500">
-          可读作用域：input、vars、nodes；result 仅在输出映射中可用。纯函数：str、json、get。
+          可使用输入、变量和节点数据；结果仅在输出映射中可用。支持 str、json、get 函数。
         </p>
       </div>
       <div className="min-h-0 flex-1 p-2">
@@ -74,7 +74,7 @@ export function ExpressionEditor({
           </p>
         ) : (
           <p className="text-[10px] text-slate-500">
-            保存后运行校验会在 prepare 阶段编译表达式并在此显示错误。
+            保存后运行检查会编译表达式，错误会显示在这里。
           </p>
         )}
       </div>

@@ -54,7 +54,7 @@ export function normalizeCommandError(error: unknown): CommandError {
 
   return {
     code: 'unknown_error',
-    message: error instanceof Error ? error.message : String(error),
+    message: '操作未完成，请稍后重试。',
     issues: [],
   };
 }

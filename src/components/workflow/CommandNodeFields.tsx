@@ -29,7 +29,7 @@ type CommandNodeFieldsProps = Readonly<{
 }>;
 
 const RUNNER_OPTIONS = [
-  { value: 'direct', label: '直接程序（推荐）' },
+  { value: 'direct', label: '直接运行程序（推荐）' },
   { value: 'power_shell', label: 'PowerShell' },
   { value: 'cmd', label: 'CMD' },
 ] as const;
@@ -43,7 +43,7 @@ export function CommandNodeFields({
 }: CommandNodeFieldsProps) {
   return (
     <div className="flex flex-col gap-2.5">
-      <InspectorField label="运行方式">
+      <InspectorField label="执行方式">
         <Select<CommandRunner>
           value={operation.runner}
           options={RUNNER_OPTIONS}
@@ -98,9 +98,9 @@ export function CommandNodeFields({
         bindings={operation.environment}
         onChange={(environment) => onChange({ ...operation, environment })}
       />
-      <InspectorField label="超时毫秒">
+      <InspectorField label="执行超时（毫秒）">
         <Input
-          aria-label="命令超时毫秒"
+          aria-label="命令执行超时"
           type="number"
           min={1}
           max={3_600_000}
@@ -112,9 +112,9 @@ export function CommandNodeFields({
           })}
         />
       </InspectorField>
-      <InspectorField label="成功退出代码">
+      <InspectorField label="成功退出码">
         <Input
-          aria-label="命令成功退出代码"
+          aria-label="命令成功退出码"
           value={operation.accepted_exit_codes.join(', ')}
           containerClassName="border-slate-300 bg-white"
           onChange={(event) => onChange({
@@ -125,11 +125,11 @@ export function CommandNodeFields({
       </InspectorField>
       <details className="rounded-md border border-slate-200 bg-slate-50/70 px-2.5 py-2">
         <summary className="cursor-pointer select-none text-[10px] font-medium text-slate-600">
-          输出资源上限
+          输出大小限制
         </summary>
         <div className="mt-2 flex flex-col gap-2.5">
           <ByteLimitField
-            label="stdout 最大字节"
+            label="标准输出上限"
             value={operation.max_stdout_bytes}
             onChange={(max_stdout_bytes) => onChange({
               ...operation,
@@ -137,7 +137,7 @@ export function CommandNodeFields({
             })}
           />
           <ByteLimitField
-            label="stderr 最大字节"
+            label="错误输出上限"
             value={operation.max_stderr_bytes}
             onChange={(max_stderr_bytes) => onChange({
               ...operation,
@@ -147,7 +147,7 @@ export function CommandNodeFields({
         </div>
       </details>
       <p className={INSPECTOR_HELP_CLASS_NAME}>
-        输出端口固定为 exit_code、stdout 和 stderr；完整输出不会自动写入运行日志。
+        命令完成后可读取标准输出、错误输出和退出码。输出不会自动显示在日志中。
       </p>
     </div>
   );

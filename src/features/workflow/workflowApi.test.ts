@@ -16,6 +16,6 @@ describe('workflow API errors', () => {
   });
 
   it('normalizes unknown failures for the UI', () => {
-    expect(normalizeCommandError(new Error('offline')).message).toBe('offline');
+    expect(normalizeCommandError(new Error('offline')).message).toBe('操作未完成，请稍后重试。');
   });
 });

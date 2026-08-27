@@ -12,16 +12,16 @@ type BrowserOperationFieldsProps = Readonly<{
   onUpdate: (updater: WorkflowNodeUpdater) => void;
 }>;
 
-/** 编辑 Navigate 的 BrowserSession 引用和运行时 URL 表达式。 */
+/** 编辑打开网页节点的浏览器引用和网址表达式。 */
 export function BrowserOperationFields({
   operation,
   onUpdate,
 }: BrowserOperationFieldsProps) {
   return (
     <div className="flex flex-col gap-2.5">
-      <InspectorField label="浏览器节点 ID">
+      <InspectorField label="浏览器节点">
         <Input
-          aria-label="浏览器资源生产节点 ID"
+          aria-label="浏览器节点"
           value={operation.browser.producer_node_id}
           containerClassName="border-slate-300 bg-white"
           onChange={(event) => updateOperation(onUpdate, {
@@ -39,7 +39,7 @@ export function BrowserOperationFields({
         onChange={(url) => updateOperation(onUpdate, { ...operation, url })}
       />
       <p className={INSPECTOR_HELP_CLASS_NAME}>
-        URL 必须在运行时解析为绝对 HTTP(S) 地址；会话资源必须支配本节点。
+        请输入完整网址（以 http:// 或 https:// 开头）。请先打开浏览器。
       </p>
     </div>
   );

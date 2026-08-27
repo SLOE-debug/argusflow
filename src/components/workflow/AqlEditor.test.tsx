@@ -78,8 +78,8 @@ describe('AqlEditor', () => {
       />,
     );
 
-    expect(screen.getByText('自动选择：Windows UI')).toBeVisible();
-    expect(screen.getByText('查询可用')).toBeVisible();
+    expect(screen.getByText('执行方式：Windows UI 自动化')).toBeVisible();
+    expect(screen.getByText('查找条件可以使用')).toBeVisible();
 
     fireEvent.click(screen.getByRole('button', { name: '格式化' }));
     expect(onChange).not.toHaveBeenCalled();
@@ -136,7 +136,7 @@ describe('AqlEditor', () => {
         onChange={onChange}
       />,
     );
-    const input = screen.getByRole('textbox', { name: 'AQL 查询' });
+    const input = screen.getByRole('textbox', { name: 'AQL 查找条件' });
     expect(input).toHaveAttribute('data-language', 'argusflow-aql');
     fireEvent.change(input, { target: { value: 'button()' } });
 
@@ -158,7 +158,7 @@ describe('AqlEditor', () => {
       />,
     );
     expect(screen.queryByRole('button', { name: '说明' })).not.toBeInTheDocument();
-    fireEvent.change(screen.getByRole('textbox', { name: 'AQL 查询' }), {
+    fireEvent.change(screen.getByRole('textbox', { name: 'AQL 查找条件' }), {
       target: { value: 'button(name = "保存")' },
     });
     rerender(
@@ -173,7 +173,7 @@ describe('AqlEditor', () => {
         onChange={vi.fn()}
       />,
     );
-    expect(screen.getByRole('textbox', { name: 'AQL 查询' })).toHaveValue(
+    expect(screen.getByRole('textbox', { name: 'AQL 查找条件' })).toHaveValue(
       'button(name = "保存")',
     );
   });
@@ -194,7 +194,7 @@ describe('AqlEditor', () => {
     );
 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    expect(screen.getByRole('textbox', { name: 'AQL 查询' })).toHaveValue('button');
+    expect(screen.getByRole('textbox', { name: 'AQL 查找条件' })).toHaveValue('button');
   });
 
   it('keeps native composition input as the document source', () => {
@@ -218,7 +218,7 @@ describe('AqlEditor', () => {
     }
 
     render(<CompositionHarness />);
-    const input = screen.getByRole('textbox', { name: 'AQL 查询' });
+    const input = screen.getByRole('textbox', { name: 'AQL 查找条件' });
     fireEvent.compositionStart(input);
     fireEvent.change(input, { target: { value: 'button(name = "保存")' } });
     fireEvent.compositionEnd(input);

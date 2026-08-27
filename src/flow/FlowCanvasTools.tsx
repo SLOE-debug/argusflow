@@ -101,10 +101,10 @@ export function FlowCanvasTools({
         </ToolButton>
       </div>
       <div className={TOOL_GROUP_CLASS_NAME}>
-        <ToolButton label="定位" onClick={locate}>
+        <ToolButton label="居中显示" onClick={locate}>
           <Crosshair />
         </ToolButton>
-        <ToolButton label="适应内容" onClick={fitContent}>
+        <ToolButton label="显示全部" onClick={fitContent}>
           <Maximize2 />
         </ToolButton>
         <ToolButton
@@ -127,9 +127,9 @@ function CanvasShortcutPanel() {
       <h3 className="text-[12px] font-semibold text-slate-800">画布快捷操作</h3>
       <div className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-2">
         <kbd className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px]">方向键</kbd>
-        <span>微调选中节点 1px</span>
+        <span>移动选中节点 1 像素</span>
         <kbd className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px]">Shift + 方向键</kbd>
-        <span>快速移动 10px</span>
+        <span>快速移动 10 像素</span>
         <kbd className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px]">空格 + 拖拽</kbd>
         <span>平移画布</span>
         <kbd className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px]">滚轮</kbd>

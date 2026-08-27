@@ -44,32 +44,32 @@ type ActionNodeFieldsProps = Readonly<{
 const OPERATION_KIND_OPTIONS = [
   { value: 'click', label: '点击' },
   { value: 'set_value', label: '输入文字' },
-  { value: 'get_text', label: '读取文本' },
-  { value: 'get_value', label: '读取值' },
-  { value: 'extract', label: '提取结构化数据' },
+  { value: 'get_text', label: '读取文字' },
+  { value: 'get_value', label: '读取控件值' },
+  { value: 'extract', label: '读取数据' },
 ] as const;
 
 const LOCATOR_KIND_OPTIONS = [
-  { value: 'query', label: '语义查找（AQL）' },
-  { value: 'visual', label: '按画面文字查找' },
-  { value: 'coordinate', label: '按屏幕位置' },
+  { value: 'query', label: '界面结构' },
+  { value: 'visual', label: '画面文字' },
+  { value: 'coordinate', label: '屏幕坐标' },
 ] as const;
 
 const SCOPE_OPTIONS = [
-  { value: 'current', label: '当前上下文' },
-  { value: 'application', label: '应用会话' },
-  { value: 'browser', label: '浏览器会话' },
+  { value: 'current', label: '当前窗口' },
+  { value: 'application', label: '指定应用' },
+  { value: 'browser', label: '指定浏览器' },
 ] as const;
 
 const BACKEND_OPTIONS = [
   { value: 'auto', label: '自动选择（推荐）' },
-  { value: 'windows_uia', label: 'Windows UIA' },
-  { value: 'browser_cdp', label: 'Browser CDP' },
+  { value: 'windows_uia', label: 'Windows UI 自动化' },
+  { value: 'browser_cdp', label: '浏览器自动化' },
 ] as const;
 
 const VISUAL_MATCH_OPTIONS = [
-  { value: 'exact', label: '完全相等' },
-  { value: 'contains', label: '允许包含' },
+  { value: 'exact', label: '完全匹配' },
+  { value: 'contains', label: '包含文字' },
 ] as const;
 
 /** 编辑 UI 操作、资源作用域、定位方式和后端偏好。 */
@@ -83,6 +83,12 @@ export function ActionNodeFields({
 }: ActionNodeFieldsProps) {
   /** 当前资源作用域的局部不可变快照，供 JSX 回调保留判别联合收窄。 */
   const scope = operation.target.scope;
+  /** 当前作用域对应的资源节点名称，避免把内部 Resource 概念直接展示给用户。 */
+  const resourceLabel = scope.type === 'browser' ? '浏览器节点' : '应用节点';
+  /** 告诉用户资源节点和当前操作的执行顺序。 */
+  const resourceHelp = scope.type === 'browser'
+    ? '请先运行打开浏览器的节点，再执行当前操作。'
+    : '请先运行打开应用的节点，再执行当前操作。';
   return (
     <div className="flex flex-col gap-2.5">
       <InspectorField label="操作">
@@ -115,7 +121,7 @@ export function ActionNodeFields({
           onChange={onChange}
         />
       ) : null}
-      <InspectorField label="应用范围">
+      <InspectorField label="操作范围">
         <Select<'current' | 'application' | 'browser'>
           value={scope.type}
           options={SCOPE_OPTIONS}
@@ -128,11 +134,9 @@ export function ActionNodeFields({
       </InspectorField>
       {scope.type !== 'current' ? (
         <div className="flex flex-col gap-2.5 rounded-md border border-blue-100 bg-blue-50/40 p-2.5">
-          <InspectorField label={scope.type === 'browser'
-            ? '浏览器节点 ID'
-            : '应用节点 ID'}>
+          <InspectorField label={resourceLabel}>
             <Input
-              aria-label="应用资源生产节点 ID"
+              aria-label={resourceLabel}
               value={scope.resource.producer_node_id}
               containerClassName="border-slate-300 bg-white"
               onChange={(event) => onChange(changeTargetScope(operation, {
@@ -145,11 +149,11 @@ export function ActionNodeFields({
             />
           </InspectorField>
           <p className={INSPECTOR_HELP_CLASS_NAME}>
-            Runtime 会验证对应资源节点在所有到达路径上先执行。
+            {resourceHelp}
           </p>
         </div>
       ) : null}
-      <InspectorField label="查找目标">
+      <InspectorField label="查找方式">
         <Select<TargetLocatorKind>
           value={operation.target.locator.type}
           options={LOCATOR_KIND_OPTIONS}
@@ -209,12 +213,12 @@ function TargetWaitFields({
   return (
     <details className="rounded-md border border-slate-200 bg-slate-50/70 px-2.5 py-2">
       <summary className="cursor-pointer select-none text-[10px] font-medium text-slate-600">
-        目标就绪设置
+        等待目标
       </summary>
       <div className="mt-2 flex flex-col gap-2.5">
         <label className="flex items-center gap-2 text-[11px] text-slate-700">
           <Checkbox
-            aria-label="自动等待目标就绪"
+            aria-label="找不到目标时自动等待"
             checked={enabled}
             onChange={(event) => onChange({
               target_wait: event.target.checked
@@ -222,11 +226,11 @@ function TargetWaitFields({
                 : { mode: 'none', timeout_ms: 0, poll_interval_ms: 0 },
             })}
           />
-          自动等待目标就绪
+          找不到目标时自动等待
         </label>
         {enabled ? (
           <>
-            <InspectorField label="超时时间（ms）">
+            <InspectorField label="等待超时（毫秒）">
               <Input
                 aria-label="目标等待超时时间"
                 type="number"
@@ -242,7 +246,7 @@ function TargetWaitFields({
                 })}
               />
             </InspectorField>
-            <InspectorField label="轮询间隔（ms）">
+            <InspectorField label="检查间隔（毫秒）">
               <Input
                 aria-label="目标等待轮询间隔"
                 type="number"
@@ -261,7 +265,7 @@ function TargetWaitFields({
           </>
         ) : null}
         <p className={INSPECTOR_HELP_CLASS_NAME}>
-          仅在当前动作找不到目标时轮询；歧义、能力不支持和后端错误会立即失败。
+          只在暂时找不到目标时等待；目标不明确或无法执行时会立即停止。
         </p>
       </div>
     </details>
@@ -305,10 +309,10 @@ function QueryTargetFields({
       />
       <details className="rounded-md border border-slate-200 bg-slate-50/70 px-2.5 py-2">
         <summary className="cursor-pointer select-none text-[10px] font-medium text-slate-600">
-          高级设置
+          更多设置
         </summary>
         <div className="mt-2">
-          <InspectorField label="执行方式约束">
+          <InspectorField label="执行方式">
             <Select<BackendPolicyPreset>
               value={resolveBackendPolicyPreset(operation.target.backend_policy)}
               options={BACKEND_OPTIONS}
@@ -360,7 +364,7 @@ function VisualTargetFields({
         />
       </InspectorField>
       <p className={INSPECTOR_HELP_CLASS_NAME}>
-        视觉文字由 OCR 或 GUI grounding 定位，执行后端固定由 Planner 自动选择。
+        输入画面上能看到的文字，程序会在画面中寻找它。
       </p>
     </>
   );
@@ -404,7 +408,7 @@ function CoordinateTargetFields({
         />
       </InspectorField>
       <p className={INSPECTOR_HELP_CLASS_NAME}>
-        坐标使用 Windows 虚拟屏幕物理像素，仅适合无法提供语义树的最终兜底。
+        只有其他方式找不到目标时，才建议使用屏幕坐标。
       </p>
     </>
   );

@@ -51,20 +51,20 @@ type EdgeInspectorFieldsProps = Readonly<{
 
 /** 节点类型的稳定中文名称。 */
 const NODE_KIND_LABELS: Readonly<Record<WorkflowNodeData['kind'], string>> = {
-  start: '开始节点',
-  log: '日志节点',
-  debug: '调试输出',
-  delay: '固定暂停',
+  start: '开始',
+  log: '记录日志',
+  debug: '查看结果',
+  delay: '等待',
   condition: '条件判断',
   variable: '设置变量',
-  application: '应用资源',
-  browser: '浏览器资源',
-  navigate: '浏览器导航',
-  ui: '界面操作',
-  command: '命令节点',
-  format: '文本格式化',
+  application: '打开应用',
+  browser: '打开浏览器',
+  navigate: '打开网页',
+  ui: '操作界面',
+  command: '执行命令',
+  format: '整理文本',
   component: '流程组件',
-  end: '结束节点',
+  end: '结束',
 };
 
 /** 节点运行状态的稳定中文名称。 */
@@ -98,14 +98,14 @@ export function NodeInspectorFields({
             }}
           />
         </InspectorField>
-        <InspectorField label="节点 ID">
+        <InspectorField label="内部编号">
           <input
             className={`${INSPECTOR_CONTROL_CLASS_NAME} h-8`}
             value={node.id}
             readOnly
           />
         </InspectorField>
-        <InspectorField label="节点类型">
+        <InspectorField label="类型">
           <input
             className={`${INSPECTOR_CONTROL_CLASS_NAME} h-8`}
             value={NODE_KIND_LABELS[node.data.kind]}
@@ -113,7 +113,7 @@ export function NodeInspectorFields({
           />
         </InspectorField>
       </InspectorSection>
-      <InspectorSection title="参数配置">
+      <InspectorSection title="设置">
         <NodeKindFields
           node={node}
           componentCatalog={componentCatalog}
@@ -121,28 +121,28 @@ export function NodeInspectorFields({
           onOpenStructuredEditor={onOpenStructuredEditor}
         />
       </InspectorSection>
-      <InspectorSection title="公开输出">
+      <InspectorSection title="输出">
         <NodeOutputBindingsFields
           data={node.data}
           onUpdate={onUpdate}
         />
       </InspectorSection>
-      <InspectorSection title="执行状态">
-        <InspectorField label="当前状态">
+      <InspectorSection title="运行状态">
+        <InspectorField label="状态">
           <input
             className={`${INSPECTOR_CONTROL_CLASS_NAME} h-8`}
             value={RUN_STATE_LABELS[node.data.runState ?? 'idle']}
             readOnly
           />
         </InspectorField>
-        <InspectorField label="节点位置">
+        <InspectorField label="画布位置">
           <input
             className={`${INSPECTOR_CONTROL_CLASS_NAME} h-8 tabular-nums`}
             value={`${Math.round(node.position.x)}, ${Math.round(node.position.y)}`}
             readOnly
           />
         </InspectorField>
-        <InspectorField label="节点尺寸">
+        <InspectorField label="卡片大小">
           <input
             className={`${INSPECTOR_CONTROL_CLASS_NAME} h-8 tabular-nums`}
             value={`${node.size.width} × ${node.size.height}`}
@@ -150,16 +150,16 @@ export function NodeInspectorFields({
           />
         </InspectorField>
       </InspectorSection>
-      <InspectorSection title="其他设置">
-        <InspectorField label="配置状态">
+      <InspectorSection title="检查结果">
+        <InspectorField label="配置检查">
           <input
             className={`${INSPECTOR_CONTROL_CLASS_NAME} h-8`}
-            value={node.data.invalid ? '需要修正' : '配置有效'}
+            value={node.data.invalid ? '需要修改' : '没有问题'}
             readOnly
           />
         </InspectorField>
       </InspectorSection>
-      <InspectorSection title="高级配置（JSON）">
+      <InspectorSection title="高级设置（JSON）">
         <pre className="h-[198px] overflow-auto rounded-md border border-slate-300 bg-slate-50 p-3 font-mono text-[11px] leading-5 text-slate-700">
           {JSON.stringify(node.data, null, 2)}
         </pre>
@@ -218,7 +218,7 @@ function NodeKindFields({
       );
     case 'delay':
       return (
-        <InspectorField label="暂停毫秒">
+        <InspectorField label="等待时间（毫秒）">
           <input
             className={`${INSPECTOR_CONTROL_CLASS_NAME} h-8`}
             type="number"
@@ -315,9 +315,9 @@ function NodeKindFields({
         />
       );
     case 'start':
-      return <p className={INSPECTOR_HELP_CLASS_NAME}>开始节点是工作流的唯一入口，无额外参数。</p>;
+      return <p className={INSPECTOR_HELP_CLASS_NAME}>流程从这里开始，不需要设置。</p>;
     case 'end':
-      return <p className={INSPECTOR_HELP_CLASS_NAME}>结束节点标记当前工作流正常完成。</p>;
+      return <p className={INSPECTOR_HELP_CLASS_NAME}>运行到这里，流程就结束了。</p>;
   }
 }
 
@@ -348,7 +348,7 @@ export function EdgeInspectorFields({
           </InspectorField>
         ) : null}
         <p className={INSPECTOR_HELP_CLASS_NAME}>
-          悬停连线并拖动两端锚点，可以更改起点或终点。
+          拖动连线两端，可以更换起点或终点。
         </p>
       </InspectorSection>
       <InspectorSection title="危险操作" last>
@@ -369,10 +369,10 @@ export function MultipleSelection({
   const [name, setName] = useState('新流程组件');
   const [version, setVersion] = useState('1.0.0');
   return (
-    <InspectorSection title="多项选择" last>
+    <InspectorSection title="已选择多个节点" last>
       <div className="rounded-md border border-dashed border-slate-300 px-3 py-5 text-center text-slate-600">
-        <strong className="text-[13px]">{count} 个节点</strong>
-        <p className="mt-1 text-[11px]">连续且具有唯一入口/出口的选择可保存为组件。</p>
+        <strong className="text-[13px]">已选择 {count} 个节点</strong>
+        <p className="mt-1 text-[11px]">选择一段连续流程，即可保存为可复用组件。</p>
       </div>
       <InspectorField label="组件名称">
         <input
@@ -393,7 +393,7 @@ export function MultipleSelection({
         className="h-8 w-full rounded bg-violet-600 text-[11px] font-semibold text-white hover:bg-violet-700"
         onClick={() => onCreateComponent(name, version)}
       >
-        创建流程组件
+        保存为流程组件
       </button>
     </InspectorSection>
   );

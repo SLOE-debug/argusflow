@@ -61,8 +61,8 @@ type DockTab = 'structured_editor' | UtilityTab;
 const UTILITY_TABS = [
   { id: 'tasks', label: '任务' },
   { id: 'runs', label: '运行记录' },
-  { id: 'logs', label: '日志' },
-  { id: 'alerts', label: '告警' },
+  { id: 'logs', label: '运行日志' },
+  { id: 'alerts', label: '问题' },
 ] as const satisfies ReadonlyArray<Readonly<{ id: UtilityTab; label: string }>>;
 
 /** 统一承载结构化编辑器、任务、运行记录、日志和告警的 Workspace Dock。 */
@@ -111,7 +111,7 @@ export function WorkspaceDockPanel({
       type="button"
       className="flex size-7 items-center justify-center rounded-[4px] text-slate-600 hover:bg-slate-100"
       onClick={() => onOpenChange(!open)}
-      aria-label={open ? '收起工作区 Dock' : '展开工作区 Dock'}
+      aria-label={open ? '收起底部面板' : '展开底部面板'}
       aria-expanded={open}
     >
       <ToggleIcon className="size-3.5" aria-hidden="true" />
@@ -135,7 +135,7 @@ export function WorkspaceDockPanel({
       {editorTarget ? (
         <WorkspaceEditorHeader
           languageLabel={resolveEditorLanguage(editorTarget, editorNode)}
-          nodeLabel={editorNode?.data.label ?? '节点已删除'}
+          nodeLabel={editorNode?.data.label ?? '节点不存在'}
           nodeId={editorTarget.nodeId}
           active={activeTab === 'structured_editor'}
           mode={editorMode}
@@ -210,7 +210,7 @@ function resolveDockContent(
         <DockPlaceholder
           icon={History}
           title="暂无运行记录"
-          description="完整的运行实例列表将在此展示。"
+          description="运行一次流程后，记录会显示在这里。"
         />
       );
     case 'alerts':
@@ -230,8 +230,8 @@ function resolveDockContent(
       ) : (
         <DockPlaceholder
           icon={BellRing}
-          title="暂无告警"
-          description="校验问题与运行异常将在此集中显示。"
+          title="暂无问题"
+          description="工作流检查问题和运行异常会显示在这里。"
         />
       );
   }

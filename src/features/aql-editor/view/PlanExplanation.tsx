@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle2, LoaderCircle } from 'lucide-react';
 import type {
   AqlInspection,
   BackendKind,
+  PlanStepKind,
   QueryCost,
   QuerySupportLevel,
   RuntimeAvailability,
@@ -11,33 +12,45 @@ import type { AqlInspectionState } from '../../workflow/useAqlInspection';
 import { diagnosticLabel } from '../language/messages';
 
 const BACKEND_LABELS: Readonly<Record<BackendKind, string>> = {
-  windows_uia: 'Windows UI',
-  browser_cdp: '浏览器',
+  windows_uia: 'Windows UI 自动化',
+  browser_cdp: '浏览器自动化',
   visual_cache: '视觉缓存',
-  ocr_tiny: '轻量 OCR',
-  ocr_medium: 'OCR',
+  ocr_tiny: '快速文字识别',
+  ocr_medium: '文字识别',
   gui_grounding: '视觉定位',
-  send_input: '坐标输入',
+  send_input: '模拟输入',
 };
 
 const SUPPORT_LABELS: Readonly<Record<QuerySupportLevel, string>> = {
-  native: '直接支持',
-  hybrid: '支持（需额外筛选）',
-  emulated: '支持（需额外遍历）',
-  unsupported: '不支持',
+  native: '可直接执行',
+  hybrid: '可兼容执行',
+  emulated: '需要逐个查找',
+  unsupported: '暂不支持',
 };
 
 const COST_LABELS: Readonly<Record<QueryCost, string>> = {
-  low: '性能开销低',
-  medium: '性能开销中等',
-  high: '性能开销较高',
+  low: '速度快',
+  medium: '速度一般',
+  high: '速度可能较慢',
 };
 
 const AVAILABILITY_LABELS: Readonly<Record<RuntimeAvailability, string>> = {
-  ready: '当前可执行',
-  missing_context: '缺少当前运行环境',
-  unavailable: '当前不可用',
-  not_implemented: '执行器尚未接入',
+  ready: '可执行',
+  missing_context: '缺少必要环境',
+  unavailable: '暂不可用',
+  not_implemented: '暂不支持',
+};
+
+/** 将技术步骤类型翻译成可展开查看的简短说明。 */
+const PLAN_STEP_LABELS: Readonly<Record<PlanStepKind, string>> = {
+  scope: '作用范围',
+  candidate_source: '目标来源',
+  pushdown: '快速筛选',
+  cache: '读取属性',
+  residual: '额外筛选',
+  selection: '选择目标',
+  traversal: '遍历元素',
+  action: '执行操作',
 };
 
 type ValidInspection = Extract<AqlInspection, { status: 'valid' }>;
@@ -48,7 +61,7 @@ export function PlanExplanation({ state }: Readonly<{ state: AqlInspectionState 
     return (
       <p className="flex items-center gap-1.5 text-[10px] text-slate-500" role="status">
         <LoaderCircle className="size-3 animate-spin" aria-hidden="true" />
-        正在评估当前执行环境…
+        正在检查运行环境…
       </p>
     );
   }
@@ -81,18 +94,18 @@ function ValidPlanExplanation({ inspection }: Readonly<{ inspection: ValidInspec
         )}
         <div className="min-w-0">
           <strong className="block text-[10px] text-slate-700">
-            {selected ? `自动选择：${BACKEND_LABELS[selected.backend]}` : '当前没有可执行方式'}
+            {selected ? `执行方式：${BACKEND_LABELS[selected.backend]}` : '当前环境暂时不能运行此查找'}
           </strong>
           <span className="mt-0.5 block text-[9px] text-slate-500">
             {selected
               ? `${SUPPORT_LABELS[selected.support]}，${COST_LABELS[selected.cost]}`
-              : '可在开发者信息中查看语义支持与运行状态。'}
+              : '展开“查看详情”了解原因。'}
           </span>
         </div>
       </div>
       <details className="mt-2 border-t border-slate-100 pt-2 text-[9px] text-slate-500">
         <summary className="cursor-pointer select-none font-medium text-slate-600">
-          开发者信息
+          查看详情
         </summary>
         <div className="mt-2 space-y-2">
           {inspection.planning.candidates.map((candidate) => (
@@ -108,7 +121,9 @@ function ValidPlanExplanation({ inspection }: Readonly<{ inspection: ValidInspec
               {candidate.steps.length > 0 ? (
                 <ul className="mt-1.5 space-y-0.5 font-mono text-[8px] leading-3.5 text-slate-500">
                   {candidate.steps.map((step, index) => (
-                    <li key={`${step.kind}-${index}`}>{step.kind}: {step.summary}</li>
+                    <li key={`${step.kind}-${index}`}>
+                      {PLAN_STEP_LABELS[step.kind]}：{step.summary}
+                    </li>
                   ))}
                 </ul>
               ) : null}

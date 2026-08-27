@@ -123,17 +123,17 @@ export function NodePalette({
             </h2>
             {activeModule === 'nodes' ? (
               <p className="truncate text-[10px] leading-3.5 text-slate-400">
-                拖拽节点到画布
+                把节点拖到画布
               </p>
             ) : null}
           </div>
           {activeModule === 'nodes' ? (
             <button
               type="button"
-              aria-label="恢复节点库默认宽度"
+              aria-label="恢复节点库宽度"
               className="ml-auto flex size-7 shrink-0 items-center justify-center border border-slate-200 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
               onClick={onResetWidth}
-              title="恢复默认宽度"
+              title="恢复节点库宽度"
             >
               <PanelLeft className="size-3.5" aria-hidden="true" />
             </button>
@@ -146,7 +146,7 @@ export function NodePalette({
               density="compact"
               shape="square"
               containerClassName="mx-2.5 mt-2 shrink-0 bg-white"
-              placeholder="搜索名称或用途"
+              placeholder="搜索节点"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               startAdornment={(
@@ -201,8 +201,8 @@ export function NodePalette({
               ))}
               {visibleGroups.length === 0 ? (
                 <div className="border border-dashed border-slate-300 px-3 py-8 text-center">
-                  <p className="text-[11px] font-medium text-slate-600">没有匹配的节点</p>
-                  <p className="mt-1 text-[10px] leading-4 text-slate-400">尝试搜索其他名称或用途</p>
+                  <p className="text-[11px] font-medium text-slate-600">找不到匹配的节点</p>
+                  <p className="mt-1 text-[10px] leading-4 text-slate-400">换个名称或用途试试</p>
                 </div>
               ) : null}
             </div>

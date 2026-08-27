@@ -37,14 +37,14 @@ export function ComponentNodeFields({
   ));
   return (
     <div className="flex flex-col gap-2.5">
-      <InspectorField label="组件">
+      <InspectorField label="流程组件">
         <input
           className="h-8 w-full rounded border border-slate-300 bg-slate-50 px-2 text-[11px] text-slate-700"
           value={data.componentName}
           readOnly
         />
       </InspectorField>
-      <InspectorField label="锁定版本">
+      <InspectorField label="使用版本">
         <select
           className="h-8 w-full rounded border border-slate-300 bg-slate-50 px-2 font-mono text-[11px] text-slate-700"
           value={data.component.component_version}
@@ -92,13 +92,13 @@ export function ComponentNodeFields({
         </div>
       ))}
       <div className="rounded-md border border-slate-200 bg-slate-50 p-2.5">
-        <p className="text-[10px] font-semibold text-slate-600">公开输出</p>
+        <p className="text-[10px] font-semibold text-slate-600">输出</p>
         <p className="mt-1 font-mono text-[10px] text-slate-500">
-          {data.componentOutputs.map((output) => output.name).join(', ') || '无'}
+          {data.componentOutputs.map((output) => output.name).join(', ') || '暂无'}
         </p>
       </div>
       <p className={INSPECTOR_HELP_CLASS_NAME}>
-        组件版本不会随目录更新自动漂移；双击节点可进入版本对应的内部流程。
+        使用的版本不会自动变化；双击节点可查看组件内部流程。
       </p>
     </div>
   );

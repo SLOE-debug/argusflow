@@ -16,7 +16,7 @@ describe('WorkspaceDockResizeHandle', () => {
       />,
     );
     const separator = screen.getByRole('separator', {
-      name: '调整工作区 Dock 高度',
+      name: '调整底部面板高度',
     });
 
     fireEvent.keyDown(separator, { key: 'ArrowDown' });

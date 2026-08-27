@@ -15,8 +15,8 @@ export function resolveWorkflowStatus(
   errorMessage: string | null,
 ): WorkflowStatusPresentation {
   if (running) return { label: '运行中', tone: 'bg-blue-500' };
-  if (errorMessage) return { label: '发生错误', tone: 'bg-rose-500' };
-  if (report?.valid) return { label: '校验通过', tone: 'bg-emerald-500' };
+  if (errorMessage) return { label: '运行失败', tone: 'bg-rose-500' };
+  if (report?.valid) return { label: '检查通过', tone: 'bg-emerald-500' };
   if (report) return { label: `${report.issues.length} 个问题`, tone: 'bg-amber-500' };
   return { label: '就绪', tone: 'bg-emerald-500' };
 }

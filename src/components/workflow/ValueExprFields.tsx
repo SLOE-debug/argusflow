@@ -80,23 +80,23 @@ export function ValueExprEditorProvider({
 
 /** 顶层来源模式固定为字面量、结构化引用和高级表达式。 */
 const VALUE_KIND_OPTIONS = [
-  { value: 'literal', label: '固定值' },
-  { value: 'ref', label: '引用' },
+  { value: 'literal', label: '直接输入' },
+  { value: 'ref', label: '引用数据' },
   { value: 'expression', label: '表达式' },
 ] as const;
 
 /** 结构化引用的三种稳定来源。 */
 const SOURCE_KIND_OPTIONS = [
-  { value: 'node', label: '节点' },
-  { value: 'variable', label: '运行变量' },
-  { value: 'workflow_input', label: '工作流输入' },
+  { value: 'node', label: '上游节点' },
+  { value: 'variable', label: '变量' },
+  { value: 'workflow_input', label: '流程输入' },
 ] as const;
 
 /** 编辑可以解析成任意 JSON 值的 ValueExpr V2。 */
 export function ValueExprFields({
   value,
   onChange,
-  literalLabel = '固定值',
+  literalLabel = '输入值',
   literalMode = 'text',
   literalPresentation = { type: 'single_line' },
   expressionLocation,
@@ -163,14 +163,14 @@ type ReferenceFieldsProps = Readonly<{
   onChange: (value: ValueExpr) => void;
 }>;
 
-/** 引用模式只暴露选择器与 JSON Pointer，不要求用户输入内部节点 ID。 */
+/** 选择数据来源和要读取的字段，不要求用户输入节点内部编号。 */
 function ReferenceFields({ value, editorContext, onChange }: ReferenceFieldsProps) {
   const sourceType = value.source.type;
   return (
     <>
-      <InspectorField label="来源类型">
+      <InspectorField label="数据来自">
         <Select<ValueSource['type']>
-          aria-label="引用来源类型"
+          aria-label="数据来源"
           value={sourceType}
           options={SOURCE_KIND_OPTIONS}
           containerClassName="border-slate-300 bg-white"
@@ -231,19 +231,19 @@ function NodeReferenceFields({ source, pointer, nodes, onChange }: NodeReference
     || knownPointers.some((option) => option.value === pointer);
   const pointerMode = pointerIsKnown ? pointer : '__custom__';
   const pointerOptions = [
-    { value: '', label: '整个输出对象' },
+    { value: '', label: '全部数据' },
     ...knownPointers,
-    { value: '__custom__', label: '自定义 JSON Pointer' },
+    { value: '__custom__', label: '指定数据路径' },
   ];
   return (
     <>
-      <InspectorField label="上游节点">
+      <InspectorField label="数据来自">
         <Select<string>
           aria-label="上游节点"
           value={source.node_id}
           options={nodeOptions.length > 0
             ? nodeOptions
-            : [{ value: '', label: '暂无可引用的上游节点', disabled: true }]}
+            : [{ value: '', label: '还没有可引用的上游节点', disabled: true }]}
           containerClassName="border-slate-300 bg-white"
           onValueChange={(nodeId) => onChange({
             type: 'ref',
@@ -252,9 +252,9 @@ function NodeReferenceFields({ source, pointer, nodes, onChange }: NodeReference
           })}
         />
       </InspectorField>
-      <InspectorField label="值">
+      <InspectorField label="读取内容">
         <Select<string>
-          aria-label="节点输出值"
+          aria-label="要读取的内容"
           value={pointerMode}
           options={pointerOptions}
           containerClassName="border-slate-300 bg-white"
@@ -266,11 +266,11 @@ function NodeReferenceFields({ source, pointer, nodes, onChange }: NodeReference
         />
       </InspectorField>
       {pointerMode === '__custom__' ? (
-        <InspectorField label="JSON Pointer">
+        <InspectorField label="字段路径（JSON Pointer）">
           <Input
-            aria-label="节点输出 JSON Pointer"
+            aria-label="节点输出数据路径"
             value={pointer}
-            placeholder="/path"
+            placeholder="例如 /title"
             containerClassName="border-slate-300 bg-white"
             onChange={(event) => onChange({
               type: 'ref',
@@ -304,7 +304,7 @@ function WorkflowInputReferenceFields({
           value={source.key}
           options={options.length > 0
             ? options
-            : [{ value: '', label: '暂无工作流输入', disabled: true }]}
+            : [{ value: '', label: '还没有定义工作流输入', disabled: true }]}
           containerClassName="border-slate-300 bg-white"
           onValueChange={(key) => onChange({
             type: 'ref',
@@ -353,7 +353,7 @@ function VariableReferenceFields({
   );
 }
 
-/** 工作流输入与运行变量共享的任意 JSON Pointer 编辑器。 */
+/** 流程输入与变量共用的字段路径编辑器。 */
 function JsonPointerField({
   source,
   pointer,
@@ -364,11 +364,11 @@ function JsonPointerField({
   onChange: (value: ValueExpr) => void;
 }>) {
   return (
-    <InspectorField label="JSON Pointer">
+    <InspectorField label="字段路径（JSON Pointer）">
       <Input
-        aria-label="引用 JSON Pointer"
+        aria-label="引用数据路径"
         value={pointer}
-        placeholder="空值表示整个值"
+        placeholder="留空表示使用全部内容"
         containerClassName="border-slate-300 bg-white"
         onChange={(event) => onChange({
           type: 'ref',
@@ -388,7 +388,7 @@ function ExpressionSummary({
   return (
     <div className="rounded-md border border-slate-200 bg-white p-2.5">
       <p className="truncate font-mono text-[11px] text-slate-700">
-        {source || '尚未填写表达式'}
+        {source || '还没有填写表达式'}
       </p>
       <button
         type="button"
@@ -449,8 +449,8 @@ function JsonLiteralField({
             const parsed = JSON.parse(nextDraft) as JsonValue;
             onChange(parsed);
             setError(null);
-          } catch (parseError) {
-            setError(parseError instanceof Error ? parseError.message : 'JSON 格式无效');
+          } catch {
+            setError('JSON 格式有误，请检查引号、括号和逗号。');
           }
         }}
       />

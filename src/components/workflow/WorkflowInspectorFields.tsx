@@ -56,14 +56,14 @@ export function WorkflowInspectorFields({
   return (
     <>
       <InspectorSection title="基本信息">
-        <InspectorField label="流程名称">
+        <InspectorField label="工作流名称">
           <input
             className={`${INSPECTOR_CONTROL_CLASS_NAME} h-8`}
             value={workflowName}
             onChange={(event) => onNameChange(event.target.value)}
           />
         </InspectorField>
-        <InspectorField label="流程 ID">
+        <InspectorField label="工作流 ID">
           <input
             className={`${INSPECTOR_CONTROL_CLASS_NAME} h-8`}
             value="workflow_sync_01"
@@ -71,9 +71,9 @@ export function WorkflowInspectorFields({
           />
         </InspectorField>
       </InspectorSection>
-      <InspectorSection title="系统权限">
+      <InspectorSection title="运行权限">
         <PermissionToggle
-          label="允许 Application 启动应用"
+          label="允许启动桌面应用"
           checked={hasPermission(permissions, 'process.application.launch')}
           onChange={(allowed) => onPermissionsChange(changePermission(
             permissions,
@@ -82,7 +82,7 @@ export function WorkflowInspectorFields({
           ))}
         />
         <PermissionToggle
-          label="允许 Direct 命令"
+          label="允许直接运行程序"
           checked={hasPermission(permissions, 'process.command.direct')}
           onChange={(allowed) => onPermissionsChange(changePermission(
             permissions,
@@ -109,28 +109,28 @@ export function WorkflowInspectorFields({
           ))}
         />
         <p className={INSPECTOR_HELP_CLASS_NAME}>
-          每种会创建进程的节点路径都必须拥有对应能力声明。
+          开启后，工作流才能使用对应的程序或命令。
         </p>
       </InspectorSection>
       <JsonEditorSection
-        title="运行输入声明"
+        title="输入字段"
         draft={inputDefinitionsDraft}
         error={inputDefinitionsError}
-        help="声明随工作流保存；当前仅支持 { key, value_type: 'text' }。"
+        help="用 JSON 定义工作流需要的输入字段，目前只支持文本类型。"
         onChange={onInputDefinitionsChange}
       />
       <JsonEditorSection
         title="本次运行输入"
         draft={runInputValuesDraft}
         error={runInputValuesError}
-        help="值只随本次 run_workflow 调用发送，不写入工作流定义。"
+        help="只用于这次运行，不会保存到工作流。"
         onChange={onRunInputValuesChange}
       />
       <JsonEditorSection
-        title="流程变量"
+        title="变量"
         draft={variablesDraft}
         error={variablesError}
-        help="条件节点使用 RFC 6901 JSON Pointer 读取这里的初始值。"
+        help="工作流开始时会载入这些变量；条件和表达式可以读取它们。"
         onChange={onVariablesChange}
       />
     </>

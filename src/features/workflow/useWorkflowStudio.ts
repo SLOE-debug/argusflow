@@ -421,7 +421,7 @@ export function useWorkflowStudio() {
     try {
       const parsed: unknown = JSON.parse(draft);
       if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
-        throw new Error('变量根值必须是 JSON 对象');
+        throw new Error('变量必须是 JSON 对象。');
       }
       flowStore.getState().setMetadata(
         { variables: parsed as JsonObject },
@@ -431,7 +431,9 @@ export function useWorkflowStudio() {
       setVariablesError(null);
     } catch (error) {
       setVariablesError(
-        error instanceof Error ? error.message : 'JSON 格式无效',
+        error instanceof Error && error.message === '变量必须是 JSON 对象。'
+          ? error.message
+          : 'JSON 格式有误，请检查引号、括号和逗号。',
       );
     }
   }, [flowStore]);

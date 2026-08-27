@@ -173,7 +173,7 @@ export function WindowTitleBar({
         <div className="flex h-[26px] items-center gap-1.5 text-[11px] text-slate-500 max-[1539px]:hidden">
           <span className={`size-1.5 shrink-0 rounded-full ${status.tone}`} />
           <span className="flex h-full items-center leading-none">
-            {running ? '运行中' : '已保存'}&nbsp; 10:32:45
+            {running ? '运行中' : '已保存'}
           </span>
         </div>
         {editorCommands ? (
@@ -188,7 +188,7 @@ export function WindowTitleBar({
             aria-label="搜索"
             density="compact"
             containerClassName="hidden w-[144px] min-[1600px]:flex"
-            placeholder="搜索（⌘K）"
+            placeholder="搜索（Ctrl+K）"
             startAdornment={(
               <Search
                 className="size-3 shrink-0"
@@ -205,11 +205,11 @@ export function WindowTitleBar({
           </button>
           <button
             type="button"
-            aria-label="服务在线"
+            aria-label="运行环境"
             className="flex size-[26px] items-center justify-center rounded-md border border-slate-200 bg-white text-[12px] leading-none text-slate-700 min-[1500px]:w-auto min-[1500px]:gap-1.5 min-[1500px]:px-2"
           >
-            <span className="size-1.5 rounded-full bg-emerald-600" />
-            <span className="hidden min-[1500px]:inline">服务在线</span>
+            <span className="size-1.5 rounded-full bg-slate-300" />
+            <span className="hidden min-[1500px]:inline">运行环境</span>
           </button>
           <button type="button" aria-label="通知" className="hidden text-slate-600 hover:text-slate-900 min-[1380px]:block">
             <Bell className="size-[15px]" aria-hidden="true" />

@@ -31,10 +31,10 @@ export function EditorPrimaryActions({
         className="hidden h-[26px] items-center gap-1.5 rounded-md border border-slate-300 bg-white px-2.5 text-[12px] leading-none font-medium text-slate-700 outline-none hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-40 min-[1100px]:flex"
         onClick={onValidate}
         disabled={running}
-        aria-label="校验"
+        aria-label="检查工作流"
       >
         <ShieldCheck className="size-3" aria-hidden="true" />
-        校验
+        检查流程
       </button>
       <SplitActionButton
         label={running ? '运行中…' : '运行'}

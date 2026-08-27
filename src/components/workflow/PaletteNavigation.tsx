@@ -28,11 +28,11 @@ type PaletteModuleDefinition = Readonly<{
 
 /** 工作台模块清单同时驱动导航与占位页文案。 */
 const PALETTE_MODULES = [
-  { id: 'nodes', label: '节点库', description: '拖拽节点到画布中组装流程。', icon: Layers3 },
-  { id: 'outline', label: '流程大纲', description: '流程层级与快速定位功能将在此提供。', icon: PanelLeft },
-  { id: 'resources', label: '资源', description: '工作流引用的数据源和凭据将在此管理。', icon: Boxes },
-  { id: 'subflows', label: '子流程', description: '可复用的子流程将在此列出。', icon: Workflow },
-  { id: 'settings', label: '工作台设置', description: '节点库和编辑器偏好将在此配置。', icon: Settings },
+  { id: 'nodes', label: '节点库', description: '把节点拖到画布，组装流程。', icon: Layers3 },
+  { id: 'outline', label: '流程大纲', description: '按层级查看流程，并快速定位节点。', icon: PanelLeft },
+  { id: 'resources', label: '资源', description: '管理流程要用的数据和凭据。', icon: Boxes },
+  { id: 'subflows', label: '子流程', description: '查看可以重复使用的流程。', icon: Workflow },
+  { id: 'settings', label: '工作台设置', description: '调整节点库和编辑器偏好。', icon: Settings },
 ] as const satisfies ReadonlyArray<PaletteModuleDefinition>;
 
 /** 返回指定模块的强类型定义。 */

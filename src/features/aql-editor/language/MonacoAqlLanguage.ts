@@ -231,7 +231,7 @@ function registerLanguageProviders(monaco: MonacoApi): void {
   });
 
   monaco.languages.registerDocumentFormattingEditProvider(AQL_LANGUAGE_ID, {
-    displayName: 'AQL Formatter',
+    displayName: 'AQL 格式化器',
     provideDocumentFormattingEdits: (model) => {
       const formattedSource = currentService().inspect(model.getValue()).formatted_source;
       return formattedSource && formattedSource !== model.getValue()
@@ -245,7 +245,7 @@ function registerLanguageProviders(monaco: MonacoApi): void {
       const edits = currentService().codeActions(model.getValue());
       return {
         actions: edits.length === 0 ? [] : [{
-          title: '修复 AQL 语法',
+          title: '修正查找条件',
           kind: 'quickfix.aql',
           isPreferred: true,
           diagnostics: context.markers,

@@ -20,7 +20,7 @@ export function ScriptFieldSummary({ runner, source, onEdit }: ScriptFieldSummar
     <StructuredFieldSummary
       title="脚本"
       badge={SCRIPT_RUNNER_LABELS[runner]}
-      status={`固定文本 · ${lineCount} 行`}
+      status={`${lineCount} 行脚本`}
       preview={source}
       actionLabel="编辑脚本"
       onEdit={onEdit}

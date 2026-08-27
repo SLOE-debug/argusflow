@@ -18,10 +18,10 @@ export function VariableNodeFields({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center">
-        <span className="text-[10px] font-medium text-slate-500">变量赋值</span>
+        <span className="text-[10px] font-medium text-slate-500">设置变量</span>
         <button
           type="button"
-          aria-label="添加变量赋值"
+          aria-label="添加变量"
           className="ml-auto flex size-6 items-center justify-center rounded text-blue-600 hover:bg-blue-50"
           onClick={() => onUpdate((current) => current.kind === 'variable'
             ? {
@@ -42,9 +42,9 @@ export function VariableNodeFields({
           key={index}
           className="relative flex flex-col gap-2 rounded-md border border-slate-200 bg-slate-50/60 p-2.5"
         >
-          <InspectorField label="变量名称">
+          <InspectorField label="变量名">
             <Input
-              aria-label={`变量赋值 ${index + 1} 名称`}
+              aria-label={`变量 ${index + 1} 名称`}
               value={assignment.name}
               containerClassName="border-slate-300 bg-white"
               onChange={(event) => onUpdate((current) => current.kind === 'variable'
@@ -77,7 +77,7 @@ export function VariableNodeFields({
           />
           <button
             type="button"
-            aria-label={`删除变量赋值 ${index + 1}`}
+            aria-label={`删除变量 ${index + 1}`}
             className="absolute top-1.5 right-1.5 flex size-6 items-center justify-center rounded text-slate-400 hover:bg-rose-50 hover:text-rose-600"
             onClick={() => onUpdate((current) => current.kind === 'variable'
               ? {

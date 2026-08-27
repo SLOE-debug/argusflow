@@ -45,11 +45,11 @@ export function useWorkflowInputs(
     try {
       const parsed: unknown = JSON.parse(draft);
       if (!isInputDefinitions(parsed)) {
-        throw new Error('输入声明必须是仅含 key 和 text 类型的 JSON 数组');
+        throw new Error('输入字段必须是 JSON 数组，每项包含 key 和文本类型。');
       }
       const uniqueKeys = new Set(parsed.map((definition) => definition.key));
       if (uniqueKeys.size !== parsed.length || parsed.some(({ key }) => !key.trim())) {
-        throw new Error('输入名称必须非空且唯一');
+        throw new Error('输入字段名称不能为空，且不能重复。');
       }
       store.getState().setMetadata(
         { inputs: parsed },
@@ -58,7 +58,9 @@ export function useWorkflowInputs(
       );
       setDefinitionsError(null);
     } catch (error) {
-      setDefinitionsError(error instanceof Error ? error.message : 'JSON 格式无效');
+      setDefinitionsError(error instanceof Error && error.message.startsWith('输入字段')
+        ? error.message
+        : 'JSON 格式有误，请检查引号、括号和逗号。');
     }
   }, [store]);
 
@@ -72,7 +74,9 @@ export function useWorkflowInputs(
       setValues(parsed);
       setValuesError(null);
     } catch (error) {
-      setValuesError(error instanceof Error ? error.message : 'JSON 格式无效');
+      setValuesError(error instanceof Error && error.message === '本次运行输入必须是 JSON 对象'
+        ? error.message
+        : 'JSON 格式有误，请检查引号、括号和逗号。');
     }
   }, []);
 

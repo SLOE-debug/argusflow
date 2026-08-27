@@ -62,7 +62,7 @@ describe('ValueExprFields', () => {
 
     expect(screen.getByRole('combobox', { name: '上游节点' })).toHaveValue('write-file');
     expect(screen.queryByRole('textbox', { name: /生产节点/ })).not.toBeInTheDocument();
-    fireEvent.change(screen.getByRole('combobox', { name: '节点输出值' }), {
+    fireEvent.change(screen.getByRole('combobox', { name: '要读取的内容' }), {
       target: { value: '/output' },
     });
     expect(onChange).toHaveBeenCalledWith({

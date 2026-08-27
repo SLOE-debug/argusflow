@@ -138,7 +138,7 @@ describe('MonacoAqlLanguage', () => {
     expect(setModelMarkers).toHaveBeenCalledWith(
       model,
       AQL_LANGUAGE_ID,
-      [expect.objectContaining({ message: '未知的元素角色', severity: 8 })],
+      [expect.objectContaining({ message: '找不到这个控件类型', severity: 8 })],
     );
 
     const completion = completionProvider!.provideCompletionItems(
@@ -161,7 +161,7 @@ describe('MonacoAqlLanguage', () => {
       { lineNumber: 1, column: 1 } as Monaco.Position,
       {} as Monaco.CancellationToken,
     ) as Monaco.languages.Hover;
-    expect(hover.contents).toContainEqual({ value: '元素语义角色' });
+    expect(hover.contents).toContainEqual({ value: '控件类型' });
 
     const semanticTokens = semanticProvider!.provideDocumentSemanticTokens(
       model,

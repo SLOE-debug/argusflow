@@ -117,7 +117,7 @@ describe('workflow model', () => {
       DEFAULT_EDGES,
     );
 
-    expect(workflow.name).toBe('采集百度热搜并写入桌面文本');
+    expect(workflow.name).toBe('采集百度热搜并保存到桌面');
     expect(workflow.inputs).toEqual([]);
     expect(DEFAULT_RUN_INPUT_VALUES).toEqual({});
     expect(workflow.nodes.some((node) => node.type_id === 'argus.condition')).toBe(false);
@@ -285,7 +285,7 @@ describe('workflow model', () => {
     expect(previewRoutes.every((route) => route !== null)).toBe(true);
     expect(nodeCrossings).toEqual([]);
     expect(exactRoutes[writeDebugEdgeIndex]).toMatchObject({
-      sourceSide: 'bottom',
+      sourceSide: 'left',
       targetSide: 'right',
     });
     expect(exactRoutes[writeDebugEdgeIndex]!.points.length)

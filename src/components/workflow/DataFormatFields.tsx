@@ -23,13 +23,13 @@ export function DataFormatFields({ operation, onUpdate }: DataFormatFieldsProps)
     <div className="flex flex-col gap-2.5">
       <ValueExprFields
         value={operation.items}
-        literalLabel="对象数组"
+        literalLabel="输入数据"
         literalMode="json"
         onChange={(items) => change({ ...operation, items })}
       />
-      <InspectorField label="字段顺序">
+      <InspectorField label="列顺序">
         <Input
-          aria-label="格式化字段顺序"
+          aria-label="列顺序"
           value={operation.fields.join(', ')}
           containerClassName="border-slate-300 bg-white"
           onChange={(event) => change({
@@ -69,10 +69,10 @@ export function DataFormatFields({ operation, onUpdate }: DataFormatFieldsProps)
             include_header: event.target.checked,
           })}
         />
-        包含字段标题
+        包含表头
       </label>
       <p className={INSPECTOR_HELP_CLASS_NAME}>
-        分隔符编辑器使用 \t、\r、\n 可见转义，运行时输出真实控制字符。
+        可输入 \t、\r、\n 等转义字符；运行时会使用对应的实际分隔符。
       </p>
     </div>
   );

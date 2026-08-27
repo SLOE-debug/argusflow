@@ -80,18 +80,18 @@ describe('ExecutionLog', () => {
     expect(screen.getByText(/ArgusFlow 已启动/)).toBeInTheDocument();
     expect(screen.getByText(/首版只支持线性流程/)).toBeInTheDocument();
     expect(screen.getByText(/ArgusFlow 已启动/)).not.toHaveClass('truncate');
-    expect(screen.getByText('节点开始')).toBeVisible();
-    expect(screen.getByText('执行引擎')).toBeVisible();
-    expect(screen.getByText('Windows UI Automation')).toBeVisible();
+    expect(screen.getByText('开始执行')).toBeVisible();
+    expect(screen.getByText('已选择执行方式')).toBeVisible();
+    expect(screen.getByText('Windows UI 自动化')).toBeVisible();
     expect(screen.queryByText('node_started')).not.toBeInTheDocument();
     expect(screen.getAllByText('记录启动状态')).toHaveLength(3);
     expect(document.querySelectorAll('[data-node-tone="log"]')).toHaveLength(3);
 
-    fireEvent.click(screen.getByRole('button', { name: '复制完整执行日志' }));
+    fireEvent.click(screen.getByRole('button', { name: '复制运行日志' }));
     expect(writeText).toHaveBeenCalledWith([
-      '01 [记录启动状态] 节点开始 正在执行',
-      '02 [记录启动状态] 日志 ArgusFlow 已启动',
-      '03 [记录启动状态] 执行引擎 Windows UI Automation',
+      '01 [记录启动状态] 开始执行 正在执行',
+      '02 [记录启动状态] 记录信息 ArgusFlow 已启动',
+      '03 [记录启动状态] 已选择执行方式 Windows UI 自动化',
     ].join('\n'));
   });
 });

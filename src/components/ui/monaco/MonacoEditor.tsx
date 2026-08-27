@@ -124,9 +124,9 @@ export const MonacoEditor = forwardRef<MonacoEditorHandle, MonacoEditorProps>(
           });
           setLoadError(null);
         })
-        .catch((error: unknown) => {
+        .catch(() => {
           if (active) {
-            setLoadError(error instanceof Error ? error.message : String(error));
+            setLoadError('编辑器暂时无法加载，请稍后重试。');
           }
         });
 
@@ -176,7 +176,7 @@ export const MonacoEditor = forwardRef<MonacoEditorHandle, MonacoEditorProps>(
             className="absolute inset-0 flex items-center justify-center bg-amber-50 px-3 text-center text-[10px] text-amber-700"
             role="alert"
           >
-            Monaco 编辑器加载失败：{loadError}
+            {loadError}
           </p>
         ) : null}
       </div>

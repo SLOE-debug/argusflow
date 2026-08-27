@@ -16,9 +16,9 @@ type BrowserNodeFieldsProps = Readonly<{
 export function BrowserNodeFields({ spec, onChange }: BrowserNodeFieldsProps) {
   return (
     <div className="flex flex-col gap-2.5">
-      <InspectorField label="浏览器 EXE">
+      <InspectorField label="浏览器程序">
         <Input
-          aria-label="浏览器可执行文件"
+          aria-label="浏览器程序路径"
           value={spec.executable_path}
           containerClassName="border-slate-300 bg-white"
           onChange={(event) => onChange({
@@ -27,9 +27,9 @@ export function BrowserNodeFields({ spec, onChange }: BrowserNodeFieldsProps) {
           })}
         />
       </InspectorField>
-      <InspectorField label="启动超时毫秒">
+      <InspectorField label="启动超时（毫秒）">
         <Input
-          aria-label="浏览器启动超时毫秒"
+          aria-label="浏览器启动超时"
           type="number"
           min={100}
           max={60_000}
@@ -42,7 +42,7 @@ export function BrowserNodeFields({ spec, onChange }: BrowserNodeFieldsProps) {
         />
       </InspectorField>
       <p className={INSPECTOR_HELP_CLASS_NAME}>
-        本节点只获取隔离 CDP 会话；页面地址由后续“访问网址”节点明确导航。
+        这里先打开浏览器；网址请填写在后面的“打开网页”节点中。
       </p>
     </div>
   );

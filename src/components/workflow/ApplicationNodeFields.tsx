@@ -18,26 +18,26 @@ type ApplicationNodeFieldsProps = Readonly<{
 }>;
 
 const ACQUIRE_OPTIONS = [
-  { value: 'attach_or_start', label: '连接或启动（推荐）' },
-  { value: 'attach_only', label: '仅连接现有应用' },
-  { value: 'always_start_new', label: '总是启动新实例' },
+  { value: 'attach_or_start', label: '优先连接，找不到就打开（推荐）' },
+  { value: 'attach_only', label: '只连接已打开的应用' },
+  { value: 'always_start_new', label: '每次打开新应用' },
 ] as const;
 
 const CLEANUP_OPTIONS = [
   { value: 'leave_running', label: '保持运行' },
-  { value: 'close_if_started_by_workflow', label: '仅关闭本流程启动的应用' },
-  { value: 'always_close', label: '总是关闭' },
+  { value: 'close_if_started_by_workflow', label: '只关闭本次启动的应用' },
+  { value: 'always_close', label: '流程结束时关闭' },
 ] as const;
 
 const ACTIVATION_OPTIONS = [
-  { value: 'none', label: '不激活' },
-  { value: 'best_effort', label: '尽力激活（推荐）' },
-  { value: 'required', label: '必须激活' },
+  { value: 'none', label: '不切换窗口' },
+  { value: 'best_effort', label: '尝试切换到前台（推荐）' },
+  { value: 'required', label: '必须切换到前台' },
 ] as const;
 
 const TITLE_MATCH_OPTIONS = [
-  { value: 'equal', label: '完全相等' },
-  { value: 'contains', label: '允许包含' },
+  { value: 'equal', label: '完全匹配' },
+  { value: 'contains', label: '包含标题' },
 ] as const;
 
 /** 编辑 Application Resource 节点的身份与生命周期策略。 */
@@ -47,9 +47,9 @@ export function ApplicationNodeFields({
 }: ApplicationNodeFieldsProps) {
   return (
     <div className="flex flex-col gap-2.5">
-      <InspectorField label="应用 EXE">
+      <InspectorField label="应用程序">
         <Input
-          aria-label="应用 EXE 绝对路径"
+          aria-label="应用程序路径"
           value={spec.executable_path}
           containerClassName="border-slate-300 bg-white"
           onChange={(event) => onChange({
@@ -69,7 +69,7 @@ export function ApplicationNodeFields({
           })}
         />
       </InspectorField>
-      <InspectorField label="标题匹配">
+      <InspectorField label="匹配方式">
         <Select<'equal' | 'contains'>
           value={spec.window_title.type}
           options={TITLE_MATCH_OPTIONS}
@@ -80,7 +80,7 @@ export function ApplicationNodeFields({
           })}
         />
       </InspectorField>
-      <InspectorField label="获取策略">
+      <InspectorField label="打开方式">
         <Select<AcquirePolicy>
           value={spec.acquire_policy}
           options={ACQUIRE_OPTIONS}
@@ -99,9 +99,9 @@ export function ApplicationNodeFields({
           })}
         />
       </InspectorField>
-      <InspectorField label="启动超时">
+      <InspectorField label="启动超时（毫秒）">
         <Input
-          aria-label="应用启动超时毫秒"
+          aria-label="应用启动超时"
           type="number"
           min={100}
           max={60_000}
@@ -113,7 +113,7 @@ export function ApplicationNodeFields({
           })}
         />
       </InspectorField>
-      <InspectorField label="清理策略">
+      <InspectorField label="结束时处理">
         <Select<CleanupPolicy>
           value={spec.cleanup_policy}
           options={CLEANUP_OPTIONS}
@@ -121,7 +121,7 @@ export function ApplicationNodeFields({
           onValueChange={(cleanup_policy) => onChange({ ...spec, cleanup_policy })}
         />
       </InspectorField>
-      <InspectorField label="激活策略">
+      <InspectorField label="窗口激活">
         <Select<ActivationPolicy>
           value={spec.activation_policy}
           options={ACTIVATION_OPTIONS}
@@ -130,7 +130,7 @@ export function ApplicationNodeFields({
         />
       </InspectorField>
       <p className={INSPECTOR_HELP_CLASS_NAME}>
-        节点产生 session 资源；后续 UI 节点通过逻辑引用复用该会话。
+        后面的界面操作会使用这个应用。
       </p>
     </div>
   );

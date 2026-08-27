@@ -36,13 +36,13 @@ export function WorkspaceStructuredEditor({
 }: WorkspaceStructuredEditorProps) {
   const node = nodes.find((candidate) => candidate.id === target.nodeId);
   if (!node) {
-    return <UnavailableEditor message="所属节点已不存在，请关闭此编辑器。" />;
+    return <UnavailableEditor message="这个节点已不存在，请关闭此编辑器。" />;
   }
 
   switch (target.type) {
     case 'aql': {
       if (node.data.kind !== 'ui' || node.data.operation.target.locator.type !== 'query') {
-        return <UnavailableEditor message="该节点已不再使用 AQL 查找规则。" />;
+        return <UnavailableEditor message="此节点已改用其他查找方式，请关闭此编辑器。" />;
       }
       const operation = node.data.operation;
       const locator = operation.target.locator;
@@ -67,7 +67,7 @@ export function WorkspaceStructuredEditor({
         || script.type !== 'literal'
         || typeof script.value !== 'string'
       ) {
-        return <UnavailableEditor message="该节点已不再使用固定文本脚本。" />;
+        return <UnavailableEditor message="此节点已改用其他执行方式，请关闭此编辑器。" />;
       }
       return (
         <CommandScriptEditor
@@ -83,7 +83,7 @@ export function WorkspaceStructuredEditor({
     case 'expression': {
       const expression = readNodeValueExpr(node.data, target.location);
       if (expression?.type !== 'expression') {
-        return <UnavailableEditor message="该字段已不再使用运行时表达式。" />;
+        return <UnavailableEditor message="此字段已改为其他数据来源，请关闭此编辑器。" />;
       }
       /** location 进入 URI，确保同一节点的不同表达式保留各自 Monaco 模型。 */
       const locationKey = encodeURIComponent(JSON.stringify(target.location));

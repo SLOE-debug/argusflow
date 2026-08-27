@@ -80,7 +80,7 @@ export const WORKFLOW_NODE_DEFINITIONS = {
     version: 1,
     create: () => ({
       kind: 'log',
-      label: '日志',
+      label: '记录日志',
       outputBindings: {},
       message: '记录一条运行信息',
       runState: 'idle',
@@ -92,7 +92,7 @@ export const WORKFLOW_NODE_DEFINITIONS = {
     version: 1,
     create: () => ({
       kind: 'debug',
-      label: '调试输出',
+      label: '查看结果',
       outputBindings: {},
       value: { type: 'literal', value: '' },
       runState: 'idle',
@@ -104,7 +104,7 @@ export const WORKFLOW_NODE_DEFINITIONS = {
     version: 1,
     create: () => ({
       kind: 'delay',
-      label: '固定暂停',
+      label: '等待',
       outputBindings: {},
       milliseconds: 500,
       runState: 'idle',
@@ -116,7 +116,7 @@ export const WORKFLOW_NODE_DEFINITIONS = {
     version: 1,
     create: () => ({
       kind: 'condition',
-      label: '条件',
+      label: '条件判断',
       outputBindings: {},
       left: {
         type: 'ref',
@@ -150,7 +150,7 @@ export const WORKFLOW_NODE_DEFINITIONS = {
     version: 1,
     create: () => ({
       kind: 'application',
-      label: '打开或连接应用',
+      label: '打开应用',
       outputBindings: {},
       spec: createDefaultApplicationSpec(),
       runState: 'idle',
@@ -174,7 +174,7 @@ export const WORKFLOW_NODE_DEFINITIONS = {
     version: 1,
     create: () => ({
       kind: 'navigate',
-      label: '访问网址',
+      label: '打开网页',
       outputBindings: {},
       operation: {
         type: 'navigate',
@@ -190,7 +190,7 @@ export const WORKFLOW_NODE_DEFINITIONS = {
     version: 2,
     create: () => ({
       kind: 'ui',
-      label: '界面操作',
+      label: '操作界面',
       outputBindings: {},
       operation: createDefaultUiOperation(),
       execution: createDefaultUiExecutionPolicy(),
@@ -237,7 +237,7 @@ export const WORKFLOW_NODE_DEFINITIONS = {
     outputs: () => [
       { name: 'stdout', valueType: 'text', label: '标准输出' },
       { name: 'stderr', valueType: 'text', label: '错误输出' },
-      { name: 'exit_code', valueType: 'json', label: '退出代码' },
+      { name: 'exit_code', valueType: 'json', label: '退出码' },
     ],
   }),
   format: defineNode('format', {
@@ -245,7 +245,7 @@ export const WORKFLOW_NODE_DEFINITIONS = {
     version: 1,
     create: () => ({
       kind: 'format',
-      label: '格式化文本',
+      label: '整理文本',
       outputBindings: {},
       operation: {
         items: { type: 'literal', value: [] },
@@ -257,7 +257,7 @@ export const WORKFLOW_NODE_DEFINITIONS = {
       runState: 'idle',
     }),
     encode: (data) => ({ operation: data.operation }),
-    outputs: () => [{ name: 'text', valueType: 'text', label: '格式化文本' }],
+    outputs: () => [{ name: 'text', valueType: 'text', label: '整理后的文本' }],
   }),
   component: defineNode('component', {
     typeId: 'argus.component',

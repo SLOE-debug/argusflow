@@ -35,16 +35,16 @@ const documentHoverTargets = new Map<string, ReadonlyArray<ExpressionHoverTarget
 const configuredMonacoInstances = new WeakSet<object>();
 
 const BASE_SUGGESTIONS = [
-  { label: 'input', insertText: 'input', detail: '工作流运行输入（只读）' },
-  { label: 'vars', insertText: 'vars', detail: '运行变量快照（只读）' },
-  { label: 'nodes', insertText: 'nodes', detail: '已发布节点输出（只读）' },
-  { label: 'result', insertText: 'result', detail: '当前节点原生结果（仅输出映射）' },
-  { label: 'str(value)', insertText: 'str(${1:value})', detail: '格式化运行时值' },
-  { label: 'json(value)', insertText: 'json(${1:value})', detail: '转换为 JSON 字符串' },
+  { label: 'input', insertText: 'input', detail: '流程输入（只读）' },
+  { label: 'vars', insertText: 'vars', detail: '变量（只读）' },
+  { label: 'nodes', insertText: 'nodes', detail: '节点输出（只读）' },
+  { label: 'result', insertText: 'result', detail: '当前节点结果（仅用于输出）' },
+  { label: 'str(value)', insertText: 'str(${1:value})', detail: '转换为文本' },
+  { label: 'json(value)', insertText: 'json(${1:value})', detail: '转换为 JSON 文本' },
   {
     label: 'get(value, pointer)',
     insertText: 'get(${1:value}, ${2:"/path"})',
-    detail: '通过 RFC 6901 JSON Pointer 取值',
+    detail: '按数据路径读取值',
   },
 ] as const satisfies ReadonlyArray<ExpressionSuggestion>;
 

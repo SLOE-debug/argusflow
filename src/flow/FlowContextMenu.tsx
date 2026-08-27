@@ -181,7 +181,7 @@ export function FlowContextMenu({
       pendingConnection.sourceSide,
     );
     if (added) onClose();
-    else setConnectionError('当前节点不能再创建新的出线。');
+    else setConnectionError('当前节点已达到可连接的数量上限。');
   };
   const runArrangeAction = (action: ArrangeAction) => {
     if (action.kind === 'align') align(action.mode);

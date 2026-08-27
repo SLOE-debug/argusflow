@@ -3,6 +3,11 @@ import { useEffect, useState } from 'react';
 import type { AqlInspection, AutomationTarget } from './contracts';
 import { inspectAql, isDesktopRuntime } from './workflowApi';
 
+/** 非桌面预览无法读取真实运行环境时显示的说明。 */
+const DESKTOP_RUNTIME_MESSAGE = '请在 ArgusFlow 桌面应用中检查运行环境。';
+/** Runtime 检查失败时给用户的下一步提示。 */
+const INSPECTION_ERROR_MESSAGE = '运行环境检查暂不可用，请稍后重试。';
+
 /** Runtime Planner Explain 在编辑器中的请求状态。 */
 export type AqlInspectionState =
   | { phase: 'loading'; inspection: null; message: null }
@@ -19,7 +24,7 @@ export function useAqlInspection(
       : {
           phase: 'unavailable',
           inspection: null,
-          message: '运行环境评估仅在 ArgusFlow 桌面应用中可用。',
+          message: DESKTOP_RUNTIME_MESSAGE,
         }
   ));
 
@@ -28,7 +33,7 @@ export function useAqlInspection(
       setState({
         phase: 'unavailable',
         inspection: null,
-        message: '运行环境评估仅在 ArgusFlow 桌面应用中可用。',
+        message: DESKTOP_RUNTIME_MESSAGE,
       });
       return;
     }
@@ -43,12 +48,12 @@ export function useAqlInspection(
             setState({ phase: 'ready', inspection, message: null });
           }
         })
-        .catch((error: unknown) => {
+        .catch(() => {
           if (active) {
             setState({
               phase: 'unavailable',
               inspection: null,
-              message: error instanceof Error ? error.message : String(error),
+              message: INSPECTION_ERROR_MESSAGE,
             });
           }
         });

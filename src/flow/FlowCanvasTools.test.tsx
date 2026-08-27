@@ -51,7 +51,7 @@ describe('FlowCanvasTools', () => {
     fireEvent.click(screen.getByRole('button', { name: '画布设置' }));
 
     expect(screen.getByRole('heading', { name: '画布快捷操作' })).toBeVisible();
-    expect(screen.getByText('微调选中节点 1px')).toBeVisible();
+    expect(screen.getByText('移动选中节点 1 像素')).toBeVisible();
   });
 
   it('locates the selected node without changing zoom', () => {
@@ -80,7 +80,7 @@ describe('FlowCanvasTools', () => {
       </FlowProvider>,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: '定位' }));
+    fireEvent.click(screen.getByRole('button', { name: '居中显示' }));
 
     expect(store.getState().viewport).toEqual({ x: 160, y: -37.5, zoom: 1.5 });
   });
@@ -107,7 +107,7 @@ describe('FlowCanvasTools', () => {
       </FlowProvider>,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: '适应内容' }));
+    fireEvent.click(screen.getByRole('button', { name: '显示全部' }));
 
     expect(store.getState().viewport.zoom).toBeCloseTo(0.656);
     expect(store.getState().viewport).not.toEqual({ x: 0, y: 42, zoom: 1 });

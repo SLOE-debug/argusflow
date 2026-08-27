@@ -21,7 +21,7 @@ export type FlowComponentCatalogItem = Readonly<{
 export const FLOW_COMPONENT_CATALOG = [
   {
     title: '网页链接采集',
-    description: '获取浏览器、导航并提取页面链接',
+    description: '打开浏览器并读取网页链接',
     definition: createWebLinkCollectorDefinition(),
     defaultInputs: {
       url: { type: 'literal', value: 'https://www.baidu.com/' },

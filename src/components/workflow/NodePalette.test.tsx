@@ -16,7 +16,7 @@ describe('NodePalette', () => {
     const store = createFlowStore<WorkflowNodeData, WorkflowEdgeData>();
     render(<NodePalette store={store} onResetWidth={vi.fn()} />);
 
-    const triggerNode = screen.getByRole('button', { name: '手动触发' });
+    const triggerNode = screen.getByRole('button', { name: '开始' });
     expect(triggerNode).toHaveAttribute('draggable', 'true');
 
     fireEvent.dragStart(triggerNode, { dataTransfer });
@@ -24,11 +24,11 @@ describe('NodePalette', () => {
     expect(dataTransfer.effectAllowed).toBe('copy');
     expect(setData).toHaveBeenCalledWith(FLOW_NODE_KIND_DRAG_TYPE, 'start');
 
-    const actionNode = screen.getByRole('button', { name: '界面操作' });
+    const actionNode = screen.getByRole('button', { name: '操作界面' });
     fireEvent.dragStart(actionNode, { dataTransfer });
     expect(setData).toHaveBeenCalledWith(FLOW_NODE_KIND_DRAG_TYPE, 'ui');
 
-    const debugNode = screen.getByRole('button', { name: '调试输出' });
+    const debugNode = screen.getByRole('button', { name: '查看结果' });
     fireEvent.dragStart(debugNode, { dataTransfer });
     expect(setData).toHaveBeenCalledWith(FLOW_NODE_KIND_DRAG_TYPE, 'debug');
     expect(setData).toHaveBeenCalledWith('text/plain', 'argusflow-node:debug');
@@ -38,13 +38,13 @@ describe('NodePalette', () => {
     const store = createFlowStore<WorkflowNodeData, WorkflowEdgeData>();
     render(<NodePalette store={store} onResetWidth={vi.fn()} />);
 
-    const triggerGroup = screen.getByRole('button', { name: /^触发/ });
+    const triggerGroup = screen.getByRole('button', { name: /^触发流程/ });
     fireEvent.click(triggerGroup);
-    expect(screen.queryByRole('button', { name: '手动触发' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '开始' })).not.toBeInTheDocument();
     expect(triggerGroup).toHaveAttribute('aria-expanded', 'false');
 
     fireEvent.click(triggerGroup);
-    expect(screen.getByRole('button', { name: '手动触发' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '开始' })).toBeInTheDocument();
     expect(triggerGroup).toHaveAttribute('aria-expanded', 'true');
   });
 
@@ -54,19 +54,19 @@ describe('NodePalette', () => {
     render(<NodePalette store={store} onResetWidth={onResetWidth} />);
 
     expect(screen.queryByRole('button', { name: '定时触发' })).not.toBeInTheDocument();
-    expect(screen.getByText('界面操作', { selector: 'strong' })).toHaveAttribute(
+    expect(screen.getByText('操作界面', { selector: 'strong' })).toHaveAttribute(
       'title',
-      '界面操作',
+      '操作界面',
     );
-    expect(screen.getByText('点击、填写或读取控件')).toHaveAttribute(
+    expect(screen.getByText('点击、输入或读取界面内容')).toHaveAttribute(
       'title',
-      '点击、填写或读取控件',
+      '点击、输入或读取界面内容',
     );
-    fireEvent.click(screen.getByRole('button', { name: '恢复节点库默认宽度' }));
+    fireEvent.click(screen.getByRole('button', { name: '恢复节点库宽度' }));
     expect(onResetWidth).toHaveBeenCalledOnce();
 
     fireEvent.click(screen.getByRole('button', { name: '资源' }));
-    expect(screen.getByText('工作流引用的数据源和凭据将在此管理。')).toBeVisible();
+    expect(screen.getByText('管理流程要用的数据和凭据。')).toBeVisible();
     expect(screen.queryByRole('textbox', { name: '搜索节点' })).not.toBeInTheDocument();
   });
 });

@@ -9,7 +9,7 @@ import { Input } from '../ui';
 import { InspectorField } from './InspectorControls';
 import { ValueExprFields } from './ValueExprFields';
 
-/** 编辑所有节点共享、读取同一原生 result 快照的 Published Outputs 映射。 */
+/** 设置可供后续节点使用的额外输出。 */
 export function NodeOutputBindingsFields({
   data,
   onUpdate,
@@ -25,11 +25,11 @@ export function NodeOutputBindingsFields({
     <div className="flex flex-col gap-2">
       <div className="flex items-center">
         <p className="pr-2 text-[10px] leading-4 text-slate-500">
-          每项都读取映射前的 result 快照，全部成功后一次发布。
+          把节点结果另存为输出，供后面的步骤使用。
         </p>
         <button
           type="button"
-          aria-label="添加自定义输出"
+          aria-label="添加输出"
           className="ml-auto flex size-6 shrink-0 items-center justify-center rounded text-blue-600 hover:bg-blue-50"
           onClick={() => onUpdate((current) => {
             const name = createOutputName(current.outputBindings);
@@ -48,7 +48,7 @@ export function NodeOutputBindingsFields({
       </div>
       {bindings.length === 0 ? (
         <p className="rounded-md border border-dashed border-slate-200 px-2.5 py-3 text-center text-[10px] text-slate-400">
-          尚未定义自定义输出
+          还没有额外输出
         </p>
       ) : null}
       {bindings.map(([name, expression]) => (
@@ -58,7 +58,7 @@ export function NodeOutputBindingsFields({
         >
           <InspectorField label="输出名称">
             <Input
-              aria-label={`自定义输出 ${name} 名称`}
+              aria-label={`输出 ${name} 名称`}
               value={name}
               containerClassName="border-slate-300 bg-white"
               onChange={(event) => onUpdate((current) => renameOutput(
@@ -81,12 +81,12 @@ export function NodeOutputBindingsFields({
           />
           {nativeOutputNames.has(name) ? (
             <p className="rounded bg-amber-50 px-2 py-1 text-[10px] leading-4 text-amber-700">
-              此映射会覆盖节点原生同名输出。
+              会替换同名的默认输出。
             </p>
           ) : null}
           <button
             type="button"
-            aria-label={`删除自定义输出 ${name}`}
+            aria-label={`删除输出 ${name}`}
             className="absolute top-1.5 right-1.5 flex size-6 items-center justify-center rounded text-slate-400 hover:bg-rose-50 hover:text-rose-600"
             onClick={() => onUpdate((current) => removeOutput(current, name))}
           >

@@ -26,7 +26,7 @@ const FORMAT_NEWS_NODE_ID = 'format_baidu_news_1';
 const WRITE_NEWS_NODE_ID = 'write_baidu_news_1';
 
 /** 默认模板的工作流名称。 */
-export const DEFAULT_WORKFLOW_NAME = '采集百度热搜并写入桌面文本';
+export const DEFAULT_WORKFLOW_NAME = '采集百度热搜并保存到桌面';
 
 /** 默认模板不依赖预置变量。 */
 export const DEFAULT_WORKFLOW_VARIABLES = {} as const satisfies JsonObject;
@@ -66,7 +66,7 @@ export const DEFAULT_NODES = [
     size: { ...WORKFLOW_NODE_SIZES.browser },
     data: {
       kind: 'browser',
-      label: '获取 Chrome 会话',
+      label: '打开 Chrome',
       outputBindings: {},
       spec: {
         executable_path: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
@@ -84,7 +84,7 @@ export const DEFAULT_NODES = [
     size: { ...WORKFLOW_NODE_SIZES.navigate },
     data: {
       kind: 'navigate',
-      label: '访问百度',
+      label: '打开百度',
       outputBindings: {},
       operation: {
         type: 'navigate',
@@ -104,7 +104,7 @@ export const DEFAULT_NODES = [
     size: { ...WORKFLOW_NODE_SIZES.ui },
     data: {
       kind: 'ui',
-      label: '提取热搜标题和链接',
+      label: '读取热搜',
       outputBindings: {},
       operation: {
         type: 'extract',
@@ -134,7 +134,7 @@ export const DEFAULT_NODES = [
     size: { ...WORKFLOW_NODE_SIZES.format },
     data: {
       kind: 'format',
-      label: '格式化热搜文本',
+      label: '整理热搜',
       outputBindings: {},
       operation: {
         items: {
@@ -157,7 +157,7 @@ export const DEFAULT_NODES = [
     size: { ...WORKFLOW_NODE_SIZES.command },
     data: {
       kind: 'command',
-      label: '写入桌面百度热搜.txt',
+      label: '保存热搜',
       operation: {
         runner: 'power_shell',
         program: null,
@@ -199,7 +199,7 @@ export const DEFAULT_NODES = [
     size: { ...WORKFLOW_NODE_SIZES.debug },
     data: {
       kind: 'debug',
-      label: '输出保存路径',
+      label: '查看位置',
       outputBindings: {},
       value: {
         type: 'ref',

@@ -35,28 +35,28 @@ export type ExecutionLogEntry = Readonly<{
 
 /** 后端稳定事件枚举对应的中文产品文案。 */
 export const EXECUTION_EVENT_LABELS = {
-  workflow_started: '流程开始',
-  node_started: '节点开始',
-  log: '日志',
-  node_output_produced: '节点输出',
-  resource_acquired: '资源就绪',
-  backend_selected: '执行引擎',
-  command_exited: '命令结束',
-  diagnostic_evidence_captured: '失败现场',
-  node_succeeded: '节点完成',
-  edge_traversed: '流程流转',
-  node_failed: '节点失败',
-  workflow_completed: '流程完成',
-  workflow_failed: '流程失败',
+  workflow_started: '开始运行',
+  node_started: '开始执行',
+  log: '记录信息',
+  node_output_produced: '输出结果',
+  resource_acquired: '资源已准备',
+  backend_selected: '已选择执行方式',
+  command_exited: '命令已完成',
+  diagnostic_evidence_captured: '已保存诊断信息',
+  node_succeeded: '执行完成',
+  edge_traversed: '进入下一步',
+  node_failed: '执行失败',
+  workflow_completed: '运行完成',
+  workflow_failed: '运行失败',
 } as const satisfies Readonly<Record<ExecutionEventKind, string>>;
 
 /** Runtime Planner 后端枚举对应的产品名称。 */
 export const BACKEND_LABELS = {
-  windows_uia: 'Windows UI Automation',
-  browser_cdp: '浏览器 CDP',
+  windows_uia: 'Windows UI 自动化',
+  browser_cdp: '浏览器自动化',
   visual_cache: '视觉缓存',
-  ocr_tiny: 'OCR 快速识别',
-  ocr_medium: 'OCR 精确识别',
+  ocr_tiny: '快速文字识别',
+  ocr_medium: '文字识别',
   gui_grounding: '视觉定位',
   send_input: '模拟输入',
 } as const satisfies Readonly<Record<BackendKind, string>>;
@@ -108,10 +108,10 @@ function resolveExecutionDetail(event: ExecutionEvent): string {
       );
     case 'resource_acquired':
       return event.message
-        ?? `资源 ${event.payload.output_name}（${event.payload.resource_type}）已就绪`;
+        ?? '已准备好运行所需资源';
     case 'diagnostic_evidence_captured':
       return event.message
-        ?? `${BACKEND_LABELS[event.payload.backend]} 已保存失败现场`;
+        ?? '已保存失败诊断信息';
     default:
       break;
   }
@@ -121,13 +121,13 @@ function resolveExecutionDetail(event: ExecutionEvent): string {
     case 'node_started':
       return '正在执行';
     case 'node_succeeded':
-      return '执行成功';
+      return '已完成';
     case 'edge_traversed':
-      return '已进入下一节点';
+      return '已进入下一步';
     case 'workflow_completed':
-      return '工作流执行完成';
+      return '流程已完成';
     case 'workflow_failed':
-      return '工作流执行失败';
+      return '流程运行失败';
     default:
       return '';
   }

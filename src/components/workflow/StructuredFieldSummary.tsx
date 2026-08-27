@@ -44,7 +44,7 @@ export function StructuredFieldSummary({
         </span>
         <span className="w-full text-[10px] leading-4 text-slate-600">{status}</span>
         <code className="line-clamp-3 w-full whitespace-pre-wrap break-all rounded-md border border-slate-200 bg-white px-2.5 py-2 font-mono text-[10px] leading-4 text-slate-700">
-          {preview || '（空文档）'}
+          {preview || '（暂无内容）'}
         </code>
         <span className="flex w-full items-center gap-2">
           {metadata ? (

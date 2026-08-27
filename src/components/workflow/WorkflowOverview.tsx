@@ -30,9 +30,9 @@ export function WorkflowOverview({
   onOpenEditor,
 }: WorkflowOverviewProps) {
   const validationStatus = report === null
-    ? { label: '未校验', tone: 'bg-amber-50 text-amber-700' }
+    ? { label: '尚未检查', tone: 'bg-amber-50 text-amber-700' }
     : report.valid
-      ? { label: '校验通过', tone: 'bg-emerald-50 text-emerald-700' }
+      ? { label: '检查通过', tone: 'bg-emerald-50 text-emerald-700' }
       : { label: `${report.issues.length} 个问题`, tone: 'bg-rose-50 text-rose-700' };
 
   return (
@@ -40,7 +40,7 @@ export function WorkflowOverview({
       <div className="mx-auto max-w-5xl">
         <div>
           <h1 className="text-lg font-semibold text-slate-900">工作流</h1>
-          <p className="mt-1 text-[12px] text-slate-500">查看当前工作区的流程和运行概况。</p>
+          <p className="mt-1 text-[12px] text-slate-500">查看流程和最近的运行情况。</p>
         </div>
 
         <div className="mt-5 grid grid-cols-3 gap-3">
@@ -51,12 +51,12 @@ export function WorkflowOverview({
           />
           <OverviewMetric
             icon={ListChecks}
-            label="运行事件"
+            label="运行记录"
             value={String(events.length)}
           />
           <OverviewMetric
             icon={CircleAlert}
-            label="校验问题"
+            label="问题"
             value={report === null ? '—' : String(report.issues.length)}
           />
         </div>
@@ -64,7 +64,7 @@ export function WorkflowOverview({
         <div className="mt-5 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
           <div className="flex h-10 items-center border-b border-slate-200 px-4">
             <h2 className="text-[13px] font-semibold text-slate-800">工作流列表</h2>
-            <span className="ml-auto text-[11px] text-slate-400">1 项</span>
+            <span className="ml-auto text-[11px] text-slate-400">共 1 个</span>
           </div>
           <div className="grid grid-cols-[minmax(0,1fr)_120px_120px_36px] items-center gap-3 px-4 py-3">
             <div className="min-w-0">
@@ -82,7 +82,7 @@ export function WorkflowOverview({
               aria-label={`打开 ${workflowName}`}
               className="flex size-7 items-center justify-center rounded-md text-blue-600 hover:bg-blue-50"
               onClick={onOpenEditor}
-              title="打开编辑器"
+              title="打开工作流"
             >
               <ArrowRight className="size-4" aria-hidden="true" />
             </button>

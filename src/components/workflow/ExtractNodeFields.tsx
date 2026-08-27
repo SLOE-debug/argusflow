@@ -15,28 +15,28 @@ type ExtractNodeFieldsProps = Readonly<{
   onChange: (operation: ExtractOperation) => void;
 }>;
 
-/** 字段投影来源的稳定编辑器选项。 */
+/** 提取字段可以读取的内容来源。 */
 const PROJECTION_SOURCE_OPTIONS = [
-  { value: 'text', label: '可见文本' },
+  { value: 'text', label: '显示文字' },
   { value: 'value', label: '控件值' },
-  { value: 'name', label: '可访问名称' },
-  { value: 'property', label: '语义属性' },
-  { value: 'attribute', label: '原生属性' },
+  { value: 'name', label: '控件名称' },
+  { value: 'property', label: '控件属性' },
+  { value: 'attribute', label: '元素属性' },
 ] as const;
 
-/** 编辑 Extract 的基数和强类型字段投影，不承担目标定位字段。 */
+/** 设置要读取多少个目标，以及每个目标要读取哪些内容。 */
 export function ExtractNodeFields({
   operation,
   onChange,
 }: ExtractNodeFieldsProps) {
   return (
     <div className="flex flex-col gap-2.5 rounded-md border border-cyan-100 bg-cyan-50/40 p-2.5">
-      <InspectorField label="结果基数">
+      <InspectorField label="读取数量">
         <Select<'one' | 'many'>
           value={operation.cardinality}
           options={[
-            { value: 'one', label: '唯一目标' },
-            { value: 'many', label: '目标集合' },
+            { value: 'one', label: '一个' },
+            { value: 'many', label: '多个' },
           ]}
           containerClassName="border-slate-300 bg-white"
           onValueChange={(cardinality) => onChange({ ...operation, cardinality })}
@@ -106,6 +106,7 @@ export function ExtractNodeFields({
       ))}
       <button
         type="button"
+        aria-label="添加字段"
         className="h-7 rounded border border-cyan-200 bg-white text-[10px] font-medium text-cyan-700 hover:bg-cyan-50"
         onClick={() => onChange({
           ...operation,
@@ -115,10 +116,10 @@ export function ExtractNodeFields({
           ],
         })}
       >
-        添加投影字段
+        添加字段
       </button>
       <p className={INSPECTOR_HELP_CLASS_NAME}>
-        Extract 只产生结构化对象；制表符、CSV 等文本输出请交给格式化节点。
+        这里会得到一组数据；需要生成文本或 CSV 时，请使用“整理文本”节点。
       </p>
     </div>
   );

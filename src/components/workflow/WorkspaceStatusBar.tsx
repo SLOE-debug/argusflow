@@ -39,15 +39,10 @@ export function WorkspaceStatusBar({
       style={gridStyle}
     >
       {libraryWidth !== null ? (
-        <span className="px-4">{nodeCount} 项</span>
+        <span className="px-4">{nodeCount} 个节点</span>
       ) : null}
       <div className="flex items-center justify-end px-4">
-        <span>Rust 引擎 1.3.0</span>
-        <span className="mx-3 h-3 w-px bg-slate-300" />
-        <span>高性能模式</span>
-        <span className="mx-3 h-3 w-px bg-slate-300" />
-        <span>资源占用：CPU 2%</span>
-        <span className="ml-4">内存 128MB</span>
+        <span>本地运行环境</span>
         {inspectorWidth === null ? (
           <StatusSummary status={status} />
         ) : null}

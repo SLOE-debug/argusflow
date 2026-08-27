@@ -37,15 +37,15 @@ describe('ActionNodeFields', () => {
       />,
     );
 
-    expect(screen.queryByRole('textbox', { name: 'AQL 查询' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'AQL 查找条件' })).not.toBeInTheDocument();
     expect(screen.getByText('button(name = "保存")')).toBeVisible();
-    const aqlHeading = screen.getByRole('heading', { name: '查找规则' });
-    const advancedSettings = screen.getByText('高级设置');
+    const aqlHeading = screen.getByRole('heading', { name: '查找条件' });
+    const advancedSettings = screen.getByText('更多设置');
     expect(aqlHeading.compareDocumentPosition(advancedSettings)
       & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
-    expect(screen.getByText('运行环境评估仅在 ArgusFlow 桌面应用中可用。')).toBeVisible();
+    expect(screen.getByText('请在 ArgusFlow 桌面应用中检查运行环境。')).toBeVisible();
 
-    fireEvent.click(screen.getByRole('button', { name: '编辑规则' }));
+    fireEvent.click(screen.getByRole('button', { name: '编辑条件' }));
     expect(onOpenEditor).toHaveBeenCalledWith({ type: 'aql', nodeId: 'ui-save' });
     expect(onChange).not.toHaveBeenCalled();
   });
@@ -77,7 +77,7 @@ describe('ActionNodeFields', () => {
       />,
     );
 
-    fireEvent.click(screen.getByText('目标就绪设置'));
+    fireEvent.click(screen.getByText('等待目标'));
     fireEvent.change(screen.getByRole('spinbutton', { name: '目标等待超时时间' }), {
       target: { value: '8000' },
     });
@@ -85,7 +85,7 @@ describe('ActionNodeFields', () => {
       target_wait: { mode: 'bounded', timeout_ms: 8_000, poll_interval_ms: 100 },
     });
 
-    fireEvent.click(screen.getByRole('checkbox', { name: '自动等待目标就绪' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: '找不到目标时自动等待' }));
     expect(onExecutionChange).toHaveBeenLastCalledWith({
       target_wait: { mode: 'none', timeout_ms: 0, poll_interval_ms: 0 },
     });
