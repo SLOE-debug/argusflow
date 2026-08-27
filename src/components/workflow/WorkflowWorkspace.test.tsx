@@ -8,11 +8,16 @@ describe('WorkflowWorkspace', () => {
     render(
       <WorkflowWorkspace
         canvas={<div>画布内容</div>}
-        open={false}
+        dockOpen={false}
+        editorState={{ target: null, mode: 'docked', dockHeight: 320 }}
         events={[]}
         nodes={[]}
         report={null}
-        onToggle={vi.fn()}
+        onDockOpenChange={vi.fn()}
+        onDockHeightChange={vi.fn()}
+        onEditorModeChange={vi.fn()}
+        onCloseEditor={vi.fn()}
+        onUpdateNode={vi.fn()}
       />,
     );
 

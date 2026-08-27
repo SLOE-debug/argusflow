@@ -38,6 +38,7 @@ describe('NodeInspector', () => {
         onPermissionsChange={vi.fn()}
         onUpdateNode={vi.fn()}
         onUpdateEdgeBranch={vi.fn()}
+        onOpenStructuredEditor={vi.fn()}
         onDelete={vi.fn()}
       />,
     );

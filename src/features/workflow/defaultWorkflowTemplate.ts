@@ -123,7 +123,7 @@ export const DEFAULT_NODES = [
             '$content = [Console]::In.ReadToEnd()',
             '[IO.File]::WriteAllText($path, $content, [Text.UTF8Encoding]::new($true))',
             '[Console]::Out.Write($path)',
-          ].join('; '),
+          ].join('\n'),
         },
         working_directory: null,
         environment: [],

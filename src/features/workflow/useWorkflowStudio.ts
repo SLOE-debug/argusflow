@@ -347,19 +347,31 @@ export function useWorkflowStudio() {
     return true;
   }, [flowStore]);
 
+  /** 按稳定节点 ID 写回文档，使 Workspace 编辑不依赖当前 Inspector 选择。 */
+  const updateNodeById = useCallback((
+    nodeId: string,
+    updater: WorkflowNodeUpdater,
+  ) => {
+    const state = flowStore.getState();
+    if (!state.nodes.some((node) => node.id === nodeId)) return;
+    state.transact((document) => ({
+      ...document,
+      nodes: document.nodes.map((node) => node.id === nodeId
+        ? { ...node, data: updater(node.data) }
+        : node),
+    }), `node-fields:${nodeId}`);
+    setReport(null);
+  }, [flowStore]);
+
+  /** Inspector 仍把字段修改应用到当前唯一选择。 */
   const updateNode = useCallback((updater: WorkflowNodeUpdater) => {
     const state = flowStore.getState();
     if (state.selectedNodeIds.size !== 1) return;
     const selectedNodeId = state.selectedNodeIds.values().next().value;
-    if (!selectedNodeId) return;
-    state.transact((document) => ({
-      ...document,
-      nodes: document.nodes.map((node) => node.id === selectedNodeId
-        ? { ...node, data: updater(node.data) }
-        : node),
-    }), `node-fields:${selectedNodeId}`);
-    setReport(null);
-  }, [flowStore]);
+    if (selectedNodeId) {
+      updateNodeById(selectedNodeId, updater);
+    }
+  }, [flowStore, updateNodeById]);
 
   const updateEdgeBranch = useCallback((branch: 'true' | 'false') => {
     const state = flowStore.getState();
@@ -431,6 +443,7 @@ export function useWorkflowStudio() {
     connect,
     reconnect,
     updateNode,
+    updateNodeById,
     updateEdgeBranch,
     deleteSelection,
   };

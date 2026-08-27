@@ -11,6 +11,8 @@ import { WorkflowWorkspace } from './components/workflow/WorkflowWorkspace';
 import { WorkspaceStatusBar } from './components/workflow/WorkspaceStatusBar';
 import { PanelResizeHandle } from './components/ui';
 import { resolveWorkflowStatus } from './components/workflow/workflowStatus';
+import type { StructuredEditorTarget } from './components/workflow/structuredEditorTarget';
+import { useWorkspaceEditor } from './components/workflow/useWorkspaceEditor';
 import { useWorkflowStudio } from './features/workflow/useWorkflowStudio';
 
 /** 左侧节点库的默认与可调整宽度边界。 */
@@ -20,7 +22,7 @@ const LIBRARY_PANEL_WIDTH = {
   max: 360,
 } as const;
 
-/** Action/AQL 编辑器需要更宽的属性面板，同时仍允许用户按需收窄。 */
+/** 属性检查器的默认与可调整宽度边界；结构化文档不再占用此区域。 */
 const INSPECTOR_PANEL_WIDTH = {
   default: 312,
   min: 272,
@@ -33,7 +35,8 @@ type AppView = 'home' | 'editor';
 /** ArgusFlow 桌面 IDE 工作台入口。 */
 export default function App() {
   const studio = useWorkflowStudio();
-  const [consoleOpen, setConsoleOpen] = useState(true);
+  const workspaceEditor = useWorkspaceEditor();
+  const [dockOpen, setDockOpen] = useState(true);
   const [libraryWidth, setLibraryWidth] = useState<number>(LIBRARY_PANEL_WIDTH.default);
   const [inspectorWidth, setInspectorWidth] = useState<number>(INSPECTOR_PANEL_WIDTH.default);
   const [appView, setAppView] = useState<AppView>('editor');
@@ -45,7 +48,7 @@ export default function App() {
       studio.errorMessage !== null;
 
     if (hasConsoleContent) {
-      setConsoleOpen(true);
+      setDockOpen(true);
     }
   }, [studio.errorMessage, studio.events.length, studio.report]);
 
@@ -54,7 +57,11 @@ export default function App() {
     gridTemplateColumns: `${libraryWidth}px minmax(0, 1fr) ${inspectorWidth}px`,
   };
 
-  const toggleConsole = () => setConsoleOpen((value) => !value);
+  /** 从 Inspector 进入结构化编辑时同步展开统一 Workspace Dock。 */
+  const openStructuredEditor = (target: StructuredEditorTarget) => {
+    workspaceEditor.openEditor(target);
+    setDockOpen(true);
+  };
   const workflowStatus = resolveWorkflowStatus(
     studio.running,
     studio.report,
@@ -127,11 +134,16 @@ export default function App() {
               />
             </div>
             <WorkflowWorkspace
-              open={consoleOpen}
+              dockOpen={dockOpen}
+              editorState={workspaceEditor.state}
               events={studio.events}
               nodes={studio.nodes}
               report={studio.report}
-              onToggle={toggleConsole}
+              onDockOpenChange={setDockOpen}
+              onDockHeightChange={workspaceEditor.setDockHeight}
+              onEditorModeChange={workspaceEditor.setMode}
+              onCloseEditor={workspaceEditor.closeEditor}
+              onUpdateNode={studio.updateNodeById}
               canvas={(
                 <WorkflowCanvas
                   store={studio.flowStore}
@@ -168,6 +180,7 @@ export default function App() {
                 onPermissionsChange={studio.updatePermissions}
                 onUpdateNode={studio.updateNode}
                 onUpdateEdgeBranch={studio.updateEdgeBranch}
+                onOpenStructuredEditor={openStructuredEditor}
                 onDelete={studio.deleteSelection}
               />
             </div>

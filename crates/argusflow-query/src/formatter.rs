@@ -5,6 +5,9 @@ use argusflow_core::{
 
 use crate::{AqlError, normalize_query, parse_query};
 
+/// Pretty 输出的目标行宽；给函数名、引号和编辑器边距留出空间。
+const PRETTY_LINE_WIDTH: usize = 68;
+
 /// 将查询规范化并输出单行 canonical cache key。
 pub fn canonicalize_query(query: &UiQuery) -> String {
     let normalized = normalize_query(query);
@@ -52,6 +55,20 @@ fn format_compact_expression(expression: &QueryExpr) -> String {
     }
 }
 
+/// 短 CSS 保持紧凑，超过目标行宽时只拆 AQL 外层，不改 selector 内容。
+fn format_pretty_css(selector: &str, indent: usize) -> String {
+    let quoted_selector = quote_string(selector);
+    let compact = format!("css({quoted_selector})");
+    if indent + compact.chars().count() <= PRETTY_LINE_WIDTH {
+        return compact;
+    }
+    let inner_indent = " ".repeat(indent + 4);
+    format!(
+        "css(\n{inner_indent}{quoted_selector}\n{})",
+        " ".repeat(indent)
+    )
+}
+
 /// 输出缩进稳定的可读表达式。
 fn format_pretty_expression(expression: &QueryExpr, indent: usize) -> String {
     match expression {
@@ -74,7 +91,7 @@ fn format_pretty_expression(expression: &QueryExpr, indent: usize) -> String {
                 " ".repeat(indent)
             )
         }
-        QueryExpr::Css { selector } => format!("css({})", quote_string(selector)),
+        QueryExpr::Css { selector } => format_pretty_css(selector, indent),
     }
 }
 

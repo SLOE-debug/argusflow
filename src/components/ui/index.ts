@@ -1,11 +1,6 @@
 export { Checkbox, type CheckboxProps } from './Checkbox';
 export { Input, type InputProps } from './Input';
 export {
-  InspectorEditorSection,
-  type InspectorEditorLayout,
-  type InspectorEditorSectionProps,
-} from './InspectorEditorSection';
-export {
   PanelResizeHandle,
   type PanelResizeHandleProps,
   type ResizablePanelSide,

@@ -24,12 +24,15 @@ import {
   InspectorSection,
 } from './InspectorControls';
 import { ValueExprFields } from './ValueExprFields';
+import type { StructuredEditorTarget } from './structuredEditorTarget';
 
 type NodeInspectorFieldsProps = Readonly<{
   /** 当前唯一选中的节点。 */
   node: WorkflowCanvasNode;
   /** 修改节点业务字段。 */
   onUpdate: (updater: WorkflowNodeUpdater) => void;
+  /** 请求中央工作区打开结构化文档。 */
+  onOpenStructuredEditor: (target: StructuredEditorTarget) => void;
   /** 删除当前节点。 */
   onDelete: () => void;
 }>;
@@ -83,7 +86,12 @@ const RUN_STATE_LABELS: Readonly<Record<NonNullable<WorkflowNodeData['runState']
 };
 
 /** 编辑当前选中节点的基本信息和类型专属字段。 */
-export function NodeInspectorFields({ node, onUpdate, onDelete }: NodeInspectorFieldsProps) {
+export function NodeInspectorFields({
+  node,
+  onUpdate,
+  onOpenStructuredEditor,
+  onDelete,
+}: NodeInspectorFieldsProps) {
   const conditionData = node.data.kind === 'condition' ? node.data : null;
   const [operandDraft, setOperandDraft] = useState(
     JSON.stringify(conditionData?.operand ?? null, null, 2),
@@ -145,6 +153,7 @@ export function NodeInspectorFields({ node, onUpdate, onDelete }: NodeInspectorF
           operandError={operandError}
           onOperandChange={updateOperand}
           onUpdate={onUpdate}
+          onOpenStructuredEditor={onOpenStructuredEditor}
         />
       </InspectorSection>
       <InspectorSection title="执行状态">
@@ -197,6 +206,7 @@ type NodeKindFieldsProps = Readonly<{
   operandError: string | null;
   onOperandChange: (event: ChangeEvent<HTMLTextAreaElement>) => void;
   onUpdate: (updater: WorkflowNodeUpdater) => void;
+  onOpenStructuredEditor: (target: StructuredEditorTarget) => void;
 }>;
 
 /** 根据节点判别联合穷尽渲染专属配置。 */
@@ -206,6 +216,7 @@ function NodeKindFields({
   operandError,
   onOperandChange,
   onUpdate,
+  onOpenStructuredEditor,
 }: NodeKindFieldsProps) {
   const data = node.data;
   switch (data.kind) {
@@ -323,6 +334,7 @@ function NodeKindFields({
         <ActionNodeFields
           nodeId={node.id}
           operation={data.operation}
+          onOpenEditor={onOpenStructuredEditor}
           onChange={(operation) => onUpdate((current) => current.kind === 'ui'
             ? { ...current, operation, invalid: false }
             : current)}
@@ -333,6 +345,7 @@ function NodeKindFields({
         <CommandNodeFields
           nodeId={node.id}
           operation={data.operation}
+          onOpenEditor={onOpenStructuredEditor}
           onChange={(operation) => onUpdate((current) => current.kind === 'command'
             ? { ...current, operation, invalid: false }
             : current)}

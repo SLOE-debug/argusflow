@@ -11,9 +11,6 @@ import {
 import type * as Monaco from 'monaco-editor/editor/editor.api';
 
 import {
-  InspectorEditorSection,
-} from '../../../components/ui';
-import {
   MonacoEditor,
   type MonacoApi,
   type MonacoEditorHandle,
@@ -43,6 +40,13 @@ type AqlEditorProps = Readonly<{
   onChange: (query: AqlQuery) => void;
 }>;
 
+/** Toolbar 对格式化命令可用性的明确说明。 */
+type FormatAvailability =
+  | { readonly type: 'loading'; readonly label: '语言服务启动中' }
+  | { readonly type: 'invalid'; readonly label: string }
+  | { readonly type: 'clean'; readonly label: '已格式化' }
+  | { readonly type: 'dirty'; readonly label: '格式化' };
+
 /** AQL 编辑器覆盖项；Hover 延迟与当前 VS Code 默认值保持一致。 */
 const AQL_EDITOR_OPTIONS = {
   bracketPairColorization: { enabled: true },
@@ -67,7 +71,11 @@ export function AqlEditor({ query, target, modelUri, onChange }: AqlEditorProps)
     () => resolveDiagnostics(languageDocument?.parsed.diagnostics ?? null, plannerState),
     [languageDocument, plannerState],
   );
-  const formattedSource = languageDocument?.formatted_source ?? null;
+  const formatAvailability = resolveFormatAvailability(
+    query.source,
+    languageState,
+    languageDocument?.parsed.diagnostics ?? [],
+  );
 
   /** 将当前 WASM 实例安装到 Monaco 全局 AQL provider。 */
   const configureLanguage = useCallback((monaco: MonacoApi) => {
@@ -77,20 +85,30 @@ export function AqlEditor({ query, target, modelUri, onChange }: AqlEditorProps)
     );
   }, [languageState]);
 
-  /** 标题栏只保留对当前 AQL 文档直接生效的命令。 */
-  const editorActions = (
+  /** Toolbar 与 Shift+Alt+F 都进入 Monaco 的同一个 Format Document 动作。 */
+  const editorActions = formatAvailability.type === 'clean' ? (
+    <span className="flex h-7 items-center gap-1 px-2 text-[10px] font-medium text-emerald-700">
+      <CheckCircle2 className="size-3" aria-hidden="true" />
+      {formatAvailability.label}
+    </span>
+  ) : (
     <button
       type="button"
-      className="flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-[10px] font-medium text-slate-600 hover:border-blue-300 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
-      disabled={!formattedSource || formattedSource === query.source}
-      onClick={() => {
-        if (formattedSource) {
-          editorRef.current?.replaceAll(formattedSource);
-        }
-      }}
+      className="flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-[10px] font-medium text-slate-600 hover:border-blue-300 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+      disabled={formatAvailability.type !== 'dirty'}
+      title={formatAvailability.type === 'invalid'
+        ? formatAvailability.label
+        : formatAvailability.type === 'loading'
+          ? 'AQL 语言服务正在启动'
+          : '使用 AQL Formatter 格式化文档'}
+      onClick={() => void editorRef.current?.formatDocument()}
     >
-      <WandSparkles className="size-3" aria-hidden="true" />
-      格式化
+      {formatAvailability.type === 'loading' ? (
+        <LoaderCircle className="size-3 animate-spin" aria-hidden="true" />
+      ) : (
+        <WandSparkles className="size-3" aria-hidden="true" />
+      )}
+      {formatAvailability.label}
     </button>
   );
 
@@ -125,26 +143,52 @@ export function AqlEditor({ query, target, modelUri, onChange }: AqlEditorProps)
   );
 
   return (
-    <InspectorEditorSection
-      title="查找规则"
-      badge="AQL"
-      actions={editorActions}
-      footer={editorFooter}
-      renderContent={(layout) => (
+    <section className="flex h-full min-h-0 flex-col bg-white">
+      <div className="flex h-9 shrink-0 items-center justify-end border-b border-slate-200 bg-slate-50/70 px-2">
+        {editorActions}
+      </div>
+      <div className="min-h-0 flex-1 p-2">
         <MonacoEditor
           ref={editorRef}
           ariaLabel="AQL 查询"
           value={query.source}
           language={AQL_LANGUAGE_ID}
           modelUri={modelUri}
-          className={layout === 'expanded' ? 'h-[calc(100vh-220px)] min-h-[420px]' : 'h-[220px]'}
+          className="h-full min-h-0"
           configure={configureLanguage}
           options={AQL_EDITOR_OPTIONS}
           onChange={(source) => onChange({ ...query, source })}
         />
-      )}
-    />
+      </div>
+      <div className="max-h-[38%] shrink-0 overflow-y-auto border-t border-slate-200 px-3 py-2">
+        <div className="flex flex-col gap-2">{editorFooter}</div>
+      </div>
+    </section>
   );
+}
+
+/** 根据语言服务、诊断和 formatter 结果建立可解释的格式化状态。 */
+function resolveFormatAvailability(
+  source: string,
+  languageState: ReturnType<typeof useLanguageDocument>,
+  diagnostics: readonly AqlDiagnostic[],
+): FormatAvailability {
+  if (languageState.phase === 'loading') {
+    return { type: 'loading', label: '语言服务启动中' };
+  }
+  if (languageState.phase === 'unavailable') {
+    return { type: 'invalid', label: 'AQL 语言服务不可用' };
+  }
+  if (diagnostics.some((diagnostic) => diagnostic.severity === 'error')) {
+    return { type: 'invalid', label: '请先修复语法错误' };
+  }
+  const formattedSource = languageState.document.formatted_source;
+  if (!formattedSource) {
+    return { type: 'invalid', label: '当前文档无法格式化' };
+  }
+  return formattedSource === source
+    ? { type: 'clean', label: '已格式化' }
+    : { type: 'dirty', label: '格式化' };
 }
 
 /** WASM 诊断优先；WASM 尚未就绪时使用 Runtime recovery parser 的结果。 */

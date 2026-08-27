@@ -15,6 +15,7 @@ import {
   NodeInspectorFields,
 } from './NodeInspectorFields';
 import { WorkflowInspectorFields } from './WorkflowInspectorFields';
+import type { StructuredEditorTarget } from './structuredEditorTarget';
 
 type NodeInspectorProps = Readonly<{
   /** 属性面板按选择状态订阅的工作流 Store。 */
@@ -49,6 +50,8 @@ type NodeInspectorProps = Readonly<{
   onUpdateNode: (updater: WorkflowNodeUpdater) => void;
   /** 修改条件分支。 */
   onUpdateEdgeBranch: (branch: 'true' | 'false') => void;
+  /** 请求中央工作区打开结构化文档。 */
+  onOpenStructuredEditor: (target: StructuredEditorTarget) => void;
   /** 删除当前选择。 */
   onDelete: () => void;
 }>;
@@ -109,6 +112,7 @@ export function NodeInspector(props: NodeInspectorProps) {
           <NodeInspectorFields
             node={node}
             onUpdate={props.onUpdateNode}
+            onOpenStructuredEditor={props.onOpenStructuredEditor}
             onDelete={props.onDelete}
           />
         ) : null}

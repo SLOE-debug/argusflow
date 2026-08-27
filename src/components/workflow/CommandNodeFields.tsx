@@ -14,6 +14,7 @@ import {
 } from './InspectorControls';
 import { CommandScriptField } from './CommandScriptField';
 import { ValueExprFields } from './ValueExprFields';
+import type { StructuredEditorTarget } from './structuredEditorTarget';
 
 type CommandNodeFieldsProps = Readonly<{
   /** 当前命令节点的稳定标识，用于隔离 Monaco 文档。 */
@@ -22,6 +23,8 @@ type CommandNodeFieldsProps = Readonly<{
   operation: CommandOperation;
   /** 写回字段完整的新契约。 */
   onChange: (operation: CommandOperation) => void;
+  /** 请求 Workspace 打开一个结构化文档。 */
+  onOpenEditor: (target: StructuredEditorTarget) => void;
 }>;
 
 const RUNNER_OPTIONS = [
@@ -35,6 +38,7 @@ export function CommandNodeFields({
   nodeId,
   operation,
   onChange,
+  onOpenEditor,
 }: CommandNodeFieldsProps) {
   return (
     <div className="flex flex-col gap-2.5">
@@ -66,9 +70,12 @@ export function CommandNodeFields({
       {operation.runner !== 'direct' && operation.script ? (
         <CommandScriptField
           runner={operation.runner}
-          nodeId={nodeId}
           value={operation.script}
           onChange={(script) => onChange({ ...operation, script })}
+          onOpenEditor={() => onOpenEditor({
+            type: 'command_script',
+            nodeId,
+          })}
         />
       ) : null}
       <OptionalExpression

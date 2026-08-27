@@ -19,8 +19,8 @@ vi.mock('../components/ui/monaco', () => ({
   }>, ref) {
     useImperativeHandle(ref, () => ({
       focus: () => undefined,
-      replaceAll: props.onChange,
-    }), [props.onChange]);
+      formatDocument: async () => undefined,
+    }), []);
     return createElement('textarea', {
       'aria-label': props.ariaLabel,
       'data-language': props.language,

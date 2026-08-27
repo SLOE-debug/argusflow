@@ -19,8 +19,9 @@ import {
   INSPECTOR_HELP_CLASS_NAME,
   InspectorField,
 } from './InspectorControls';
-import { AqlEditor } from './AqlEditor';
+import { AqlFieldSummary } from './AqlFieldSummary';
 import { ValueExprFields } from './ValueExprFields';
+import type { StructuredEditorTarget } from './structuredEditorTarget';
 
 type ActionNodeFieldsProps = Readonly<{
   /** 当前 UI 节点的稳定标识，用于隔离 Monaco 文档。 */
@@ -29,6 +30,8 @@ type ActionNodeFieldsProps = Readonly<{
   operation: UiOperation;
   /** 写回字段完整的新操作。 */
   onChange: (operation: UiOperation) => void;
+  /** 请求 Workspace 打开一个结构化文档。 */
+  onOpenEditor: (target: StructuredEditorTarget) => void;
 }>;
 
 const OPERATION_KIND_OPTIONS = [
@@ -63,7 +66,12 @@ const VISUAL_MATCH_OPTIONS = [
 ] as const;
 
 /** 编辑 UI 操作、资源作用域、定位方式和后端偏好。 */
-export function ActionNodeFields({ nodeId, operation, onChange }: ActionNodeFieldsProps) {
+export function ActionNodeFields({
+  nodeId,
+  operation,
+  onChange,
+  onOpenEditor,
+}: ActionNodeFieldsProps) {
   /** 当前资源作用域的局部不可变快照，供 JSX 回调保留判别联合收窄。 */
   const scope = operation.target.scope;
   return (
@@ -131,6 +139,7 @@ export function ActionNodeFields({ nodeId, operation, onChange }: ActionNodeFiel
           operation={operation}
           locator={operation.target.locator}
           onChange={onChange}
+          onOpenEditor={onOpenEditor}
         />
       ) : null}
       {operation.target.locator.type === 'visual' ? (
@@ -171,22 +180,20 @@ function QueryTargetFields({
   operation,
   locator,
   onChange,
+  onOpenEditor,
 }: Readonly<{
   nodeId: string;
   operation: UiOperation;
   locator: Extract<UiOperation['target']['locator'], { type: 'query' }>;
   onChange: (operation: UiOperation) => void;
+  onOpenEditor: (target: StructuredEditorTarget) => void;
 }>) {
   return (
     <>
-      <AqlEditor
+      <AqlFieldSummary
         query={locator.query}
         target={operation.target}
-        modelUri={`inmemory://argusflow/workflow/${encodeURIComponent(nodeId)}/locator-aql`}
-        onChange={(query) => onChange(changeTargetLocator(operation, {
-          ...locator,
-          query,
-        }))}
+        onEdit={() => onOpenEditor({ type: 'aql', nodeId })}
       />
       <details className="rounded-md border border-slate-200 bg-slate-50/70 px-2.5 py-2">
         <summary className="cursor-pointer select-none text-[10px] font-medium text-slate-600">

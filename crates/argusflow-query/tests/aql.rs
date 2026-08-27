@@ -139,6 +139,22 @@ fn pretty_formatter_emits_stable_aql() {
 }
 
 #[test]
+fn pretty_formatter_wraps_long_css_without_changing_selector() {
+    let source = r##"css("#hotsearch-content-wrapper a.title-content .title-content-title")"##;
+
+    let formatted = format_source(source).expect("long CSS source should format");
+
+    assert_eq!(
+        formatted,
+        "css(\n    \"#hotsearch-content-wrapper a.title-content .title-content-title\"\n)"
+    );
+    assert_eq!(
+        canonicalize_query(&parse_query(&formatted).expect("formatted CSS should parse")),
+        source
+    );
+}
+
+#[test]
 fn source_formatter_preserves_predicate_order_and_duplicates() {
     let source = r#"button(visible=true,name="保存",name="保存",enabled=true)"#;
 

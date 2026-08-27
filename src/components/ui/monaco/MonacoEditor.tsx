@@ -18,8 +18,8 @@ export type MonacoConfigurator = (monaco: MonacoApi) => void | Promise<void>;
 export type MonacoEditorHandle = Readonly<{
   /** 聚焦当前编辑器。 */
   focus: () => void;
-  /** 以一次可撤销编辑替换完整文档。 */
-  replaceAll: (value: string) => void;
+  /** 运行 Monaco 当前语言注册的标准 Format Document 动作。 */
+  formatDocument: () => Promise<void>;
 }>;
 
 export type MonacoEditorProps = Readonly<{
@@ -71,25 +71,10 @@ export const MonacoEditor = forwardRef<MonacoEditorHandle, MonacoEditorProps>(
 
     useImperativeHandle(forwardedRef, () => ({
       focus: () => editorRef.current?.focus(),
-      replaceAll: (nextValue) => {
-        const editor = editorRef.current;
-        const model = modelRef.current;
-        if (!editor || !model) {
-          onChangeRef.current(nextValue);
-          return;
-        }
-        if (model.getValue() === nextValue) {
-          return;
-        }
-        editor.pushUndoStop();
-        editor.executeEdits('argusflow.replace-document', [{
-          range: model.getFullModelRange(),
-          text: nextValue,
-          forceMoveMarkers: true,
-        }]);
-        editor.pushUndoStop();
-        editor.setPosition(model.getPositionAt(nextValue.length));
-        editor.focus();
+      formatDocument: async () => {
+        await editorRef.current
+          ?.getAction('editor.action.formatDocument')
+          ?.run();
       },
     }), []);
 

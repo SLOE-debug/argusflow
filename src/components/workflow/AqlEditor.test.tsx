@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useLanguageDocument } from '../../features/aql-editor/language/useLanguageDocument';
 import { useAqlInspection } from '../../features/workflow/useAqlInspection';
-import { AqlEditor } from './AqlEditor';
+import { AqlEditor } from '../../features/aql-editor/view/AqlEditor';
 
 vi.mock('../../features/workflow/useAqlInspection', () => ({
   useAqlInspection: vi.fn(),
@@ -58,7 +58,7 @@ describe('AqlEditor', () => {
     });
   });
 
-  it('shows planner selection and formats without reordering predicates', () => {
+  it('shows planner selection and exposes the standard format command', () => {
     const onChange = vi.fn();
     const query = { language_version: 1 as const, source: 'button(name="保存",enabled=true)' };
     render(
@@ -82,10 +82,43 @@ describe('AqlEditor', () => {
     expect(screen.getByText('查询可用')).toBeVisible();
 
     fireEvent.click(screen.getByRole('button', { name: '格式化' }));
-    expect(onChange).toHaveBeenCalledWith({
-      language_version: 1,
-      source: 'button(\n    name = "保存",\n    enabled = true\n)',
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('explains that a document already matches the formatter output', () => {
+    const query = { language_version: 1 as const, source: 'button()' };
+    const languageDocument = {
+      parsed: { diagnostics: [], semantic_tokens: [], hir: {} },
+      formatted_source: query.source,
+      canonical_source: query.source,
+    } as const;
+    vi.mocked(useLanguageDocument).mockReturnValue({
+      phase: 'ready',
+      message: null,
+      document: languageDocument,
+      service: {
+        inspect: vi.fn(() => languageDocument),
+        completions: vi.fn(() => []),
+        hover: vi.fn(() => null),
+        codeActions: vi.fn(() => []),
+      },
     });
+
+    render(
+      <AqlEditor
+        query={query}
+        modelUri="inmemory://test/aql-clean"
+        target={{
+          scope: { type: 'current' },
+          locator: { type: 'query', query },
+          backend_policy: { allow: [], deny: [], prefer: [] },
+        }}
+        onChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('已格式化')).toBeVisible();
+    expect(screen.queryByRole('button', { name: '格式化' })).not.toBeInTheDocument();
   });
 
   it('writes Monaco document changes back to the versioned query', () => {
@@ -145,7 +178,7 @@ describe('AqlEditor', () => {
     );
   });
 
-  it('expands the same controlled AQL editor into a dialog', () => {
+  it('renders as a Workspace editor without a modal dialog', () => {
     const query = { language_version: 1 as const, source: 'button' };
     render(
       <AqlEditor
@@ -160,9 +193,7 @@ describe('AqlEditor', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: '展开编辑查找规则' }));
-
-    expect(screen.getByRole('dialog', { name: '查找规则' })).toBeVisible();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: 'AQL 查询' })).toHaveValue('button');
   });
 

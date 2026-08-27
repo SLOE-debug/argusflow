@@ -1,0 +1,93 @@
+import {
+  Maximize2,
+  Minimize2,
+  X,
+} from 'lucide-react';
+import type { ReactNode } from 'react';
+
+import type { WorkspaceEditorMode } from './structuredEditorTarget';
+
+type WorkspaceEditorHeaderProps = Readonly<{
+  /** 文档语言标签。 */
+  languageLabel: string;
+  /** 所属节点的用户名称。 */
+  nodeLabel: string;
+  /** 所属节点稳定 ID。 */
+  nodeId: string;
+  /** 当前是否正在展示文档页。 */
+  active: boolean;
+  /** 当前中央工作区布局。 */
+  mode: WorkspaceEditorMode;
+  /** 普通任务、日志等 Utility Tabs。 */
+  utilityTabs: ReactNode;
+  /** 激活当前文档。 */
+  onActivate: () => void;
+  /** 切换最大化或还原。 */
+  onModeChange: (mode: WorkspaceEditorMode) => void;
+  /** 关闭当前文档。 */
+  onClose: () => void;
+  /** Dock 折叠按钮等末尾动作。 */
+  trailingActions: ReactNode;
+}>;
+
+/** 将结构化文档、Utility Tabs 和非模态布局命令编排到同一 Dock 标题栏。 */
+export function WorkspaceEditorHeader({
+  languageLabel,
+  nodeLabel,
+  nodeId,
+  active,
+  mode,
+  utilityTabs,
+  onActivate,
+  onModeChange,
+  onClose,
+  trailingActions,
+}: WorkspaceEditorHeaderProps) {
+  const ModeIcon = mode === 'maximized' ? Minimize2 : Maximize2;
+  const modeLabel = mode === 'maximized' ? '还原编辑器' : '最大化编辑器';
+
+  return (
+    <header className="flex h-[38px] shrink-0 items-center border-b border-slate-200 bg-white px-2">
+      <button
+        type="button"
+        className={
+          'relative flex h-[38px] min-w-0 max-w-[340px] items-center gap-1.5 px-3 text-[11px] ' +
+          (active
+            ? 'font-semibold text-blue-600 after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:bg-blue-600'
+            : 'text-slate-600 hover:text-slate-900')
+        }
+        title={`${languageLabel} · ${nodeLabel}\n${nodeId}`}
+        onClick={onActivate}
+      >
+        <span className="shrink-0 font-mono text-[9px]">{languageLabel}</span>
+        <span aria-hidden="true" className="text-slate-300">·</span>
+        <span className="truncate">{nodeLabel}</span>
+        <span className="hidden truncate font-mono text-[9px] font-normal text-slate-400 xl:inline">
+          {nodeId}
+        </span>
+      </button>
+      {utilityTabs}
+      <div className="ml-auto flex items-center gap-0.5">
+        {active ? (
+          <button
+            type="button"
+            className="flex size-7 items-center justify-center rounded-[4px] text-slate-600 hover:bg-slate-100"
+            aria-label={modeLabel}
+            onClick={() => onModeChange(mode === 'maximized' ? 'docked' : 'maximized')}
+          >
+            <ModeIcon className="size-3.5" aria-hidden="true" />
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className="flex size-7 items-center justify-center rounded-[4px] text-slate-600 hover:bg-rose-50 hover:text-rose-600"
+          aria-label="关闭编辑器"
+          onClick={onClose}
+        >
+          <X className="size-3.5" aria-hidden="true" />
+        </button>
+        {trailingActions}
+      </div>
+    </header>
+  );
+}

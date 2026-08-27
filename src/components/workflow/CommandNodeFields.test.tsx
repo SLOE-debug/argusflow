@@ -29,25 +29,29 @@ describe('CommandNodeFields', () => {
   it.each([
     ['power_shell', 'PowerShell'],
     ['cmd', 'CMD'],
-  ] as const)('edits %s literal scripts as multiline text', (runner, badge) => {
+  ] as const)('summarizes %s literals and opens them in Workspace', (runner, badge) => {
     const onChange = vi.fn();
+    const onOpenEditor = vi.fn();
     const operation = createShellOperation(runner);
-    render(<CommandNodeFields nodeId="shell-command" operation={operation} onChange={onChange} />);
-
-    const script = screen.getByRole('textbox', { name: '脚本内容' });
-    expect(script).toHaveAttribute(
-      'data-language',
-      runner === 'power_shell' ? 'powershell' : 'bat',
+    render(
+      <CommandNodeFields
+        nodeId="shell-command"
+        operation={operation}
+        onChange={onChange}
+        onOpenEditor={onOpenEditor}
+      />,
     );
+
+    expect(screen.queryByRole('textbox', { name: '脚本内容' })).not.toBeInTheDocument();
     const scriptHeading = screen.getByRole('heading', { name: '脚本' });
     expect(scriptHeading.nextElementSibling).toHaveTextContent(badge);
 
-    fireEvent.change(script, { target: { value: 'echo first\necho second' } });
-
-    expect(onChange).toHaveBeenCalledWith({
-      ...operation,
-      script: { type: 'literal', value: 'echo first\necho second' },
+    fireEvent.click(screen.getByRole('button', { name: '编辑脚本' }));
+    expect(onOpenEditor).toHaveBeenCalledWith({
+      type: 'command_script',
+      nodeId: 'shell-command',
     });
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it('keeps non-literal script sources as reference fields', () => {
@@ -55,7 +59,14 @@ describe('CommandNodeFields', () => {
       ...createShellOperation('power_shell'),
       script: { type: 'workflow_input', key: 'maintenance_script' },
     };
-    render(<CommandNodeFields nodeId="shell-reference" operation={operation} onChange={vi.fn()} />);
+    render(
+      <CommandNodeFields
+        nodeId="shell-reference"
+        operation={operation}
+        onChange={vi.fn()}
+        onOpenEditor={vi.fn()}
+      />,
+    );
 
     expect(screen.queryByRole('textbox', { name: '脚本内容' })).not.toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: '工作流输入字段' })).toHaveValue(
@@ -71,7 +82,14 @@ describe('CommandNodeFields', () => {
       program: { type: 'literal', value: 'whoami.exe' },
       script: null,
     };
-    render(<CommandNodeFields nodeId="direct-command" operation={operation} onChange={vi.fn()} />);
+    render(
+      <CommandNodeFields
+        nodeId="direct-command"
+        operation={operation}
+        onChange={vi.fn()}
+        onOpenEditor={vi.fn()}
+      />,
+    );
 
     const program = screen.getByRole('textbox', { name: '程序' });
     expect(program.tagName).toBe('INPUT');
@@ -86,6 +104,7 @@ describe('CommandNodeFields', () => {
           nodeId="runner-switch"
           operation={operation}
           onChange={setOperation}
+          onOpenEditor={vi.fn()}
         />
       );
     }
@@ -93,7 +112,7 @@ describe('CommandNodeFields', () => {
     render(<RunnerHarness />);
     fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'cmd' } });
 
-    expect(screen.getByRole('textbox', { name: '脚本内容' })).toHaveValue('echo first');
+    expect(screen.getByText('echo first')).toBeVisible();
     const scriptHeading = screen.getByRole('heading', { name: '脚本' });
     expect(scriptHeading.nextElementSibling).toHaveTextContent('CMD');
   });

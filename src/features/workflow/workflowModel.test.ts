@@ -169,6 +169,16 @@ describe('workflow model', () => {
         }),
       },
     }));
+    const defaultCommandNode = DEFAULT_NODES.find(
+      (node) => node.id === 'write_baidu_news_1',
+    );
+    if (defaultCommandNode?.data.kind !== 'command') {
+      throw new Error('default PowerShell command node is missing');
+    }
+    expect(defaultCommandNode.data.operation.script).toMatchObject({
+      type: 'literal',
+      value: expect.stringContaining('\n'),
+    });
   });
 
   it('uses one compact size contract for models and renderers', () => {
