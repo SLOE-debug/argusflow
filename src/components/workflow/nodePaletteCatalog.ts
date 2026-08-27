@@ -31,6 +31,7 @@ import type { EditableNodeKind } from '../../features/workflow/workflowModel';
 export type PaletteGroup =
   | 'trigger'
   | 'control'
+  | 'advanced'
   | 'resource'
   | 'interface'
   | 'system'
@@ -71,6 +72,11 @@ export const PALETTE_GROUPS = [
     id: 'control',
     label: '流程控制',
     description: '改变执行顺序与路径',
+  },
+  {
+    id: 'advanced',
+    label: '高级控制',
+    description: '显式改变执行时序',
   },
   {
     id: 'resource',
@@ -167,9 +173,9 @@ export const PALETTE_ITEMS = [
   },
   {
     kind: 'delay',
-    title: '延迟等待',
-    description: '暂停指定的时间',
-    group: 'control',
+    title: '固定暂停',
+    description: '主动暂停，不等待界面目标',
+    group: 'advanced',
     icon: Clock3,
     iconClassName: 'bg-amber-50 text-amber-700',
   },

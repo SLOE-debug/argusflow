@@ -7,11 +7,37 @@ import type {
   TargetScope,
   UiOperation,
   UiOperationKind,
+  UiExecutionPolicy,
   ValueExpr,
 } from './contracts';
 
 /** 新建 UI 节点使用的可执行 AQL 示例。 */
 export const DEFAULT_ACTION_AQL_SOURCE = 'first(button(name = "确定"))';
+
+/** 创建语义查询目标默认使用的快速有界等待策略。 */
+export function createDefaultUiExecutionPolicy(): UiExecutionPolicy {
+  return {
+    target_wait: {
+      mode: 'bounded',
+      timeout_ms: 5_000,
+      poll_interval_ms: 100,
+    },
+  };
+}
+
+/** 根据定位成本建立等待策略；坐标目标没有元素出现语义。 */
+export function createTargetWaitPolicy(
+  locatorKind: TargetLocatorKind,
+): UiExecutionPolicy['target_wait'] {
+  switch (locatorKind) {
+    case 'query':
+      return createDefaultUiExecutionPolicy().target_wait;
+    case 'visual':
+      return { mode: 'bounded', timeout_ms: 5_000, poll_interval_ms: 300 };
+    case 'coordinate':
+      return { mode: 'none', timeout_ms: 0, poll_interval_ms: 0 };
+  }
+}
 
 /** 创建默认点击操作；作用域、定位语义与后端偏好相互独立。 */
 export function createDefaultUiOperation(): UiOperation {

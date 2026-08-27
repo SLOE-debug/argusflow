@@ -8,6 +8,7 @@ import type {
   ExecutionEvent,
   JsonObject,
   UiOperation,
+  UiExecutionPolicy,
   ValueExpr,
   VariableAssignment,
   WorkflowDefinition,
@@ -53,7 +54,11 @@ export type WorkflowNodeData =
   | WorkflowNodeDataBase & { kind: 'variable'; assignments: VariableAssignment[] }
   | WorkflowNodeDataBase & { kind: 'application'; spec: ApplicationSpec }
   | WorkflowNodeDataBase & { kind: 'browser'; spec: BrowserSpec }
-  | WorkflowNodeDataBase & { kind: 'ui'; operation: UiOperation }
+  | WorkflowNodeDataBase & {
+      kind: 'ui';
+      operation: UiOperation;
+      execution: UiExecutionPolicy;
+    }
   | WorkflowNodeDataBase & { kind: 'command'; operation: CommandOperation }
   | WorkflowNodeDataBase & { kind: 'end' };
 

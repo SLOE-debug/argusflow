@@ -29,6 +29,14 @@ pub enum AutomationError {
         /// 规范化后的查询，便于执行日志与 Inspector 复现。
         query: String,
     },
+    /// 节点允许的整体目标等待预算耗尽，最后一次完整计划仍未命中目标。
+    #[error("在 {timeout_ms}ms 内未等到目标：{query}")]
+    TargetWaitTimeout {
+        /// 最后一次单次 materialize 使用的规范化查询。
+        query: String,
+        /// UI 节点配置的共享总等待预算。
+        timeout_ms: u64,
+    },
     /// 查询返回多个元素且没有使用 first/nth 明确选择。
     #[error("query matched {matches} targets and requires an explicit selection: {query}")]
     AmbiguousTarget {

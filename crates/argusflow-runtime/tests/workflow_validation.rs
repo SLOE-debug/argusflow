@@ -5,8 +5,8 @@ mod workflow_fixture;
 use argusflow_core::{
     AcquirePolicy, AqlQuery, AutomationTarget, BackendKind, BackendPolicy, CommandOperation,
     CommandRunner, ControlPortId, NodeEnvelope, Position, ResourceRef, TargetLocator, TargetScope,
-    UiOperation, ValueExpr, ValueSource, WorkflowDefinition, WorkflowEdge, WorkflowInputDefinition,
-    WorkflowInputType, WorkflowNode, WorkflowPermissions,
+    TargetWaitPolicy, UiExecutionPolicy, UiOperation, ValueExpr, ValueSource, WorkflowDefinition,
+    WorkflowEdge, WorkflowInputDefinition, WorkflowInputType, WorkflowNode, WorkflowPermissions,
 };
 use argusflow_runtime::{ValidationIssueCode, validate_workflow};
 use serde_json::json;
@@ -40,6 +40,34 @@ fn validation_rejects_invalid_aql_before_execution() {
         .expect("invalid AQL should produce a node issue");
     assert_eq!(issue.node_id.as_deref(), Some("log"));
     assert!(issue.message.contains("AQL 不支持 CSS"));
+}
+
+#[test]
+fn ui_payload_v1_remains_valid_and_v2_rejects_waiting_on_coordinates() {
+    let operation = UiOperation::Click {
+        target: AutomationTarget::query(AqlQuery::v1("button(name = \"保存\")")),
+    };
+    let mut legacy = demo_workflow(1);
+    legacy.nodes[1].definition =
+        NodeEnvelope::new("argus.ui", 1, json!({ "operation": operation }));
+    assert!(validate_workflow(&legacy).valid);
+
+    let coordinate_operation = UiOperation::Click {
+        target: AutomationTarget::coordinate(20, 40),
+    };
+    let mut invalid_v2 = demo_workflow(1);
+    invalid_v2.nodes[1].definition = NodeEnvelope::new(
+        "argus.ui",
+        2,
+        json!({
+            "operation": coordinate_operation,
+            "execution": UiExecutionPolicy {
+                target_wait: TargetWaitPolicy::bounded(5_000, 100),
+            },
+        }),
+    );
+
+    assert_has_issue(&invalid_v2, ValidationIssueCode::InvalidTargetWaitPolicy);
 }
 
 #[test]

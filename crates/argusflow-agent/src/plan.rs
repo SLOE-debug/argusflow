@@ -1,6 +1,9 @@
-use std::{fmt, sync::Arc};
+use std::{fmt, sync::Arc, time::Duration};
 
-use argusflow_core::{ActionOutcome, AutomationError, BackendKind, DiagnosticEvidenceReference};
+use argusflow_core::{
+    ActionOutcome, AutomationError, BackendKind, DiagnosticEvidenceReference, TargetWaitMode,
+    TargetWaitPolicy,
+};
 use argusflow_query::{BranchPath, Diagnostic, QueryCost, QueryPortability, SupportLevel};
 use async_trait::async_trait;
 use serde::Serialize;
@@ -197,7 +200,12 @@ impl PreparedCandidate {
             })
             .await
             .ok()?;
-        let expected_branch = self.explain.branch_path.as_ref().cloned().unwrap_or_default();
+        let expected_branch = self
+            .explain
+            .branch_path
+            .as_ref()
+            .cloned()
+            .unwrap_or_default();
         if bundle.backend != self.backend() || bundle.branch_path != expected_branch {
             return None;
         }
@@ -222,6 +230,15 @@ pub struct PreparedPlan {
     candidates: Vec<PreparedCandidate>,
     /// 不参与候选排序与 fallback 判定的证据配置。
     evidence: EvidenceSettings,
+}
+
+/// 同一冻结计划单轮执行的内部结果。
+enum PreparedAttempt {
+    Success(ActionOutcome),
+    Failure {
+        error: AutomationError,
+        candidate_failures: Vec<(usize, AutomationError)>,
+    },
 }
 
 impl PreparedPlan {
@@ -250,12 +267,60 @@ impl PreparedPlan {
             .explain()
     }
 
-    /// 依次执行冻结候选；环境不可用允许同路径 fallback，空结果只推进到更晚路径。
+    /// 不启用节点级等待，依次执行冻结候选一次。
     pub async fn execute(self) -> Result<ActionOutcome, AutomationError> {
+        match self.execute_once(true).await {
+            PreparedAttempt::Success(outcome) => Ok(outcome),
+            PreparedAttempt::Failure { error, .. } => Err(error),
+        }
+    }
+
+    /// 在共享截止时间内重复同一 PreparedPlan，只重试 `TargetNotFound`。
+    pub async fn execute_with_wait(
+        self,
+        policy: TargetWaitPolicy,
+    ) -> Result<ActionOutcome, AutomationError> {
+        if policy.mode == TargetWaitMode::None {
+            return self.execute().await;
+        }
+        let timeout = Duration::from_millis(policy.timeout_ms);
+        let poll_interval = Duration::from_millis(policy.poll_interval_ms.max(1));
+        let deadline = tokio::time::Instant::now() + timeout;
+        loop {
+            match self.execute_once(false).await {
+                PreparedAttempt::Success(outcome) => return Ok(outcome),
+                PreparedAttempt::Failure {
+                    error: AutomationError::TargetNotFound { query },
+                    candidate_failures,
+                } => {
+                    if tokio::time::Instant::now() >= deadline {
+                        self.capture_final_failures(candidate_failures, true).await;
+                        return Err(AutomationError::TargetWaitTimeout {
+                            query,
+                            timeout_ms: policy.timeout_ms,
+                        });
+                    }
+                    let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+                    tokio::time::sleep(poll_interval.min(remaining)).await;
+                }
+                PreparedAttempt::Failure {
+                    error,
+                    candidate_failures,
+                } => {
+                    self.capture_final_failures(candidate_failures, false).await;
+                    return Err(error);
+                }
+            }
+        }
+    }
+
+    /// 完整执行一轮冻结候选；等待中的普通 miss 可以关闭 Evidence 采集。
+    async fn execute_once(&self, capture_evidence: bool) -> PreparedAttempt {
         let mut fallback_error = None;
         let mut exhausted_branch: Option<BranchPath> = None;
         let mut captured = Vec::new();
-        for candidate in &self.candidates {
+        let mut candidate_failures = Vec::new();
+        for (candidate_index, candidate) in self.candidates.iter().enumerate() {
             let branch_path = candidate.explain().branch_path.clone().unwrap_or_default();
             if exhausted_branch
                 .as_ref()
@@ -265,7 +330,9 @@ impl PreparedPlan {
             }
             match candidate.execute().await {
                 Ok(mut outcome) => {
-                    if self.evidence.policy == EvidenceCapturePolicy::BranchFailure {
+                    if capture_evidence
+                        && self.evidence.policy == EvidenceCapturePolicy::BranchFailure
+                    {
                         let evidence = self
                             .persist_captured(
                                 captured,
@@ -276,33 +343,83 @@ impl PreparedPlan {
                             .await;
                         outcome.diagnostic_evidence.extend(evidence);
                     }
-                    return Ok(outcome);
+                    return PreparedAttempt::Success(outcome);
                 }
                 Err(error @ AutomationError::BackendUnavailable { .. }) => {
-                    self.capture_if_configured(candidate, &error, &mut captured)
-                        .await;
+                    if capture_evidence {
+                        self.capture_if_configured(candidate, &error, &mut captured)
+                            .await;
+                    }
+                    candidate_failures.push((candidate_index, error.clone()));
                     fallback_error = Some(error)
                 }
                 Err(error @ AutomationError::TargetNotFound { .. }) => {
                     exhausted_branch = Some(branch_path);
-                    self.capture_if_configured(candidate, &error, &mut captured)
-                        .await;
+                    if capture_evidence {
+                        self.capture_if_configured(candidate, &error, &mut captured)
+                            .await;
+                    }
+                    candidate_failures.push((candidate_index, error.clone()));
                     fallback_error = Some(error);
                 }
                 Err(error) => {
-                    self.capture_if_configured(candidate, &error, &mut captured)
-                        .await;
-                    let _ = self
-                        .persist_captured(captured, EvidenceOutcome::FinalFailure)
-                        .await;
-                    return Err(error);
+                    if capture_evidence {
+                        self.capture_if_configured(candidate, &error, &mut captured)
+                            .await;
+                        let _ = self
+                            .persist_captured(captured, EvidenceOutcome::FinalFailure)
+                            .await;
+                    }
+                    candidate_failures.push((candidate_index, error.clone()));
+                    return PreparedAttempt::Failure {
+                        error,
+                        candidate_failures,
+                    };
                 }
+            }
+        }
+        if capture_evidence {
+            let _ = self
+                .persist_captured(captured, EvidenceOutcome::FinalFailure)
+                .await;
+        }
+        PreparedAttempt::Failure {
+            error: fallback_error.unwrap_or(AutomationError::NoBackendAvailable),
+            candidate_failures,
+        }
+    }
+
+    /// 在等待已经确定结束后采集一次最终现场，避免正常加载阶段反复 dump。
+    async fn capture_final_failures(
+        &self,
+        candidate_failures: Vec<(usize, AutomationError)>,
+        target_wait_timed_out: bool,
+    ) {
+        if self.evidence.policy == EvidenceCapturePolicy::Off {
+            return;
+        }
+        let mut captured = Vec::new();
+        for (candidate_index, error) in candidate_failures {
+            let Some(candidate) = self.candidates.get(candidate_index) else {
+                continue;
+            };
+            let trigger = if target_wait_timed_out
+                && matches!(error, AutomationError::TargetNotFound { .. })
+            {
+                Some(EvidenceTrigger::Timeout)
+            } else {
+                evidence_trigger(&error)
+            };
+            let Some(trigger) = trigger else {
+                continue;
+            };
+            if let Some(bundle) = candidate.capture(trigger, &self.evidence).await {
+                captured.push(bundle);
             }
         }
         let _ = self
             .persist_captured(captured, EvidenceOutcome::FinalFailure)
             .await;
-        Err(fallback_error.unwrap_or(AutomationError::NoBackendAvailable))
     }
 
     /// 根据策略在 fallback 前暂存现场；是否落盘由整份计划的最终结局决定。
@@ -372,6 +489,7 @@ fn effective_retention(settings: &EvidenceSettings) -> crate::EvidenceRetentionP
 fn evidence_trigger(error: &AutomationError) -> Option<EvidenceTrigger> {
     match error {
         AutomationError::TargetNotFound { .. } => Some(EvidenceTrigger::TargetNotFound),
+        AutomationError::TargetWaitTimeout { .. } => Some(EvidenceTrigger::Timeout),
         AutomationError::AmbiguousTarget { .. } => Some(EvidenceTrigger::AmbiguousTarget),
         AutomationError::ActionUnsupported { .. } => Some(EvidenceTrigger::ActionUnsupported),
         AutomationError::BackendUnavailable { .. } => Some(EvidenceTrigger::BackendUnavailable),

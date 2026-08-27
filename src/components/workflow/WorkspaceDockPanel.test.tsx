@@ -36,6 +36,9 @@ describe('WorkspaceDockPanel', () => {
                 backend_policy: { allow: [], deny: [], prefer: [] },
               },
             },
+            execution: {
+              target_wait: { mode: 'bounded', timeout_ms: 5_000, poll_interval_ms: 100 },
+            },
           },
         }]}
         report={null}

@@ -74,22 +74,9 @@ export const DEFAULT_NODES = [
     },
   },
   {
-    id: 'wait_baidu_ready_1',
-    kind: 'delay',
-    position: { x: 402, y: 104 },
-    size: { ...WORKFLOW_NODE_SIZES.delay },
-    data: {
-      kind: 'delay',
-      label: '等待百度热搜渲染',
-      outputBindings: {},
-      milliseconds: 1_500,
-      runState: 'idle',
-    },
-  },
-  {
     id: COLLECT_NEWS_NODE_ID,
     kind: 'ui',
-    position: { x: 586, y: 104 },
+    position: { x: 402, y: 104 },
     size: { ...WORKFLOW_NODE_SIZES.ui },
     data: {
       kind: 'ui',
@@ -101,13 +88,20 @@ export const DEFAULT_NODES = [
           'css("#hotsearch-content-wrapper a.title-content .title-content-title")',
         ),
       },
+      execution: {
+        target_wait: {
+          mode: 'bounded',
+          timeout_ms: 5_000,
+          poll_interval_ms: 100,
+        },
+      },
       runState: 'idle',
     },
   },
   {
     id: WRITE_NEWS_NODE_ID,
     kind: 'command',
-    position: { x: 794, y: 104 },
+    position: { x: 610, y: 104 },
     size: { ...WORKFLOW_NODE_SIZES.command },
     data: {
       kind: 'command',
@@ -149,7 +143,7 @@ export const DEFAULT_NODES = [
   {
     id: 'debug_output_path_1',
     kind: 'debug',
-    position: { x: 586, y: 238 },
+    position: { x: 402, y: 238 },
     size: { ...WORKFLOW_NODE_SIZES.debug },
     data: {
       kind: 'debug',
@@ -166,7 +160,7 @@ export const DEFAULT_NODES = [
   {
     id: 'end_1',
     kind: 'end',
-    position: { x: 794, y: 238 },
+    position: { x: 610, y: 238 },
     size: { ...WORKFLOW_NODE_SIZES.end },
     data: { kind: 'end', label: '结束', outputBindings: {}, runState: 'idle' },
   },
@@ -175,16 +169,7 @@ export const DEFAULT_NODES = [
 /** 默认模板按两行蛇形布局串联完整数据路径。 */
 export const DEFAULT_EDGES = [
   createDefaultEdge('edge_start_browser', 'start_1', BAIDU_BROWSER_NODE_ID),
-  createDefaultEdge(
-    'edge_browser_wait',
-    BAIDU_BROWSER_NODE_ID,
-    'wait_baidu_ready_1',
-  ),
-  createDefaultEdge(
-    'edge_wait_collect',
-    'wait_baidu_ready_1',
-    COLLECT_NEWS_NODE_ID,
-  ),
+  createDefaultEdge('edge_browser_collect', BAIDU_BROWSER_NODE_ID, COLLECT_NEWS_NODE_ID),
   createDefaultEdge(
     'edge_collect_write',
     COLLECT_NEWS_NODE_ID,

@@ -28,7 +28,11 @@ describe('ActionNodeFields', () => {
       <ActionNodeFields
         nodeId="ui-save"
         operation={operation}
+        execution={{
+          target_wait: { mode: 'bounded', timeout_ms: 5_000, poll_interval_ms: 100 },
+        }}
         onChange={onChange}
+        onExecutionChange={vi.fn()}
         onOpenEditor={onOpenEditor}
       />,
     );
@@ -44,5 +48,47 @@ describe('ActionNodeFields', () => {
     fireEvent.click(screen.getByRole('button', { name: '编辑规则' }));
     expect(onOpenEditor).toHaveBeenCalledWith({ type: 'aql', nodeId: 'ui-save' });
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('edits the node-owned target wait policy without adding another selector', () => {
+    const onExecutionChange = vi.fn();
+    const operation: UiOperation = {
+      type: 'click',
+      target: {
+        scope: { type: 'current' },
+        locator: {
+          type: 'query',
+          query: { language_version: 1, source: 'button(name = "继续")' },
+        },
+        backend_policy: { allow: [], deny: [], prefer: [] },
+      },
+    };
+
+    render(
+      <ActionNodeFields
+        nodeId="ui-continue"
+        operation={operation}
+        execution={{
+          target_wait: { mode: 'bounded', timeout_ms: 5_000, poll_interval_ms: 100 },
+        }}
+        onChange={vi.fn()}
+        onExecutionChange={onExecutionChange}
+        onOpenEditor={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByText('目标就绪设置'));
+    fireEvent.change(screen.getByRole('spinbutton', { name: '目标等待超时时间' }), {
+      target: { value: '8000' },
+    });
+    expect(onExecutionChange).toHaveBeenCalledWith({
+      target_wait: { mode: 'bounded', timeout_ms: 8_000, poll_interval_ms: 100 },
+    });
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '自动等待目标就绪' }));
+    expect(onExecutionChange).toHaveBeenLastCalledWith({
+      target_wait: { mode: 'none', timeout_ms: 0, poll_interval_ms: 0 },
+    });
+    expect(screen.getAllByText('button(name = "继续")')).toHaveLength(1);
   });
 });

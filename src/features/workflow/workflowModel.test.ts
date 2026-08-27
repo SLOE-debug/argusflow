@@ -81,7 +81,7 @@ describe('workflow model', () => {
 
     expect(workflow.nodes[0]).toMatchObject({
       type_id: 'argus.ui',
-      version: 1,
+      version: 2,
       payload: {
         operation: {
           type: 'click',
@@ -92,6 +92,13 @@ describe('workflow model', () => {
               query: { language_version: 1 },
             },
             backend_policy: { allow: [], deny: [], prefer: [] },
+          },
+        },
+        execution: {
+          target_wait: {
+            mode: 'bounded',
+            timeout_ms: 5_000,
+            poll_interval_ms: 100,
           },
         },
       },
@@ -114,7 +121,8 @@ describe('workflow model', () => {
     expect(workflow.inputs).toEqual([]);
     expect(DEFAULT_RUN_INPUT_VALUES).toEqual({});
     expect(workflow.nodes.some((node) => node.type_id === 'argus.condition')).toBe(false);
-    expect(workflow.edges).toHaveLength(6);
+    expect(workflow.nodes.some((node) => node.type_id === 'argus.delay')).toBe(false);
+    expect(workflow.edges).toHaveLength(5);
     expect(workflow.edges.every((edge) => edge.branch === null)).toBe(true);
     expect(workflow.nodes).toContainEqual(expect.objectContaining({
       id: 'baidu_browser_1',
@@ -128,6 +136,7 @@ describe('workflow model', () => {
     expect(workflow.nodes).toContainEqual(expect.objectContaining({
       id: 'collect_baidu_news_1',
       type_id: 'argus.ui',
+      version: 2,
       payload: {
         operation: {
           type: 'collect_links',
@@ -152,6 +161,13 @@ describe('workflow model', () => {
               },
             },
           }),
+        },
+        execution: {
+          target_wait: {
+            mode: 'bounded',
+            timeout_ms: 5_000,
+            poll_interval_ms: 100,
+          },
         },
       },
     }));

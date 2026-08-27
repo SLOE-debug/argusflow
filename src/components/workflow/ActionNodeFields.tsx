@@ -1,6 +1,7 @@
 import type {
   TargetScope,
   TargetLocatorKind,
+  UiExecutionPolicy,
   UiOperation,
   UiOperationKind,
 } from '../../features/workflow/contracts';
@@ -11,10 +12,11 @@ import {
   changeTargetLocatorKind,
   changeTargetScope,
   changeUiOperationKind,
+  createTargetWaitPolicy,
   resolveBackendPolicyPreset,
   type BackendPolicyPreset,
 } from '../../features/workflow/workflowAction';
-import { Input, Select } from '../ui';
+import { Checkbox, Input, Select } from '../ui';
 import {
   INSPECTOR_HELP_CLASS_NAME,
   InspectorField,
@@ -28,8 +30,12 @@ type ActionNodeFieldsProps = Readonly<{
   nodeId: string;
   /** 当前 UI 节点的完整语义操作契约。 */
   operation: UiOperation;
+  /** 与目标定位语义分离的节点执行预算。 */
+  execution: UiExecutionPolicy;
   /** 写回字段完整的新操作。 */
   onChange: (operation: UiOperation) => void;
+  /** 写回字段完整的新执行策略。 */
+  onExecutionChange: (execution: UiExecutionPolicy) => void;
   /** 请求 Workspace 打开一个结构化文档。 */
   onOpenEditor: (target: StructuredEditorTarget) => void;
 }>;
@@ -69,7 +75,9 @@ const VISUAL_MATCH_OPTIONS = [
 export function ActionNodeFields({
   nodeId,
   operation,
+  execution,
   onChange,
+  onExecutionChange,
   onOpenEditor,
 }: ActionNodeFieldsProps) {
   /** 当前资源作用域的局部不可变快照，供 JSX 回调保留判别联合收窄。 */
@@ -81,7 +89,15 @@ export function ActionNodeFields({
           value={operation.type}
           options={OPERATION_KIND_OPTIONS}
           containerClassName="border-slate-300 bg-white"
-          onValueChange={(kind) => onChange(changeUiOperationKind(operation, kind))}
+          onValueChange={(kind) => {
+            const nextOperation = changeUiOperationKind(operation, kind);
+            onChange(nextOperation);
+            if (nextOperation.target.locator.type !== operation.target.locator.type) {
+              onExecutionChange({
+                target_wait: createTargetWaitPolicy(nextOperation.target.locator.type),
+              });
+            }
+          }}
         />
       </InspectorField>
       {operation.type === 'set_value' ? (
@@ -131,7 +147,10 @@ export function ActionNodeFields({
           value={operation.target.locator.type}
           options={LOCATOR_KIND_OPTIONS}
           containerClassName="border-slate-300 bg-white"
-          onValueChange={(kind) => onChange(changeTargetLocatorKind(operation, kind))}
+          onValueChange={(kind) => {
+            onChange(changeTargetLocatorKind(operation, kind));
+            onExecutionChange({ target_wait: createTargetWaitPolicy(kind) });
+          }}
         />
       </InspectorField>
       {operation.target.locator.type === 'query' ? (
@@ -157,7 +176,88 @@ export function ActionNodeFields({
           onChange={onChange}
         />
       ) : null}
+      {operation.target.locator.type !== 'coordinate' ? (
+        <TargetWaitFields
+          execution={execution}
+          locatorKind={operation.target.locator.type}
+          onChange={onExecutionChange}
+        />
+      ) : null}
     </div>
+  );
+}
+
+/** 编辑 UI 节点自己的目标就绪预算，不复制 operation 中的 selector。 */
+function TargetWaitFields({
+  execution,
+  locatorKind,
+  onChange,
+}: Readonly<{
+  execution: UiExecutionPolicy;
+  locatorKind: Exclude<TargetLocatorKind, 'coordinate'>;
+  onChange: (execution: UiExecutionPolicy) => void;
+}>) {
+  const policy = execution.target_wait;
+  const enabled = policy.mode === 'bounded';
+  return (
+    <details className="rounded-md border border-slate-200 bg-slate-50/70 px-2.5 py-2">
+      <summary className="cursor-pointer select-none text-[10px] font-medium text-slate-600">
+        目标就绪设置
+      </summary>
+      <div className="mt-2 flex flex-col gap-2.5">
+        <label className="flex items-center gap-2 text-[11px] text-slate-700">
+          <Checkbox
+            aria-label="自动等待目标就绪"
+            checked={enabled}
+            onChange={(event) => onChange({
+              target_wait: event.target.checked
+                ? createTargetWaitPolicy(locatorKind)
+                : { mode: 'none', timeout_ms: 0, poll_interval_ms: 0 },
+            })}
+          />
+          自动等待目标就绪
+        </label>
+        {enabled ? (
+          <>
+            <InspectorField label="超时时间（ms）">
+              <Input
+                aria-label="目标等待超时时间"
+                type="number"
+                min={1}
+                max={600_000}
+                value={policy.timeout_ms}
+                containerClassName="border-slate-300 bg-white"
+                onChange={(event) => onChange({
+                  target_wait: {
+                    ...policy,
+                    timeout_ms: Number(event.target.value),
+                  },
+                })}
+              />
+            </InspectorField>
+            <InspectorField label="轮询间隔（ms）">
+              <Input
+                aria-label="目标等待轮询间隔"
+                type="number"
+                min={1}
+                max={60_000}
+                value={policy.poll_interval_ms}
+                containerClassName="border-slate-300 bg-white"
+                onChange={(event) => onChange({
+                  target_wait: {
+                    ...policy,
+                    poll_interval_ms: Number(event.target.value),
+                  },
+                })}
+              />
+            </InspectorField>
+          </>
+        ) : null}
+        <p className={INSPECTOR_HELP_CLASS_NAME}>
+          仅在当前动作找不到目标时轮询；歧义、能力不支持和后端错误会立即失败。
+        </p>
+      </div>
+    </details>
   );
 }
 

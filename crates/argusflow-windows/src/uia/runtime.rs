@@ -14,9 +14,7 @@ use argusflow_core::{ActionOutcome, AutomationError, BackendKind};
 use tokio::sync::oneshot;
 
 use super::{
-    budget::UiaExecutionBudget,
-    plan::{TargetWaitPolicy, UiaPreparedPlan},
-    runtime_worker::UiaWorkerGeneration,
+    budget::UiaExecutionBudget, plan::UiaPreparedPlan, runtime_worker::UiaWorkerGeneration,
 };
 
 /// prepare 阶段冻结、execute 阶段重新校验的窗口身份。
@@ -199,15 +197,6 @@ impl UiaRuntime {
         Self::start_with_config(config)
     }
 
-    /// 启动使用显式目标等待策略的 UIA runtime。
-    pub fn start_with_wait_policy(target_wait_policy: TargetWaitPolicy) -> Self {
-        let config = UiaRuntimeConfig {
-            target_wait_policy,
-            ..UiaRuntimeConfig::default()
-        };
-        Self::start_with_config(config)
-    }
-
     /// 使用完整内部配置启动第一代 worker。
     fn start_with_config(config: UiaRuntimeConfig) -> Self {
         let health = Arc::new(UiaRuntimeHealth::default());
@@ -371,8 +360,6 @@ pub(super) struct UiaRuntimeConfig {
     pub(super) transaction_timeout: Duration,
     /// 包含 worker 排队时间的 ArgusFlow 请求总时限。
     pub(super) execution_timeout: Duration,
-    /// 同一冻结查询等待短暂 UI 出现的策略。
-    pub(super) target_wait_policy: TargetWaitPolicy,
     /// 单次请求允许由进程查询返回或通过 RawView TreeWalker 访问的节点总数。
     pub(super) max_traversal_nodes: usize,
     /// 单次请求允许展开的关系根总数。
@@ -387,7 +374,6 @@ impl Default for UiaRuntimeConfig {
             connection_timeout: Duration::from_secs(2),
             transaction_timeout: Duration::from_secs(20),
             execution_timeout: Duration::from_secs(25),
-            target_wait_policy: TargetWaitPolicy::default(),
             max_traversal_nodes: 10_000,
             max_relation_roots: 256,
             max_recovery_attempts: 3,

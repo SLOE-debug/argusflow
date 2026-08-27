@@ -31,7 +31,7 @@ pub use native::{
     UiaRoleConstraint,
 };
 pub use plan::{
-    TargetResolutionFailure, TargetWaitPolicy, UiaActionPlan, UiaActionSupport, UiaMatcherPlan,
-    UiaPlanExpr, UiaPreparedPlan, UiaQueryPlan,
+    TargetResolutionFailure, UiaActionPlan, UiaActionSupport, UiaMatcherPlan, UiaPlanExpr,
+    UiaPreparedPlan, UiaQueryPlan,
 };
 pub use runtime::{UiaRuntime, UiaRuntimeHealth, UiaRuntimeState};

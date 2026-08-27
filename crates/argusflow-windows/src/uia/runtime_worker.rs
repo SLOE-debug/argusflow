@@ -195,7 +195,7 @@ fn worker_main(
         health: health.clone(),
         generation,
     };
-    let executor = UiaExecutor::new(&automation, config.target_wait_policy);
+    let executor = UiaExecutor::new(&automation);
     let evidence = UiaEvidenceCollector::new(&automation);
     while let Ok(message) = receiver.recv() {
         match message {

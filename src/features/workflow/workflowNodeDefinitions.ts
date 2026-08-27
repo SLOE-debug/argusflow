@@ -6,7 +6,10 @@ import type {
 import { createDefaultApplicationSpec } from './workflowApplication';
 import { createDefaultBrowserSpec } from './workflowBrowser';
 import { createDefaultCommandOperation } from './workflowCommand';
-import { createDefaultUiOperation } from './workflowAction';
+import {
+  createDefaultUiExecutionPolicy,
+  createDefaultUiOperation,
+} from './workflowAction';
 import type { EditableNodeKind, WorkflowNodeData } from './workflowModel';
 
 type NodeDataOf<Kind extends EditableNodeKind> = Extract<
@@ -100,7 +103,7 @@ export const WORKFLOW_NODE_DEFINITIONS = {
     version: 1,
     create: () => ({
       kind: 'delay',
-      label: '等待',
+      label: '固定暂停',
       outputBindings: {},
       milliseconds: 500,
       runState: 'idle',
@@ -167,15 +170,19 @@ export const WORKFLOW_NODE_DEFINITIONS = {
   }),
   ui: defineNode('ui', {
     typeId: 'argus.ui',
-    version: 1,
+    version: 2,
     create: () => ({
       kind: 'ui',
       label: '界面操作',
       outputBindings: {},
       operation: createDefaultUiOperation(),
+      execution: createDefaultUiExecutionPolicy(),
       runState: 'idle',
     }),
-    encode: (data) => ({ operation: data.operation }),
+    encode: (data) => ({
+      operation: data.operation,
+      execution: data.execution,
+    }),
     outputs: (data) => {
       switch (data.operation.type) {
         case 'get_text':

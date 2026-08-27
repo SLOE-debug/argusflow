@@ -1,6 +1,6 @@
 //! HWND/PID 校验后的进程级 UIA 查询、关系解析与有限 stale 重试。
 
-use std::{ffi::c_void, thread, time::Instant};
+use std::ffi::c_void;
 
 use argusflow_core::{ActionOutcome, AutomationError, BackendKind};
 use windows::Win32::{
@@ -20,7 +20,7 @@ use super::{
     condition::build_match_condition,
     element_search::find_cached_matches,
     error::{UiaError, UiaOperation},
-    plan::{TargetWaitPolicy, UiaMatcherPlan, UiaPlanExpr, UiaResultLimit},
+    plan::{UiaMatcherPlan, UiaPlanExpr, UiaResultLimit},
     process_search::find_process_matches,
     runtime::{PreparedWindowTarget, UiaExecuteRequest},
     target_selection::{
@@ -33,20 +33,12 @@ use super::{
 pub(crate) struct UiaExecutor<'automation> {
     /// 只在当前 COM apartment 创建和调用的 automation client。
     automation: &'automation IUIAutomation,
-    /// 同一编译计划的有界 polling 策略。
-    target_wait_policy: TargetWaitPolicy,
 }
 
 impl<'automation> UiaExecutor<'automation> {
     /// 绑定 worker 线程拥有的 UIA client。
-    pub(crate) const fn new(
-        automation: &'automation IUIAutomation,
-        target_wait_policy: TargetWaitPolicy,
-    ) -> Self {
-        Self {
-            automation,
-            target_wait_policy,
-        }
+    pub(crate) const fn new(automation: &'automation IUIAutomation) -> Self {
+        Self { automation }
     }
 
     /// 用冻结的 HWND、查询计划和动作计划执行一次完整请求。
@@ -55,21 +47,9 @@ impl<'automation> UiaExecutor<'automation> {
         request: UiaExecuteRequest,
         budget: UiaExecutionBudget,
     ) -> Result<ActionOutcome, AutomationError> {
-        let wait_deadline = Instant::now()
-            .checked_add(self.target_wait_policy.timeout())
-            .unwrap_or_else(Instant::now);
-        loop {
-            // 遍历/关系上限约束单次 materialize；墙钟 deadline 仍由复制的请求预算共享。
-            let mut materialization_budget = UiaBudgetTracker::new(budget);
-            let result = self.execute_once(&request, &mut materialization_budget);
-            if !matches!(&result, Err(AutomationError::TargetNotFound { .. }))
-                || Instant::now() >= wait_deadline
-            {
-                return result;
-            }
-            let remaining = wait_deadline.saturating_duration_since(Instant::now());
-            thread::sleep(self.target_wait_policy.poll_interval().min(remaining));
-        }
+        // 遍历/关系上限只约束本次 materialize；业务目标等待由 PreparedPlan 统一编排。
+        let mut materialization_budget = UiaBudgetTracker::new(budget);
+        self.execute_once(&request, &mut materialization_budget)
     }
 
     /// 使用同一冻结计划完成一次 materialize、动作适配与执行。

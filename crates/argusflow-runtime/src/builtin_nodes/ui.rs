@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
 use argusflow_core::{
-    AppSession, AutomationAction, AutomationExecutionScope, BackendKind, BrowserSession,
-    ExecutionEventKind, ExecutionEventPayload, NodeEnvelope, NodeTypeId, ResourceTypeId,
-    TargetLocator, TargetScope, UiOperation, WorkflowPermissions,
+    ActionExecutionOptions, AppSession, AutomationAction, AutomationExecutionScope, BackendKind,
+    BrowserSession, ExecutionEventKind, ExecutionEventPayload, NodeEnvelope, NodeTypeId,
+    ResourceTypeId, TargetLocator, TargetScope, TargetWaitMode, TargetWaitPolicy,
+    UiExecutionPolicy, UiOperation, WorkflowPermissions,
 };
 use argusflow_query::parse_stored_query;
 use async_trait::async_trait;
@@ -18,9 +19,19 @@ use crate::{
 /// UI 节点的强类型 payload。
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct UiPayload {
+struct UiPayloadV1 {
     /// 资源作用域、目标定位与动作语义。
     operation: UiOperation,
+}
+
+/// UI 节点 v2 payload，把动作语义与节点执行预算明确分离。
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UiPayloadV2 {
+    /// 资源作用域、目标定位与动作语义。
+    operation: UiOperation,
+    /// 当前节点为了完成动作可以使用的执行策略。
+    execution: UiExecutionPolicy,
 }
 
 /// 创建持有 Planner dispatcher 的 UI 节点编译器。
@@ -48,23 +59,40 @@ impl NodeCompiler for UiCompiler {
         &self,
         definition: &NodeEnvelope,
     ) -> Result<Arc<dyn PreparedNode>, NodeCompileError> {
-        if definition.version != 1 {
-            return Err(NodeCompileError::new(format!(
-                "unsupported payload version {}; expected 1",
-                definition.version,
-            )));
-        }
-        let payload =
-            serde_json::from_value::<UiPayload>(definition.payload.clone()).map_err(|error| {
-                NodeCompileError::new(format!("payload does not match registered schema: {error}"))
-            })?;
-        let resource_type = match &payload.operation.target().scope {
+        let (operation, execution) = match definition.version {
+            1 => {
+                let payload = serde_json::from_value::<UiPayloadV1>(definition.payload.clone())
+                    .map_err(|error| {
+                        NodeCompileError::new(format!(
+                            "payload does not match registered schema: {error}"
+                        ))
+                    })?;
+                let execution = legacy_execution_policy(payload.operation.target().locator.clone());
+                (payload.operation, execution)
+            }
+            2 => {
+                let payload = serde_json::from_value::<UiPayloadV2>(definition.payload.clone())
+                    .map_err(|error| {
+                        NodeCompileError::new(format!(
+                            "payload does not match registered schema: {error}"
+                        ))
+                    })?;
+                (payload.operation, payload.execution)
+            }
+            version => {
+                return Err(NodeCompileError::new(format!(
+                    "unsupported payload version {version}; expected 1 or 2"
+                )));
+            }
+        };
+        let resource_type = match &operation.target().scope {
             TargetScope::Application { .. } => Some(ResourceTypeId::application()),
             TargetScope::Browser { .. } => Some(ResourceTypeId::browser()),
             TargetScope::Current => None,
         };
         Ok(Arc::new(UiNode {
-            operation: payload.operation,
+            operation,
+            execution,
             resource_type,
             dispatcher: Arc::clone(&self.dispatcher),
         }))
@@ -75,6 +103,8 @@ impl NodeCompiler for UiCompiler {
 struct UiNode {
     /// 执行和依赖校验共享的语义操作。
     operation: UiOperation,
+    /// 目标等待等节点级执行预算。
+    execution: UiExecutionPolicy,
     /// 显式作用域要求的资源类型；Current 不需要资源。
     resource_type: Option<ResourceTypeId>,
     /// 已装配全部 ActionBackend 的动作分发器。
@@ -86,6 +116,7 @@ impl std::fmt::Debug for UiNode {
         formatter
             .debug_struct("UiNode")
             .field("operation", &self.operation)
+            .field("execution", &self.execution)
             .field("resource_type", &self.resource_type)
             .finish_non_exhaustive()
     }
@@ -134,6 +165,45 @@ impl PreparedNode for UiNode {
                 ValidationIssueCode::InvalidBackendPolicy,
                 "批量链接读取的后端策略必须允许 browser_cdp",
             ));
+        }
+        match self.execution.target_wait {
+            TargetWaitPolicy {
+                mode: TargetWaitMode::None,
+                timeout_ms: 0,
+                poll_interval_ms: 0,
+            } => {}
+            TargetWaitPolicy {
+                mode: TargetWaitMode::None,
+                ..
+            } => issues.push(context.issue(
+                ValidationIssueCode::InvalidTargetWaitPolicy,
+                "关闭目标等待时，超时和轮询间隔必须为 0",
+            )),
+            TargetWaitPolicy {
+                mode: TargetWaitMode::Bounded,
+                timeout_ms,
+                poll_interval_ms,
+            } if !(1..=600_000).contains(&timeout_ms)
+                || !(1..=60_000).contains(&poll_interval_ms) =>
+            {
+                issues.push(context.issue(
+                    ValidationIssueCode::InvalidTargetWaitPolicy,
+                    "目标等待超时必须在 1 到 600000 毫秒之间，轮询间隔必须在 1 到 60000 毫秒之间",
+                ));
+            }
+            TargetWaitPolicy {
+                mode: TargetWaitMode::Bounded,
+                ..
+            } if matches!(&target.locator, TargetLocator::Coordinate { .. }) => {
+                issues.push(context.issue(
+                    ValidationIssueCode::InvalidTargetWaitPolicy,
+                    "坐标目标没有元素就绪语义，不能启用目标等待",
+                ));
+            }
+            TargetWaitPolicy {
+                mode: TargetWaitMode::Bounded,
+                ..
+            } => {}
         }
         match &target.locator {
             TargetLocator::Query { query } => {
@@ -224,7 +294,16 @@ impl PreparedNode for UiNode {
             UiOperation::GetValue { .. } => AutomationAction::GetValue { target },
             UiOperation::CollectLinks { .. } => AutomationAction::CollectLinks { target },
         };
-        let action_outcome = self.dispatcher.execute(&action, scope).await?;
+        let action_outcome = self
+            .dispatcher
+            .execute_with_options(
+                &action,
+                scope,
+                ActionExecutionOptions {
+                    target_wait: self.execution.target_wait,
+                },
+            )
+            .await?;
         // 失败现场在 fallback 前产生，因此事件顺序也先于最终成功后端。
         let mut events = action_outcome
             .diagnostic_evidence
@@ -252,6 +331,16 @@ impl PreparedNode for UiNode {
             events,
         })
     }
+}
+
+/// v1 UI payload 沿用定位类别对应的新统一默认值，同时仍只 prepare 一次动作。
+fn legacy_execution_policy(locator: TargetLocator) -> UiExecutionPolicy {
+    let target_wait = match locator {
+        TargetLocator::Coordinate { .. } => TargetWaitPolicy::none(),
+        TargetLocator::Query { .. } => TargetWaitPolicy::bounded(5_000, 100),
+        TargetLocator::Visual { .. } => TargetWaitPolicy::bounded(5_000, 300),
+    };
+    UiExecutionPolicy { target_wait }
 }
 
 /// 把资源引用解析成不进入持久化定义的瞬时后端作用域。

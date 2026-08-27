@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use argusflow_core::{
-    ActionOutcome, AutomationAction, AutomationError, AutomationExecutionScope, BackendKind,
-    CapabilityId, TargetScope,
+    ActionExecutionOptions, ActionOutcome, AutomationAction, AutomationError,
+    AutomationExecutionScope, BackendKind, CapabilityId, TargetScope,
 };
 use argusflow_query::{
     Diagnostic, DiagnosticCode, DiagnosticSeverity, QueryCost, QueryPortability, SupportLevel,
@@ -151,6 +151,16 @@ impl ActionDispatcher for ActionRouter {
         action: &AutomationAction,
         scope: AutomationExecutionScope,
     ) -> Result<ActionOutcome, AutomationError> {
+        self.execute_with_options(action, scope, ActionExecutionOptions::default())
+            .await
+    }
+
+    async fn execute_with_options(
+        &self,
+        action: &AutomationAction,
+        scope: AutomationExecutionScope,
+        options: ActionExecutionOptions,
+    ) -> Result<ActionOutcome, AutomationError> {
         let mut context = self.context_provider.snapshot();
         if let AutomationExecutionScope::Window {
             handle,
@@ -182,7 +192,9 @@ impl ActionDispatcher for ActionRouter {
             context.accessibility.ready = false;
             context.visual_cache.ready = false;
         }
-        self.prepare(action, &context)?.execute().await
+        self.prepare(action, &context)?
+            .execute_with_wait(options.target_wait)
+            .await
     }
 }
 

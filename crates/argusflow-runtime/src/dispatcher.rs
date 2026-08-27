@@ -1,5 +1,6 @@
 use argusflow_core::{
-    ActionOutcome, AutomationAction, AutomationError, AutomationExecutionScope, BackendKind,
+    ActionExecutionOptions, ActionOutcome, AutomationAction, AutomationError,
+    AutomationExecutionScope, BackendKind,
 };
 use async_trait::async_trait;
 
@@ -12,6 +13,16 @@ pub trait ActionDispatcher: Send + Sync {
         action: &AutomationAction,
         scope: AutomationExecutionScope,
     ) -> Result<ActionOutcome, AutomationError>;
+
+    /// 使用节点提供的执行预算执行动作；默认分发器保持单次执行语义。
+    async fn execute_with_options(
+        &self,
+        action: &AutomationAction,
+        scope: AutomationExecutionScope,
+        _options: ActionExecutionOptions,
+    ) -> Result<ActionOutcome, AutomationError> {
+        self.execute(action, scope).await
+    }
 }
 
 /// 表示尚未配置任何可用自动化后端的占位实现。

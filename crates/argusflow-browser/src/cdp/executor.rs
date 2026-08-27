@@ -1,6 +1,6 @@
 //! 已冻结 CSS 查询上的单次页面内批量动作执行。
 
-use std::{collections::BTreeMap, time::Duration};
+use std::collections::BTreeMap;
 
 use argusflow_core::{ActionOutcome, AutomationAction, AutomationError, BackendKind};
 use serde::Deserialize;
@@ -11,7 +11,7 @@ use super::{
     CdpPageSession, CdpPlanExpr, failure::CdpProtocolError, page_script::build_page_action_script,
 };
 
-/// 执行 CSS fast path，并在短暂页面渲染期间按有界策略重试未命中查询。
+/// 执行一次 CSS fast path；目标未出现时立即交回 PreparedPlan 决定是否等待。
 pub(crate) async fn execute_cdp_action(
     session: &CdpPageSession,
     action: &AutomationAction,
@@ -19,41 +19,27 @@ pub(crate) async fn execute_cdp_action(
     query: &str,
 ) -> Result<ActionOutcome, AutomationError> {
     let script = build_page_action_script(expression, action)?;
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-    loop {
-        let result = evaluate_action(session, &script)
-            .await
-            .map_err(CdpExecutionError::into_automation_error)?;
-        match result.status.as_str() {
-            "not_found" if tokio::time::Instant::now() < deadline => {
-                tokio::time::sleep(Duration::from_millis(100)).await;
-            }
-            "not_found" => {
-                return Err(AutomationError::TargetNotFound {
-                    query: query.to_owned(),
-                });
-            }
-            "ambiguous" => {
-                return Err(AutomationError::AmbiguousTarget {
-                    query: query.to_owned(),
-                    matches: result.matches,
-                });
-            }
-            "ok" => {
-                return Ok(ActionOutcome {
-                    backend: BackendKind::BrowserCdp,
-                    message: result.message,
-                    outputs: result.outputs,
-                    diagnostic_evidence: Vec::new(),
-                });
-            }
-            status => {
-                return Err(CdpExecutionError::InvalidExecutorResponse {
-                    message: format!("unknown page action status '{status}'"),
-                }
-                .into_automation_error());
-            }
+    let result = evaluate_action(session, &script)
+        .await
+        .map_err(CdpExecutionError::into_automation_error)?;
+    match result.status.as_str() {
+        "not_found" => Err(AutomationError::TargetNotFound {
+            query: query.to_owned(),
+        }),
+        "ambiguous" => Err(AutomationError::AmbiguousTarget {
+            query: query.to_owned(),
+            matches: result.matches,
+        }),
+        "ok" => Ok(ActionOutcome {
+            backend: BackendKind::BrowserCdp,
+            message: result.message,
+            outputs: result.outputs,
+            diagnostic_evidence: Vec::new(),
+        }),
+        status => Err(CdpExecutionError::InvalidExecutorResponse {
+            message: format!("unknown page action status '{status}'"),
         }
+        .into_automation_error()),
     }
 }
 

@@ -8,12 +8,12 @@ use std::sync::{
 use argusflow_agent::{
     ActionBackend, ActionRouter, ContextFitness, EvidenceBundle, EvidenceCaptureError,
     EvidenceCapturePolicy, EvidenceCaptureRequest, EvidenceOutcome, EvidenceSettings,
-    ExecutionContext, InMemoryEvidenceSink, PlanExplain, PlanRejection, PreparedCandidate,
-    PreparedDiagnostics, PreparedExecution, RuntimeAvailability,
+    EvidenceTrigger, ExecutionContext, InMemoryEvidenceSink, PlanExplain, PlanRejection,
+    PreparedCandidate, PreparedDiagnostics, PreparedExecution, RuntimeAvailability,
 };
 use argusflow_core::{
-    ActionOutcome, AqlQuery, AutomationAction, AutomationError, AutomationExecutionScope,
-    AutomationTarget, BackendKind,
+    ActionExecutionOptions, ActionOutcome, AqlQuery, AutomationAction, AutomationError,
+    AutomationExecutionScope, AutomationTarget, BackendKind, TargetWaitPolicy,
 };
 use argusflow_query::{BranchPath, QueryCost, QueryPortability, SupportLevel};
 use argusflow_runtime::ActionDispatcher;
@@ -259,6 +259,47 @@ async fn final_failure_preserves_every_branch_snapshot_before_fallback() {
             .iter()
             .all(|record| record.outcome == EvidenceOutcome::FinalFailure)
     );
+}
+
+#[tokio::test]
+async fn target_wait_captures_timeout_evidence_only_after_the_deadline() {
+    let captures = Arc::new(AtomicUsize::new(0));
+    let sink = Arc::new(InMemoryEvidenceSink::default());
+    let router = ActionRouter::new(vec![backend(
+        BackendKind::WindowsUia,
+        0,
+        EvidenceExecutionResult::TargetNotFound,
+        Some(Arc::new(TestDiagnostics {
+            backend: BackendKind::WindowsUia,
+            captures: captures.clone(),
+            fail: false,
+        })),
+    )])
+    .with_evidence(EvidenceSettings {
+        policy: EvidenceCapturePolicy::FinalFailure,
+        sink: sink.clone(),
+        ..EvidenceSettings::default()
+    });
+
+    let result = router
+        .execute_with_options(
+            &click(),
+            AutomationExecutionScope::Current,
+            ActionExecutionOptions {
+                target_wait: TargetWaitPolicy::bounded(10, 3),
+            },
+        )
+        .await;
+
+    assert!(matches!(
+        result,
+        Err(AutomationError::TargetWaitTimeout { timeout_ms: 10, .. })
+    ));
+    assert_eq!(captures.load(Ordering::SeqCst), 1);
+    let records = sink.records();
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].bundle.trigger, EvidenceTrigger::Timeout);
+    assert_eq!(records[0].outcome, EvidenceOutcome::FinalFailure);
 }
 
 /// 创建单候选测试后端。

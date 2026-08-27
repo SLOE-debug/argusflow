@@ -3,10 +3,11 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use argusflow_core::{
-    ActionOutcome, AqlQuery, AutomationAction, AutomationError, AutomationExecutionScope,
-    AutomationTarget, BackendKind, DiagnosticEvidenceReference, ExecutionEvent, ExecutionEventKind,
-    ExecutionEventPayload, NodeEnvelope, Position, RunInputs, UiOperation, ValueExpr,
-    WorkflowDefinition, WorkflowEdge, WorkflowNode, WorkflowPermissions,
+    ActionExecutionOptions, ActionOutcome, AqlQuery, AutomationAction, AutomationError,
+    AutomationExecutionScope, AutomationTarget, BackendKind, DiagnosticEvidenceReference,
+    ExecutionEvent, ExecutionEventKind, ExecutionEventPayload, NodeEnvelope, Position, RunInputs,
+    TargetWaitPolicy, UiOperation, ValueExpr, WorkflowDefinition, WorkflowEdge, WorkflowNode,
+    WorkflowPermissions,
 };
 use argusflow_runtime::{ActionDispatcher, ExecutionEventSink, WorkflowEngine};
 use async_trait::async_trait;
@@ -42,6 +43,8 @@ impl From<WorkflowNodeKind> for NodeEnvelope {
 struct CapturingDispatcher {
     /// 按真实执行顺序保存动作，供测试验证 SetValue 不再携带 ValueExpr。
     actions: Mutex<Vec<AutomationAction>>,
+    /// Runtime 从 UI payload 解码并传入的节点执行策略。
+    options: Mutex<Vec<ActionExecutionOptions>>,
 }
 
 #[async_trait]
@@ -75,6 +78,16 @@ impl ActionDispatcher for CapturingDispatcher {
                 recovered_by_fallback: true,
             }],
         })
+    }
+
+    async fn execute_with_options(
+        &self,
+        action: &AutomationAction,
+        scope: AutomationExecutionScope,
+        options: ActionExecutionOptions,
+    ) -> Result<ActionOutcome, AutomationError> {
+        self.options.lock().await.push(options);
+        self.execute(action, scope).await
     }
 }
 
@@ -120,6 +133,19 @@ async fn read_output_is_resolved_for_debug_and_the_following_set_value() {
         actions.get(1),
         Some(AutomationAction::SetValue { value, .. }) if value == "ACME-10086"
     ));
+    drop(actions);
+    let options = dispatcher.options.lock().await;
+    assert_eq!(
+        options.as_slice(),
+        &[
+            ActionExecutionOptions {
+                target_wait: TargetWaitPolicy::bounded(5_000, 100),
+            },
+            ActionExecutionOptions {
+                target_wait: TargetWaitPolicy::bounded(5_000, 100),
+            },
+        ]
+    );
     assert!(events.iter().any(|event| {
         event.kind == ExecutionEventKind::NodeOutputProduced
             && event.payload

@@ -1,4 +1,4 @@
-use std::{num::NonZeroUsize, time::Duration};
+use std::num::NonZeroUsize;
 
 use argusflow_core::{ActionCapability, UiQuery};
 use argusflow_query::{BackendQueryCapability, Diagnostic};
@@ -157,55 +157,4 @@ pub enum TargetResolutionFailure {
         /// 当前动作要求的跨后端能力。
         required: ActionCapability,
     },
-}
-
-/// 同一冻结 UIA candidate 等待目标出现的有界 polling 策略。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TargetWaitPolicy {
-    /// 首次 miss 后允许继续 materialize 的总时长。
-    timeout: Duration,
-    /// 两次 materialize 之间的最短间隔。
-    poll_interval: Duration,
-}
-
-impl TargetWaitPolicy {
-    /// 创建策略；零间隔会收敛为 1ms，避免 worker 忙循环。
-    pub fn new(timeout: Duration, poll_interval: Duration) -> Self {
-        Self {
-            timeout,
-            poll_interval: poll_interval.max(Duration::from_millis(1)),
-        }
-    }
-
-    /// 返回总等待时长。
-    pub const fn timeout(self) -> Duration {
-        self.timeout
-    }
-
-    /// 返回 polling 间隔。
-    pub const fn poll_interval(self) -> Duration {
-        self.poll_interval
-    }
-}
-
-impl Default for TargetWaitPolicy {
-    fn default() -> Self {
-        Self::new(Duration::from_secs(2), Duration::from_millis(75))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::time::Duration;
-
-    use super::TargetWaitPolicy;
-
-    /// 零 polling 间隔会被规范化，确保 UIA worker 不会忙循环。
-    #[test]
-    fn wait_policy_enforces_a_minimum_poll_interval() {
-        let policy = TargetWaitPolicy::new(Duration::ZERO, Duration::ZERO);
-
-        assert_eq!(policy.timeout(), Duration::ZERO);
-        assert_eq!(policy.poll_interval(), Duration::from_millis(1));
-    }
 }

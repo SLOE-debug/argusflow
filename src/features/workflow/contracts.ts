@@ -54,6 +54,21 @@ export type UiOperation =
 /** UI 节点允许选择的强类型操作类别。 */
 export type UiOperationKind = UiOperation['type'];
 
+/** 当前 UI 节点自己的目标就绪等待模式。 */
+export type TargetWaitMode = 'none' | 'bounded';
+
+/** 只对当前 operation 的 `TargetNotFound` 生效的等待预算。 */
+export type TargetWaitPolicy = Readonly<{
+  mode: TargetWaitMode;
+  timeout_ms: number;
+  poll_interval_ms: number;
+}>;
+
+/** UI 节点与动作语义分离的执行策略。 */
+export type UiExecutionPolicy = Readonly<{
+  target_wait: TargetWaitPolicy;
+}>;
+
 /** AQL 语义与执行后端选择分离的动作目标。 */
 export type AutomationTarget = {
   /** 当前上下文或显式应用会话作用域。 */
@@ -373,6 +388,7 @@ export type BuiltinValidationIssueCode =
   | 'invalid_browser_spec'
   | 'application_permission_denied'
   | 'invalid_backend_policy'
+  | 'invalid_target_wait_policy'
   | 'invalid_command'
   | 'command_permission_denied'
   | 'invalid_value_reference'

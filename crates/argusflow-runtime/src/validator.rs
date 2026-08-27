@@ -120,6 +120,7 @@ validation_issue_codes! {
     InvalidBrowserSpec => "invalid_browser_spec",
     ApplicationPermissionDenied => "application_permission_denied",
     InvalidBackendPolicy => "invalid_backend_policy",
+    InvalidTargetWaitPolicy => "invalid_target_wait_policy",
     InvalidCommand => "invalid_command",
     CommandPermissionDenied => "command_permission_denied",
     InvalidValueReference => "invalid_value_reference",

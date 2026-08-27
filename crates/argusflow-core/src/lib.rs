@@ -17,9 +17,10 @@ mod workflow;
 
 pub use application::{AcquirePolicy, ActivationPolicy, ApplicationSpec, CleanupPolicy};
 pub use automation::{
-    ActionOutcome, AutomationAction, AutomationExecutionScope, AutomationTarget, BackendKind,
-    BackendPolicy, DiagnosticEvidenceReference, ScreenPoint, TargetLocator, TargetScope,
-    UiOperation, VisualQuery, WindowTitleMatcher,
+    ActionExecutionOptions, ActionOutcome, AutomationAction, AutomationExecutionScope,
+    AutomationTarget, BackendKind, BackendPolicy, DiagnosticEvidenceReference, ScreenPoint,
+    TargetLocator, TargetScope, TargetWaitMode, TargetWaitPolicy, UiExecutionPolicy, UiOperation,
+    VisualQuery, WindowTitleMatcher,
 };
 pub use browser::BrowserSpec;
 pub use command::{

@@ -47,7 +47,7 @@ const NODE_KIND_LABELS: Readonly<Record<WorkflowNodeData['kind'], string>> = {
   start: '开始节点',
   log: '日志节点',
   debug: '调试输出',
-  delay: '延迟节点',
+  delay: '固定暂停',
   condition: '条件判断',
   variable: '设置变量',
   application: '应用资源',
@@ -204,7 +204,7 @@ function NodeKindFields({
       );
     case 'delay':
       return (
-        <InspectorField label="等待毫秒">
+        <InspectorField label="暂停毫秒">
           <input
             className={`${INSPECTOR_CONTROL_CLASS_NAME} h-8`}
             type="number"
@@ -257,9 +257,13 @@ function NodeKindFields({
         <ActionNodeFields
           nodeId={node.id}
           operation={data.operation}
+          execution={data.execution}
           onOpenEditor={onOpenStructuredEditor}
           onChange={(operation) => onUpdate((current) => current.kind === 'ui'
             ? { ...current, operation, invalid: false }
+            : current)}
+          onExecutionChange={(execution) => onUpdate((current) => current.kind === 'ui'
+            ? { ...current, execution, invalid: false }
             : current)}
         />
       );
