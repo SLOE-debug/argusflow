@@ -6,6 +6,7 @@ import type {
 import { createDefaultApplicationSpec } from './workflowApplication';
 import { createDefaultBrowserSpec } from './workflowBrowser';
 import { createDefaultCommandOperation } from './workflowCommand';
+import { FLOW_COMPONENT_CATALOG } from './componentCatalog';
 import {
   createDefaultUiExecutionPolicy,
   createDefaultUiOperation,
@@ -158,7 +159,7 @@ export const WORKFLOW_NODE_DEFINITIONS = {
   }),
   browser: defineNode('browser', {
     typeId: 'argus.browser',
-    version: 1,
+    version: 2,
     create: () => ({
       kind: 'browser',
       label: '打开浏览器',
@@ -167,6 +168,22 @@ export const WORKFLOW_NODE_DEFINITIONS = {
       runState: 'idle',
     }),
     encode: (data) => ({ spec: data.spec }),
+  }),
+  navigate: defineNode('navigate', {
+    typeId: 'argus.browser.operation',
+    version: 1,
+    create: () => ({
+      kind: 'navigate',
+      label: '访问网址',
+      outputBindings: {},
+      operation: {
+        type: 'navigate',
+        browser: { producer_node_id: '', output_name: 'session' },
+        url: { type: 'literal', value: 'https://www.baidu.com/' },
+      },
+      runState: 'idle',
+    }),
+    encode: (data) => ({ operation: data.operation }),
   }),
   ui: defineNode('ui', {
     typeId: 'argus.ui',
@@ -189,6 +206,12 @@ export const WORKFLOW_NODE_DEFINITIONS = {
           return [{ name: 'text', valueType: 'text', label: '文本' }];
         case 'get_value':
           return [{ name: 'value', valueType: 'text', label: '值' }];
+        case 'extract':
+          return [{
+            name: data.operation.cardinality === 'one' ? 'item' : 'items',
+            valueType: 'json',
+            label: data.operation.cardinality === 'one' ? '提取对象' : '提取对象数组',
+          }];
         case 'collect_links':
           return [
             { name: 'text', valueType: 'text', label: '链接文本' },
@@ -216,6 +239,52 @@ export const WORKFLOW_NODE_DEFINITIONS = {
       { name: 'stderr', valueType: 'text', label: '错误输出' },
       { name: 'exit_code', valueType: 'json', label: '退出代码' },
     ],
+  }),
+  format: defineNode('format', {
+    typeId: 'argus.data.format',
+    version: 1,
+    create: () => ({
+      kind: 'format',
+      label: '格式化文本',
+      outputBindings: {},
+      operation: {
+        items: { type: 'literal', value: [] },
+        fields: ['title', 'url'],
+        column_separator: '\t',
+        row_separator: '\r\n',
+        include_header: false,
+      },
+      runState: 'idle',
+    }),
+    encode: (data) => ({ operation: data.operation }),
+    outputs: () => [{ name: 'text', valueType: 'text', label: '格式化文本' }],
+  }),
+  component: defineNode('component', {
+    typeId: 'argus.component',
+    version: 1,
+    create: () => {
+      const catalogItem = FLOW_COMPONENT_CATALOG[0];
+      return {
+        kind: 'component',
+        label: catalogItem.title,
+        outputBindings: {},
+        component: {
+          component_id: catalogItem.definition.id,
+          component_version: catalogItem.definition.version,
+          inputs: catalogItem.defaultInputs,
+        },
+        componentName: catalogItem.definition.name,
+        componentOutputs: catalogItem.definition.outputs,
+        componentDefinition: catalogItem.definition,
+        runState: 'idle',
+      };
+    },
+    encode: (data) => data.component,
+    outputs: (data) => data.componentOutputs.map((output) => ({
+      name: output.name,
+      valueType: 'json',
+      label: output.name,
+    })),
   }),
   end: defineNode('end', {
     typeId: 'argus.end',

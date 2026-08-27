@@ -5,6 +5,47 @@ use serde_json::Value;
 
 use crate::{AqlQuery, CapabilitySet, ResourceRef, ValueExpr};
 
+/// Extract 操作返回单个目标还是目标集合。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExtractCardinality {
+    /// 查询必须唯一命中，输出一个字段对象。
+    One,
+    /// 查询可以命中多个目标，输出字段对象数组。
+    Many,
+}
+
+/// Extract 字段从目标元素读取的稳定语义来源。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum FieldProjectionSource {
+    /// 读取面向用户显示的文本。
+    Text,
+    /// 读取控件值。
+    Value,
+    /// 读取可访问名称。
+    Name,
+    /// 读取后端公开的语义属性。
+    Property {
+        /// 非空属性名称。
+        name: String,
+    },
+    /// 读取 DOM 等后端公开的原生属性。
+    Attribute {
+        /// 非空属性名称。
+        name: String,
+    },
+}
+
+/// Extract 输出对象中的一个具名字段投影。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FieldProjection {
+    /// 输出对象内非空且唯一的字段名。
+    pub name: String,
+    /// 从每个命中目标读取字段值的语义来源。
+    pub source: FieldProjectionSource,
+}
+
 /// UI 节点为了满足当前动作前置条件而采用的目标等待模式。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -104,6 +145,15 @@ pub enum UiOperation {
         /// 要定位并读取的目标。
         target: AutomationTarget,
     },
+    /// 从一个或多个目标投影结构化字段，不承担文本格式化职责。
+    Extract {
+        /// 要定位并投影的目标或目标集合。
+        target: AutomationTarget,
+        /// 唯一目标或集合输出约束。
+        cardinality: ExtractCardinality,
+        /// 结果对象中有序、非空且名称唯一的字段集合。
+        fields: Vec<FieldProjection>,
+    },
     /// 批量读取链接元素的可见标题和已解析绝对 URL。
     ///
     /// `text` 输出中每条记录使用制表符分隔标题与 URL，并以 `\r\n` 结尾；
@@ -122,6 +172,7 @@ impl UiOperation {
             | Self::SetValue { target, .. }
             | Self::GetText { target }
             | Self::GetValue { target }
+            | Self::Extract { target, .. }
             | Self::CollectLinks { target } => target,
         }
     }
@@ -152,6 +203,15 @@ pub enum AutomationAction {
         /// 要定位并读取的目标。
         target: AutomationTarget,
     },
+    /// 从已解析目标集合投影结构化字段。
+    Extract {
+        /// 要定位并投影的目标或目标集合。
+        target: AutomationTarget,
+        /// 唯一目标或集合输出约束。
+        cardinality: ExtractCardinality,
+        /// 已冻结的字段投影集合。
+        fields: Vec<FieldProjection>,
+    },
     /// 批量读取链接元素的可见标题和已解析绝对 URL。
     CollectLinks {
         /// 要批量定位的链接集合。
@@ -167,6 +227,7 @@ impl AutomationAction {
             | Self::SetValue { target, .. }
             | Self::GetText { target }
             | Self::GetValue { target }
+            | Self::Extract { target, .. }
             | Self::CollectLinks { target } => target,
         }
     }

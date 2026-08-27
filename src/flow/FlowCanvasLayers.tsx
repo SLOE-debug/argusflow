@@ -25,6 +25,8 @@ type FlowCanvasLayersProps = Readonly<{
     event: ReactPointerEvent,
   ) => void;
   onDragStart: (nodeId: string, event: ReactPointerEvent) => void;
+  /** 转发业务层节点双击命令。 */
+  onNodeDoubleClick?: (nodeId: string) => void;
   onReconnectStart: (
     edgeId: string,
     endpoint: 'source' | 'target',
@@ -61,6 +63,7 @@ export function FlowCanvasLayers({
   guides,
   onConnectionStart,
   onDragStart,
+  onNodeDoubleClick,
   onReconnectStart,
   panActive,
   registry,
@@ -98,6 +101,7 @@ export function FlowCanvasLayers({
             nodeId={node.id}
             onConnectionStart={onConnectionStart}
             onDragStart={onDragStart}
+            onDoubleClick={onNodeDoubleClick}
             panActive={panActive}
             registry={registry}
             toolMode={toolMode}

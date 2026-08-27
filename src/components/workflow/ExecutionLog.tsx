@@ -30,8 +30,11 @@ const NODE_LOG_TONES = {
   variable: 'border-teal-500 text-teal-700',
   application: 'border-indigo-500 text-indigo-700',
   browser: 'border-sky-500 text-sky-700',
+  navigate: 'border-sky-500 text-sky-700',
   ui: 'border-cyan-500 text-cyan-700',
   command: 'border-slate-600 text-slate-700',
+  format: 'border-amber-500 text-amber-700',
+  component: 'border-violet-600 text-violet-700',
   end: 'border-rose-500 text-rose-700',
 } satisfies Readonly<Record<WorkflowNodeData['kind'], string>>;
 

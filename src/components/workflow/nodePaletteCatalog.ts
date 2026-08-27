@@ -6,6 +6,8 @@ import {
   Bug,
   Clock3,
   Globe2,
+  Navigation,
+  TableProperties,
   Combine,
   Database,
   FileCode2,
@@ -25,7 +27,9 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 
-import type { EditableNodeKind } from '../../features/workflow/workflowModel';
+import type { WorkflowNodeCreationKey } from '../../features/workflow/workflowModel';
+import { NODE_PRESET_CATALOG } from '../../features/workflow/nodePresetCatalog';
+import { FLOW_COMPONENT_CATALOG } from '../../features/workflow/componentCatalog';
 
 /** 节点库中稳定且有序的业务分组。 */
 export type PaletteGroup =
@@ -36,7 +40,9 @@ export type PaletteGroup =
   | 'interface'
   | 'system'
   | 'data'
-  | 'output';
+  | 'output'
+  | 'preset'
+  | 'component';
 
 /** 分组标题与用途说明。 */
 export type PaletteGroupDefinition = Readonly<{
@@ -48,7 +54,7 @@ export type PaletteGroupDefinition = Readonly<{
 /** 节点目录条目的稳定展示契约。 */
 export type PaletteItemDefinition = Readonly<{
   /** 后端已支持的节点类型；null 表示仅展示的后续节点。 */
-  kind: EditableNodeKind | null;
+  kind: WorkflowNodeCreationKey | null;
   /** 节点名称。 */
   title: string;
   /** 用一句动作描述说明节点进入流程后的作用。 */
@@ -63,6 +69,16 @@ export type PaletteItemDefinition = Readonly<{
 
 /** 节点库的固定分组顺序；说明文本用于快速区分节点职责。 */
 export const PALETTE_GROUPS = [
+  {
+    id: 'preset',
+    label: '节点预设',
+    description: '预填原子节点常用参数',
+  },
+  {
+    id: 'component',
+    label: '流程组件',
+    description: '版本锁定的可复用子流程',
+  },
   {
     id: 'trigger',
     label: '触发',
@@ -196,6 +212,22 @@ export const PALETTE_ITEMS = [
     iconClassName: 'bg-sky-50 text-sky-700',
   },
   {
+    kind: 'navigate',
+    title: '访问网址',
+    description: '在浏览器会话中导航页面',
+    group: 'resource',
+    icon: Navigation,
+    iconClassName: 'bg-sky-50 text-sky-700',
+  },
+  {
+    kind: 'format',
+    title: '格式化文本',
+    description: '把对象数组转为分隔文本',
+    group: 'data',
+    icon: TableProperties,
+    iconClassName: 'bg-amber-50 text-amber-700',
+  },
+  {
     kind: 'ui',
     title: '界面操作',
     description: '点击、填写或读取控件',
@@ -291,4 +323,20 @@ export const PALETTE_ITEMS = [
     icon: Square,
     iconClassName: 'bg-rose-50 text-rose-700',
   },
-] as const satisfies ReadonlyArray<PaletteItemDefinition>;
+  ...NODE_PRESET_CATALOG.map((preset) => ({
+    kind: `preset:${preset.id}` as const,
+    title: preset.title,
+    description: preset.description,
+    group: 'preset' as const,
+    icon: MousePointerClick,
+    iconClassName: 'bg-cyan-50 text-cyan-700',
+  })),
+  ...FLOW_COMPONENT_CATALOG.map((item) => ({
+    kind: `component:${item.definition.id}@${item.definition.version}` as const,
+    title: item.title,
+    description: item.description,
+    group: 'component' as const,
+    icon: Workflow,
+    iconClassName: 'bg-violet-50 text-violet-700',
+  })),
+] satisfies ReadonlyArray<PaletteItemDefinition>;

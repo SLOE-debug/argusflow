@@ -122,14 +122,28 @@ describe('workflow model', () => {
     expect(DEFAULT_RUN_INPUT_VALUES).toEqual({});
     expect(workflow.nodes.some((node) => node.type_id === 'argus.condition')).toBe(false);
     expect(workflow.nodes.some((node) => node.type_id === 'argus.delay')).toBe(false);
-    expect(workflow.edges).toHaveLength(5);
+    expect(workflow.edges).toHaveLength(7);
     expect(workflow.edges.every((edge) => edge.branch === null)).toBe(true);
     expect(workflow.nodes).toContainEqual(expect.objectContaining({
       id: 'baidu_browser_1',
       type_id: 'argus.browser',
+      version: 2,
       payload: {
         spec: expect.objectContaining({
-          initial_url: 'https://www.baidu.com/',
+          acquire_mode: 'launch_isolated_cdp',
+        }),
+      },
+    }));
+    expect(workflow.nodes).toContainEqual(expect.objectContaining({
+      id: 'navigate_baidu_1',
+      type_id: 'argus.browser.operation',
+      payload: {
+        operation: expect.objectContaining({
+          type: 'navigate',
+          browser: {
+            producer_node_id: 'baidu_browser_1',
+            output_name: 'session',
+          },
         }),
       },
     }));
@@ -139,7 +153,7 @@ describe('workflow model', () => {
       version: 2,
       payload: {
         operation: {
-          type: 'collect_links',
+          type: 'extract',
           target: expect.objectContaining({
             scope: {
               type: 'browser',
@@ -157,10 +171,15 @@ describe('workflow model', () => {
               type: 'query',
               query: {
                 language_version: 1,
-                source: 'css("#hotsearch-content-wrapper a.title-content .title-content-title")',
+                source: 'css("#hotsearch-content-wrapper a.title-content")',
               },
             },
           }),
+          cardinality: 'many',
+          fields: [
+            { name: 'title', source: { type: 'text' } },
+            { name: 'url', source: { type: 'attribute', name: 'href' } },
+          ],
         },
         execution: {
           target_wait: {
@@ -179,7 +198,7 @@ describe('workflow model', () => {
           runner: 'power_shell',
           stdin: {
             type: 'ref',
-            source: { type: 'node', node_id: 'collect_baidu_news_1' },
+            source: { type: 'node', node_id: 'format_baidu_news_1' },
             pointer: '/text',
           },
         }),

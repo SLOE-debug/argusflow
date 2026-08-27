@@ -1,13 +1,16 @@
 import { ArrowRight } from 'lucide-react';
+import { useState } from 'react';
 import {
   type WorkflowCanvasEdge,
   type WorkflowCanvasNode,
   type WorkflowNodeData,
   type WorkflowNodeUpdater,
 } from '../../features/workflow/workflowModel';
+import type { FlowComponentCatalogItem } from '../../features/workflow/componentCatalog';
 import { ActionNodeFields } from './ActionNodeFields';
 import { ApplicationNodeFields } from './ApplicationNodeFields';
 import { BrowserNodeFields } from './BrowserNodeFields';
+import { BrowserOperationFields } from './BrowserOperationFields';
 import { CommandNodeFields } from './CommandNodeFields';
 import { ConditionNodeFields } from './ConditionNodeFields';
 import {
@@ -20,11 +23,15 @@ import {
 import { NodeOutputBindingsFields } from './NodeOutputBindingsFields';
 import { ValueExprFields } from './ValueExprFields';
 import { VariableNodeFields } from './VariableNodeFields';
+import { ComponentNodeFields } from './ComponentNodeFields';
+import { DataFormatFields } from './DataFormatFields';
 import type { StructuredEditorTarget } from './structuredEditorTarget';
 
 type NodeInspectorFieldsProps = Readonly<{
   /** 当前唯一选中的节点。 */
   node: WorkflowCanvasNode;
+  /** 可供组件实例显式升级的精确版本目录。 */
+  componentCatalog: ReadonlyArray<FlowComponentCatalogItem>;
   /** 修改节点业务字段。 */
   onUpdate: (updater: WorkflowNodeUpdater) => void;
   /** 请求中央工作区打开结构化文档。 */
@@ -52,8 +59,11 @@ const NODE_KIND_LABELS: Readonly<Record<WorkflowNodeData['kind'], string>> = {
   variable: '设置变量',
   application: '应用资源',
   browser: '浏览器资源',
+  navigate: '浏览器导航',
   ui: '界面操作',
   command: '命令节点',
+  format: '文本格式化',
+  component: '流程组件',
   end: '结束节点',
 };
 
@@ -70,6 +80,7 @@ const RUN_STATE_LABELS: Readonly<Record<NonNullable<WorkflowNodeData['runState']
 /** 编辑当前选中节点的基本信息和类型专属字段。 */
 export function NodeInspectorFields({
   node,
+  componentCatalog,
   onUpdate,
   onOpenStructuredEditor,
   onDelete,
@@ -105,6 +116,7 @@ export function NodeInspectorFields({
       <InspectorSection title="参数配置">
         <NodeKindFields
           node={node}
+          componentCatalog={componentCatalog}
           onUpdate={onUpdate}
           onOpenStructuredEditor={onOpenStructuredEditor}
         />
@@ -161,6 +173,7 @@ export function NodeInspectorFields({
 
 type NodeKindFieldsProps = Readonly<{
   node: WorkflowCanvasNode;
+  componentCatalog: ReadonlyArray<FlowComponentCatalogItem>;
   onUpdate: (updater: WorkflowNodeUpdater) => void;
   onOpenStructuredEditor: (target: StructuredEditorTarget) => void;
 }>;
@@ -168,6 +181,7 @@ type NodeKindFieldsProps = Readonly<{
 /** 根据节点判别联合穷尽渲染专属配置。 */
 function NodeKindFields({
   node,
+  componentCatalog,
   onUpdate,
   onOpenStructuredEditor,
 }: NodeKindFieldsProps) {
@@ -252,6 +266,13 @@ function NodeKindFields({
             : current)}
         />
       );
+    case 'navigate':
+      return (
+        <BrowserOperationFields
+          operation={data.operation}
+          onUpdate={onUpdate}
+        />
+      );
     case 'ui':
       return (
         <ActionNodeFields
@@ -276,6 +297,21 @@ function NodeKindFields({
           onChange={(operation) => onUpdate((current) => current.kind === 'command'
             ? { ...current, operation, invalid: false }
             : current)}
+        />
+      );
+    case 'format':
+      return (
+        <DataFormatFields
+          operation={data.operation}
+          onUpdate={onUpdate}
+        />
+      );
+    case 'component':
+      return (
+        <ComponentNodeFields
+          data={data}
+          componentCatalog={componentCatalog}
+          onUpdate={onUpdate}
         />
       );
     case 'start':
@@ -323,13 +359,42 @@ export function EdgeInspectorFields({
 }
 
 /** 展示多节点选择时可执行的操作提示。 */
-export function MultipleSelection({ count }: Readonly<{ count: number }>) {
+export function MultipleSelection({
+  count,
+  onCreateComponent,
+}: Readonly<{
+  count: number;
+  onCreateComponent: (name: string, version: string) => boolean;
+}>) {
+  const [name, setName] = useState('新流程组件');
+  const [version, setVersion] = useState('1.0.0');
   return (
     <InspectorSection title="多项选择" last>
       <div className="rounded-md border border-dashed border-slate-300 px-3 py-5 text-center text-slate-600">
         <strong className="text-[13px]">{count} 个节点</strong>
-        <p className="mt-1 text-[11px]">右键画布，通过“排列与对齐”调整节点。</p>
+        <p className="mt-1 text-[11px]">连续且具有唯一入口/出口的选择可保存为组件。</p>
       </div>
+      <InspectorField label="组件名称">
+        <input
+          className={`${INSPECTOR_CONTROL_CLASS_NAME} h-8`}
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+        />
+      </InspectorField>
+      <InspectorField label="初始版本">
+        <input
+          className={`${INSPECTOR_CONTROL_CLASS_NAME} h-8 font-mono`}
+          value={version}
+          onChange={(event) => setVersion(event.target.value)}
+        />
+      </InspectorField>
+      <button
+        type="button"
+        className="h-8 w-full rounded bg-violet-600 text-[11px] font-semibold text-white hover:bg-violet-700"
+        onClick={() => onCreateComponent(name, version)}
+      >
+        创建流程组件
+      </button>
     </InspectorSection>
   );
 }

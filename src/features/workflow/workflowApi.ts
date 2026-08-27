@@ -5,6 +5,7 @@ import type {
   AutomationTarget,
   BackendCommandErrorCode,
   CommandError,
+  FlowComponentDefinition,
   RunInputs,
   RunStarted,
   ValidationReport,
@@ -29,16 +30,20 @@ export function inspectAql(
 }
 
 /** 请求后端校验工作流结构，并返回可定位到节点或边的问题。 */
-export function validateWorkflow(workflow: WorkflowDefinition): Promise<ValidationReport> {
-  return invoke<ValidationReport>('validate_workflow', { workflow });
+export function validateWorkflow(
+  workflow: WorkflowDefinition,
+  components: ReadonlyArray<FlowComponentDefinition>,
+): Promise<ValidationReport> {
+  return invoke<ValidationReport>('validate_workflow', { workflow, components });
 }
 
 /** 请求后端启动工作流，成功时返回本次运行 ID；命令失败时 Promise 会拒绝。 */
 export function runWorkflow(
   workflow: WorkflowDefinition,
+  components: ReadonlyArray<FlowComponentDefinition>,
   inputs: RunInputs,
 ): Promise<RunStarted> {
-  return invoke<RunStarted>('run_workflow', { workflow, inputs });
+  return invoke<RunStarted>('run_workflow', { workflow, components, inputs });
 }
 
 /** 将 Tauri 抛出的未知值归一化为界面可安全展示的命令错误。 */

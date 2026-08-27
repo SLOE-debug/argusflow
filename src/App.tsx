@@ -6,6 +6,7 @@ import { EditorToolbarControls } from './components/workflow/EditorToolbarContro
 import { NodeInspector } from './components/workflow/NodeInspector';
 import { NodePalette } from './components/workflow/NodePalette';
 import { WorkflowCanvas } from './components/workflow/WorkflowCanvas';
+import { ComponentDrillDown } from './components/workflow/ComponentDrillDown';
 import { WorkflowOverview } from './components/workflow/WorkflowOverview';
 import { WorkflowWorkspace } from './components/workflow/WorkflowWorkspace';
 import { WorkspaceStatusBar } from './components/workflow/WorkspaceStatusBar';
@@ -40,6 +41,8 @@ export default function App() {
   const [libraryWidth, setLibraryWidth] = useState<number>(LIBRARY_PANEL_WIDTH.default);
   const [inspectorWidth, setInspectorWidth] = useState<number>(INSPECTOR_PANEL_WIDTH.default);
   const [appView, setAppView] = useState<AppView>('editor');
+  /** 当前通过组件节点双击进入的精确版本；null 表示主流程。 */
+  const [drillDownComponentId, setDrillDownComponentId] = useState<string | null>(null);
 
   useEffect(() => {
     const hasConsoleContent =
@@ -66,6 +69,10 @@ export default function App() {
     studio.running,
     studio.report,
     studio.errorMessage,
+  );
+  const drillDownDefinition = resolveDrillDownDefinition(
+    studio.nodes,
+    drillDownComponentId,
   );
 
   return (
@@ -122,6 +129,7 @@ export default function App() {
             <div className="relative min-h-0 min-w-0">
               <NodePalette
                 store={studio.flowStore}
+                componentCatalog={studio.componentCatalog}
                 onResetWidth={() => setLibraryWidth(LIBRARY_PANEL_WIDTH.default)}
               />
               <PanelResizeHandle
@@ -145,13 +153,28 @@ export default function App() {
               onCloseEditor={workspaceEditor.closeEditor}
               onUpdateNode={studio.updateNodeById}
               canvas={(
-                <WorkflowCanvas
-                  store={studio.flowStore}
-                  onAddNode={studio.addNode}
-                  onAddConnectedNode={studio.addConnectedNode}
-                  onConnect={studio.connect}
-                  onReconnect={studio.reconnect}
-                />
+                <>
+                  <WorkflowCanvas
+                    store={studio.flowStore}
+                    componentCatalog={studio.componentCatalog}
+                    onAddNode={studio.addNode}
+                    onAddConnectedNode={studio.addConnectedNode}
+                    onConnect={studio.connect}
+                    onReconnect={studio.reconnect}
+                    onNodeDoubleClick={(nodeId) => {
+                      const node = studio.nodes.find((candidate) => candidate.id === nodeId);
+                      if (node?.data.kind === 'component') setDrillDownComponentId(nodeId);
+                    }}
+                  />
+                  {drillDownDefinition ? (
+                    <ComponentDrillDown
+                      definition={drillDownDefinition}
+                      componentCatalog={studio.componentCatalog}
+                      events={studio.events}
+                      onClose={() => setDrillDownComponentId(null)}
+                    />
+                  ) : null}
+                </>
               )}
             />
             <div className="relative min-h-0 min-w-0">
@@ -173,6 +196,7 @@ export default function App() {
                 runInputValuesDraft={studio.runInputValuesDraft}
                 runInputValuesError={studio.runInputValuesError}
                 permissions={studio.permissions}
+                componentCatalog={studio.componentCatalog}
                 onNameChange={studio.setWorkflowName}
                 onVariablesChange={studio.updateVariables}
                 onInputDefinitionsChange={studio.updateInputDefinitions}
@@ -182,6 +206,7 @@ export default function App() {
                 onUpdateEdgeBranch={studio.updateEdgeBranch}
                 onOpenStructuredEditor={openStructuredEditor}
                 onDelete={studio.deleteSelection}
+                onCreateComponent={studio.createComponent}
               />
             </div>
           </div>
@@ -195,4 +220,15 @@ export default function App() {
       )}
     </main>
   );
+}
+
+/** 从当前组件实例的精确版本引用解析下钻定义。 */
+function resolveDrillDownDefinition(
+  nodes: ReadonlyArray<import('./features/workflow/workflowModel').WorkflowCanvasNode>,
+  nodeId: string | null,
+) {
+  if (!nodeId) return null;
+  const node = nodes.find((candidate) => candidate.id === nodeId);
+  if (node?.data.kind !== 'component') return null;
+  return node.data.componentDefinition;
 }

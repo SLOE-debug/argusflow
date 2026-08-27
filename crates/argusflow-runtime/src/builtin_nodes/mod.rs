@@ -1,7 +1,10 @@
 mod application;
 mod browser;
+mod browser_operation;
 mod command;
+mod component_output;
 mod control;
+mod data_format;
 mod ui;
 mod utility;
 mod variable;
@@ -21,6 +24,7 @@ pub(crate) fn registry(
     applications: Arc<dyn ApplicationSessionProvider>,
     browsers: Arc<dyn BrowserSessionProvider>,
 ) -> NodeTypeRegistry {
+    let browser_operations = Arc::clone(&browsers);
     NodeTypeRegistry::from_builtin_compilers([
         typed_compiler::<control::StartPayload>("argus.start", control::prepare_start),
         typed_compiler::<utility::LogPayload>("argus.log", utility::prepare_log),
@@ -28,8 +32,14 @@ pub(crate) fn registry(
         typed_compiler::<utility::DelayPayload>("argus.delay", utility::prepare_delay),
         typed_compiler::<control::ConditionPayload>("argus.condition", control::prepare_condition),
         typed_compiler::<variable::SetVariablesPayload>("argus.variable.set", variable::prepare),
+        typed_compiler::<component_output::ComponentOutputPayload>(
+            "argus.component.output",
+            component_output::prepare,
+        ),
+        typed_compiler::<data_format::DataFormatPayload>("argus.data.format", data_format::prepare),
         application::compiler(applications),
         browser::compiler(browsers),
+        browser_operation::compiler(browser_operations),
         ui::compiler(dispatcher),
         command::compiler(),
         typed_compiler::<control::EndPayload>("argus.end", control::prepare_end),

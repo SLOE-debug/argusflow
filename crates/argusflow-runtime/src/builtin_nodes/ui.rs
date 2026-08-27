@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use argusflow_core::{
     ActionExecutionOptions, AppSession, AutomationAction, AutomationExecutionScope, BackendKind,
-    BrowserSession, ExecutionEventKind, ExecutionEventPayload, NodeEnvelope, NodeTypeId,
-    ResourceTypeId, TargetLocator, TargetScope, TargetWaitMode, TargetWaitPolicy,
-    UiExecutionPolicy, UiOperation, WorkflowPermissions,
+    BrowserSession, ExecutionEventKind, ExecutionEventPayload, ExtractCardinality,
+    FieldProjectionSource, NodeEnvelope, NodeTypeId, ResourceTypeId, TargetLocator, TargetScope,
+    TargetWaitMode, TargetWaitPolicy, UiExecutionPolicy, UiOperation, WorkflowPermissions,
 };
 use argusflow_query::parse_stored_query;
 use async_trait::async_trait;
@@ -134,6 +134,7 @@ impl PreparedNode for UiNode {
             UiOperation::SetValue { .. } => "UI SetValue",
             UiOperation::GetText { .. } => "UI GetText",
             UiOperation::GetValue { .. } => "UI GetValue",
+            UiOperation::Extract { .. } => "UI Extract",
             UiOperation::CollectLinks { .. } => "UI CollectLinks",
         }
         .to_owned()
@@ -165,6 +166,34 @@ impl PreparedNode for UiNode {
                 ValidationIssueCode::InvalidBackendPolicy,
                 "批量链接读取的后端策略必须允许 browser_cdp",
             ));
+        }
+        if let UiOperation::Extract { fields, .. } = &self.operation {
+            let mut names = std::collections::HashSet::new();
+            if fields.is_empty() {
+                issues.push(context.issue(
+                    ValidationIssueCode::InvalidExtract,
+                    "Extract 至少需要一个字段投影",
+                ));
+            }
+            for field in fields {
+                if field.name.trim().is_empty() || !names.insert(field.name.as_str()) {
+                    issues.push(context.issue(
+                        ValidationIssueCode::InvalidExtract,
+                        "Extract 字段名称必须非空且唯一",
+                    ));
+                }
+                if matches!(
+                    &field.source,
+                    FieldProjectionSource::Property { name }
+                        | FieldProjectionSource::Attribute { name }
+                        if name.trim().is_empty()
+                ) {
+                    issues.push(context.issue(
+                        ValidationIssueCode::InvalidExtract,
+                        "Extract 属性名称不能为空",
+                    ));
+                }
+            }
         }
         match self.execution.target_wait {
             TargetWaitPolicy {
@@ -255,6 +284,14 @@ impl PreparedNode for UiNode {
         match &self.operation {
             UiOperation::GetText { .. } if name == "text" => Some(ValueTypeId::text()),
             UiOperation::GetValue { .. } if name == "value" => Some(ValueTypeId::text()),
+            UiOperation::Extract {
+                cardinality: ExtractCardinality::One,
+                ..
+            } if name == "item" => Some(ValueTypeId::json()),
+            UiOperation::Extract {
+                cardinality: ExtractCardinality::Many,
+                ..
+            } if name == "items" => Some(ValueTypeId::json()),
             UiOperation::CollectLinks { .. } if name == "text" => Some(ValueTypeId::text()),
             UiOperation::CollectLinks { .. } if name == "links" => Some(ValueTypeId::json()),
             _ => None,
@@ -271,6 +308,7 @@ impl PreparedNode for UiNode {
         Ok(match &self.operation {
             UiOperation::GetText { .. }
             | UiOperation::GetValue { .. }
+            | UiOperation::Extract { .. }
             | UiOperation::CollectLinks { .. } => AccessSet::read(key),
             UiOperation::Click { .. } | UiOperation::SetValue { .. } => AccessSet::exclusive(key),
         })
@@ -292,6 +330,15 @@ impl PreparedNode for UiNode {
             },
             UiOperation::GetText { .. } => AutomationAction::GetText { target },
             UiOperation::GetValue { .. } => AutomationAction::GetValue { target },
+            UiOperation::Extract {
+                cardinality,
+                fields,
+                ..
+            } => AutomationAction::Extract {
+                target,
+                cardinality: *cardinality,
+                fields: fields.clone(),
+            },
             UiOperation::CollectLinks { .. } => AutomationAction::CollectLinks { target },
         };
         let action_outcome = self

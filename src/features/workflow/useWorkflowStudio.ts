@@ -24,20 +24,26 @@ import {
   applyExecutionEventToNodes,
   canConnect,
   createEdge,
-  createNode,
+  createNodeFromCreationKey,
   toWorkflowDefinition,
   type EditableNodeKind,
+  type WorkflowNodeCreationKey,
   type WorkflowEdgeData,
   type WorkflowNodeData,
   type WorkflowNodeUpdater,
 } from './workflowModel';
 import { useWorkflowInputs } from './useWorkflowInputs';
+import { useWorkflowComponents } from './useWorkflowComponents';
 import {
   isDesktopRuntime,
   normalizeCommandError,
   runWorkflow,
   validateWorkflow,
 } from './workflowApi';
+import {
+  bindConnectedResourceScope,
+  oppositeAnchorSide,
+} from './workflowResourceBinding';
 
 const WORKFLOW_EVENT_NAME = 'argusflow://workflow-event';
 
@@ -82,6 +88,11 @@ export function useWorkflowStudio() {
   const [running, setRunning] = useState(false);
   const [runId, setRunId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const { componentCatalog, createComponent } = useWorkflowComponents(
+    flowStore,
+    setErrorMessage,
+    setReport,
+  );
 
   const setWorkflowName = useCallback((name: string) => {
     flowStore.getState().setMetadata(
@@ -161,7 +172,10 @@ export function useWorkflowStudio() {
       return null;
     }
     try {
-      const nextReport = await validateWorkflow(currentWorkflow());
+      const nextReport = await validateWorkflow(
+        currentWorkflow(),
+        componentCatalog.map((item) => item.definition),
+      );
       setReport(nextReport);
       /** 校验问题关联的节点 ID，用于一次性更新卡片错误状态。 */
       const invalidIds = new Set(nextReport.issues.flatMap((issue) => (
@@ -177,7 +191,7 @@ export function useWorkflowStudio() {
       setErrorMessage(normalizeCommandError(error).message);
       return null;
     }
-  }, [currentWorkflow, flowStore, variablesError, workflowInputs.inputDefinitionsError]);
+  }, [componentCatalog, currentWorkflow, flowStore, variablesError, workflowInputs.inputDefinitionsError]);
 
   const run = useCallback(async () => {
     setEvents([]);
@@ -202,9 +216,11 @@ export function useWorkflowStudio() {
     })), false);
     setRunning(true);
     try {
-      const started = await runWorkflow(currentWorkflow(), {
-        values: workflowInputs.runInputValues,
-      });
+      const started = await runWorkflow(
+        currentWorkflow(),
+        componentCatalog.map((item) => item.definition),
+        { values: workflowInputs.runInputValues },
+      );
       setRunId(started.run_id);
     } catch (error) {
       const commandError = normalizeCommandError(error);
@@ -221,33 +237,38 @@ export function useWorkflowStudio() {
         },
       })), false);
     }
-  }, [currentWorkflow, flowStore, validate, workflowInputs]);
+  }, [componentCatalog, currentWorkflow, flowStore, validate, workflowInputs]);
 
-  const addNode = useCallback((kind: EditableNodeKind, position: FlowPoint) => {
+  const addNode = useCallback((creationKey: WorkflowNodeCreationKey, position: FlowPoint) => {
     const state = flowStore.getState();
+    const node = createNodeFromCreationKey(creationKey, position, componentCatalog);
+    if (!node) return;
+    const kind = node.kind as EditableNodeKind;
     if (
       (kind === 'start' || kind === 'end')
       && state.nodes.some((node) => node.kind === kind)
     ) {
       return;
     }
-    const node = createNode(kind, position);
     state.transact((document) => ({
       ...document,
       nodes: [...document.nodes, node],
     }));
     flowStore.getState().selectNodes([node.id]);
     setReport(null);
-  }, [flowStore]);
+  }, [componentCatalog, flowStore]);
 
   /** 在连线落点新建节点，并把节点与连线作为一次可撤销事务提交。 */
   const addConnectedNode = useCallback((
-    kind: EditableNodeKind,
+    creationKey: WorkflowNodeCreationKey,
     position: FlowPoint,
     sourceNodeId: string,
     sourceSide: FlowAnchorSide,
   ) => {
     const state = flowStore.getState();
+    const createdNode = createNodeFromCreationKey(creationKey, position, componentCatalog);
+    if (!createdNode) return false;
+    const kind = createdNode.kind as EditableNodeKind;
     if (
       (kind === 'start' || kind === 'end')
       && state.nodes.some((node) => node.kind === kind)
@@ -255,10 +276,9 @@ export function useWorkflowStudio() {
       return false;
     }
 
-    const createdNode = createNode(kind, position);
     const sourceNode = state.nodes.find((candidate) => candidate.id === sourceNodeId);
     /** 直接从 Application 拉出的 UI 节点默认绑定其 session 资源。 */
-    const node = bindApplicationScope(createdNode, sourceNode);
+    const node = bindConnectedResourceScope(createdNode, sourceNode);
     const nodes = [...state.nodes, node];
     if (!canConnect(nodes, state.edges, sourceNodeId, node.id)) return false;
 
@@ -280,7 +300,7 @@ export function useWorkflowStudio() {
     flowStore.getState().selectNodes([node.id]);
     setReport(null);
     return true;
-  }, [flowStore]);
+  }, [componentCatalog, flowStore]);
 
   const connect = useCallback((
     source: string,
@@ -446,48 +466,7 @@ export function useWorkflowStudio() {
     updateNodeById,
     updateEdgeBranch,
     deleteSelection,
-  };
-}
-
-/** 新节点使用起点锚点的对侧作为默认入口。 */
-function oppositeAnchorSide(side: FlowAnchorSide): FlowAnchorSide {
-  switch (side) {
-    case 'top':
-      return 'bottom';
-    case 'right':
-      return 'left';
-    case 'bottom':
-      return 'top';
-    case 'left':
-      return 'right';
-  }
-}
-
-/** 为直接连接在 Application 后的 UI 节点写入显式逻辑资源引用。 */
-function bindApplicationScope(
-  node: ReturnType<typeof createNode>,
-  source: ReturnType<typeof createNode> | undefined,
-): ReturnType<typeof createNode> {
-  if (node.data.kind !== 'ui' || source?.data.kind !== 'application') {
-    return node;
-  }
-  return {
-    ...node,
-    data: {
-      ...node.data,
-      operation: {
-        ...node.data.operation,
-        target: {
-          ...node.data.operation.target,
-          scope: {
-            type: 'application',
-            resource: {
-              producer_node_id: source.id,
-              output_name: 'session',
-            },
-          },
-        },
-      },
-    },
+    componentCatalog,
+    createComponent,
   };
 }

@@ -2,11 +2,15 @@ import type { FlowEdge, FlowNode, FlowPoint } from '../../flow/types';
 import type {
   ApplicationSpec,
   BrowserSpec,
+  BrowserOperation,
   CommandOperation,
+  ComponentInstance,
+  ComponentValueOutput,
   ControlPortId,
   ConditionOperator,
   ExecutionEvent,
   JsonObject,
+  DelimitedTextFormat,
   UiOperation,
   UiExecutionPolicy,
   ValueExpr,
@@ -20,6 +24,12 @@ import {
   encodeNodeDefinition,
   isUnaryCondition,
 } from './workflowNodeDefinitions';
+import {
+  findFlowComponent,
+  FLOW_COMPONENT_CATALOG,
+  type FlowComponentCatalogItem,
+} from './componentCatalog';
+import { findNodePreset } from './nodePresetCatalog';
 
 /** 节点在单次工作流运行中的展示状态。 */
 export type NodeRunState =
@@ -54,16 +64,34 @@ export type WorkflowNodeData =
   | WorkflowNodeDataBase & { kind: 'variable'; assignments: VariableAssignment[] }
   | WorkflowNodeDataBase & { kind: 'application'; spec: ApplicationSpec }
   | WorkflowNodeDataBase & { kind: 'browser'; spec: BrowserSpec }
+  | WorkflowNodeDataBase & { kind: 'navigate'; operation: BrowserOperation }
   | WorkflowNodeDataBase & {
       kind: 'ui';
       operation: UiOperation;
       execution: UiExecutionPolicy;
+      /** 可选节点预设来源；编码时仍保存为普通 argus.ui。 */
+      presetId?: string;
     }
   | WorkflowNodeDataBase & { kind: 'command'; operation: CommandOperation }
+  | WorkflowNodeDataBase & { kind: 'format'; operation: DelimitedTextFormat }
+  | WorkflowNodeDataBase & {
+      kind: 'component';
+      component: ComponentInstance;
+      componentName: string;
+      componentOutputs: ReadonlyArray<ComponentValueOutput>;
+      /** Studio 下钻和本次运行注册使用的精确冻结定义。 */
+      componentDefinition: import('./contracts').FlowComponentDefinition;
+    }
   | WorkflowNodeDataBase & { kind: 'end' };
 
 /** 可由节点库创建的完整节点类型集合。 */
 export type EditableNodeKind = WorkflowNodeData['kind'];
+
+/** 节点库拖放使用的稳定创建键；Preset/Component 与画布 kind 分离。 */
+export type WorkflowNodeCreationKey =
+  | EditableNodeKind
+  | `preset:${string}`
+  | `component:${string}@${string}`;
 
 /** 以不可变方式更新一个节点判别联合。 */
 export type WorkflowNodeUpdater = (current: WorkflowNodeData) => WorkflowNodeData;
@@ -82,8 +110,11 @@ export const WORKFLOW_NODE_SIZES = {
   variable: { width: 148, height: 52 },
   application: { width: 172, height: 52 },
   browser: { width: 172, height: 52 },
+  navigate: { width: 164, height: 52 },
   ui: { width: 164, height: 52 },
   command: { width: 164, height: 52 },
+  format: { width: 164, height: 52 },
+  component: { width: 188, height: 58 },
   end: { width: 122, height: 52 },
 } as const satisfies Readonly<
   Record<EditableNodeKind, Readonly<{ width: number; height: number }>>
@@ -101,6 +132,72 @@ export function createNode(kind: EditableNodeKind, position: FlowPoint = { x: 20
     size: { ...WORKFLOW_NODE_SIZES[kind] },
     data: createNodeData(kind),
   };
+}
+
+/** 根据 Primitive、Preset 或 Component 创建键建立最终画布节点。 */
+export function createNodeFromCreationKey(
+  creationKey: WorkflowNodeCreationKey,
+  position: FlowPoint = { x: 200, y: 160 },
+  componentCatalog: ReadonlyArray<FlowComponentCatalogItem> = FLOW_COMPONENT_CATALOG,
+): WorkflowCanvasNode | null {
+  const kind = resolveCreationKind(creationKey);
+  if (!kind) return null;
+  const node = createNode(kind, position);
+  if (creationKey.startsWith('preset:')) {
+    const preset = findNodePreset(creationKey.slice('preset:'.length));
+    if (!preset || node.data.kind !== 'ui') return null;
+    return {
+      ...node,
+      data: {
+        ...node.data,
+        label: preset.label,
+        operation: preset.operation(),
+        execution: preset.execution(),
+        presetId: preset.id,
+      },
+    };
+  }
+  if (creationKey.startsWith('component:')) {
+    const reference = creationKey.slice('component:'.length);
+    const separatorIndex = reference.lastIndexOf('@');
+    if (separatorIndex < 1 || node.data.kind !== 'component') return null;
+    const componentId = reference.slice(0, separatorIndex);
+    const componentVersion = reference.slice(separatorIndex + 1);
+    const item = findFlowComponent(componentId, componentVersion, componentCatalog);
+    if (!item) return null;
+    return {
+      ...node,
+      data: {
+        ...node.data,
+        label: item.title,
+        componentName: item.definition.name,
+        component: {
+          component_id: item.definition.id,
+          component_version: item.definition.version,
+          inputs: item.defaultInputs,
+        },
+        componentOutputs: item.definition.outputs,
+        componentDefinition: item.definition,
+      },
+    };
+  }
+  return node;
+}
+
+/** 解析创建键实际占用的画布节点注册 kind。 */
+export function resolveCreationKind(creationKey: string): EditableNodeKind | null {
+  if (creationKey.startsWith('preset:')) {
+    return findNodePreset(creationKey.slice('preset:'.length)) ? 'ui' : null;
+  }
+  if (creationKey.startsWith('component:')) {
+    const reference = creationKey.slice('component:'.length);
+    const separatorIndex = reference.lastIndexOf('@');
+    if (separatorIndex < 1) return null;
+    return separatorIndex > 0 ? 'component' : null;
+  }
+  return Object.hasOwn(WORKFLOW_NODE_SIZES, creationKey)
+    ? creationKey as EditableNodeKind
+    : null;
 }
 
 /** 新增边并根据 Condition 已占分支自动分配 true/false。 */

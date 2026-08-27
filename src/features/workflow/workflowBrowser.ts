@@ -4,7 +4,8 @@ import type { BrowserSpec } from './contracts';
 export function createDefaultBrowserSpec(): BrowserSpec {
   return {
     executable_path: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-    initial_url: 'https://www.baidu.com/',
+    acquire_mode: 'launch_isolated_cdp',
     launch_timeout_ms: 15_000,
+    cleanup_policy: 'close_on_workflow_end',
   };
 }

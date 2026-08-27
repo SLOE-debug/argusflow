@@ -2,10 +2,12 @@
 
 use std::sync::Arc;
 
-use argusflow_core::{ExecutionEvent, RunInputs, RunStarted, WorkflowDefinition};
+use argusflow_core::{
+    ExecutionEvent, FlowComponentDefinition, RunInputs, RunStarted, WorkflowDefinition,
+};
 use argusflow_runtime::{
     ExecutionEventSink, RuntimeError, ValidationIssue, ValidationReport,
-    validate_workflow as validate,
+    validate_workflow_with_components as validate,
 };
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
@@ -17,8 +19,11 @@ pub const WORKFLOW_EVENT_NAME: &str = "argusflow://workflow-event";
 
 #[tauri::command]
 /// 校验工作流定义并返回所有发现的问题，不启动执行。
-pub fn validate_workflow(workflow: WorkflowDefinition) -> ValidationReport {
-    validate(&workflow)
+pub fn validate_workflow(
+    workflow: WorkflowDefinition,
+    components: Vec<FlowComponentDefinition>,
+) -> ValidationReport {
+    validate(&workflow, &components)
 }
 
 #[tauri::command]
@@ -29,13 +34,14 @@ pub async fn run_workflow(
     app: AppHandle,
     state: State<'_, AppState>,
     workflow: WorkflowDefinition,
+    components: Vec<FlowComponentDefinition>,
     inputs: RunInputs,
 ) -> Result<RunStarted, CommandError> {
     // 将运行时事件桥接到当前 Tauri 应用，供前端实时订阅执行进度。
     let sink = Arc::new(TauriEventSink { app });
     state
         .engine
-        .start(workflow, inputs, sink)
+        .start_with_components(workflow, components, inputs, sink)
         .await
         .map_err(CommandError::from)
 }

@@ -13,8 +13,14 @@ import {
 /** 默认示例中生产隔离 CDP 页面会话的 Browser 节点 ID。 */
 const BAIDU_BROWSER_NODE_ID = 'baidu_browser_1';
 
+/** 在已获取浏览器会话中访问百度的 Navigate 节点 ID。 */
+const NAVIGATE_BAIDU_NODE_ID = 'navigate_baidu_1';
+
 /** 批量读取百度热搜标题与链接的 UI 节点 ID。 */
 const COLLECT_NEWS_NODE_ID = 'collect_baidu_news_1';
+
+/** 把结构化热搜对象数组格式化为制表文本的节点 ID。 */
+const FORMAT_NEWS_NODE_ID = 'format_baidu_news_1';
 
 /** 把 CRLF 文本写入当前用户桌面的命令节点 ID。 */
 const WRITE_NEWS_NODE_ID = 'write_baidu_news_1';
@@ -43,10 +49,7 @@ export const DEFAULT_WORKFLOW_PERMISSIONS = {
 export const DEFAULT_SELECTED_NODE_ID = BAIDU_BROWSER_NODE_ID;
 
 /**
- * 打开隔离 Chrome、导航百度、批量获取热搜标题与绝对链接并写入桌面 TXT。
- *
- * CollectLinks 在页面内一次性完成 DOM 查询和投影，每条记录固定为
- * `标题<TAB>链接<CRLF>`；PowerShell 只负责解析当前用户桌面并按 UTF-8 原样落盘。
+ * 获取隔离 Chrome、显式导航百度、结构化提取并格式化热搜链接后写入桌面 TXT。
  */
 export const DEFAULT_NODES = [
   {
@@ -63,12 +66,33 @@ export const DEFAULT_NODES = [
     size: { ...WORKFLOW_NODE_SIZES.browser },
     data: {
       kind: 'browser',
-      label: '打开 Chrome 并访问百度',
+      label: '获取 Chrome 会话',
       outputBindings: {},
       spec: {
         executable_path: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-        initial_url: 'https://www.baidu.com/',
+        acquire_mode: 'launch_isolated_cdp',
         launch_timeout_ms: 15_000,
+        cleanup_policy: 'close_on_workflow_end',
+      },
+      runState: 'idle',
+    },
+  },
+  {
+    id: NAVIGATE_BAIDU_NODE_ID,
+    kind: 'navigate',
+    position: { x: 402, y: 104 },
+    size: { ...WORKFLOW_NODE_SIZES.navigate },
+    data: {
+      kind: 'navigate',
+      label: '访问百度',
+      outputBindings: {},
+      operation: {
+        type: 'navigate',
+        browser: {
+          producer_node_id: BAIDU_BROWSER_NODE_ID,
+          output_name: 'session',
+        },
+        url: { type: 'literal', value: 'https://www.baidu.com/' },
       },
       runState: 'idle',
     },
@@ -76,17 +100,22 @@ export const DEFAULT_NODES = [
   {
     id: COLLECT_NEWS_NODE_ID,
     kind: 'ui',
-    position: { x: 402, y: 104 },
+    position: { x: 610, y: 104 },
     size: { ...WORKFLOW_NODE_SIZES.ui },
     data: {
       kind: 'ui',
-      label: '批量获取热搜标题和链接',
+      label: '提取热搜标题和链接',
       outputBindings: {},
       operation: {
-        type: 'collect_links',
+        type: 'extract',
         target: createBaiduCdpTarget(
-          'css("#hotsearch-content-wrapper a.title-content .title-content-title")',
+          'css("#hotsearch-content-wrapper a.title-content")',
         ),
+        cardinality: 'many',
+        fields: [
+          { name: 'title', source: { type: 'text' } },
+          { name: 'url', source: { type: 'attribute', name: 'href' } },
+        ],
       },
       execution: {
         target_wait: {
@@ -99,9 +128,32 @@ export const DEFAULT_NODES = [
     },
   },
   {
+    id: FORMAT_NEWS_NODE_ID,
+    kind: 'format',
+    position: { x: 610, y: 220 },
+    size: { ...WORKFLOW_NODE_SIZES.format },
+    data: {
+      kind: 'format',
+      label: '格式化热搜文本',
+      outputBindings: {},
+      operation: {
+        items: {
+          type: 'ref',
+          source: { type: 'node', node_id: COLLECT_NEWS_NODE_ID },
+          pointer: '/items',
+        },
+        fields: ['title', 'url'],
+        column_separator: '\t',
+        row_separator: '\r\n',
+        include_header: false,
+      },
+      runState: 'idle',
+    },
+  },
+  {
     id: WRITE_NEWS_NODE_ID,
     kind: 'command',
-    position: { x: 610, y: 104 },
+    position: { x: 402, y: 220 },
     size: { ...WORKFLOW_NODE_SIZES.command },
     data: {
       kind: 'command',
@@ -126,7 +178,7 @@ export const DEFAULT_NODES = [
         environment: [],
         stdin: {
           type: 'ref',
-          source: { type: 'node', node_id: COLLECT_NEWS_NODE_ID },
+          source: { type: 'node', node_id: FORMAT_NEWS_NODE_ID },
           pointer: '/text',
         },
         timeout_ms: 30_000,
@@ -143,7 +195,7 @@ export const DEFAULT_NODES = [
   {
     id: 'debug_output_path_1',
     kind: 'debug',
-    position: { x: 402, y: 238 },
+    position: { x: 188, y: 336 },
     size: { ...WORKFLOW_NODE_SIZES.debug },
     data: {
       kind: 'debug',
@@ -160,7 +212,7 @@ export const DEFAULT_NODES = [
   {
     id: 'end_1',
     kind: 'end',
-    position: { x: 610, y: 238 },
+    position: { x: 402, y: 336 },
     size: { ...WORKFLOW_NODE_SIZES.end },
     data: { kind: 'end', label: '结束', outputBindings: {}, runState: 'idle' },
   },
@@ -169,17 +221,27 @@ export const DEFAULT_NODES = [
 /** 默认模板按两行蛇形布局串联完整数据路径。 */
 export const DEFAULT_EDGES = [
   createDefaultEdge('edge_start_browser', 'start_1', BAIDU_BROWSER_NODE_ID),
-  createDefaultEdge('edge_browser_collect', BAIDU_BROWSER_NODE_ID, COLLECT_NEWS_NODE_ID),
+  createDefaultEdge('edge_browser_navigate', BAIDU_BROWSER_NODE_ID, NAVIGATE_BAIDU_NODE_ID),
+  createDefaultEdge('edge_navigate_collect', NAVIGATE_BAIDU_NODE_ID, COLLECT_NEWS_NODE_ID),
   createDefaultEdge(
-    'edge_collect_write',
+    'edge_collect_format',
     COLLECT_NEWS_NODE_ID,
+    FORMAT_NEWS_NODE_ID,
+    'bottom',
+    'right',
+  ),
+  createDefaultEdge(
+    'edge_format_write',
+    FORMAT_NEWS_NODE_ID,
     WRITE_NEWS_NODE_ID,
+    'left',
+    'right',
   ),
   createDefaultEdge(
     'edge_write_debug',
     WRITE_NEWS_NODE_ID,
     'debug_output_path_1',
-    'bottom',
+    'left',
     'right',
   ),
   createDefaultEdge(

@@ -19,6 +19,12 @@ pub struct ExecutionEvent {
     pub sequence: u64,
     /// 相关节点 ID；工作流级事件不绑定具体节点。
     pub node_id: Option<String>,
+    /// 组件内部执行时的扁平节点 ID；普通节点事件为空。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expanded_node_id: Option<String>,
+    /// 组件内部执行时从外到内的版本锁定来源路径。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub component_path: Vec<ExecutionComponentFrame>,
     /// 相关连线 ID；只有连线流转事件携带该字段。
     pub edge_id: Option<String>,
     /// 事件的生命周期类别。
@@ -27,6 +33,19 @@ pub struct ExecutionEvent {
     pub message: Option<String>,
     /// 不包含完整业务数据或 OS handle 的结构化事件载荷。
     pub payload: Option<ExecutionEventPayload>,
+}
+
+/// 执行事件中一个不包含业务值的组件来源帧。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExecutionComponentFrame {
+    /// 当前层组件实例在展开图中的节点 ID。
+    pub instance_node_id: String,
+    /// 当前层组件稳定 UUID。
+    pub component_id: Uuid,
+    /// 当前层实例锁定的精确版本。
+    pub component_version: String,
+    /// 执行节点在当前层定义中的直接内部节点 ID。
+    pub inner_node_id: String,
 }
 
 /// 执行事件中可安全展示的结构化详情。

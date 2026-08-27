@@ -1,7 +1,8 @@
 //! CDP 查询计划到封闭页面函数的序列化边界。
 
 use argusflow_core::{
-    AutomationAction, AutomationError, BackendKind, ElementRole, PropertyPredicate,
+    AutomationAction, AutomationError, BackendKind, ElementRole, ExtractCardinality,
+    FieldProjection, PropertyPredicate,
 };
 use serde::Serialize;
 
@@ -73,6 +74,13 @@ enum PageAction<'action> {
     GetText,
     /// value 属性读取。
     GetValue,
+    /// 通用单目标或集合字段投影。
+    Extract {
+        /// 唯一目标或集合输出约束。
+        cardinality: ExtractCardinality,
+        /// 有序字段投影集合。
+        fields: &'action [FieldProjection],
+    },
     /// 链接标题与绝对 URL 批量投影。
     CollectLinks,
 }
@@ -88,6 +96,14 @@ pub(super) fn build_page_action_script(
         AutomationAction::SetValue { value, .. } => PageAction::SetValue { value },
         AutomationAction::GetText { .. } => PageAction::GetText,
         AutomationAction::GetValue { .. } => PageAction::GetValue,
+        AutomationAction::Extract {
+            cardinality,
+            fields,
+            ..
+        } => PageAction::Extract {
+            cardinality: *cardinality,
+            fields,
+        },
         AutomationAction::CollectLinks { .. } => PageAction::CollectLinks,
     };
     let plan = serde_json::to_string(&plan).map_err(serialization_error)?;
@@ -260,6 +276,34 @@ const PAGE_INTERPRETER: &str = r#"(() => {
 
   const elements = evaluate(plan);
   if (elements.length === 0) return { status: 'not_found', matches: 0 };
+  if (action.type === 'extract') {
+    const projectField = (element, field) => {
+      switch (field.source.type) {
+        case 'text': return (element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim();
+        case 'value': return typeof element.value === 'string' ? element.value : (element.getAttribute('value') || '');
+        case 'name': return accessibleName(element);
+        case 'property': {
+          const value = element[field.source.name];
+          return ['string', 'number', 'boolean'].includes(typeof value) ? value : null;
+        }
+        case 'attribute': {
+          if (field.source.name === 'href' && typeof element.href === 'string') return element.href;
+          if (field.source.name === 'src' && typeof element.src === 'string') return element.src;
+          return element.getAttribute(field.source.name);
+        }
+        default: throw new Error(`unsupported extract source ${field.source.type}`);
+      }
+    };
+    const project = (element) => Object.fromEntries(action.fields.map((field) => (
+      [field.name, projectField(element, field)]
+    )));
+    if (action.cardinality === 'one') {
+      if (elements.length !== 1) return { status: 'ambiguous', matches: elements.length };
+      return { status: 'ok', message: '已通过 CDP 提取 1 个目标', outputs: { item: project(elements[0]) } };
+    }
+    const items = elements.map(project);
+    return { status: 'ok', message: `已通过 CDP 批量提取 ${items.length} 个目标`, outputs: { items } };
+  }
   if (action.type === 'collect_links') {
     const links = elements.map((element) => {
       const anchor = element instanceof HTMLAnchorElement
@@ -298,7 +342,10 @@ const PAGE_INTERPRETER: &str = r#"(() => {
 
 #[cfg(test)]
 mod tests {
-    use argusflow_core::{AqlQuery, AutomationAction, AutomationTarget};
+    use argusflow_core::{
+        AqlQuery, AutomationAction, AutomationTarget, ExtractCardinality, FieldProjection,
+        FieldProjectionSource,
+    };
 
     use super::build_page_action_script;
     use crate::cdp::CdpPlanExpr;
@@ -322,6 +369,39 @@ mod tests {
         assert!(script.contains("outputs: { links, text }"));
         assert!(script.contains(r#"\"type\":\"css\""#));
         assert!(!script.contains("__ARGUS_PLAN__"));
+    }
+
+    #[test]
+    fn extract_many_serializes_generic_field_projections() {
+        let action = AutomationAction::Extract {
+            target: AutomationTarget::query(AqlQuery::v1("css(\"a.news\")")),
+            cardinality: ExtractCardinality::Many,
+            fields: vec![
+                FieldProjection {
+                    name: "title".to_owned(),
+                    source: FieldProjectionSource::Text,
+                },
+                FieldProjection {
+                    name: "url".to_owned(),
+                    source: FieldProjectionSource::Attribute {
+                        name: "href".to_owned(),
+                    },
+                },
+            ],
+        };
+
+        let script = build_page_action_script(
+            &CdpPlanExpr::Css {
+                selector: "a.news".to_owned(),
+            },
+            &action,
+        )
+        .expect("extract script should compile");
+
+        assert!(script.contains(r#"\"type\":\"extract\""#));
+        assert!(script.contains(r#"\"cardinality\":\"many\""#));
+        assert!(script.contains(r#"\"name\":\"href\""#));
+        assert!(script.contains("outputs: { items }"));
     }
 
     #[test]

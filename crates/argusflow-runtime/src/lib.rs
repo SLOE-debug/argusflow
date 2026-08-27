@@ -11,9 +11,13 @@ mod browser;
 mod builtin_nodes;
 mod command;
 mod command_job;
+mod component_expander;
+mod component_registry;
+mod component_rewrite;
 mod dispatcher;
 mod engine;
 mod error;
+mod execution_events;
 mod node_execution;
 mod node_registry;
 mod resource_cleanup;
@@ -29,6 +33,11 @@ mod value_runtime;
 pub use application::UnavailableApplicationSessionProvider;
 pub use browser::UnavailableBrowserSessionProvider;
 pub use command::{CommandError, CommandExecutor};
+pub use component_expander::{
+    ComponentExpansionError, ComponentSourceFrame, ComponentSourceMap, ExpandedWorkflow,
+    MAX_COMPONENT_DEPTH, expand_components,
+};
+pub use component_registry::{ComponentRegistry, ComponentRegistryError};
 pub use dispatcher::{ActionDispatcher, UnavailableActionDispatcher};
 pub use engine::{ExecutionEventSink, WorkflowEngine};
 pub use error::RuntimeError;
@@ -42,5 +51,5 @@ pub use run_context::{NodeOutcome, RunContext};
 pub use scheduler::{AccessSet, ResourceAccess, ResourceAccessKey, ResourceAccessMode};
 pub use validator::{
     ValidationIssue, ValidationIssueCode, ValidationReport, validate_workflow,
-    validate_workflow_with_registry,
+    validate_workflow_with_components, validate_workflow_with_registry,
 };

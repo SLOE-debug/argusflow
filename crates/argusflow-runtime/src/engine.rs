@@ -5,15 +5,18 @@ use std::{
 
 use argusflow_core::{
     ApplicationSessionProvider, BrowserSessionProvider, ExecutionEvent, ExecutionEventKind,
-    ExecutionEventPayload, RunInputs, RunStarted, WorkflowEdge, WorkflowNode,
+    ExecutionEventPayload, FlowComponentDefinition, RunInputs, RunStarted, WorkflowEdge,
+    WorkflowNode,
 };
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::{
-    ActionDispatcher, NodeCompiler, NodeFlow, NodeRegistryError, NodeTypeRegistry, PreparedNode,
-    RunContext, RuntimeError, UnavailableApplicationSessionProvider,
-    UnavailableBrowserSessionProvider, builtin_nodes,
+    ActionDispatcher, ComponentRegistry, NodeCompiler, NodeFlow, NodeRegistryError,
+    NodeTypeRegistry, PreparedNode, RunContext, RuntimeError,
+    UnavailableApplicationSessionProvider, UnavailableBrowserSessionProvider, builtin_nodes,
+    execution_events::{build_event, emit_event},
+    expand_components,
     run_inputs::validate_run_inputs,
     scheduler::ResourceScheduler,
     validator::{PreparedWorkflow, prepare_workflow},
@@ -109,7 +112,30 @@ impl WorkflowEngine {
         inputs: RunInputs,
         sink: Arc<dyn ExecutionEventSink>,
     ) -> Result<RunStarted, RuntimeError> {
-        let workflow = prepare_workflow(workflow, &self.node_types)
+        self.start_with_components(workflow, Vec::new(), inputs, sink)
+            .await
+    }
+
+    /// 解析版本锁定组件、编译并异步启动工作流。
+    pub async fn start_with_components(
+        self: &Arc<Self>,
+        workflow: argusflow_core::WorkflowDefinition,
+        components: Vec<FlowComponentDefinition>,
+        inputs: RunInputs,
+        sink: Arc<dyn ExecutionEventSink>,
+    ) -> Result<RunStarted, RuntimeError> {
+        let component_registry =
+            ComponentRegistry::from_definitions(components).map_err(|error| {
+                RuntimeError::ValidationFailed {
+                    report: component_validation_report(error.to_string(), None),
+                }
+            })?;
+        let expanded = expand_components(workflow, &component_registry).map_err(|error| {
+            RuntimeError::ValidationFailed {
+                report: component_validation_report(error.message, error.node_id),
+            }
+        })?;
+        let workflow = prepare_workflow(expanded.definition, &self.node_types, expanded.source_map)
             .map_err(|report| RuntimeError::ValidationFailed { report })?;
         validate_run_inputs(&workflow.definition, &inputs)?;
         let run_id = Uuid::new_v4();
@@ -158,6 +184,7 @@ impl WorkflowEngine {
                 Some(format!("开始执行工作流：{}", workflow.definition.name)),
                 None,
             ),
+            &workflow.source_map,
         )?;
 
         let execution = self
@@ -180,6 +207,7 @@ impl WorkflowEngine {
                     Some("工作流执行完成".to_owned()),
                     None,
                 ),
+                &workflow.source_map,
             ),
             Err(error) => {
                 emit_event(
@@ -194,6 +222,7 @@ impl WorkflowEngine {
                         Some(error.to_string()),
                         None,
                     ),
+                    &workflow.source_map,
                 )?;
                 Err(error)
             }
@@ -254,6 +283,7 @@ impl WorkflowEngine {
                     Some(prepared.label()),
                     None,
                 ),
+                &workflow.source_map,
             )?;
             let access = prepared.access_set(&node.id, context)?;
             let access_guard = self.scheduler.acquire(access).await;
@@ -275,6 +305,7 @@ impl WorkflowEngine {
                             Some(error.to_string()),
                             None,
                         ),
+                        &workflow.source_map,
                     )?;
                     return Err(error);
                 }
@@ -300,6 +331,7 @@ impl WorkflowEngine {
                             Some(error.to_string()),
                             None,
                         ),
+                        &workflow.source_map,
                     )?;
                     return Err(error);
                 }
@@ -323,6 +355,7 @@ impl WorkflowEngine {
                         node_event.message,
                         node_event.payload,
                     ),
+                    &workflow.source_map,
                 )?;
             }
             if !published_output_names.is_empty() {
@@ -343,6 +376,7 @@ impl WorkflowEngine {
                             output_names: published_output_names,
                         }),
                     ),
+                    &workflow.source_map,
                 )?;
             }
             emit_event(
@@ -357,6 +391,7 @@ impl WorkflowEngine {
                     None,
                     None,
                 ),
+                &workflow.source_map,
             )?;
 
             let next_edge = select_next_edge(prepared.as_ref(), node_id, &outgoing, context)?;
@@ -373,6 +408,7 @@ impl WorkflowEngine {
                         Some(format!("{} → {}", edge.source, edge.target)),
                         None,
                     ),
+                    &workflow.source_map,
                 )?;
                 current_id = Some(edge.target.as_str());
             } else {
@@ -402,36 +438,18 @@ fn select_next_edge<'edge>(
         .copied())
 }
 
-/// 将事件交付错误统一映射到 RuntimeError。
-fn emit_event(
-    sink: &Arc<dyn ExecutionEventSink>,
-    event: ExecutionEvent,
-) -> Result<(), RuntimeError> {
-    sink.emit(event).map_err(RuntimeError::EventSink)
-}
-
-/// 构造严格递增序号的执行事件。
-#[allow(clippy::too_many_arguments)]
-fn build_event(
-    run_id: Uuid,
-    workflow_id: Uuid,
-    sequence: &mut u64,
+/// 把组件目录或展开错误转换成现有工作流校验报告。
+fn component_validation_report(
+    message: String,
     node_id: Option<String>,
-    edge_id: Option<String>,
-    kind: ExecutionEventKind,
-    message: Option<String>,
-    payload: Option<ExecutionEventPayload>,
-) -> ExecutionEvent {
-    let event = ExecutionEvent {
-        run_id,
-        workflow_id,
-        sequence: *sequence,
-        node_id,
-        edge_id,
-        kind,
-        message,
-        payload,
-    };
-    *sequence += 1;
-    event
+) -> crate::ValidationReport {
+    crate::ValidationReport {
+        valid: false,
+        issues: vec![crate::ValidationIssue {
+            code: crate::ValidationIssueCode::ComponentExpansionFailed,
+            message,
+            node_id,
+            edge_id: None,
+        }],
+    }
 }

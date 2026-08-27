@@ -1,6 +1,7 @@
 import { useStore, type StoreApi } from 'zustand';
 
 import type { FlowState } from '../../flow';
+import type { FlowComponentCatalogItem } from '../../features/workflow/componentCatalog';
 import type {
   WorkflowCanvasEdge,
   WorkflowCanvasNode,
@@ -41,6 +42,8 @@ type NodeInspectorProps = Readonly<{
   runInputValuesError: string | null;
   /** 工作流系统能力声明。 */
   permissions: WorkflowPermissions;
+  /** 当前工作区可解析的全部精确组件版本。 */
+  componentCatalog?: ReadonlyArray<FlowComponentCatalogItem>;
   /** 修改工作流名称。 */
   onNameChange: (name: string) => void;
   /** 修改 JSON 变量。 */
@@ -59,6 +62,8 @@ type NodeInspectorProps = Readonly<{
   onOpenStructuredEditor: (target: StructuredEditorTarget) => void;
   /** 删除当前选择。 */
   onDelete: () => void;
+  /** 把当前多节点选择原地折叠为版本锁定组件。 */
+  onCreateComponent?: (name: string, version: string) => boolean;
 }>;
 
 /** 通用 Flow Store 尚未装配工作流 metadata 时使用的稳定空值。 */
@@ -131,7 +136,10 @@ export function NodeInspector(props: NodeInspectorProps) {
           />
         ) : null}
         {selectedCount > 1 ? (
-          <MultipleSelection count={selectedCount} />
+          <MultipleSelection
+            count={selectedCount}
+            onCreateComponent={props.onCreateComponent ?? (() => false)}
+          />
         ) : null}
         {node ? (
           <ValueExprEditorProvider
@@ -148,6 +156,7 @@ export function NodeInspector(props: NodeInspectorProps) {
           >
             <NodeInspectorFields
               node={node}
+              componentCatalog={props.componentCatalog ?? []}
               onUpdate={props.onUpdateNode}
               onOpenStructuredEditor={props.onOpenStructuredEditor}
               onDelete={props.onDelete}

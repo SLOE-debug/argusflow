@@ -3,13 +3,14 @@ use std::{
     sync::Arc,
 };
 
-use argusflow_core::WorkflowDefinition;
+use argusflow_core::{FlowComponentDefinition, WorkflowDefinition};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::{
-    NodeFlow, NodeRegistryError, NodeTypeRegistry, NodeValidationContext, PreparedNode,
-    UnavailableActionDispatcher, UnavailableApplicationSessionProvider,
-    UnavailableBrowserSessionProvider, builtin_nodes,
+    ComponentRegistry, ComponentSourceMap, NodeFlow, NodeRegistryError, NodeTypeRegistry,
+    NodeValidationContext, PreparedNode, UnavailableActionDispatcher,
+    UnavailableApplicationSessionProvider, UnavailableBrowserSessionProvider, builtin_nodes,
+    expand_components,
     validation_graph::{build_graph, validate_graph_shape, validate_node_degrees},
     validation_references::validate_data_references,
     value_runtime::{RuntimeValuePlan, RuntimeValuePlanBuilder},
@@ -121,6 +122,8 @@ validation_issue_codes! {
     ApplicationPermissionDenied => "application_permission_denied",
     InvalidBackendPolicy => "invalid_backend_policy",
     InvalidTargetWaitPolicy => "invalid_target_wait_policy",
+    InvalidExtract => "invalid_extract",
+    InvalidDataFormat => "invalid_data_format",
     InvalidCommand => "invalid_command",
     CommandPermissionDenied => "command_permission_denied",
     InvalidValueReference => "invalid_value_reference",
@@ -131,6 +134,8 @@ validation_issue_codes! {
     ReferenceNotDominating => "reference_not_dominating",
     UnknownNodeType => "unknown_node_type",
     InvalidNodeDefinition => "invalid_node_definition",
+    InvalidComponentDefinition => "invalid_component_definition",
+    ComponentExpansionFailed => "component_expansion_failed",
 }
 
 /// 已通过 registry 编译、可直接进入执行热路径的工作流。
@@ -141,6 +146,8 @@ pub(crate) struct PreparedWorkflow {
     pub(crate) nodes: HashMap<String, Arc<dyn PreparedNode>>,
     /// 所有 ValueExpr::Expression 在 prepare 阶段编译得到的共享 AST。
     pub(crate) value_plan: Arc<RuntimeValuePlan>,
+    /// 把扁平执行节点映射回组件实例和内部画布。
+    pub(crate) source_map: ComponentSourceMap,
 }
 
 /// 使用内置节点注册表校验 schema v8 工作流。
@@ -151,6 +158,44 @@ pub fn validate_workflow(workflow: &WorkflowDefinition) -> ValidationReport {
         Arc::new(UnavailableBrowserSessionProvider),
     );
     validate_workflow_with_registry(workflow, &registry)
+}
+
+/// 使用随工作流提供的版本锁定组件目录完成展开和内置节点校验。
+pub fn validate_workflow_with_components(
+    workflow: &WorkflowDefinition,
+    components: &[FlowComponentDefinition],
+) -> ValidationReport {
+    let component_registry = match ComponentRegistry::from_definitions(components.iter().cloned()) {
+        Ok(registry) => registry,
+        Err(error) => {
+            return ValidationReport {
+                valid: false,
+                issues: vec![issue(
+                    ValidationIssueCode::InvalidComponentDefinition,
+                    error.to_string(),
+                    None,
+                    None,
+                )],
+            };
+        }
+    };
+    let expanded = match expand_components(workflow.clone(), &component_registry) {
+        Ok(expanded) => expanded,
+        Err(error) => {
+            return ValidationReport {
+                valid: false,
+                issues: vec![issue(
+                    ValidationIssueCode::ComponentExpansionFailed,
+                    error.message,
+                    error.node_id,
+                    None,
+                )],
+            };
+        }
+    };
+    let mut report = validate_workflow(&expanded.definition);
+    remap_component_issues(&mut report, &expanded.source_map);
+    report
 }
 
 /// 使用宿主装配的开放节点注册表校验工作流。
@@ -165,16 +210,36 @@ pub fn validate_workflow_with_registry(
 pub(crate) fn prepare_workflow(
     workflow: WorkflowDefinition,
     registry: &NodeTypeRegistry,
+    source_map: ComponentSourceMap,
 ) -> Result<PreparedWorkflow, ValidationReport> {
-    let (nodes, value_plan, report) = validate_and_compile(&workflow, registry);
+    let (nodes, value_plan, mut report) = validate_and_compile(&workflow, registry);
     if report.valid {
         Ok(PreparedWorkflow {
             definition: workflow,
             nodes,
             value_plan,
+            source_map,
         })
     } else {
+        remap_component_issues(&mut report, &source_map);
         Err(report)
+    }
+}
+
+/// 把扁平内部节点的校验定位还原到最外层组件实例。
+fn remap_component_issues(report: &mut ValidationReport, source_map: &ComponentSourceMap) {
+    for issue in &mut report.issues {
+        let Some(expanded_node_id) = issue.node_id.as_deref() else {
+            continue;
+        };
+        let Some(path) = source_map.get(expanded_node_id) else {
+            continue;
+        };
+        let Some(root) = path.first() else {
+            continue;
+        };
+        issue.message = format!("组件内部节点 '{}': {}", expanded_node_id, issue.message,);
+        issue.node_id = Some(root.instance_node_id.clone());
     }
 }
 

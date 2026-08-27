@@ -71,6 +71,18 @@ export function changeUiOperationKind(
       return { type: kind, target: operation.target };
     case 'get_value':
       return { type: kind, target: operation.target };
+    case 'extract':
+      return {
+        type: kind,
+        target: operation.target.locator.type === 'query'
+          ? operation.target
+          : {
+              ...operation.target,
+              locator: createTargetLocator('query'),
+            },
+        cardinality: 'many',
+        fields: [{ name: 'text', source: { type: 'text' } }],
+      };
     case 'collect_links':
       return {
         type: kind,
@@ -99,6 +111,8 @@ export function replaceAutomationTarget(
       return { type: operation.type, target };
     case 'get_value':
       return { type: operation.type, target };
+    case 'extract':
+      return { ...operation, target };
     case 'collect_links':
       return { type: operation.type, target };
   }

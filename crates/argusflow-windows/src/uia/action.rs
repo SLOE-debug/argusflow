@@ -36,6 +36,8 @@ pub(crate) enum UiaActionStrategy {
     GetText,
     /// ValuePattern 读取。
     GetValue,
+    /// Extract 由集合执行器处理，此策略只用于穷尽动作能力模型。
+    Extract,
 }
 
 /// 返回 prepared action 对目标实例要求的跨后端能力。
@@ -45,6 +47,7 @@ pub(crate) const fn required_capability(action: &UiaActionPlan) -> ActionCapabil
         UiaActionPlan::SetValue { .. } => ActionCapability::WriteValue,
         UiaActionPlan::GetText => ActionCapability::ReadText,
         UiaActionPlan::GetValue => ActionCapability::ReadValue,
+        UiaActionPlan::Extract { .. } => ActionCapability::ReadText,
     }
 }
 
@@ -58,6 +61,7 @@ pub(crate) fn resolve_action_strategy(
         UiaActionPlan::SetValue { .. } => resolve_value_strategy(element, true),
         UiaActionPlan::GetText => Ok(Some(UiaActionStrategy::GetText)),
         UiaActionPlan::GetValue => resolve_value_strategy(element, false),
+        UiaActionPlan::Extract { .. } => Ok(Some(UiaActionStrategy::Extract)),
     }
 }
 

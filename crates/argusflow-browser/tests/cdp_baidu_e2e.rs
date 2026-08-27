@@ -3,8 +3,9 @@ use std::sync::Arc;
 use argusflow_agent::{ActionBackend, ActionRouter};
 use argusflow_browser::{CdpBackend, CdpRuntime};
 use argusflow_core::{
-    AqlQuery, AutomationAction, AutomationExecutionScope, AutomationTarget, BackendKind,
-    BackendPolicy, BrowserSessionProvider, BrowserSpec, TargetScope,
+    AcquireBrowserSpec, AqlQuery, AutomationAction, AutomationExecutionScope, AutomationTarget,
+    BackendKind, BackendPolicy, BrowserAcquireMode, BrowserCleanupPolicy, BrowserSessionProvider,
+    TargetScope,
 };
 use argusflow_runtime::ActionDispatcher;
 
@@ -16,13 +17,18 @@ async fn collects_baidu_hot_search_links_with_crlf_records() {
         .expect("ARGUSFLOW_CDP_BROWSER_EXE must point to Chrome or Edge");
     let runtime = Arc::new(CdpRuntime::new());
     let session = runtime
-        .acquire(&BrowserSpec {
+        .acquire(&AcquireBrowserSpec {
             executable_path,
-            initial_url: "https://www.baidu.com/".to_owned(),
+            acquire_mode: BrowserAcquireMode::LaunchIsolatedCdp,
             launch_timeout_ms: 15_000,
+            cleanup_policy: BrowserCleanupPolicy::CloseOnWorkflowEnd,
         })
         .await
         .expect("browser session should start");
+    runtime
+        .navigate(&session, "https://www.baidu.com/")
+        .await
+        .expect("browser should navigate");
     let backend: Arc<dyn ActionBackend> = Arc::new(CdpBackend::new(&runtime));
     let router = ActionRouter::new(vec![backend]);
     let action = AutomationAction::CollectLinks {

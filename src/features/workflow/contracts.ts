@@ -1,3 +1,5 @@
+import type { ExecutionComponentFrame } from './reusableFlowContracts';
+
 /** 可在前后端无损传递的 JSON 值。 */
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 export type JsonObject = { [key: string]: JsonValue };
@@ -49,7 +51,30 @@ export type UiOperation =
   | { type: 'set_value'; target: AutomationTarget; value: ValueExpr }
   | { type: 'get_text'; target: AutomationTarget }
   | { type: 'get_value'; target: AutomationTarget }
+  | {
+      type: 'extract';
+      target: AutomationTarget;
+      cardinality: ExtractCardinality;
+      fields: FieldProjection[];
+    }
   | { type: 'collect_links'; target: AutomationTarget };
+
+/** Extract 操作返回唯一对象还是对象数组。 */
+export type ExtractCardinality = 'one' | 'many';
+
+/** Extract 字段读取来源。 */
+export type FieldProjectionSource =
+  | { type: 'text' }
+  | { type: 'value' }
+  | { type: 'name' }
+  | { type: 'property'; name: string }
+  | { type: 'attribute'; name: string };
+
+/** Extract 输出对象中的一个具名字段。 */
+export type FieldProjection = Readonly<{
+  name: string;
+  source: FieldProjectionSource;
+}>;
 
 /** UI 节点允许选择的强类型操作类别。 */
 export type UiOperationKind = UiOperation['type'];
@@ -169,16 +194,6 @@ export type ApplicationSpec = {
   cleanup_policy: CleanupPolicy;
   /** 获取时的窗口激活要求。 */
   activation_policy: ActivationPolicy;
-};
-
-/** 每次运行都创建隔离 profile 和随机 CDP 端口的 Chromium 启动契约。 */
-export type BrowserSpec = {
-  /** Chromium 系浏览器可执行文件的绝对路径。 */
-  executable_path: string;
-  /** 新页面首次导航的绝对 HTTP(S) URL。 */
-  initial_url: string;
-  /** 等待浏览器公开 CDP page target 的最长毫秒数。 */
-  launch_timeout_ms: number;
 };
 
 export type AcquirePolicy = 'attach_or_start' | 'attach_only' | 'always_start_new';
@@ -432,6 +447,10 @@ export type ExecutionEvent = {
   sequence: number;
   /** 相关节点 ID。 */
   node_id: string | null;
+  /** 组件内部事件对应的扁平执行节点 ID。 */
+  expanded_node_id?: string | null;
+  /** 组件内部事件从外到内的版本锁定来源路径。 */
+  component_path?: ExecutionComponentFrame[];
   /** 相关连线 ID。 */
   edge_id: string | null;
   /** 生命周期类别。 */
@@ -475,3 +494,7 @@ export type CommandError = {
   message: string;
   issues: readonly ValidationIssue[];
 };
+export type {
+  BrowserOperation, BrowserSpec, ComponentInstance, ComponentValueOutput,
+  DelimitedTextFormat, ExecutionComponentFrame, FlowComponentDefinition,
+} from './reusableFlowContracts';

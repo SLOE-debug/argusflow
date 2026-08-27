@@ -9,16 +9,21 @@ import {
 } from '../../flow';
 import type {
   WorkflowEdgeData,
+  WorkflowNodeCreationKey,
   WorkflowNodeData,
 } from '../../features/workflow/workflowModel';
+import { resolveCreationKind } from '../../features/workflow/workflowModel';
+import type { FlowComponentCatalogItem } from '../../features/workflow/componentCatalog';
+import { FLOW_COMPONENT_CATALOG } from '../../features/workflow/componentCatalog';
+import { NODE_PRESET_CATALOG } from '../../features/workflow/nodePresetCatalog';
 import { workflowNodeRegistry } from './WorkflowNodeCard';
 
 type WorkflowCanvasProps = {
   store: StoreApi<FlowState<WorkflowNodeData, WorkflowEdgeData>>;
-  onAddNode: (kind: WorkflowNodeData['kind'], position: FlowPoint) => void;
+  onAddNode: (kind: WorkflowNodeCreationKey, position: FlowPoint) => void;
   /** 新建节点并完成从现有节点开始的连线。 */
   onAddConnectedNode: (
-    kind: WorkflowNodeData['kind'],
+    kind: WorkflowNodeCreationKey,
     position: FlowPoint,
     sourceNodeId: string,
     sourceSide: FlowAnchorSide,
@@ -35,6 +40,10 @@ type WorkflowCanvasProps = {
     nodeId: string,
     side?: FlowAnchorSide,
   ) => boolean;
+  /** 双击流程组件时进入内部版本视图。 */
+  onNodeDoubleClick?: (nodeId: string) => void;
+  /** 为工作区组件创建键补齐拖放尺寸定义。 */
+  componentCatalog?: ReadonlyArray<FlowComponentCatalogItem>;
 };
 
 /** 将 ArgusFlow 节点注册表和业务约束接入自研 Flow 画布。 */
@@ -44,9 +53,12 @@ export function WorkflowCanvas({
   onAddConnectedNode,
   onConnect,
   onReconnect,
+  onNodeDoubleClick,
+  componentCatalog = FLOW_COMPONENT_CATALOG,
 }: WorkflowCanvasProps) {
+  const workflowCreationRegistry = createWorkflowCreationRegistry(componentCatalog);
   const addWorkflowNode = (kind: string, position: FlowPoint) => {
-    if (isWorkflowNodeKind(kind)) onAddNode(kind, position);
+    if (isWorkflowCreationKey(kind)) onAddNode(kind, position);
   };
 
   const addConnectedWorkflowNode = (
@@ -54,7 +66,7 @@ export function WorkflowCanvas({
     position: FlowPoint,
     sourceNodeId: string,
     sourceSide: FlowAnchorSide,
-  ) => isWorkflowNodeKind(kind) && onAddConnectedNode(
+  ) => isWorkflowCreationKey(kind) && onAddConnectedNode(
     kind,
     position,
     sourceNodeId,
@@ -64,17 +76,43 @@ export function WorkflowCanvas({
   return (
     <FlowProvider store={store}>
       <FlowCanvas
-        registry={workflowNodeRegistry}
+        registry={workflowCreationRegistry}
         onAddNode={addWorkflowNode}
         onAddConnectedNode={addConnectedWorkflowNode}
         onConnect={onConnect}
         onReconnect={onReconnect}
+        onNodeDoubleClick={onNodeDoubleClick}
       />
     </FlowProvider>
   );
 }
 
 /** 检查通用画布传入的注册键是否属于工作流领域节点。 */
-function isWorkflowNodeKind(kind: string): kind is WorkflowNodeData['kind'] {
-  return Object.hasOwn(workflowNodeRegistry, kind);
+function isWorkflowCreationKey(kind: string): kind is WorkflowNodeCreationKey {
+  return resolveCreationKind(kind) !== null;
+}
+
+/** 通用 Flow 拖放需要按创建键查尺寸；Preset/Component 复用最终节点定义。 */
+function createWorkflowCreationRegistry(
+  componentCatalog: ReadonlyArray<FlowComponentCatalogItem>,
+) {
+  return {
+    ...workflowNodeRegistry,
+    ...Object.fromEntries(NODE_PRESET_CATALOG.map((preset) => [
+      `preset:${preset.id}`,
+      {
+        ...workflowNodeRegistry.ui,
+        kind: `preset:${preset.id}`,
+        title: preset.title,
+      },
+    ])),
+    ...Object.fromEntries(componentCatalog.map((item) => [
+      `component:${item.definition.id}@${item.definition.version}`,
+      {
+        ...workflowNodeRegistry.component,
+        kind: `component:${item.definition.id}@${item.definition.version}`,
+        title: item.title,
+      },
+    ])),
+  };
 }

@@ -8,7 +8,8 @@ use std::{
 };
 
 use argusflow_core::{
-    BrowserError, BrowserSession, BrowserSessionProvider, BrowserSpec, ResourceId,
+    AcquireBrowserSpec, BrowserAcquireMode, BrowserCleanupPolicy, BrowserError, BrowserSession,
+    BrowserSessionProvider, ResourceId,
 };
 use async_trait::async_trait;
 use serde::Deserialize;
@@ -48,7 +49,7 @@ struct ManagedBrowser {
 
 #[async_trait]
 impl BrowserSessionProvider for CdpRuntime {
-    async fn acquire(&self, spec: &BrowserSpec) -> Result<BrowserSession, BrowserError> {
+    async fn acquire(&self, spec: &AcquireBrowserSpec) -> Result<BrowserSession, BrowserError> {
         validate_spec(spec)?;
         let resource_id = ResourceId::new();
         let profile_directory = create_profile_directory(resource_id).await?;
@@ -85,6 +86,30 @@ impl BrowserSessionProvider for CdpRuntime {
         })
     }
 
+    async fn navigate(&self, session: &BrowserSession, url: &str) -> Result<(), BrowserError> {
+        if !is_http_url(url) {
+            return Err(BrowserError::InvalidSpec {
+                message: "navigation URL must be an absolute HTTP(S) URL".to_owned(),
+            });
+        }
+        let page = self
+            .sessions
+            .get(session.id)
+            .ok_or_else(|| BrowserError::NavigationFailed {
+                message: "browser session is no longer attached".to_owned(),
+            })?;
+        let response = page
+            .command("Page.navigate", json!({ "url": url }))
+            .await
+            .map_err(navigation_error)?;
+        if let Some(error_text) = response.get("errorText").and_then(Value::as_str) {
+            return Err(BrowserError::NavigationFailed {
+                message: error_text.to_owned(),
+            });
+        }
+        wait_for_document_ready(&page, session.spec.launch_timeout_ms).await
+    }
+
     async fn cleanup(&self, session: &BrowserSession) -> Result<(), BrowserError> {
         let page_session = self.sessions.remove(session.id);
         if let Some(page_session) = page_session {
@@ -111,16 +136,24 @@ impl BrowserSessionProvider for CdpRuntime {
 }
 
 /// 在启动前建立路径、URL 和超时不变量。
-fn validate_spec(spec: &BrowserSpec) -> Result<(), BrowserError> {
+fn validate_spec(spec: &AcquireBrowserSpec) -> Result<(), BrowserError> {
     let executable = Path::new(spec.executable_path.trim());
     if !executable.is_absolute() || !executable.is_file() {
         return Err(BrowserError::InvalidSpec {
             message: "browser executable must be an existing absolute file".to_owned(),
         });
     }
-    if !is_http_url(&spec.initial_url) {
+    if !matches!(spec.acquire_mode, BrowserAcquireMode::LaunchIsolatedCdp) {
         return Err(BrowserError::InvalidSpec {
-            message: "initial_url must be an absolute HTTP(S) URL".to_owned(),
+            message: "unsupported browser acquire mode".to_owned(),
+        });
+    }
+    if !matches!(
+        spec.cleanup_policy,
+        BrowserCleanupPolicy::CloseOnWorkflowEnd
+    ) {
+        return Err(BrowserError::InvalidSpec {
+            message: "unsupported browser cleanup policy".to_owned(),
         });
     }
     if !(100..=60_000).contains(&spec.launch_timeout_ms) {
@@ -159,7 +192,10 @@ fn resource_id_hash(resource_id: ResourceId) -> u64 {
 }
 
 /// 使用随机调试端口和隔离 profile 直接启动 Chromium 系浏览器。
-fn launch_browser(spec: &BrowserSpec, profile_directory: &Path) -> Result<Child, BrowserError> {
+fn launch_browser(
+    spec: &AcquireBrowserSpec,
+    profile_directory: &Path,
+) -> Result<Child, BrowserError> {
     let mut command = Command::new(&spec.executable_path);
     command
         .arg("--remote-debugging-address=127.0.0.1")
@@ -168,7 +204,7 @@ fn launch_browser(spec: &BrowserSpec, profile_directory: &Path) -> Result<Child,
         .arg("--no-first-run")
         .arg("--no-default-browser-check")
         .arg("--disable-background-networking")
-        .arg(&spec.initial_url)
+        .arg("about:blank")
         .kill_on_drop(true);
     command.spawn().map_err(|error| BrowserError::LaunchFailed {
         message: format!("failed to start '{}': {error}", spec.executable_path),
@@ -177,7 +213,7 @@ fn launch_browser(spec: &BrowserSpec, profile_directory: &Path) -> Result<Child,
 
 /// 等待 DevToolsActivePort、建立根连接、发现页面并创建扁平 target session。
 async fn acquire_page_session(
-    spec: &BrowserSpec,
+    spec: &AcquireBrowserSpec,
     profile_directory: &Path,
     child: &mut Child,
 ) -> Result<Arc<CdpPageSession>, BrowserError> {
@@ -195,13 +231,7 @@ async fn acquire_page_session(
         )
         .await
         .map_err(protocol_launch_error)?;
-    let target_id = wait_for_page_target(
-        &connection,
-        &spec.initial_url,
-        deadline,
-        spec.launch_timeout_ms,
-    )
-    .await?;
+    let target_id = wait_for_page_target(&connection, deadline, spec.launch_timeout_ms).await?;
     CdpPageSession::attach(connection, target_id)
         .await
         .map_err(protocol_launch_error)
@@ -246,11 +276,9 @@ async fn wait_for_debug_endpoint(
 /// 轮询 Target.getTargets，优先选择与初始地址同 host 的普通 page。
 async fn wait_for_page_target(
     connection: &CdpConnection,
-    initial_url: &str,
     deadline: Instant,
     timeout_ms: u64,
 ) -> Result<String, BrowserError> {
-    let expected_host = url_host(initial_url);
     loop {
         let response = connection
             .command(None, "Target.getTargets", json!({}))
@@ -265,16 +293,34 @@ async fn wait_for_page_target(
         let page = targets
             .iter()
             .filter_map(|value| serde_json::from_value::<TargetInfo>(value.clone()).ok())
-            .filter(|target| target.target_type == "page" && is_http_url(&target.url))
-            .max_by_key(|target| {
-                u8::from(
-                    expected_host
-                        .as_deref()
-                        .is_some_and(|host| url_host(&target.url).as_deref() == Some(host)),
-                )
-            });
+            .find(|target| target.target_type == "page");
         if let Some(page) = page {
             return Ok(page.target_id);
+        }
+        if Instant::now() >= deadline {
+            return Err(BrowserError::Timeout { timeout_ms });
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+/// 等待导航后的主文档进入 interactive/complete，复用资源启动超时作为明确边界。
+async fn wait_for_document_ready(
+    page: &CdpPageSession,
+    timeout_ms: u64,
+) -> Result<(), BrowserError> {
+    let deadline = Instant::now() + Duration::from_millis(timeout_ms);
+    loop {
+        let response = page
+            .command(
+                "Runtime.evaluate",
+                json!({ "expression": "document.readyState", "returnByValue": true }),
+            )
+            .await
+            .map_err(navigation_error)?;
+        let ready_state = response.pointer("/result/value").and_then(Value::as_str);
+        if matches!(ready_state, Some("interactive" | "complete")) {
+            return Ok(());
         }
         if Instant::now() >= deadline {
             return Err(BrowserError::Timeout { timeout_ms });
@@ -292,8 +338,6 @@ struct TargetInfo {
     /// `page`、`worker` 等 target 类型。
     #[serde(rename = "type")]
     target_type: String,
-    /// target 当前主文档 URL。
-    url: String,
 }
 
 /// 尽力终止并回收本次启动的根进程。
@@ -320,16 +364,16 @@ fn protocol_launch_error(error: impl std::fmt::Display) -> BrowserError {
     }
 }
 
+/// 把页面级协议错误映射到明确的导航错误边界。
+fn navigation_error(error: impl std::fmt::Display) -> BrowserError {
+    BrowserError::NavigationFailed {
+        message: error.to_string(),
+    }
+}
+
 /// 判断字符串是否是当前资源允许的网络页面地址。
 fn is_http_url(value: &str) -> bool {
     value.split_once("://").is_some_and(|(scheme, remainder)| {
         matches!(scheme, "http" | "https") && !remainder.trim().is_empty()
     })
-}
-
-/// 只为初始 target 选择提取 scheme 后、第一个分隔符前的 host[:port]。
-fn url_host(value: &str) -> Option<String> {
-    let (_, remainder) = value.split_once("://")?;
-    let authority = remainder.split(['/', '?', '#']).next()?;
-    (!authority.is_empty()).then(|| authority.to_ascii_lowercase())
 }

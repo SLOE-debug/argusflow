@@ -23,6 +23,7 @@ import {
 } from './InspectorControls';
 import { AqlFieldSummary } from './AqlFieldSummary';
 import { ValueExprFields } from './ValueExprFields';
+import { ExtractNodeFields } from './ExtractNodeFields';
 import type { StructuredEditorTarget } from './structuredEditorTarget';
 
 type ActionNodeFieldsProps = Readonly<{
@@ -45,7 +46,7 @@ const OPERATION_KIND_OPTIONS = [
   { value: 'set_value', label: '输入文字' },
   { value: 'get_text', label: '读取文本' },
   { value: 'get_value', label: '读取值' },
-  { value: 'collect_links', label: '批量读取链接' },
+  { value: 'extract', label: '提取结构化数据' },
 ] as const;
 
 const LOCATOR_KIND_OPTIONS = [
@@ -106,6 +107,12 @@ export function ActionNodeFields({
           literalLabel="输入内容"
           expressionLocation={{ type: 'ui_set_value' }}
           onChange={(value) => onChange(changeSetValue(operation, value))}
+        />
+      ) : null}
+      {operation.type === 'extract' ? (
+        <ExtractNodeFields
+          operation={operation}
+          onChange={onChange}
         />
       ) : null}
       <InspectorField label="应用范围">

@@ -1,6 +1,6 @@
 use std::num::NonZeroUsize;
 
-use argusflow_core::{ActionCapability, UiQuery};
+use argusflow_core::{ActionCapability, ExtractCardinality, FieldProjection, UiQuery};
 use argusflow_query::{BackendQueryCapability, Diagnostic};
 
 use super::native::{
@@ -114,6 +114,13 @@ pub enum UiaActionPlan {
     GetText,
     /// 要求目标实例提供 ValuePattern 并读取当前值。
     GetValue,
+    /// 从唯一元素或有序元素集合读取结构化字段。
+    Extract {
+        /// 唯一目标或集合输出约束。
+        cardinality: ExtractCardinality,
+        /// 已由 compiler 验证为 UIA 可读取的字段集合。
+        fields: Vec<FieldProjection>,
+    },
 }
 
 /// 查询目标角色对已冻结 UIA 动作策略的静态支持程度。

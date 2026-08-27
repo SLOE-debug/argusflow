@@ -30,6 +30,13 @@ pub(super) fn explain_uia_action(
             }
             UiaActionPlan::GetText => format!("CurrentName ({pattern_check})"),
             UiaActionPlan::GetValue => format!("ValuePattern::CurrentValue ({pattern_check})"),
+            UiaActionPlan::Extract {
+                cardinality,
+                fields,
+            } => format!(
+                "UIA property projection {cardinality:?}, {} field(s) ({pattern_check})",
+                fields.len(),
+            ),
         },
     }
 }

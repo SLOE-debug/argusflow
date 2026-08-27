@@ -12,7 +12,7 @@ type BrowserNodeFieldsProps = Readonly<{
   onChange: (spec: BrowserSpec) => void;
 }>;
 
-/** 编辑浏览器 EXE、初始 URL 和有界启动等待。 */
+/** 编辑只负责会话获取的浏览器 EXE 和有界启动等待。 */
 export function BrowserNodeFields({ spec, onChange }: BrowserNodeFieldsProps) {
   return (
     <div className="flex flex-col gap-2.5">
@@ -24,17 +24,6 @@ export function BrowserNodeFields({ spec, onChange }: BrowserNodeFieldsProps) {
           onChange={(event) => onChange({
             ...spec,
             executable_path: event.target.value,
-          })}
-        />
-      </InspectorField>
-      <InspectorField label="初始地址">
-        <Input
-          aria-label="浏览器初始地址"
-          value={spec.initial_url}
-          containerClassName="border-slate-300 bg-white"
-          onChange={(event) => onChange({
-            ...spec,
-            initial_url: event.target.value,
           })}
         />
       </InspectorField>
@@ -53,7 +42,7 @@ export function BrowserNodeFields({ spec, onChange }: BrowserNodeFieldsProps) {
         />
       </InspectorField>
       <p className={INSPECTOR_HELP_CLASS_NAME}>
-        每次运行使用隔离临时 profile 和随机调试端口，结束时自动关闭并清理。
+        本节点只获取隔离 CDP 会话；页面地址由后续“访问网址”节点明确导航。
       </p>
     </div>
   );

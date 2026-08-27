@@ -2,6 +2,7 @@ import {
   ChevronRight,
   PanelLeft,
   Search,
+  Workflow,
 } from 'lucide-react';
 import {
   useMemo,
@@ -15,10 +16,12 @@ import {
   writeFlowNodeKindDragData,
 } from '../../flow';
 import type {
-  EditableNodeKind,
   WorkflowEdgeData,
+  WorkflowNodeCreationKey,
   WorkflowNodeData,
 } from '../../features/workflow/workflowModel';
+import type { FlowComponentCatalogItem } from '../../features/workflow/componentCatalog';
+import { FLOW_COMPONENT_CATALOG } from '../../features/workflow/componentCatalog';
 import { Input } from '../ui';
 import {
   PALETTE_GROUPS,
@@ -38,16 +41,21 @@ type NodePaletteProps = Readonly<{
   store: StoreApi<FlowState<WorkflowNodeData, WorkflowEdgeData>>;
   /** 恢复左侧面板的默认宽度。 */
   onResetWidth: () => void;
+  /** 内置和当前工作区可创建的精确版本组件。 */
+  componentCatalog?: ReadonlyArray<FlowComponentCatalogItem>;
 }>;
 
 /** 目录中已接入运行时、可以直接创建的节点定义。 */
-type AvailablePaletteItem = Extract<
-  (typeof PALETTE_ITEMS)[number],
-  Readonly<{ kind: EditableNodeKind }>
->;
+type AvailablePaletteItem = PaletteItemDefinition & Readonly<{
+  kind: WorkflowNodeCreationKey;
+}>;
 
 /** 可搜索的高密度分组节点库。 */
-export function NodePalette({ store, onResetWidth }: NodePaletteProps) {
+export function NodePalette({
+  store,
+  onResetWidth,
+  componentCatalog = FLOW_COMPONENT_CATALOG,
+}: NodePaletteProps) {
   const startExists = useStore(
     store,
     (state) => state.nodes.some((node) => node.kind === 'start'),
@@ -63,9 +71,26 @@ export function NodePalette({ store, onResetWidth }: NodePaletteProps) {
     () => new Set(),
   );
   const normalizedQuery = query.trim().toLocaleLowerCase();
+  /** 工作区组件在创建后立即进入同一目录，不需要修改静态 Runtime type。 */
+  const paletteItems = useMemo(() => {
+    const knownKeys = new Set(PALETTE_ITEMS.flatMap((item) => item.kind ? [item.kind] : []));
+    const workspaceComponents: PaletteItemDefinition[] = componentCatalog
+      .filter((item) => !knownKeys.has(
+        `component:${item.definition.id}@${item.definition.version}`,
+      ))
+      .map((item) => ({
+        kind: `component:${item.definition.id}@${item.definition.version}`,
+        title: item.title,
+        description: item.description,
+        group: 'component',
+        icon: Workflow,
+        iconClassName: 'bg-violet-50 text-violet-700',
+      }));
+    return [...PALETTE_ITEMS, ...workspaceComponents];
+  }, [componentCatalog]);
   const visibleGroups = useMemo(() => PALETTE_GROUPS.flatMap((group) => {
     /** 当前分组中符合搜索词的条目。 */
-    const matchingItems = PALETTE_ITEMS.filter((item) => (
+    const matchingItems = paletteItems.filter((item) => (
       item.group === group.id
       && (
         item.title.toLocaleLowerCase().includes(normalizedQuery)
@@ -77,7 +102,7 @@ export function NodePalette({ store, onResetWidth }: NodePaletteProps) {
       isPaletteItemAvailable(item, startExists, endExists)
     ));
     return items.length > 0 ? [{ ...group, items }] : [];
-  }), [endExists, normalizedQuery, startExists]);
+  }), [endExists, normalizedQuery, paletteItems, startExists]);
   /** 切换单个分组时复制集合，保持 React 状态不可变。 */
   const toggleGroup = (groupId: PaletteGroup) => {
     setCollapsedGroups((current) => {

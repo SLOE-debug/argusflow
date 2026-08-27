@@ -2,7 +2,9 @@ import {
   AppWindow,
   Bug,
   Braces,
+  Boxes,
   Globe2,
+  Navigation,
   CircleCheck,
   CircleX,
   Clock3,
@@ -13,6 +15,7 @@ import {
   MousePointerClick,
   PlayCircle,
   Square,
+  TableProperties,
   Terminal,
   type LucideIcon,
 } from 'lucide-react';
@@ -51,8 +54,11 @@ const NODE_ICONS: Readonly<Record<WorkflowNodeKind, LucideIcon>> = {
   variable: Braces,
   application: AppWindow,
   browser: Globe2,
+  navigate: Navigation,
   ui: MousePointerClick,
   command: Terminal,
+  format: TableProperties,
+  component: Boxes,
   end: Square,
 };
 
@@ -93,6 +99,10 @@ const NODE_TONES: Readonly<Record<
     accent: 'bg-sky-500',
     icon: 'bg-sky-50 text-sky-700',
   },
+  navigate: {
+    accent: 'bg-sky-500',
+    icon: 'bg-sky-50 text-sky-700',
+  },
   ui: {
     accent: 'bg-cyan-500',
     icon: 'bg-cyan-50 text-cyan-700',
@@ -100,6 +110,14 @@ const NODE_TONES: Readonly<Record<
   command: {
     accent: 'bg-slate-600',
     icon: 'bg-slate-100 text-slate-700',
+  },
+  format: {
+    accent: 'bg-amber-500',
+    icon: 'bg-amber-50 text-amber-700',
+  },
+  component: {
+    accent: 'bg-violet-600',
+    icon: 'bg-violet-50 text-violet-700',
   },
   end: {
     accent: 'bg-rose-500',
@@ -136,8 +154,11 @@ export const workflowNodeRegistry = {
   variable: createDefinition('variable', '设置变量', WORKFLOW_NODE_SIZES.variable),
   application: createDefinition('application', '应用', WORKFLOW_NODE_SIZES.application),
   browser: createDefinition('browser', '浏览器', WORKFLOW_NODE_SIZES.browser),
+  navigate: createDefinition('navigate', '访问网址', WORKFLOW_NODE_SIZES.navigate),
   ui: createDefinition('ui', '界面操作', WORKFLOW_NODE_SIZES.ui),
   command: createDefinition('command', '执行命令', WORKFLOW_NODE_SIZES.command),
+  format: createDefinition('format', '格式化文本', WORKFLOW_NODE_SIZES.format),
+  component: createDefinition('component', '流程组件', WORKFLOW_NODE_SIZES.component),
   end: {
     ...createDefinition('end', '结束', WORKFLOW_NODE_SIZES.end, true),
     canStartConnection: false,
@@ -178,6 +199,12 @@ export function WorkflowNodeCard({
   const selectedTextTone = selected ? 'text-blue-950' : 'text-slate-800';
   const selectedDetailTone = selected ? 'text-blue-600' : 'text-slate-400';
   const Icon = NODE_ICONS[data.kind];
+  /** Primitive、Preset 与 Component 使用稳定短标签区分编辑语义。 */
+  const layerLabel = data.kind === 'component'
+    ? '组件'
+    : data.kind === 'ui' && data.presetId
+      ? '预设'
+      : '原子';
 
   return (
     <div
@@ -200,7 +227,11 @@ export function WorkflowNodeCard({
           aria-hidden="true"
           className={`size-4 shrink-0 stroke-[2.2] ${runtimeTone.status} ${status === 'running' ? 'animate-spin motion-reduce:animate-none' : ''}`}
         />
-      ) : null}
+      ) : (
+        <span className="shrink-0 rounded bg-slate-100 px-1 py-0.5 text-[8px] leading-none text-slate-500">
+          {layerLabel}
+        </span>
+      )}
     </div>
   );
 }
@@ -221,11 +252,17 @@ function resolveNodeDetail(data: WorkflowNodeData): string {
     case 'application':
       return `${data.spec.acquire_policy} · ${data.spec.window_title.value}`;
     case 'browser':
-      return data.spec.initial_url;
+      return '隔离 CDP 会话';
+    case 'navigate':
+      return valueExprDetail(data.operation.url);
     case 'ui':
       return `${operationLabel(data.operation.type)} · ${locatorLabel(data.operation.target.locator.type)}`;
     case 'command':
       return `命令 · ${data.operation.runner}`;
+    case 'format':
+      return `${data.operation.fields.length} 个字段`;
+    case 'component':
+      return `${data.componentName} · ${data.component.component_version}`;
     case 'start':
       return '手动触发';
     case 'end':
@@ -303,6 +340,7 @@ function operationLabel(operation: UiOperationKind): string {
     case 'set_value': return '填写';
     case 'get_text': return '读取文本';
     case 'get_value': return '读取值';
+    case 'extract': return '结构化提取';
     case 'collect_links': return '批量链接';
   }
 }

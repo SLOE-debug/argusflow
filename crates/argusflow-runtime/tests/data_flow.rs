@@ -62,6 +62,9 @@ impl ActionDispatcher for CapturingDispatcher {
             AutomationAction::Click { .. }
             | AutomationAction::SetValue { .. }
             | AutomationAction::GetValue { .. } => BTreeMap::new(),
+            AutomationAction::Extract { .. } => {
+                BTreeMap::from([("items".to_owned(), Value::Array(Vec::new()))])
+            }
             AutomationAction::CollectLinks { .. } => BTreeMap::from([
                 ("text".to_owned(), Value::String(String::new())),
                 ("links".to_owned(), Value::Array(Vec::new())),

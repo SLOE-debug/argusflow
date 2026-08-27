@@ -1,8 +1,9 @@
 use std::{path::Path, sync::Arc};
 
 use argusflow_core::{
-    BrowserSessionProvider, BrowserSpec, ExecutionEventKind, ExecutionEventPayload, NodeEnvelope,
-    NodeTypeId, ResourceRef, ResourceTypeId, WorkflowCapabilityId, WorkflowPermissions,
+    AcquireBrowserSpec, BrowserAcquireMode, BrowserCleanupPolicy, BrowserSessionProvider,
+    BrowserSpec, ExecutionEventKind, ExecutionEventPayload, NodeEnvelope, NodeTypeId, ResourceRef,
+    ResourceTypeId, WorkflowCapabilityId, WorkflowPermissions,
 };
 use async_trait::async_trait;
 use serde::Deserialize;
@@ -16,9 +17,17 @@ use crate::{
 /// Browser 节点的强类型 payload。
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct BrowserPayload {
+struct BrowserPayloadV1 {
     /// 浏览器可执行文件、初始 URL 和启动边界。
     spec: BrowserSpec,
+}
+
+/// Browser v2 只获取会话资源，不隐式执行页面导航。
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BrowserPayloadV2 {
+    /// 浏览器可执行文件、获取方式与生命周期边界。
+    spec: AcquireBrowserSpec,
 }
 
 /// 创建持有浏览器会话提供器的节点编译器。
@@ -46,18 +55,36 @@ impl NodeCompiler for BrowserCompiler {
         &self,
         definition: &NodeEnvelope,
     ) -> Result<Arc<dyn PreparedNode>, NodeCompileError> {
-        if definition.version != 1 {
-            return Err(NodeCompileError::new(format!(
-                "unsupported payload version {}; expected 1",
-                definition.version,
-            )));
-        }
-        let payload = serde_json::from_value::<BrowserPayload>(definition.payload.clone())
-            .map_err(|error| {
-                NodeCompileError::new(format!("payload does not match registered schema: {error}"))
-            })?;
+        let (spec, legacy_initial_url) = match definition.version {
+            1 => {
+                let payload =
+                    serde_json::from_value::<BrowserPayloadV1>(definition.payload.clone())
+                        .map_err(payload_error)?;
+                (
+                    AcquireBrowserSpec {
+                        executable_path: payload.spec.executable_path,
+                        acquire_mode: BrowserAcquireMode::LaunchIsolatedCdp,
+                        launch_timeout_ms: payload.spec.launch_timeout_ms,
+                        cleanup_policy: BrowserCleanupPolicy::CloseOnWorkflowEnd,
+                    },
+                    Some(payload.spec.initial_url),
+                )
+            }
+            2 => {
+                let payload =
+                    serde_json::from_value::<BrowserPayloadV2>(definition.payload.clone())
+                        .map_err(payload_error)?;
+                (payload.spec, None)
+            }
+            version => {
+                return Err(NodeCompileError::new(format!(
+                    "unsupported payload version {version}; expected 1 or 2",
+                )));
+            }
+        };
         Ok(Arc::new(BrowserNode {
-            spec: payload.spec,
+            spec,
+            legacy_initial_url,
             resource_type: ResourceTypeId::browser(),
             provider: Arc::clone(&self.provider),
         }))
@@ -67,7 +94,9 @@ impl NodeCompiler for BrowserCompiler {
 /// 已解码并绑定浏览器提供器的资源节点。
 struct BrowserNode {
     /// 获取阶段使用的完整浏览器契约。
-    spec: BrowserSpec,
+    spec: AcquireBrowserSpec,
+    /// v1 节点在获取后执行的兼容导航；v2 必须使用独立 Navigate 节点。
+    legacy_initial_url: Option<String>,
     /// `session` 输出端口的开放资源类型。
     resource_type: ResourceTypeId,
     /// 获取和清理同一资源实例的提供器。
@@ -79,6 +108,7 @@ impl std::fmt::Debug for BrowserNode {
         formatter
             .debug_struct("BrowserNode")
             .field("spec", &self.spec)
+            .field("legacy_initial_url", &self.legacy_initial_url)
             .field("resource_type", &self.resource_type)
             .finish_non_exhaustive()
     }
@@ -102,17 +132,14 @@ impl PreparedNode for BrowserNode {
                 "浏览器 EXE 必须使用绝对路径",
             ));
         }
-        let valid_url =
-            self.spec
-                .initial_url
-                .split_once("://")
-                .is_some_and(|(scheme, remainder)| {
-                    matches!(scheme, "http" | "https") && !remainder.trim().is_empty()
-                });
-        if !valid_url {
+        if self
+            .legacy_initial_url
+            .as_deref()
+            .is_some_and(|url| !is_http_url(url))
+        {
             issues.push(context.issue(
                 ValidationIssueCode::InvalidBrowserSpec,
-                "浏览器初始地址必须是绝对 HTTP(S) URL",
+                "Browser v1 初始地址必须是绝对 HTTP(S) URL",
             ));
         }
         if !(100..=60_000).contains(&self.spec.launch_timeout_ms) {
@@ -150,6 +177,12 @@ impl PreparedNode for BrowserNode {
             });
         }
         let session = self.provider.acquire(&self.spec).await?;
+        if let Some(url) = &self.legacy_initial_url
+            && let Err(error) = self.provider.navigate(&session, url).await
+        {
+            let _ = self.provider.cleanup(&session).await;
+            return Err(error.into());
+        }
         let resource_id = session.id;
         let output_name = "session".to_owned();
         context.resources_mut().insert(
@@ -178,4 +211,16 @@ impl PreparedNode for BrowserNode {
             }],
         })
     }
+}
+
+/// 把 serde payload 错误统一收敛到节点编译边界。
+fn payload_error(error: serde_json::Error) -> NodeCompileError {
+    NodeCompileError::new(format!("payload does not match registered schema: {error}",))
+}
+
+/// 判断 Browser v1 兼容导航是否是绝对 HTTP(S) 地址。
+fn is_http_url(value: &str) -> bool {
+    value.split_once("://").is_some_and(|(scheme, remainder)| {
+        matches!(scheme, "http" | "https") && !remainder.trim().is_empty()
+    })
 }

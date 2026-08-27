@@ -47,6 +47,8 @@ type FlowNodeViewProps = Readonly<{
     point: FlowPoint,
     event: ReactPointerEvent,
   ) => void;
+  /** 业务层可选择响应节点双击，例如进入嵌套流程。 */
+  onDoubleClick?: (nodeId: string) => void;
 }>;
 
 /** 单节点订阅组件，节点变化不会触发其他节点 React 重渲染。 */
@@ -57,6 +59,7 @@ export const FlowNodeView = memo(function FlowNodeView({
   panActive,
   onDragStart,
   onConnectionStart,
+  onDoubleClick,
 }: FlowNodeViewProps) {
   const node = useFlowStore((state) => findFlowNode(state.nodes, nodeId));
   const selected = useFlowStore((state) => state.selectedNodeIds.has(nodeId));
@@ -100,6 +103,10 @@ export const FlowNodeView = memo(function FlowNodeView({
       onPointerDown={handlePointerDown}
       onPointerEnter={handlePointerEnter}
       onPointerLeave={handlePointerLeave}
+      onDoubleClick={(event) => {
+        event.stopPropagation();
+        onDoubleClick?.(node.id);
+      }}
     >
       <NodeComponent
         node={node}

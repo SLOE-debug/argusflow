@@ -36,6 +36,8 @@ type FlowCanvasProps = Readonly<{
     nodeId: string,
     side?: FlowAnchorSide,
   ) => boolean;
+  /** 节点双击由业务编辑器决定是否处理。 */
+  onNodeDoubleClick?: (nodeId: string) => void;
 }>;
 
 /** 自研 Flow 画布入口，仅装配交互、渲染图层与顶部浮层工具。 */
@@ -45,6 +47,7 @@ export function FlowCanvas({
   onAddConnectedNode,
   onConnect,
   onReconnect,
+  onNodeDoubleClick,
 }: FlowCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const store = useFlowStoreApi();
@@ -104,6 +107,7 @@ export function FlowCanvas({
         guides={interactions.guides}
         onConnectionStart={interactions.handleConnectionStart}
         onDragStart={interactions.handleNodeDragStart}
+        onNodeDoubleClick={onNodeDoubleClick}
         onReconnectStart={interactions.handleReconnectStart}
         panActive={panActive}
         registry={registry}

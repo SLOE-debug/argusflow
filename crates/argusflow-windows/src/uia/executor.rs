@@ -20,6 +20,7 @@ use super::{
     condition::build_match_condition,
     element_search::find_cached_matches,
     error::{UiaError, UiaOperation},
+    extract::{ExtractExecutionError, execute_extract},
     plan::{UiaMatcherPlan, UiaPlanExpr, UiaResultLimit},
     process_search::find_process_matches,
     runtime::{PreparedWindowTarget, UiaExecuteRequest},
@@ -78,6 +79,29 @@ impl<'automation> UiaExecutor<'automation> {
                 Err(error) if attempt == 0 && error.is_element_unavailable() => continue,
                 Err(error) => return Err(error.into_automation_error()),
             };
+            if let super::plan::UiaActionPlan::Extract {
+                cardinality,
+                fields,
+            } = &request.plan.action
+            {
+                budget
+                    .check_deadline()
+                    .map_err(UiaError::into_automation_error)?;
+                match execute_extract(candidates, *cardinality, fields) {
+                    Ok(outcome) => return Ok(outcome),
+                    Err(ExtractExecutionError::Uia(error))
+                        if attempt == 0 && error.is_element_unavailable() =>
+                    {
+                        continue;
+                    }
+                    Err(ExtractExecutionError::Uia(error)) => {
+                        return Err(error.into_automation_error());
+                    }
+                    Err(ExtractExecutionError::Resolution(failure)) => {
+                        return Err(resolution_error(failure, &request.query));
+                    }
+                }
+            }
             let target = match resolve_action_target(candidates, &request.plan.action) {
                 Ok(target) => target,
                 Err(TargetSelectionError::Uia(error))

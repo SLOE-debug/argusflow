@@ -6,7 +6,9 @@ mod application;
 mod automation;
 mod browser;
 mod command;
+mod component;
 mod condition;
+mod data;
 mod error;
 mod execution;
 mod input;
@@ -18,18 +20,28 @@ mod workflow;
 pub use application::{AcquirePolicy, ActivationPolicy, ApplicationSpec, CleanupPolicy};
 pub use automation::{
     ActionExecutionOptions, ActionOutcome, AutomationAction, AutomationExecutionScope,
-    AutomationTarget, BackendKind, BackendPolicy, DiagnosticEvidenceReference, ScreenPoint,
-    TargetLocator, TargetScope, TargetWaitMode, TargetWaitPolicy, UiExecutionPolicy, UiOperation,
-    VisualQuery, WindowTitleMatcher,
+    AutomationTarget, BackendKind, BackendPolicy, DiagnosticEvidenceReference, ExtractCardinality,
+    FieldProjection, FieldProjectionSource, ScreenPoint, TargetLocator, TargetScope,
+    TargetWaitMode, TargetWaitPolicy, UiExecutionPolicy, UiOperation, VisualQuery,
+    WindowTitleMatcher,
 };
-pub use browser::BrowserSpec;
+pub use browser::{
+    AcquireBrowserSpec, BrowserAcquireMode, BrowserCleanupPolicy, BrowserOperation, BrowserSpec,
+};
 pub use command::{
     CommandOperation, CommandRunner, EnvironmentBinding, WorkflowCapabilityId, WorkflowPermissions,
     required_command_capability,
 };
+pub use component::{
+    ComponentInstance, ComponentValueOutput, FlowComponentDefinition, FlowComponentId,
+    FlowComponentVersion,
+};
 pub use condition::{ConditionEvaluationError, ConditionOperator};
+pub use data::DelimitedTextFormat;
 pub use error::{ActionCapability, AutomationError};
-pub use execution::{ExecutionEvent, ExecutionEventKind, ExecutionEventPayload, RunStarted};
+pub use execution::{
+    ExecutionComponentFrame, ExecutionEvent, ExecutionEventKind, ExecutionEventPayload, RunStarted,
+};
 pub use input::{RunInputs, WorkflowInputDefinition, WorkflowInputType};
 pub use query::{
     AqlQuery, DomAttribute, ElementMatcher, ElementRole, MatchOperator, PredicateValue,

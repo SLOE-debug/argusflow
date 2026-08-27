@@ -13,6 +13,7 @@ mod error;
 mod evidence;
 mod executor;
 mod explain;
+mod extract;
 mod native;
 mod plan;
 mod process_search;

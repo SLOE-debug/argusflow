@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::{ApplicationSpec, BrowserSpec};
+use crate::{AcquireBrowserSpec, ApplicationSpec};
 
 /// 工作流定义中指向资源输出端口的逻辑引用。
 ///
@@ -166,7 +166,7 @@ pub struct BrowserSession {
     /// ResourceTable 使用的运行时资源 ID。
     pub id: ResourceId,
     /// 获取阶段冻结的浏览器启动契约。
-    pub spec: BrowserSpec,
+    pub spec: AcquireBrowserSpec,
     /// 本次隔离浏览器的根进程 ID。
     pub process_id: u32,
     /// 当前页面的稳定 CDP target ID。
@@ -245,6 +245,12 @@ pub enum BrowserError {
         /// 配置的完整等待时长。
         timeout_ms: u64,
     },
+    /// 已附加页面无法完成请求的导航。
+    #[error("browser navigation failed: {message}")]
+    NavigationFailed {
+        /// 协议失败或页面拒绝原因。
+        message: String,
+    },
     /// 浏览器会话关闭或临时配置清理失败。
     #[error("browser cleanup failed: {message}")]
     CleanupFailed {
@@ -267,7 +273,10 @@ pub trait ApplicationSessionProvider: Send + Sync {
 #[async_trait]
 pub trait BrowserSessionProvider: Send + Sync {
     /// 启动浏览器、连接随机 CDP 端口并返回页面会话资源。
-    async fn acquire(&self, spec: &BrowserSpec) -> Result<BrowserSession, BrowserError>;
+    async fn acquire(&self, spec: &AcquireBrowserSpec) -> Result<BrowserSession, BrowserError>;
+
+    /// 在已获取且仍附加的页面会话上完成一次绝对 URL 导航。
+    async fn navigate(&self, session: &BrowserSession, url: &str) -> Result<(), BrowserError>;
 
     /// 关闭 CDP 会话、浏览器进程并清理本次隔离用户目录。
     async fn cleanup(&self, session: &BrowserSession) -> Result<(), BrowserError>;
