@@ -1,0 +1,229 @@
+//! VisualScene cache 的 freshness、generation 和 dirty ROI 失效规则。
+
+use std::{
+    sync::{Arc, RwLock},
+    time::{Duration, Instant},
+};
+
+use argusflow_core::WindowIdentity;
+
+use crate::{
+    diff::DirtyMap,
+    frame::{PhysicalRect, TopologyGeneration},
+};
+
+use super::VisualScene;
+
+/// cache lookup 的失败原因，供 Planner Explain/Inspector 使用。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CacheMissReason {
+    /// 尚未构建 scene。
+    Empty,
+    /// scene 属于另一个窗口身份。
+    WindowMismatch,
+    /// scene 属于较旧的窗口拓扑。
+    TopologyMismatch,
+    /// scene 超过调用方 freshness。
+    Expired,
+    /// 查询 ROI 与 dirty map 相交。
+    Dirty,
+}
+
+/// VisualScene cache 查询结果。
+#[derive(Debug, Clone)]
+pub enum CacheLookup {
+    /// 命中一份仍然可复用的场景。
+    Hit(Arc<VisualScene>),
+    /// 未命中及其明确原因。
+    Miss(CacheMissReason),
+}
+
+#[derive(Debug, Default)]
+struct CacheState {
+    /// 最近一份稳定场景。
+    scene: Option<Arc<VisualScene>>,
+    /// 仍未被新 OCR 覆盖的 dirty ROI。
+    dirty_regions: Vec<PhysicalRect>,
+    /// 写入 cache 的本地单调时刻。
+    stored_at: Option<Instant>,
+}
+
+/// 只缓存最近稳定 VisualScene，不缓存 PNG 或跨页历史。
+#[derive(Debug, Default)]
+pub struct VisualSceneCache {
+    /// 短时读写锁；不跨 await 持有。
+    state: RwLock<CacheState>,
+}
+
+impl VisualSceneCache {
+    /// 创建空 cache。
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 替换 current scene，同时清除已由新 scene 覆盖的 dirty 标记。
+    pub fn replace(&self, scene: Arc<VisualScene>) {
+        let mut state = self
+            .state
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        state.scene = Some(scene);
+        state.dirty_regions.clear();
+        state.stored_at = Some(Instant::now());
+    }
+
+    /// 写入一次局部 OCR 结果，只清除被该刷新区域完整覆盖的 dirty ROI。
+    ///
+    /// 其它 dirty ROI 仍然保留，避免一次局部查询把未重新识别的旧节点误报为新鲜事实。
+    pub fn replace_region(&self, scene: Arc<VisualScene>, refreshed_region: PhysicalRect) {
+        let mut state = self
+            .state
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let had_previous_scene = state.scene.is_some();
+        let scene_viewport = scene.viewport;
+        state.scene = Some(scene);
+        if !had_previous_scene {
+            // 首次局部 OCR 结果不能伪装成完整 scene；保留 viewport 未观测部分的
+            // dirty 标记，避免调用方把缺失节点当成已经识别的事实。
+            state.dirty_regions = subtract_region(scene_viewport, refreshed_region);
+            state.stored_at = Some(Instant::now());
+            return;
+        }
+        let mut remaining_dirty = Vec::new();
+        for dirty in state.dirty_regions.drain(..) {
+            if dirty.intersects(refreshed_region) {
+                remaining_dirty.extend(subtract_region(dirty, refreshed_region));
+            } else {
+                remaining_dirty.push(dirty);
+            }
+        }
+        state.dirty_regions = remaining_dirty;
+        state.stored_at = Some(Instant::now());
+    }
+
+    /// 用差分结果只使相交区域失效。
+    pub fn invalidate(&self, dirty: &DirtyMap) {
+        if dirty.regions.is_empty() {
+            return;
+        }
+        let mut state = self
+            .state
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        for region in &dirty.regions {
+            if !state.dirty_regions.contains(&region.rect) {
+                state.dirty_regions.push(region.rect);
+            }
+        }
+    }
+
+    /// 按窗口、topology、freshness 和 query ROI 查询 cache。
+    pub fn lookup(
+        &self,
+        window: WindowIdentity,
+        topology_generation: TopologyGeneration,
+        max_age: Duration,
+        query_region: Option<PhysicalRect>,
+    ) -> CacheLookup {
+        let state = self
+            .state
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let Some(scene) = &state.scene else {
+            return CacheLookup::Miss(CacheMissReason::Empty);
+        };
+        if scene.window != window {
+            return CacheLookup::Miss(CacheMissReason::WindowMismatch);
+        }
+        if !topology_generation.is_unknown() && scene.topology_generation != topology_generation {
+            return CacheLookup::Miss(CacheMissReason::TopologyMismatch);
+        }
+        if state
+            .stored_at
+            .is_none_or(|stored_at| stored_at.elapsed() > max_age)
+        {
+            return CacheLookup::Miss(CacheMissReason::Expired);
+        }
+        let dirty = match query_region {
+            Some(region) => state
+                .dirty_regions
+                .iter()
+                .any(|dirty| dirty.intersects(region)),
+            None => !state.dirty_regions.is_empty(),
+        };
+        if dirty {
+            return CacheLookup::Miss(CacheMissReason::Dirty);
+        }
+        CacheLookup::Hit(scene.clone())
+    }
+
+    /// 返回当前场景，仅供 evidence/inspector 使用，不绕过 freshness 检查。
+    pub fn current(&self) -> Option<Arc<VisualScene>> {
+        self.state
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .scene
+            .clone()
+    }
+
+    /// 清除窗口关闭或拓扑重建后的所有短期事实。
+    pub fn clear(&self) {
+        let mut state = self
+            .state
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *state = CacheState::default();
+    }
+}
+
+/// 从一个 dirty rectangle 中移除已重新识别的区域，保留未覆盖的四个边带。
+fn subtract_region(dirty: PhysicalRect, refreshed: PhysicalRect) -> Vec<PhysicalRect> {
+    if !dirty.intersects(refreshed) {
+        return vec![dirty];
+    }
+    let left = i64::from(dirty.x).max(i64::from(refreshed.x));
+    let top = i64::from(dirty.y).max(i64::from(refreshed.y));
+    let right = dirty.right().min(refreshed.right());
+    let bottom = dirty.bottom().min(refreshed.bottom());
+    let mut remaining = Vec::with_capacity(4);
+    push_edges(
+        &mut remaining,
+        dirty.x as i64,
+        dirty.y as i64,
+        dirty.right(),
+        top,
+    );
+    push_edges(
+        &mut remaining,
+        dirty.x as i64,
+        bottom,
+        dirty.right(),
+        dirty.bottom(),
+    );
+    push_edges(&mut remaining, dirty.x as i64, top, left, bottom);
+    push_edges(&mut remaining, right, top, dirty.right(), bottom);
+    remaining
+}
+
+/// 把有符号边界转换为有效的物理矩形；空边带直接丢弃。
+fn push_edges(output: &mut Vec<PhysicalRect>, left: i64, top: i64, right: i64, bottom: i64) {
+    if right <= left || bottom <= top {
+        return;
+    }
+    let Ok(x) = i32::try_from(left) else {
+        return;
+    };
+    let Ok(y) = i32::try_from(top) else {
+        return;
+    };
+    let Ok(width) = u32::try_from(right - left) else {
+        return;
+    };
+    let Ok(height) = u32::try_from(bottom - top) else {
+        return;
+    };
+    if let Some(rect) = PhysicalRect::new(x, y, width, height) {
+        output.push(rect);
+    }
+}

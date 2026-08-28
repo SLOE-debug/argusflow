@@ -71,7 +71,7 @@ pub struct ProcessIdentity {
 }
 
 /// 应用会话当前可用的顶层窗口身份。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct WindowIdentity {
     /// 原生 HWND 的无符号不透明表示。
     pub handle: u64,

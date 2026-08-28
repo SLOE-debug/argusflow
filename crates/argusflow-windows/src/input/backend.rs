@@ -1,17 +1,20 @@
 use std::sync::Arc;
 
 use argusflow_agent::{
-    ActionBackend, ContextFitness, ExecutionContext, PlanExplain, PlanRejection,
-    PlanStepExplain, PlanStepKind, PreparedCandidate, PreparedExecution, RuntimeAvailability,
-    WindowContext,
+    ActionBackend, ContextFitness, ExecutionContext, PlanExplain, PlanRejection, PlanStepExplain,
+    PlanStepKind, PreparedCandidate, PreparedExecution, RuntimeAvailability, WindowContext,
 };
 use argusflow_core::{
-    ActionOutcome, AutomationAction, AutomationError, BackendKind, KeyChord, TargetLocator,
+    ActionOutcome, AutomationAction, AutomationError, BackendKind, KeyChord, ScreenPoint,
+    TargetLocator,
 };
 use argusflow_query::{BranchPath, QueryCost, QueryPortability, SupportLevel};
 use async_trait::async_trait;
 
-use super::keyboard::{inject_chord, inject_text};
+use super::{
+    keyboard::{inject_chord, inject_text},
+    mouse::inject_click,
+};
 
 /// 使用 Windows `SendInput` 向已验证前台窗口注入键盘事件的后端。
 #[derive(Debug, Default)]
@@ -87,6 +90,8 @@ impl ActionBackend for SendInputBackend {
 /// 已冻结且不再解释工作流字段的输入动作。
 #[derive(Debug, Clone)]
 enum SendInputPlan {
+    /// 已由调用方提供并在执行时再次复验的屏幕坐标点击。
+    Click { point: ScreenPoint },
     /// 单次组合键。
     PressKey { chord: KeyChord },
     /// Unicode 文本输入。
@@ -97,6 +102,7 @@ impl SendInputPlan {
     /// 返回 Explain 使用的稳定动作摘要。
     const fn summary(&self) -> &'static str {
         match self {
+            Self::Click { .. } => "foreground mouse click via SendInput",
             Self::PressKey { .. } => "foreground keyboard chord via SendInput",
             Self::TypeText { .. } => "foreground Unicode text via SendInput",
         }
@@ -123,8 +129,15 @@ impl PreparedExecution for SendInputPreparedExecution {
                 message: "prepared keyboard input has no window context".to_owned(),
             })?;
         let result = match &self.plan {
-            SendInputPlan::PressKey { chord } => inject_chord(window, chord),
-            SendInputPlan::TypeText { value } => inject_text(window, value),
+            SendInputPlan::PressKey { chord } => {
+                inject_chord(window, chord).map_err(|error| error.to_string())
+            }
+            SendInputPlan::TypeText { value } => {
+                inject_text(window, value).map_err(|error| error.to_string())
+            }
+            SendInputPlan::Click { point } => {
+                inject_click(window, *point).map_err(|error| error.to_string())
+            }
         };
         result.map_err(|error| AutomationError::BackendFailed {
             backend: BackendKind::SendInput,
@@ -135,6 +148,7 @@ impl PreparedExecution for SendInputPreparedExecution {
             message: match &self.plan {
                 SendInputPlan::PressKey { .. } => "已向目标窗口发送组合键",
                 SendInputPlan::TypeText { .. } => "已向目标窗口输入文本",
+                SendInputPlan::Click { .. } => "已向目标窗口执行坐标点击",
             }
             .to_owned(),
             outputs: Default::default(),
@@ -143,7 +157,7 @@ impl PreparedExecution for SendInputPreparedExecution {
     }
 }
 
-/// 保留已有坐标点击候选，但在鼠标输入实现前继续准确报告 NotImplemented。
+/// 构造带有前台窗口和坐标点的鼠标点击候选。
 fn coordinate_click_candidate(
     action: &AutomationAction,
     context: &ExecutionContext,
@@ -153,12 +167,18 @@ fn coordinate_click_candidate(
             backend: BackendKind::SendInput,
         });
     };
+    let window = context.foreground_window.clone();
+    let availability = if window.is_some() {
+        RuntimeAvailability::Ready
+    } else {
+        RuntimeAvailability::MissingContext
+    };
     let explain = PlanExplain {
         backend: BackendKind::SendInput,
         branch_path: Some(BranchPath::root()),
         support: SupportLevel::Native,
         cost: QueryCost::Low,
-        availability: RuntimeAvailability::NotImplemented,
+        availability,
         context_fitness: if context.foreground_window.is_some() {
             ContextFitness::Good
         } else {
@@ -167,26 +187,18 @@ fn coordinate_click_candidate(
         portability: QueryPortability::Portable,
         steps: vec![PlanStepExplain {
             kind: PlanStepKind::Action,
-            summary: format!("screen point ({}, {})", point.x, point.y),
+            summary: format!(
+                "screen point ({}, {}) via foreground SendInput",
+                point.x, point.y
+            ),
         }],
         diagnostics: Vec::new(),
     };
     Ok(vec![PreparedCandidate::new(
         explain,
-        Arc::new(UnimplementedCoordinateClick),
+        Arc::new(SendInputPreparedExecution {
+            plan: SendInputPlan::Click { point: *point },
+            window,
+        }),
     )])
-}
-
-/// 鼠标输入尚未接入时使用的显式占位执行器。
-#[derive(Debug)]
-struct UnimplementedCoordinateClick;
-
-#[async_trait]
-impl PreparedExecution for UnimplementedCoordinateClick {
-    async fn execute(&self) -> Result<ActionOutcome, AutomationError> {
-        Err(AutomationError::BackendUnavailable {
-            backend: BackendKind::SendInput,
-            message: "SendInput 鼠标点击尚未接入".to_owned(),
-        })
-    }
 }

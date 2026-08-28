@@ -6,9 +6,14 @@ use argusflow_agent::{
     ActionBackend, ActionRouter, EvidenceCapturePolicy, EvidenceSettings, FileSystemEvidenceSink,
 };
 use argusflow_browser::{CdpBackend, CdpRuntime};
+use argusflow_core::BackendKind;
 use argusflow_runtime::WorkflowEngine;
-use argusflow_vision::UnavailableVisionBackend;
+use argusflow_vision::{
+    NamedPipeOcrEngine, OcrEngine, UnavailableOcrEngine, VisionBackend, VisionRuntime,
+    VisionWorkerClient,
+};
 use argusflow_windows::{
+    capture::WindowsGraphicsCapture,
     context::WindowsExecutionContextProvider,
     input::SendInputBackend,
     uia::{UiaBackend, UiaRuntime},
@@ -30,14 +35,25 @@ impl AppState {
         let uia_runtime = Arc::new(UiaRuntime::start());
         // Browser 节点与 CdpBackend 共享唯一 runtime，确保资源 scope 精确绑定同一页面会话。
         let cdp_runtime = Arc::new(CdpRuntime::new());
+        // 视觉 capture/OCR/cache 只装配一次，VisualCache/OcrTiny/OcrMedium 共享同一 runtime。
+        // Python worker 由部署层启动并通过环境变量注入；未配置时 health 会明确降级。
+        let vision_runtime = Arc::new(VisionRuntime::new(
+            Arc::new(WindowsGraphicsCapture::new()),
+            build_vision_worker(),
+        ));
         // 注册顺序不决定执行优先级；ActionRouter 会比较支持等级、成本与用户偏好。
         let backends: Vec<Arc<dyn ActionBackend>> = vec![
             Arc::new(UiaBackend::new(uia_runtime.clone())),
             Arc::new(CdpBackend::new(&cdp_runtime)),
-            Arc::new(UnavailableVisionBackend::visual_cache()),
-            Arc::new(UnavailableVisionBackend::ocr_tiny()),
-            Arc::new(UnavailableVisionBackend::ocr_medium()),
-            Arc::new(UnavailableVisionBackend::gui_grounding()),
+            Arc::new(VisionBackend::new(
+                vision_runtime.clone(),
+                BackendKind::VisualCache,
+            )),
+            Arc::new(VisionBackend::new(
+                vision_runtime.clone(),
+                BackendKind::OcrTiny,
+            )),
+            Arc::new(VisionBackend::new(vision_runtime, BackendKind::OcrMedium)),
             Arc::new(SendInputBackend),
         ];
         let context_provider = Arc::new(WindowsExecutionContextProvider::new(uia_runtime.health()));
@@ -62,4 +78,28 @@ impl AppState {
             router,
         }
     }
+}
+
+/// 根据部署层注入的 pipe/token 连接本地 PaddleOCR worker；缺少配置时保持显式不可用。
+fn build_vision_worker() -> Arc<VisionWorkerClient> {
+    let pipe_name = std::env::var("ARGUSFLOW_VISION_PIPE_NAME").ok();
+    let session_token = std::env::var("ARGUSFLOW_VISION_SESSION_TOKEN").ok();
+    let Some((pipe_name, session_token)) = pipe_name
+        .zip(session_token)
+        .filter(|(pipe_name, session_token)| !pipe_name.is_empty() && !session_token.is_empty())
+    else {
+        return Arc::new(VisionWorkerClient::new(Arc::new(
+            UnavailableOcrEngine::new(
+                "local PaddleOCR worker is not configured; set pipe name and session token",
+            ),
+        )));
+    };
+
+    let engine = Arc::new(NamedPipeOcrEngine::new(pipe_name, session_token));
+    let health_probe = engine.clone();
+    tauri::async_runtime::spawn(async move {
+        let _ = health_probe.refresh_health().await;
+    });
+    let engine: Arc<dyn OcrEngine> = engine;
+    Arc::new(VisionWorkerClient::new(engine))
 }

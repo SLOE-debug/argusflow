@@ -7,7 +7,7 @@ use windows::Win32::{
     Foundation::HWND,
     UI::{
         Input::KeyboardAndMouse::{
-            INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
+            INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT, KEYEVENTF_KEYUP,
             KEYEVENTF_UNICODE, SendInput, VIRTUAL_KEY, VK_CONTROL, VK_ESCAPE, VK_MENU, VK_RETURN,
             VK_SHIFT, VK_TAB,
         },
@@ -51,10 +51,7 @@ pub(super) fn inject_chord(
 }
 
 /// 验证窗口身份和前台状态后按 UTF-16 code unit 注入 Unicode 文本。
-pub(super) fn inject_text(
-    window: &WindowContext,
-    value: &str,
-) -> Result<(), KeyboardInputError> {
+pub(super) fn inject_text(window: &WindowContext, value: &str) -> Result<(), KeyboardInputError> {
     ensure_foreground_window(window)?;
     let inputs = value
         .encode_utf16()
@@ -69,7 +66,7 @@ pub(super) fn inject_text(
 }
 
 /// 复验 HWND/PID 并确保输入不会误发到其它前台窗口。
-fn ensure_foreground_window(window: &WindowContext) -> Result<(), KeyboardInputError> {
+pub(super) fn ensure_foreground_window(window: &WindowContext) -> Result<(), KeyboardInputError> {
     let target = HWND(window.handle as usize as *mut std::ffi::c_void);
     // SAFETY: HWND 只作为不透明系统身份读取，不解引用调用方内存。
     if !unsafe { IsWindow(Some(target)) }.as_bool() {

@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "argusflow-vision-worker"
+version = "0.1.0"
+description = "Local PaddleOCR 3.7.0 worker for ArgusFlow"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "numpy==2.1.3",
+    "paddleocr==3.7.0",
+    "paddlepaddle==3.2.0",
+    "pywin32==311",
+]
+
+[project.scripts]
+argusflow-vision-worker = "argusflow_vision_worker.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

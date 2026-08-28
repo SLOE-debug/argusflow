@@ -2,5 +2,7 @@
 
 mod backend;
 mod keyboard;
+mod mouse;
 
 pub use backend::SendInputBackend;
+pub use mouse::{MouseInputError, inject_scroll_wheel};
