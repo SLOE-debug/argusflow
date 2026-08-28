@@ -40,7 +40,9 @@ pub fn inspect_aql(state: State<'_, AppState>, target: AutomationTarget) -> AqlI
 fn inspect_with_router(state: &AppState, target: AutomationTarget) -> AqlInspection {
     let query = match &target.locator {
         TargetLocator::Query { query } => query,
-        TargetLocator::Visual { .. } | TargetLocator::Coordinate { .. } => {
+        TargetLocator::Visual { .. }
+        | TargetLocator::Coordinate { .. }
+        | TargetLocator::Focused => {
             return AqlInspection::Invalid {
                 diagnostics: Vec::new(),
             };

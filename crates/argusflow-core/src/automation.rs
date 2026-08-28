@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::{AqlQuery, CapabilitySet, ResourceRef, ValueExpr};
+use crate::{AqlQuery, CapabilitySet, KeyChord, ResourceRef, ValueExpr};
 
 /// Extract 操作返回单个目标还是目标集合。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -135,6 +135,20 @@ pub enum UiOperation {
         /// 在节点准备阶段解析的文本表达式。
         value: ValueExpr,
     },
+    /// 向当前焦点发送一个组合键。
+    PressKey {
+        /// 目标必须使用 `Focused` 定位，并可绑定显式应用会话。
+        target: AutomationTarget,
+        /// 要按下并完整释放的组合键。
+        chord: KeyChord,
+    },
+    /// 通过物理输入向当前焦点写入 Unicode 文本。
+    TypeText {
+        /// 目标必须使用 `Focused` 定位，并可绑定显式应用会话。
+        target: AutomationTarget,
+        /// 在节点准备阶段解析的文本表达式。
+        value: ValueExpr,
+    },
     /// 读取元素面向用户的文本。
     GetText {
         /// 要定位并读取的目标。
@@ -170,6 +184,8 @@ impl UiOperation {
         match self {
             Self::Click { target }
             | Self::SetValue { target, .. }
+            | Self::PressKey { target, .. }
+            | Self::TypeText { target, .. }
             | Self::GetText { target }
             | Self::GetValue { target }
             | Self::Extract { target, .. }
@@ -189,6 +205,20 @@ pub enum AutomationAction {
     /// 将文本写入指定目标。
     SetValue {
         /// 要定位并写入的目标。
+        target: AutomationTarget,
+        /// 已冻结的完整文本值。
+        value: String,
+    },
+    /// 向当前焦点发送一个组合键。
+    PressKey {
+        /// 绑定输入焦点和应用会话的目标。
+        target: AutomationTarget,
+        /// 已冻结的组合键。
+        chord: KeyChord,
+    },
+    /// 向当前焦点发送 Unicode 文本输入。
+    TypeText {
+        /// 绑定输入焦点和应用会话的目标。
         target: AutomationTarget,
         /// 已冻结的完整文本值。
         value: String,
@@ -225,6 +255,8 @@ impl AutomationAction {
         match self {
             Self::Click { target }
             | Self::SetValue { target, .. }
+            | Self::PressKey { target, .. }
+            | Self::TypeText { target, .. }
             | Self::GetText { target }
             | Self::GetValue { target }
             | Self::Extract { target, .. }
@@ -303,6 +335,8 @@ pub enum TargetLocator {
         /// 目标屏幕点。
         point: ScreenPoint,
     },
+    /// 使用应用当前键盘焦点，不执行元素树查询。
+    Focused,
 }
 
 /// 顶层应用窗口标题的强类型匹配规则。

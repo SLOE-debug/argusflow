@@ -61,7 +61,9 @@ impl ActionBackend for UiaBackend {
                         process_id: window.process_id,
                     }),
             ),
-            TargetLocator::Visual { .. } | TargetLocator::Coordinate { .. } => {
+            TargetLocator::Visual { .. }
+            | TargetLocator::Coordinate { .. }
+            | TargetLocator::Focused => {
                 return Err(PlanRejection::Unsupported {
                     backend: BackendKind::WindowsUia,
                 });

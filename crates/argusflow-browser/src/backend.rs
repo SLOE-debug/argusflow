@@ -46,6 +46,14 @@ impl ActionBackend for CdpBackend {
         action: &AutomationAction,
         context: &ExecutionContext,
     ) -> Result<Vec<PreparedCandidate>, PlanRejection> {
+        if matches!(
+            action,
+            AutomationAction::PressKey { .. } | AutomationAction::TypeText { .. }
+        ) {
+            return Err(PlanRejection::Unsupported {
+                backend: BackendKind::BrowserCdp,
+            });
+        }
         let TargetLocator::Query { query } = &action.target().locator else {
             return Err(PlanRejection::Unsupported {
                 backend: BackendKind::BrowserCdp,

@@ -7,11 +7,13 @@ import type {
 } from '../../../../features/workflow';
 import {
   changeBackendPolicy,
+  changeKeyChord,
   changeSetValue,
   changeTargetLocator,
   changeTargetLocatorKind,
   changeTargetScope,
   changeUiOperationKind,
+  changeTypeText,
   createTargetWaitPolicy,
   resolveBackendPolicyPreset,
   type BackendPolicyPreset,
@@ -24,6 +26,7 @@ import {
 import { AqlFieldSummary } from '../common/AqlFieldSummary';
 import { ValueExprFields } from './ValueExprFields';
 import { ExtractNodeFields } from './ExtractNodeFields';
+import { KeyboardChordFields } from './KeyboardChordFields';
 import type { StructuredEditorTarget } from '../../workspace/dock/structuredEditorTarget';
 
 type ActionNodeFieldsProps = Readonly<{
@@ -44,6 +47,8 @@ type ActionNodeFieldsProps = Readonly<{
 const OPERATION_KIND_OPTIONS = [
   { value: 'click', label: '点击' },
   { value: 'set_value', label: '输入文字' },
+  { value: 'press_key', label: '按键' },
+  { value: 'type_text', label: '物理输入文字' },
   { value: 'get_text', label: '读取文字' },
   { value: 'get_value', label: '读取控件值' },
   { value: 'extract', label: '读取数据' },
@@ -53,6 +58,7 @@ const LOCATOR_KIND_OPTIONS = [
   { value: 'query', label: '界面结构' },
   { value: 'visual', label: '画面文字' },
   { value: 'coordinate', label: '屏幕坐标' },
+  { value: 'focused', label: '当前焦点' },
 ] as const;
 
 const SCOPE_OPTIONS = [
@@ -65,6 +71,7 @@ const BACKEND_OPTIONS = [
   { value: 'auto', label: '自动选择（推荐）' },
   { value: 'windows_uia', label: 'Windows UI 自动化' },
   { value: 'browser_cdp', label: '浏览器自动化' },
+  { value: 'send_input', label: '键盘输入' },
 ] as const;
 
 const VISUAL_MATCH_OPTIONS = [
@@ -89,6 +96,8 @@ export function ActionNodeFields({
   const resourceHelp = scope.type === 'browser'
     ? '请先运行打开浏览器的节点，再执行当前操作。'
     : '请先运行打开应用的节点，再执行当前操作。';
+  /** 键盘动作直接使用当前焦点，不显示无效的元素定位配置。 */
+  const usesKeyboardFocus = operation.type === 'press_key' || operation.type === 'type_text';
   return (
     <div className="flex flex-col gap-2.5">
       <InspectorField label="操作">
@@ -115,6 +124,20 @@ export function ActionNodeFields({
           onChange={(value) => onChange(changeSetValue(operation, value))}
         />
       ) : null}
+      {operation.type === 'type_text' ? (
+        <ValueExprFields
+          value={operation.value}
+          literalLabel="输入内容"
+          expressionLocation={{ type: 'ui_type_text' }}
+          onChange={(value) => onChange(changeTypeText(operation, value))}
+        />
+      ) : null}
+      {operation.type === 'press_key' ? (
+        <KeyboardChordFields
+          chord={operation.chord}
+          onChange={(chord) => onChange(changeKeyChord(operation, chord))}
+        />
+      ) : null}
       {operation.type === 'extract' ? (
         <ExtractNodeFields
           operation={operation}
@@ -124,7 +147,9 @@ export function ActionNodeFields({
       <InspectorField label="操作范围">
         <Select<'current' | 'application' | 'browser'>
           value={scope.type}
-          options={SCOPE_OPTIONS}
+          options={usesKeyboardFocus
+            ? SCOPE_OPTIONS.filter(({ value }) => value !== 'browser')
+            : SCOPE_OPTIONS}
           containerClassName="border-slate-300 bg-white"
           onValueChange={(type) => onChange(changeTargetScope(
             operation,
@@ -153,17 +178,23 @@ export function ActionNodeFields({
           </p>
         </div>
       ) : null}
-      <InspectorField label="查找方式">
-        <Select<TargetLocatorKind>
-          value={operation.target.locator.type}
-          options={LOCATOR_KIND_OPTIONS}
-          containerClassName="border-slate-300 bg-white"
-          onValueChange={(kind) => {
-            onChange(changeTargetLocatorKind(operation, kind));
-            onExecutionChange({ target_wait: createTargetWaitPolicy(kind) });
-          }}
-        />
-      </InspectorField>
+      {usesKeyboardFocus ? (
+        <p className={INSPECTOR_HELP_CLASS_NAME}>
+          输入会发送到指定应用窗口的当前焦点；系统会先核对并激活该窗口。
+        </p>
+      ) : (
+        <InspectorField label="查找方式">
+          <Select<TargetLocatorKind>
+            value={operation.target.locator.type}
+            options={LOCATOR_KIND_OPTIONS.filter(({ value }) => value !== 'focused')}
+            containerClassName="border-slate-300 bg-white"
+            onValueChange={(kind) => {
+              onChange(changeTargetLocatorKind(operation, kind));
+              onExecutionChange({ target_wait: createTargetWaitPolicy(kind) });
+            }}
+          />
+        </InspectorField>
+      )}
       {operation.target.locator.type === 'query' ? (
         <QueryTargetFields
           nodeId={nodeId}
@@ -187,7 +218,8 @@ export function ActionNodeFields({
           onChange={onChange}
         />
       ) : null}
-      {operation.target.locator.type !== 'coordinate' ? (
+      {operation.target.locator.type === 'query'
+        || operation.target.locator.type === 'visual' ? (
         <TargetWaitFields
           execution={execution}
           locatorKind={operation.target.locator.type}

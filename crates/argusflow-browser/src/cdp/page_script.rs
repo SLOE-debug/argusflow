@@ -105,6 +105,9 @@ pub(super) fn build_page_action_script(
             fields,
         },
         AutomationAction::CollectLinks { .. } => PageAction::CollectLinks,
+        AutomationAction::PressKey { .. } | AutomationAction::TypeText { .. } => {
+            unreachable!("input actions are rejected by CdpBackend::prepare")
+        }
     };
     let plan = serde_json::to_string(&plan).map_err(serialization_error)?;
     let action = serde_json::to_string(&action).map_err(serialization_error)?;

@@ -1,9 +1,8 @@
 import type { ExecutionComponentFrame } from '../components/reusableFlowContracts';
-
+import type { KeyChord } from './inputContracts';
 /** 可在前后端无损传递的 JSON 值。 */
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 export type JsonObject = { [key: string]: JsonValue };
-
 /** 与 Rust 后端交换的 schema v8 工作流。 */
 export type WorkflowDefinition = {
   /** 当前契约固定版本。 */
@@ -23,9 +22,7 @@ export type WorkflowDefinition = {
   /** 节点间有向连接。 */
   edges: WorkflowEdgeContract[];
 };
-
 export type Position = { x: number; y: number };
-
 /** 后端可执行节点的通用字段与开放 definition envelope。 */
 export type WorkflowNodeContract = {
   id: string;
@@ -49,6 +46,8 @@ export type ConditionOperator =
 export type UiOperation =
   | { type: 'click'; target: AutomationTarget }
   | { type: 'set_value'; target: AutomationTarget; value: ValueExpr }
+  | { type: 'press_key'; target: AutomationTarget; chord: KeyChord }
+  | { type: 'type_text'; target: AutomationTarget; value: ValueExpr }
   | { type: 'get_text'; target: AutomationTarget }
   | { type: 'get_value'; target: AutomationTarget }
   | {
@@ -172,11 +171,12 @@ export type AqlQuery = {
   source: string;
 };
 
-/** AQL、显式视觉查询或物理坐标组成的目标判别联合。 */
+/** AQL、视觉查询、物理坐标或当前键盘焦点组成的目标判别联合。 */
 export type TargetLocator =
   | { type: 'query'; query: AqlQuery }
   | { type: 'visual'; query: { text: string; exact: boolean } }
-  | { type: 'coordinate'; point: { x: number; y: number } };
+  | { type: 'coordinate'; point: { x: number; y: number } }
+  | { type: 'focused' };
 
 /** 应用资源节点获取 direct-process Windows 桌面应用的契约。 */
 export type ApplicationSpec = {

@@ -61,6 +61,8 @@ impl ActionDispatcher for CapturingDispatcher {
             }
             AutomationAction::Click { .. }
             | AutomationAction::SetValue { .. }
+            | AutomationAction::PressKey { .. }
+            | AutomationAction::TypeText { .. }
             | AutomationAction::GetValue { .. } => BTreeMap::new(),
             AutomationAction::Extract { .. } => {
                 BTreeMap::from([("items".to_owned(), Value::Array(Vec::new()))])

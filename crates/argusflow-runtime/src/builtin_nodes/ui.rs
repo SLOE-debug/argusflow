@@ -1,20 +1,22 @@
 use std::sync::Arc;
 
 use argusflow_core::{
-    ActionExecutionOptions, AppSession, AutomationAction, AutomationExecutionScope, BackendKind,
-    BrowserSession, ExecutionEventKind, ExecutionEventPayload, ExtractCardinality,
-    FieldProjectionSource, NodeEnvelope, NodeTypeId, ResourceTypeId, TargetLocator, TargetScope,
-    TargetWaitMode, TargetWaitPolicy, UiExecutionPolicy, UiOperation, WorkflowPermissions,
+    ActionExecutionOptions, AppSession, AutomationAction, AutomationExecutionScope, BrowserSession,
+    ExecutionEventKind, ExecutionEventPayload, ExtractCardinality, NodeEnvelope, NodeTypeId,
+    ResourceTypeId, TargetLocator, TargetScope, TargetWaitPolicy, UiExecutionPolicy, UiOperation,
+    WorkflowPermissions,
 };
-use argusflow_query::parse_stored_query;
 use async_trait::async_trait;
 use serde::Deserialize;
 
 use crate::{
     AccessSet, ActionDispatcher, NodeCompileError, NodeCompiler, NodeEvent, NodeExecution,
     NodeFlow, NodeOutcome, NodeValidationContext, PreparedNode, ResourceAccessKey, ResourceInput,
-    RunContext, RuntimeError, ValidationIssue, ValidationIssueCode, ValueInput, ValueTypeId,
+    RunContext, RuntimeError, ValidationIssue, ValueInput, ValueTypeId,
 };
+
+#[path = "ui/validation.rs"]
+mod validation;
 
 /// UI 节点的强类型 payload。
 #[derive(Deserialize)]
@@ -132,6 +134,8 @@ impl PreparedNode for UiNode {
         match &self.operation {
             UiOperation::Click { .. } => "UI Click",
             UiOperation::SetValue { .. } => "UI SetValue",
+            UiOperation::PressKey { .. } => "UI PressKey",
+            UiOperation::TypeText { .. } => "UI TypeText",
             UiOperation::GetText { .. } => "UI GetText",
             UiOperation::GetValue { .. } => "UI GetValue",
             UiOperation::Extract { .. } => "UI Extract",
@@ -141,126 +145,14 @@ impl PreparedNode for UiNode {
     }
 
     fn validate(&self, context: &NodeValidationContext<'_>) -> Vec<ValidationIssue> {
-        let target = self.operation.target();
-        let mut issues = Vec::new();
-        if matches!(&target.scope, TargetScope::Application { .. })
-            && !target.backend_policy.allows(BackendKind::WindowsUia)
-        {
-            issues.push(context.issue(
-                ValidationIssueCode::InvalidBackendPolicy,
-                "应用资源的后端策略必须允许 windows_uia",
-            ));
-        }
-        if matches!(&target.scope, TargetScope::Browser { .. })
-            && !target.backend_policy.allows(BackendKind::BrowserCdp)
-        {
-            issues.push(context.issue(
-                ValidationIssueCode::InvalidBackendPolicy,
-                "浏览器资源的后端策略必须允许 browser_cdp",
-            ));
-        }
-        if matches!(self.operation, UiOperation::CollectLinks { .. })
-            && !target.backend_policy.allows(BackendKind::BrowserCdp)
-        {
-            issues.push(context.issue(
-                ValidationIssueCode::InvalidBackendPolicy,
-                "批量链接读取的后端策略必须允许 browser_cdp",
-            ));
-        }
-        if let UiOperation::Extract { fields, .. } = &self.operation {
-            let mut names = std::collections::HashSet::new();
-            if fields.is_empty() {
-                issues.push(context.issue(
-                    ValidationIssueCode::InvalidExtract,
-                    "Extract 至少需要一个字段投影",
-                ));
-            }
-            for field in fields {
-                if field.name.trim().is_empty() || !names.insert(field.name.as_str()) {
-                    issues.push(context.issue(
-                        ValidationIssueCode::InvalidExtract,
-                        "Extract 字段名称必须非空且唯一",
-                    ));
-                }
-                if matches!(
-                    &field.source,
-                    FieldProjectionSource::Property { name }
-                        | FieldProjectionSource::Attribute { name }
-                        if name.trim().is_empty()
-                ) {
-                    issues.push(context.issue(
-                        ValidationIssueCode::InvalidExtract,
-                        "Extract 属性名称不能为空",
-                    ));
-                }
-            }
-        }
-        match self.execution.target_wait {
-            TargetWaitPolicy {
-                mode: TargetWaitMode::None,
-                timeout_ms: 0,
-                poll_interval_ms: 0,
-            } => {}
-            TargetWaitPolicy {
-                mode: TargetWaitMode::None,
-                ..
-            } => issues.push(context.issue(
-                ValidationIssueCode::InvalidTargetWaitPolicy,
-                "关闭目标等待时，超时和轮询间隔必须为 0",
-            )),
-            TargetWaitPolicy {
-                mode: TargetWaitMode::Bounded,
-                timeout_ms,
-                poll_interval_ms,
-            } if !(1..=600_000).contains(&timeout_ms)
-                || !(1..=60_000).contains(&poll_interval_ms) =>
-            {
-                issues.push(context.issue(
-                    ValidationIssueCode::InvalidTargetWaitPolicy,
-                    "目标等待超时必须在 1 到 600000 毫秒之间，轮询间隔必须在 1 到 60000 毫秒之间",
-                ));
-            }
-            TargetWaitPolicy {
-                mode: TargetWaitMode::Bounded,
-                ..
-            } if matches!(&target.locator, TargetLocator::Coordinate { .. }) => {
-                issues.push(context.issue(
-                    ValidationIssueCode::InvalidTargetWaitPolicy,
-                    "坐标目标没有元素就绪语义，不能启用目标等待",
-                ));
-            }
-            TargetWaitPolicy {
-                mode: TargetWaitMode::Bounded,
-                ..
-            } => {}
-        }
-        match &target.locator {
-            TargetLocator::Query { query } => {
-                if let Err(error) = parse_stored_query(query) {
-                    let help = error
-                        .help
-                        .as_deref()
-                        .map(|help| format!("；建议：{help}"))
-                        .unwrap_or_default();
-                    issues.push(context.issue(
-                        ValidationIssueCode::InvalidAqlQuery,
-                        format!("AQL 查询无效：{error}{help}"),
-                    ));
-                }
-            }
-            TargetLocator::Visual { query } if query.text.trim().is_empty() => {
-                issues.push(
-                    context.issue(ValidationIssueCode::InvalidAqlQuery, "视觉目标文字不能为空"),
-                );
-            }
-            TargetLocator::Visual { .. } | TargetLocator::Coordinate { .. } => {}
-        }
-        issues
+        validation::validate_ui_node(&self.operation, self.execution, context)
     }
 
     fn value_inputs(&self) -> Vec<ValueInput<'_>> {
         match &self.operation {
-            UiOperation::SetValue { value, .. } => vec![ValueInput::text(value)],
+            UiOperation::SetValue { value, .. } | UiOperation::TypeText { value, .. } => {
+                vec![ValueInput::text(value)]
+            }
             _ => Vec::new(),
         }
     }
@@ -310,7 +202,10 @@ impl PreparedNode for UiNode {
             | UiOperation::GetValue { .. }
             | UiOperation::Extract { .. }
             | UiOperation::CollectLinks { .. } => AccessSet::read(key),
-            UiOperation::Click { .. } | UiOperation::SetValue { .. } => AccessSet::exclusive(key),
+            UiOperation::Click { .. }
+            | UiOperation::SetValue { .. }
+            | UiOperation::PressKey { .. }
+            | UiOperation::TypeText { .. } => AccessSet::exclusive(key),
         })
     }
 
@@ -325,6 +220,14 @@ impl PreparedNode for UiNode {
         let action = match &self.operation {
             UiOperation::Click { .. } => AutomationAction::Click { target },
             UiOperation::SetValue { value, .. } => AutomationAction::SetValue {
+                target,
+                value: context.resolve_text(value)?,
+            },
+            UiOperation::PressKey { chord, .. } => AutomationAction::PressKey {
+                target,
+                chord: chord.clone(),
+            },
+            UiOperation::TypeText { value, .. } => AutomationAction::TypeText {
                 target,
                 value: context.resolve_text(value)?,
             },
@@ -384,6 +287,7 @@ impl PreparedNode for UiNode {
 fn legacy_execution_policy(locator: TargetLocator) -> UiExecutionPolicy {
     let target_wait = match locator {
         TargetLocator::Coordinate { .. } => TargetWaitPolicy::none(),
+        TargetLocator::Focused => TargetWaitPolicy::none(),
         TargetLocator::Query { .. } => TargetWaitPolicy::bounded(5_000, 100),
         TargetLocator::Visual { .. } => TargetWaitPolicy::bounded(5_000, 300),
     };

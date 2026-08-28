@@ -4,10 +4,10 @@
 
 use argusflow_core::{
     AcquirePolicy, ActivationPolicy, ApplicationSpec, AqlQuery, AutomationTarget, BackendKind,
-    BackendPolicy, CleanupPolicy, CommandOperation, CommandRunner, NodeEnvelope, Position,
-    ResourceRef, TargetLocator, TargetScope, UiOperation, ValueExpr, WindowTitleMatcher,
-    WorkflowCapabilityId, WorkflowDefinition, WorkflowEdge, WorkflowInputDefinition,
-    WorkflowInputType, WorkflowNode, WorkflowPermissions,
+    BackendPolicy, CleanupPolicy, CommandOperation, CommandRunner, KeyChord, KeyboardKey,
+    KeyboardModifier, NodeEnvelope, Position, ResourceRef, TargetLocator, TargetScope, UiOperation,
+    ValueExpr, WindowTitleMatcher, WorkflowCapabilityId, WorkflowDefinition, WorkflowEdge,
+    WorkflowInputDefinition, WorkflowInputType, WorkflowNode, WorkflowPermissions,
 };
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -143,6 +143,32 @@ fn schema_v8_inputs_resources_values_and_commands_round_trip_through_json() {
     assert!(serialized.contains("\"runner\":\"direct\""));
     assert!(serialized.contains("\"value_type\":\"text\""));
     assert_eq!(decoded, workflow);
+}
+
+#[test]
+fn focused_keyboard_operation_round_trips_through_json() {
+    let operation = UiOperation::PressKey {
+        target: AutomationTarget {
+            scope: TargetScope::Current,
+            locator: TargetLocator::Focused,
+            backend_policy: BackendPolicy::only(BackendKind::SendInput),
+        },
+        chord: KeyChord {
+            key: KeyboardKey::Character {
+                value: "f".to_owned(),
+            },
+            modifiers: vec![KeyboardModifier::Control],
+        },
+    };
+
+    let serialized = serde_json::to_string(&operation).expect("keyboard operation should serialize");
+    let decoded: UiOperation =
+        serde_json::from_str(&serialized).expect("keyboard operation should deserialize");
+
+    assert!(serialized.contains("\"type\":\"press_key\""));
+    assert!(serialized.contains("\"type\":\"focused\""));
+    assert!(serialized.contains("\"modifiers\":[\"control\"]"));
+    assert_eq!(decoded, operation);
 }
 
 /// 以稳定布局构造 schema v8 开放节点。

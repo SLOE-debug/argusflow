@@ -105,7 +105,7 @@ describe('workflow model', () => {
     vi.unstubAllGlobals();
   });
 
-  it('uses a browser-to-desktop Baidu news workflow as the default template', () => {
+  it('uses a WeChat group search and message workflow as the default template', () => {
     const workflow = toWorkflowDefinition(
       '6d7d7a91-4e19-42c9-b1d8-011d4cf94330',
       DEFAULT_WORKFLOW_NAME,
@@ -116,103 +116,109 @@ describe('workflow model', () => {
       DEFAULT_EDGES,
     );
 
-    expect(workflow.name).toBe('采集百度热搜并保存到桌面');
-    expect(workflow.inputs).toEqual([]);
-    expect(DEFAULT_RUN_INPUT_VALUES).toEqual({});
+    expect(workflow.name).toBe('搜索微信群并发送测试消息');
+    expect(workflow.inputs).toEqual([
+      { key: 'group_name', value_type: 'text' },
+      { key: 'message', value_type: 'text' },
+    ]);
+    expect(DEFAULT_RUN_INPUT_VALUES).toEqual({
+      group_name: '三人行必有三狗',
+      message: '测试消息',
+    });
     expect(workflow.nodes.some((node) => node.type_id === 'argus.condition')).toBe(false);
-    expect(workflow.nodes.some((node) => node.type_id === 'argus.delay')).toBe(false);
-    expect(workflow.edges).toHaveLength(7);
+    expect(workflow.nodes.filter((node) => node.type_id === 'argus.delay')).toHaveLength(3);
+    expect(workflow.edges).toHaveLength(11);
     expect(workflow.edges.every((edge) => edge.branch === null)).toBe(true);
     expect(workflow.nodes).toContainEqual(expect.objectContaining({
-      id: 'baidu_browser_1',
-      type_id: 'argus.browser',
-      version: 2,
+      id: 'wechat_application_1',
+      type_id: 'argus.application',
       payload: {
         spec: expect.objectContaining({
-          acquire_mode: 'launch_isolated_cdp',
+          executable_path: 'C:\\Program Files\\Tencent\\Weixin\\Weixin.exe',
+          acquire_policy: 'attach_or_start',
+          activation_policy: 'required',
         }),
       },
     }));
     expect(workflow.nodes).toContainEqual(expect.objectContaining({
-      id: 'navigate_baidu_1',
-      type_id: 'argus.browser.operation',
-      payload: {
-        operation: expect.objectContaining({
-          type: 'navigate',
-          browser: {
-            producer_node_id: 'baidu_browser_1',
-            output_name: 'session',
-          },
-        }),
-      },
-    }));
-    expect(workflow.nodes).toContainEqual(expect.objectContaining({
-      id: 'collect_baidu_news_1',
+      id: 'wechat_open_search_1',
       type_id: 'argus.ui',
-      version: 2,
       payload: {
         operation: {
-          type: 'extract',
-          target: expect.objectContaining({
+          type: 'press_key',
+          target: {
             scope: {
-              type: 'browser',
+              type: 'application',
               resource: {
-                producer_node_id: 'baidu_browser_1',
+                producer_node_id: 'wechat_application_1',
                 output_name: 'session',
               },
             },
+            locator: { type: 'focused' },
             backend_policy: {
-              allow: ['browser_cdp'],
+              allow: ['send_input'],
               deny: [],
-              prefer: ['browser_cdp'],
+              prefer: ['send_input'],
             },
-            locator: {
-              type: 'query',
-              query: {
-                language_version: 1,
-                source: 'css("#hotsearch-content-wrapper a.title-content")',
-              },
-            },
-          }),
-          cardinality: 'many',
-          fields: [
-            { name: 'title', source: { type: 'text' } },
-            { name: 'url', source: { type: 'attribute', name: 'href' } },
-          ],
+          },
+          chord: {
+            key: { type: 'character', value: 'f' },
+            modifiers: ['control'],
+          },
         },
         execution: {
           target_wait: {
-            mode: 'bounded',
-            timeout_ms: 5_000,
-            poll_interval_ms: 100,
+            mode: 'none',
+            timeout_ms: 0,
+            poll_interval_ms: 0,
           },
         },
       },
     }));
     expect(workflow.nodes).toContainEqual(expect.objectContaining({
-      id: 'write_baidu_news_1',
-      type_id: 'argus.command',
+      id: 'wechat_type_group_name_1',
+      type_id: 'argus.ui',
       payload: {
         operation: expect.objectContaining({
-          runner: 'power_shell',
-          stdin: {
+          type: 'type_text',
+          value: {
             type: 'ref',
-            source: { type: 'node', node_id: 'format_baidu_news_1' },
-            pointer: '/text',
+            source: { type: 'workflow_input', key: 'group_name' },
+            pointer: '',
           },
         }),
+        execution: expect.any(Object),
       },
     }));
-    const defaultCommandNode = DEFAULT_NODES.find(
-      (node) => node.id === 'write_baidu_news_1',
-    );
-    if (defaultCommandNode?.data.kind !== 'command') {
-      throw new Error('default PowerShell command node is missing');
-    }
-    expect(defaultCommandNode.data.operation.script).toMatchObject({
-      type: 'literal',
-      value: expect.stringContaining('\n'),
-    });
+    expect(workflow.nodes).toContainEqual(expect.objectContaining({
+      id: 'wechat_type_message_1',
+      type_id: 'argus.ui',
+      payload: {
+        operation: expect.objectContaining({
+          type: 'type_text',
+          value: {
+            type: 'ref',
+            source: { type: 'workflow_input', key: 'message' },
+            pointer: '',
+          },
+        }),
+        execution: expect.any(Object),
+      },
+    }));
+    expect(workflow.nodes).toContainEqual(expect.objectContaining({
+      id: 'wechat_send_message_1',
+      type_id: 'argus.ui',
+      payload: {
+        operation: expect.objectContaining({
+          type: 'press_key',
+          chord: {
+            key: { type: 'enter' },
+            modifiers: [],
+          },
+        }),
+        execution: expect.any(Object),
+      },
+    }));
   });
 
   it('uses one compact size contract for workflow models', () => {
@@ -257,8 +263,8 @@ describe('workflow model', () => {
     const previewRoutes = DEFAULT_EDGES.map((edge) => (
       previewEdgeRoute(edge, DEFAULT_NODES)?.route ?? null
     ));
-    const writeDebugEdgeIndex = DEFAULT_EDGES.findIndex(
-      (edge) => edge.id === 'edge_write_debug',
+    const groupNameWaitEdgeIndex = DEFAULT_EDGES.findIndex(
+      (edge) => edge.id === 'edge_group_name_wait',
     );
     const routeGroups = [
       ['exact', exactRoutes],
@@ -282,12 +288,10 @@ describe('workflow model', () => {
     expect(exactRoutes.every((route) => route !== null)).toBe(true);
     expect(previewRoutes.every((route) => route !== null)).toBe(true);
     expect(nodeCrossings).toEqual([]);
-    expect(exactRoutes[writeDebugEdgeIndex]).toMatchObject({
-      sourceSide: 'left',
-      targetSide: 'right',
+    expect(exactRoutes[groupNameWaitEdgeIndex]).toMatchObject({
+      sourceSide: 'bottom',
+      targetSide: 'top',
     });
-    expect(exactRoutes[writeDebugEdgeIndex]!.points.length)
-      .toBeLessThanOrEqual(6);
   });
 
   it('applies the complete execution state lifecycle', () => {

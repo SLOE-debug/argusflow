@@ -12,6 +12,7 @@ mod data;
 mod error;
 mod execution;
 mod input;
+mod keyboard;
 mod query;
 mod resource;
 mod value;
@@ -43,6 +44,7 @@ pub use execution::{
     ExecutionComponentFrame, ExecutionEvent, ExecutionEventKind, ExecutionEventPayload, RunStarted,
 };
 pub use input::{RunInputs, WorkflowInputDefinition, WorkflowInputType};
+pub use keyboard::{KeyChord, KeyboardKey, KeyboardModifier};
 pub use query::{
     AqlQuery, DomAttribute, ElementMatcher, ElementRole, MatchOperator, PredicateValue,
     PropertyPredicate, QueryExpr, QueryLanguageVersion, RegexLiteral, SelectorAttribute, UiQuery,

@@ -346,6 +346,8 @@ function operationLabel(operation: UiOperationKind): string {
   switch (operation) {
     case 'click': return '点击';
     case 'set_value': return '输入文字';
+    case 'press_key': return '按键';
+    case 'type_text': return '物理输入文字';
     case 'get_text': return '读取文字';
     case 'get_value': return '读取控件值';
     case 'extract': return '读取数据';

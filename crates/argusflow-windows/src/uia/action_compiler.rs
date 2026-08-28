@@ -28,7 +28,12 @@ pub fn compile_uia_action(
     action: &AutomationAction,
     query: UiaQueryPlan,
 ) -> Result<UiaPreparedPlan, UiaActionCompileError> {
-    if matches!(action, AutomationAction::CollectLinks { .. }) {
+    if matches!(
+        action,
+        AutomationAction::PressKey { .. }
+            | AutomationAction::TypeText { .. }
+            | AutomationAction::CollectLinks { .. }
+    ) {
         return Err(UiaActionCompileError::UnsupportedAction);
     }
     if let AutomationAction::Extract { fields, .. } = action
@@ -54,6 +59,9 @@ pub fn compile_uia_action(
             fields: fields.clone(),
         },
         AutomationAction::CollectLinks { .. } => unreachable!("handled before action planning"),
+        AutomationAction::PressKey { .. } | AutomationAction::TypeText { .. } => {
+            unreachable!("handled before action planning")
+        }
     };
     let mut roles = Vec::new();
     collect_target_roles(&query.expression, &mut roles);

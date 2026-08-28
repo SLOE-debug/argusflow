@@ -45,4 +45,23 @@ describe('workflow UI operation transformations', () => {
       prefer: ['browser_cdp'],
     });
   });
+
+  it('forces keyboard actions onto the focused SendInput target', () => {
+    const click = createDefaultUiOperation();
+    const pressKey = changeUiOperationKind(click, 'press_key');
+
+    expect(pressKey).toEqual({
+      type: 'press_key',
+      target: {
+        ...click.target,
+        locator: { type: 'focused' },
+        backend_policy: {
+          allow: ['send_input'],
+          deny: [],
+          prefer: ['send_input'],
+        },
+      },
+      chord: { key: { type: 'enter' }, modifiers: [] },
+    });
+  });
 });

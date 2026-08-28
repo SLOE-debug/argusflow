@@ -10,6 +10,7 @@ import type {
   UiExecutionPolicy,
   ValueExpr,
 } from '../model/contracts';
+import type { KeyChord } from '../model/inputContracts';
 
 /** 新建 UI 节点使用的可执行 AQL 示例。 */
 export const DEFAULT_ACTION_AQL_SOURCE = 'first(button(name = "确定"))';
@@ -35,6 +36,7 @@ export function createTargetWaitPolicy(
     case 'visual':
       return { mode: 'bounded', timeout_ms: 5_000, poll_interval_ms: 300 };
     case 'coordinate':
+    case 'focused':
       return { mode: 'none', timeout_ms: 0, poll_interval_ms: 0 };
   }
 }
@@ -56,28 +58,61 @@ export function changeUiOperationKind(
   operation: UiOperation,
   kind: UiOperationKind,
 ): UiOperation {
+  /** 元素动作不能沿用只对键盘输入有意义的当前焦点定位。 */
+  const elementTarget = operation.target.locator.type === 'focused'
+    ? {
+        ...operation.target,
+        locator: createTargetLocator('query'),
+        backend_policy: createBackendPolicy('auto'),
+      }
+    : operation.target;
+  /** 键盘动作必须显式使用当前焦点和 SendInput。 */
+  const inputTarget = {
+    ...operation.target,
+    scope: operation.target.scope.type === 'browser'
+      ? { type: 'current' as const }
+      : operation.target.scope,
+    locator: createTargetLocator('focused'),
+    backend_policy: createBackendPolicy('send_input'),
+  };
   switch (kind) {
     case 'click':
-      return { type: kind, target: operation.target };
+      return { type: kind, target: elementTarget };
     case 'set_value':
       return {
         type: kind,
-        target: operation.target,
-        value: operation.type === 'set_value'
+        target: elementTarget,
+        value: operation.type === 'set_value' || operation.type === 'type_text'
+          ? operation.value
+          : { type: 'literal', value: '' },
+      };
+    case 'press_key':
+      return {
+        type: kind,
+        target: inputTarget,
+        chord: operation.type === 'press_key'
+          ? operation.chord
+          : { key: { type: 'enter' }, modifiers: [] },
+      };
+    case 'type_text':
+      return {
+        type: kind,
+        target: inputTarget,
+        value: operation.type === 'set_value' || operation.type === 'type_text'
           ? operation.value
           : { type: 'literal', value: '' },
       };
     case 'get_text':
-      return { type: kind, target: operation.target };
+      return { type: kind, target: elementTarget };
     case 'get_value':
-      return { type: kind, target: operation.target };
+      return { type: kind, target: elementTarget };
     case 'extract':
       return {
         type: kind,
-        target: operation.target.locator.type === 'query'
-          ? operation.target
+        target: elementTarget.locator.type === 'query'
+          ? elementTarget
           : {
-              ...operation.target,
+              ...elementTarget,
               locator: createTargetLocator('query'),
             },
         cardinality: 'many',
@@ -87,9 +122,9 @@ export function changeUiOperationKind(
       return {
         type: kind,
         target: {
-          ...operation.target,
-          locator: operation.target.locator.type === 'query'
-            ? operation.target.locator
+          ...elementTarget,
+          locator: elementTarget.locator.type === 'query'
+            ? elementTarget.locator
             : createTargetLocator('query'),
           backend_policy: createBackendPolicy('browser_cdp'),
         },
@@ -106,6 +141,10 @@ export function replaceAutomationTarget(
     case 'click':
       return { type: operation.type, target };
     case 'set_value':
+      return { ...operation, target };
+    case 'press_key':
+      return { ...operation, target };
+    case 'type_text':
       return { ...operation, target };
     case 'get_text':
       return { type: operation.type, target };
@@ -128,7 +167,7 @@ export function changeTargetLocatorKind(
     locator: createTargetLocator(kind),
     backend_policy: kind === 'query'
       ? operation.target.backend_policy
-      : createBackendPolicy('auto'),
+      : createBackendPolicy(kind === 'focused' ? 'send_input' : 'auto'),
   });
 }
 
@@ -143,7 +182,7 @@ export function changeTargetScope(
 /** 编辑器可直接表达的后端策略预设。 */
 export type BackendPolicyPreset = 'auto' | Extract<
   BackendKind,
-  'windows_uia' | 'browser_cdp'
+  'windows_uia' | 'browser_cdp' | 'send_input'
 >;
 
 /** 更新动作目标的后端策略预设。 */
@@ -170,7 +209,11 @@ export function resolveBackendPolicyPreset(policy: BackendPolicy): BackendPolicy
   if (policy.allow.length === 1
     && policy.deny.length === 0
     && policy.prefer[0] === policy.allow[0]
-    && (policy.allow[0] === 'windows_uia' || policy.allow[0] === 'browser_cdp')) {
+    && (
+      policy.allow[0] === 'windows_uia'
+      || policy.allow[0] === 'browser_cdp'
+      || policy.allow[0] === 'send_input'
+    )) {
     return policy.allow[0];
   }
   return 'auto';
@@ -195,6 +238,22 @@ export function changeSetValue(
   return { ...operation, value };
 }
 
+/** 更新物理文本输入的值表达式。 */
+export function changeTypeText(
+  operation: Extract<UiOperation, { type: 'type_text' }>,
+  value: ValueExpr,
+): UiOperation {
+  return { ...operation, value };
+}
+
+/** 更新组合键，同时保留当前焦点目标。 */
+export function changeKeyChord(
+  operation: Extract<UiOperation, { type: 'press_key' }>,
+  chord: KeyChord,
+): UiOperation {
+  return { ...operation, chord };
+}
+
 /** 为指定定位类别建立字段完整的默认契约。 */
 function createTargetLocator(kind: TargetLocatorKind): TargetLocator {
   switch (kind) {
@@ -207,5 +266,7 @@ function createTargetLocator(kind: TargetLocatorKind): TargetLocator {
       return { type: 'visual', query: { text: '确定', exact: true } };
     case 'coordinate':
       return { type: 'coordinate', point: { x: 0, y: 0 } };
+    case 'focused':
+      return { type: 'focused' };
   }
 }

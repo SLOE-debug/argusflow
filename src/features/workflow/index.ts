@@ -13,11 +13,13 @@ export {
 } from './components/componentCatalog';
 export {
   changeBackendPolicy,
+  changeKeyChord,
   changeSetValue,
   changeTargetLocator,
   changeTargetLocatorKind,
   changeTargetScope,
   changeUiOperationKind,
+  changeTypeText,
   createBackendPolicy,
   createDefaultUiExecutionPolicy,
   createDefaultUiOperation,
@@ -79,6 +81,11 @@ export {
   updateNodeValueExpr,
   type ValueExprLocation,
 } from './values/workflowValueExpressions';
+export type {
+  KeyChord,
+  KeyboardKey,
+  KeyboardModifier,
+} from './model/inputContracts';
 export type {
   AcquirePolicy,
   ActivationPolicy,

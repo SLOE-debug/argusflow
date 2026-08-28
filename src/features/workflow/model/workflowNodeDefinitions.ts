@@ -219,6 +219,8 @@ export const WORKFLOW_NODE_DEFINITIONS = {
           ];
         case 'click':
         case 'set_value':
+        case 'press_key':
+        case 'type_text':
           return [];
       }
     },
