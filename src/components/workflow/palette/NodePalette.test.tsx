@@ -14,7 +14,7 @@ describe('NodePalette', () => {
     const dataTransfer = { effectAllowed: 'none', setData };
 
     const store = createFlowStore<WorkflowNodeData, WorkflowEdgeData>();
-    render(<NodePalette store={store} onResetWidth={vi.fn()} />);
+    render(<NodePalette store={store} onCollapse={vi.fn()} />);
 
     const triggerNode = screen.getByRole('button', { name: '开始' });
     expect(triggerNode).toHaveAttribute('draggable', 'true');
@@ -36,9 +36,9 @@ describe('NodePalette', () => {
 
   it('collapses and expands node groups', () => {
     const store = createFlowStore<WorkflowNodeData, WorkflowEdgeData>();
-    render(<NodePalette store={store} onResetWidth={vi.fn()} />);
+    render(<NodePalette store={store} onCollapse={vi.fn()} />);
 
-    const triggerGroup = screen.getByRole('button', { name: /^触发流程/ });
+    const triggerGroup = screen.getByRole('button', { name: /^流程控制/ });
     fireEvent.click(triggerGroup);
     expect(screen.queryByRole('button', { name: '开始' })).not.toBeInTheDocument();
     expect(triggerGroup).toHaveAttribute('aria-expanded', 'false');
@@ -48,10 +48,10 @@ describe('NodePalette', () => {
     expect(triggerGroup).toHaveAttribute('aria-expanded', 'true');
   });
 
-  it('shows only creatable nodes, resets width and opens module placeholders', () => {
+  it('shows only creatable nodes and opens module placeholders', () => {
     const store = createFlowStore<WorkflowNodeData, WorkflowEdgeData>();
-    const onResetWidth = vi.fn();
-    render(<NodePalette store={store} onResetWidth={onResetWidth} />);
+    const onCollapse = vi.fn();
+    render(<NodePalette store={store} onCollapse={onCollapse} />);
 
     expect(screen.queryByRole('button', { name: '定时触发' })).not.toBeInTheDocument();
     expect(screen.getByText('操作界面', { selector: 'strong' })).toHaveAttribute(
@@ -62,8 +62,15 @@ describe('NodePalette', () => {
       'title',
       '点击、输入或读取界面内容',
     );
-    fireEvent.click(screen.getByRole('button', { name: '恢复节点库宽度' }));
-    expect(onResetWidth).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole('button', { name: '收起左侧面板' }));
+    expect(onCollapse).toHaveBeenCalledOnce();
+
+    fireEvent.click(screen.getByRole('button', { name: '预设' }));
+    expect(screen.getByRole('button', { name: '发送微信群消息' })).toHaveAttribute(
+      'draggable',
+      'true',
+    );
+    expect(screen.getByText('流程组件', { selector: 'h3' })).toBeVisible();
 
     fireEvent.click(screen.getByRole('button', { name: '资源' }));
     expect(screen.getByText('管理流程要用的数据和凭据。')).toBeVisible();

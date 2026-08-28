@@ -1,18 +1,16 @@
 import {
   Boxes,
   Layers3,
-  PanelLeft,
   Settings,
-  Workflow,
+  Sparkles,
   type LucideIcon,
 } from 'lucide-react';
 
 /** 左侧工作台可切换的有限模块。 */
 export type PaletteModule =
   | 'nodes'
-  | 'outline'
+  | 'presets'
   | 'resources'
-  | 'subflows'
   | 'settings';
 
 type PaletteModuleDefinition = Readonly<{
@@ -28,11 +26,10 @@ type PaletteModuleDefinition = Readonly<{
 
 /** 工作台模块清单同时驱动导航与占位页文案。 */
 const PALETTE_MODULES = [
-  { id: 'nodes', label: '节点库', description: '把节点拖到画布，组装流程。', icon: Layers3 },
-  { id: 'outline', label: '流程大纲', description: '按层级查看流程，并快速定位节点。', icon: PanelLeft },
+  { id: 'nodes', label: '节点', description: '把基础节点拖到画布，组装流程。', icon: Layers3 },
+  { id: 'presets', label: '预设', description: '使用常用操作和可复用流程。', icon: Sparkles },
   { id: 'resources', label: '资源', description: '管理流程要用的数据和凭据。', icon: Boxes },
-  { id: 'subflows', label: '子流程', description: '查看可以重复使用的流程。', icon: Workflow },
-  { id: 'settings', label: '工作台设置', description: '调整节点库和编辑器偏好。', icon: Settings },
+  { id: 'settings', label: '设置', description: '调整节点库和编辑器偏好。', icon: Settings },
 ] as const satisfies ReadonlyArray<PaletteModuleDefinition>;
 
 /** 返回指定模块的强类型定义。 */
@@ -87,7 +84,7 @@ export function PaletteNavigation({
 /** 未接入模块的明确占位内容，避免导航按钮点击无反馈。 */
 export function PaletteModulePlaceholder({
   moduleId,
-}: Readonly<{ moduleId: Exclude<PaletteModule, 'nodes'> }>) {
+}: Readonly<{ moduleId: Exclude<PaletteModule, 'nodes' | 'presets'> }>) {
   const module = findPaletteModule(moduleId);
   const Icon = module.icon;
   return (

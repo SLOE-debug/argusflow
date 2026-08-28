@@ -4,6 +4,7 @@ use argusflow_core::{AutomationError, VisualQuery};
 
 use crate::{
     ocr::normalize_text,
+    region::normalized_region_to_physical,
     scene::{VisualNode, VisualScene},
 };
 
@@ -54,10 +55,20 @@ pub fn matching_nodes<'scene>(
     if expected.is_empty() {
         return Vec::new();
     }
+    let region = query
+        .region
+        .map(|region| normalized_region_to_physical(region, scene.viewport));
+    if query.region.is_some() && region.flatten().is_none() {
+        return Vec::new();
+    }
+    let region = region.flatten();
     scene
         .nodes
         .iter()
         .filter(|node| {
+            if !region.map_or(true, |bounds| node.bbox.intersects(bounds)) {
+                return false;
+            }
             if query.exact {
                 node.normalized_text == expected
             } else {
@@ -70,10 +81,20 @@ pub fn matching_nodes<'scene>(
 /// 只生成 fuzzy 候选，不把最高分隐式提升成目标。
 pub fn fuzzy_candidates(scene: &VisualScene, query: &VisualQuery) -> Vec<VisualCandidate> {
     let expected = normalize_text(&query.text);
+    let region = query
+        .region
+        .map(|region| normalized_region_to_physical(region, scene.viewport));
+    if query.region.is_some() && region.flatten().is_none() {
+        return Vec::new();
+    }
+    let region = region.flatten();
     let mut candidates = scene
         .nodes
         .iter()
         .filter_map(|node| {
+            if !region.map_or(true, |bounds| node.bbox.intersects(bounds)) {
+                return None;
+            }
             let score = similarity(&expected, &node.normalized_text);
             (score > 0.0).then(|| VisualCandidate {
                 node_id: node.id,
@@ -113,7 +134,7 @@ fn similarity(expected: &str, actual: &str) -> f32 {
 mod tests {
     use std::sync::Arc;
 
-    use argusflow_core::{VisualQuery, WindowIdentity};
+    use argusflow_core::{NormalizedRect, VisualQuery, WindowIdentity};
 
     use super::*;
     use crate::{
@@ -188,6 +209,7 @@ mod tests {
             &VisualQuery {
                 text: "确定".to_owned(),
                 exact: true,
+                region: None,
             },
         )
         .expect_err("two exact nodes must be ambiguous");
@@ -205,8 +227,23 @@ mod tests {
             &VisualQuery {
                 text: "定".to_owned(),
                 exact: false,
+                region: None,
             },
         );
         assert_eq!(candidates.len(), 2);
+    }
+
+    #[test]
+    fn normalized_region_limits_exact_candidates_before_selection() {
+        let scene = scene();
+        let query = VisualQuery {
+            text: "确定".to_owned(),
+            exact: true,
+            region: Some(NormalizedRect::new(0.0, 0.0, 0.4, 1.0).expect("valid region")),
+        };
+
+        let VisualMatch::Unique(node) = evaluate_visual_query(&scene, &query)
+            .expect("the region should keep exactly one candidate");
+        assert_eq!(node.bbox.x, 10);
     }
 }

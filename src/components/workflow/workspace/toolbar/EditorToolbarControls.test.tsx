@@ -19,12 +19,18 @@ const node: FlowNode<WorkflowNodeData> = {
 };
 
 describe('editor title bar controls', () => {
-  it('only exposes undo and redo while tracking history availability', () => {
+  it('tracks history availability and exposes panel toggles', () => {
     const store = createFlowStore<WorkflowNodeData, WorkflowEdgeData>({ nodes: [node] });
 
     render(
       <EditorToolbarControls
         store={store}
+        libraryOpen
+        dockOpen={false}
+        inspectorOpen
+        onLibraryOpenChange={vi.fn()}
+        onDockOpenChange={vi.fn()}
+        onInspectorOpenChange={vi.fn()}
       />,
     );
 
@@ -35,7 +41,8 @@ describe('editor title bar controls', () => {
     expect(screen.getByRole('button', { name: '重做' })).toBeDisabled();
     expect(screen.queryByRole('button', { name: '复制' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '删除' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '切换节点库' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '左侧面板' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: '底部面板' })).toHaveAttribute('aria-pressed', 'false');
 
     act(() => store.getState().setNodes([]));
     expect(screen.getByRole('button', { name: '撤销' })).toBeEnabled();

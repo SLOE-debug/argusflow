@@ -14,6 +14,7 @@ mod metrics;
 mod ocr;
 mod projection;
 mod query;
+mod region;
 mod runtime;
 mod scene;
 mod scroll;

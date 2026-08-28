@@ -104,7 +104,7 @@ export const WORKFLOW_NODE_DEFINITIONS = {
     version: 1,
     create: () => ({
       kind: 'delay',
-      label: '等待',
+      label: '固定暂停',
       outputBindings: {},
       milliseconds: 500,
       runState: 'idle',
@@ -187,7 +187,7 @@ export const WORKFLOW_NODE_DEFINITIONS = {
   }),
   ui: defineNode('ui', {
     typeId: 'argus.ui',
-    version: 2,
+    version: 3,
     create: () => ({
       kind: 'ui',
       label: '操作界面',

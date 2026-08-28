@@ -9,6 +9,7 @@ mod evidence;
 mod evidence_sink;
 mod plan;
 mod router;
+mod visual;
 
 pub use backend::ActionBackend;
 pub use context::{
@@ -30,3 +31,6 @@ pub use plan::{
     PreparedExecution, PreparedPlan, RuntimeAvailability,
 };
 pub use router::{ActionRouter, ROUTE_TIE_BREAK_ORDER};
+pub use visual::{
+    ResolvedVisualTarget, VisualResolvePolicy, VisualTargetBounds, VisualTargetResolver,
+};

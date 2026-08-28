@@ -1,35 +1,51 @@
 import type {
-  AutomationTarget,
   JsonObject,
+  UiExecutionPolicy,
+  ValueExpr,
   WorkflowInputDefinition,
   WorkflowPermissions,
 } from './contracts';
+import type { NormalizedRect } from './visual';
 import {
   WORKFLOW_NODE_SIZES,
   type WorkflowCanvasEdge,
   type WorkflowCanvasNode,
 } from './workflowModel';
+import {
+  WECHAT_HEADER_REGION,
+  WECHAT_MESSAGE_REGION,
+  WECHAT_SEARCH_RESULTS_REGION,
+  createWechatInputExecutionPolicy,
+  createWechatPressKeyOperation,
+  createWechatTypeTextOperation,
+  createWechatVisualClickOperation,
+  createWechatVisualExecutionPolicy,
+  createWechatVisualGetTextOperation,
+} from './wechatTemplateParts';
 
 /** 获取或启动微信并提供稳定 AppSession 的节点。 */
-const WECHAT_APPLICATION_NODE_ID = 'wechat_application_1';
+export const WECHAT_APPLICATION_NODE_ID = 'wechat_application_1';
 
 /** 打开微信全局搜索框的组合键节点。 */
-const OPEN_SEARCH_NODE_ID = 'wechat_open_search_1';
+export const WECHAT_OPEN_SEARCH_NODE_ID = 'wechat_open_search_1';
 
-/** 选中搜索框内已有文字的组合键节点。 */
-const SELECT_SEARCH_TEXT_NODE_ID = 'wechat_select_search_text_1';
+/** 确认搜索界面已经出现的视觉读取节点。 */
+export const WECHAT_VERIFY_SEARCH_NODE_ID = 'wechat_verify_search_1';
+
+/** 搜索框内选中已有文字的组合键节点。 */
+export const WECHAT_SELECT_SEARCH_TEXT_NODE_ID = 'wechat_select_search_text_1';
 
 /** 输入目标群名称的节点。 */
-const TYPE_GROUP_NAME_NODE_ID = 'wechat_type_group_name_1';
+export const WECHAT_TYPE_GROUP_NAME_NODE_ID = 'wechat_type_group_name_1';
 
-/** 打开当前首条搜索结果的节点。 */
-const OPEN_GROUP_NODE_ID = 'wechat_open_group_1';
+/** 视觉点击搜索结果的节点。 */
+export const WECHAT_CLICK_GROUP_NODE_ID = 'wechat_click_group_1';
 
 /** 输入测试消息的节点。 */
-const TYPE_MESSAGE_NODE_ID = 'wechat_type_message_1';
+export const WECHAT_TYPE_MESSAGE_NODE_ID = 'wechat_type_message_1';
 
 /** 发送消息的节点。 */
-const SEND_MESSAGE_NODE_ID = 'wechat_send_message_1';
+export const WECHAT_SEND_MESSAGE_NODE_ID = 'wechat_send_message_1';
 
 /** 默认模板的工作流名称。 */
 export const DEFAULT_WORKFLOW_NAME = '搜索微信群并发送测试消息';
@@ -43,10 +59,10 @@ export const DEFAULT_WORKFLOW_INPUTS = [
   { key: 'message', value_type: 'text' },
 ] as const satisfies ReadonlyArray<WorkflowInputDefinition>;
 
-/** 当前验证场景的预填运行输入；用户可在运行前修改。 */
+/** 当前验证场景的中性预填运行输入；用户可在运行前修改。 */
 export const DEFAULT_RUN_INPUT_VALUES = {
-  group_name: '三人行必有三狗',
-  message: '测试消息',
+  group_name: 'ArgusFlow 测试群',
+  message: 'ArgusFlow 自动化测试消息',
 } as const satisfies JsonObject;
 
 /** AttachOrStart 可能启动微信，因此只声明应用启动能力。 */
@@ -57,9 +73,7 @@ export const DEFAULT_WORKFLOW_PERMISSIONS = {
 /** 默认选中应用节点，便于先核对 EXE 和窗口匹配条件。 */
 export const DEFAULT_SELECTED_NODE_ID = WECHAT_APPLICATION_NODE_ID;
 
-/**
- * 微信 4.x 不公开内部 UIA 元素，本流程使用 AppSession 锁定窗口，再向当前焦点发送键盘输入。
- */
+/** 默认微信流程按“准备、搜索、定位、发送、确认”串联完整闭环。 */
 export const DEFAULT_NODES = [
   {
     id: 'start_1',
@@ -89,108 +103,134 @@ export const DEFAULT_NODES = [
       runState: 'idle',
     },
   },
-  createPressKeyNode(
-    OPEN_SEARCH_NODE_ID,
+  createUiNode(
+    WECHAT_OPEN_SEARCH_NODE_ID,
     '打开搜索',
     { x: 402, y: 104 },
-    { type: 'character', value: 'f' },
-    ['control'],
+    createWechatPressKeyOperation(
+      WECHAT_APPLICATION_NODE_ID,
+      { type: 'character', value: 'f' },
+      ['control'],
+    ),
   ),
-  createDelayNode('wechat_wait_search_1', '等待搜索框', { x: 610, y: 104 }, 250),
-  createPressKeyNode(
-    SELECT_SEARCH_TEXT_NODE_ID,
+  createVisualGetTextNode(
+    WECHAT_VERIFY_SEARCH_NODE_ID,
+    '确认搜索界面',
+    { x: 610, y: 104 },
+    literalText('搜索'),
+    false,
+    WECHAT_SEARCH_RESULTS_REGION,
+  ),
+  createUiNode(
+    WECHAT_SELECT_SEARCH_TEXT_NODE_ID,
     '选中搜索文字',
     { x: 788, y: 104 },
-    { type: 'character', value: 'a' },
-    ['control'],
+    createWechatPressKeyOperation(
+      WECHAT_APPLICATION_NODE_ID,
+      { type: 'character', value: 'a' },
+      ['control'],
+    ),
   ),
-  createTypeTextNode(
-    TYPE_GROUP_NAME_NODE_ID,
+  createUiNode(
+    WECHAT_TYPE_GROUP_NAME_NODE_ID,
     '输入群名称',
     { x: 1002, y: 104 },
-    'group_name',
+    createWechatTypeTextOperation(WECHAT_APPLICATION_NODE_ID, 'group_name'),
   ),
-  createDelayNode('wechat_wait_results_1', '等待搜索结果', { x: 1002, y: 220 }, 600),
-  createPressKeyNode(
-    OPEN_GROUP_NODE_ID,
+  createVisualGetTextNode(
+    'wechat_find_group_1',
+    '确认群搜索结果',
+    { x: 1002, y: 220 },
+    workflowInputText('group_name'),
+    true,
+    WECHAT_SEARCH_RESULTS_REGION,
+  ),
+  createUiNode(
+    WECHAT_CLICK_GROUP_NODE_ID,
     '打开群聊',
     { x: 788, y: 220 },
-    { type: 'enter' },
-    [],
+    createWechatVisualClickOperation(
+      WECHAT_APPLICATION_NODE_ID,
+      workflowInputText('group_name'),
+      true,
+      WECHAT_SEARCH_RESULTS_REGION,
+    ),
+    createWechatVisualExecutionPolicy(),
   ),
-  createDelayNode('wechat_wait_chat_1', '等待群聊', { x: 610, y: 220 }, 500),
-  createTypeTextNode(
-    TYPE_MESSAGE_NODE_ID,
+  createVisualGetTextNode(
+    'wechat_verify_header_1',
+    '确认群聊标题',
+    { x: 610, y: 220 },
+    workflowInputText('group_name'),
+    true,
+    WECHAT_HEADER_REGION,
+  ),
+  createUiNode(
+    WECHAT_TYPE_MESSAGE_NODE_ID,
     '输入测试消息',
     { x: 402, y: 220 },
-    'message',
+    createWechatTypeTextOperation(WECHAT_APPLICATION_NODE_ID, 'message'),
   ),
-  createPressKeyNode(
-    SEND_MESSAGE_NODE_ID,
+  createUiNode(
+    WECHAT_SEND_MESSAGE_NODE_ID,
     '发送消息',
     { x: 188, y: 220 },
-    { type: 'enter' },
-    [],
+    createWechatPressKeyOperation(WECHAT_APPLICATION_NODE_ID, { type: 'enter' }, []),
+  ),
+  createVisualGetTextNode(
+    'wechat_verify_message_1',
+    '确认消息已发送',
+    { x: 28, y: 336 },
+    workflowInputText('message'),
+    true,
+    WECHAT_MESSAGE_REGION,
   ),
   {
     id: 'end_1',
     kind: 'end',
-    position: { x: 28, y: 220 },
+    position: { x: 240, y: 336 },
     size: { ...WORKFLOW_NODE_SIZES.end },
     data: { kind: 'end', label: '结束', outputBindings: {}, runState: 'idle' },
   },
 ] as const satisfies ReadonlyArray<WorkflowCanvasNode>;
 
-/** 默认模板按两行蛇形布局串联搜索、打开群聊和发送消息。 */
+/** 默认模板的边按视觉验证门逐段串联，删除固定等待节点。 */
 export const DEFAULT_EDGES = [
   createDefaultEdge('edge_start_application', 'start_1', WECHAT_APPLICATION_NODE_ID),
-  createDefaultEdge('edge_application_search', WECHAT_APPLICATION_NODE_ID, OPEN_SEARCH_NODE_ID),
-  createDefaultEdge('edge_search_wait', OPEN_SEARCH_NODE_ID, 'wechat_wait_search_1'),
-  createDefaultEdge('edge_wait_select', 'wechat_wait_search_1', SELECT_SEARCH_TEXT_NODE_ID),
-  createDefaultEdge('edge_select_group_name', SELECT_SEARCH_TEXT_NODE_ID, TYPE_GROUP_NAME_NODE_ID),
+  createDefaultEdge('edge_application_search', WECHAT_APPLICATION_NODE_ID, WECHAT_OPEN_SEARCH_NODE_ID),
+  createDefaultEdge('edge_search_ready', WECHAT_OPEN_SEARCH_NODE_ID, WECHAT_VERIFY_SEARCH_NODE_ID),
+  createDefaultEdge('edge_ready_select', WECHAT_VERIFY_SEARCH_NODE_ID, WECHAT_SELECT_SEARCH_TEXT_NODE_ID),
+  createDefaultEdge('edge_select_group_name', WECHAT_SELECT_SEARCH_TEXT_NODE_ID, WECHAT_TYPE_GROUP_NAME_NODE_ID),
   createDefaultEdge(
-    'edge_group_name_wait',
-    TYPE_GROUP_NAME_NODE_ID,
-    'wechat_wait_results_1',
+    'edge_group_name_find',
+    WECHAT_TYPE_GROUP_NAME_NODE_ID,
+    'wechat_find_group_1',
     'bottom',
     'top',
   ),
-  createDefaultEdge('edge_wait_open_group', 'wechat_wait_results_1', OPEN_GROUP_NODE_ID, 'left'),
-  createDefaultEdge('edge_open_group_wait', OPEN_GROUP_NODE_ID, 'wechat_wait_chat_1', 'left'),
-  createDefaultEdge('edge_wait_message', 'wechat_wait_chat_1', TYPE_MESSAGE_NODE_ID, 'left'),
-  createDefaultEdge('edge_message_send', TYPE_MESSAGE_NODE_ID, SEND_MESSAGE_NODE_ID, 'left'),
-  createDefaultEdge('edge_send_end', SEND_MESSAGE_NODE_ID, 'end_1', 'left'),
+  createDefaultEdge('edge_find_click', 'wechat_find_group_1', WECHAT_CLICK_GROUP_NODE_ID, 'left'),
+  createDefaultEdge('edge_click_header', WECHAT_CLICK_GROUP_NODE_ID, 'wechat_verify_header_1', 'left'),
+  createDefaultEdge('edge_header_message', 'wechat_verify_header_1', WECHAT_TYPE_MESSAGE_NODE_ID, 'left'),
+  createDefaultEdge('edge_message_send', WECHAT_TYPE_MESSAGE_NODE_ID, WECHAT_SEND_MESSAGE_NODE_ID, 'left'),
+  createDefaultEdge(
+    'edge_send_verify',
+    WECHAT_SEND_MESSAGE_NODE_ID,
+    'wechat_verify_message_1',
+    'bottom',
+    'top',
+  ),
+  createDefaultEdge('edge_verify_end', 'wechat_verify_message_1', 'end_1', 'right', 'left'),
 ] as const satisfies ReadonlyArray<WorkflowCanvasEdge>;
 
-/** 创建只允许 SendInput、并绑定微信 AppSession 当前焦点的目标。 */
-function createWechatInputTarget(): AutomationTarget {
-  return {
-    scope: {
-      type: 'application',
-      resource: {
-        producer_node_id: WECHAT_APPLICATION_NODE_ID,
-        output_name: 'session',
-      },
-    },
-    locator: { type: 'focused' },
-    backend_policy: {
-      allow: ['send_input'],
-      deny: [],
-      prefer: ['send_input'],
-    },
-  };
-}
+type UiNodeOperation = Extract<WorkflowCanvasNode['data'], { kind: 'ui' }>['operation'];
 
-/** 创建一次布局无关的组合键节点。 */
-function createPressKeyNode(
+/** 创建一个使用共享 UI operation helper 的画布 UI 节点。 */
+function createUiNode(
   id: string,
   label: string,
   position: WorkflowCanvasNode['position'],
-  key: Extract<
-    Extract<WorkflowCanvasNode['data'], { kind: 'ui' }>['operation'],
-    { type: 'press_key' }
-  >['chord']['key'],
-  modifiers: readonly ('control' | 'alt' | 'shift')[],
+  operation: UiNodeOperation,
+  execution: UiExecutionPolicy = createWechatInputExecutionPolicy(),
 ): WorkflowCanvasNode {
   return {
     id,
@@ -201,71 +241,47 @@ function createPressKeyNode(
       kind: 'ui',
       label,
       outputBindings: {},
-      operation: {
-        type: 'press_key',
-        target: createWechatInputTarget(),
-        chord: { key, modifiers: [...modifiers] },
-      },
-      execution: {
-        target_wait: { mode: 'none', timeout_ms: 0, poll_interval_ms: 0 },
-      },
+      operation,
+      execution,
       runState: 'idle',
     },
   };
 }
 
-/** 创建从工作流输入读取 Unicode 文本的物理输入节点。 */
-function createTypeTextNode(
+/** 创建视觉读取节点，输出文本事实供校验与后续调试使用。 */
+function createVisualGetTextNode(
   id: string,
   label: string,
   position: WorkflowCanvasNode['position'],
-  inputKey: 'group_name' | 'message',
+  text: ValueExpr,
+  exact: boolean,
+  region: NormalizedRect,
 ): WorkflowCanvasNode {
-  return {
+  return createUiNode(
     id,
-    kind: 'ui',
+    label,
     position,
-    size: { ...WORKFLOW_NODE_SIZES.ui },
-    data: {
-      kind: 'ui',
-      label,
-      outputBindings: {},
-      operation: {
-        type: 'type_text',
-        target: createWechatInputTarget(),
-        value: {
-          type: 'ref',
-          source: { type: 'workflow_input', key: inputKey },
-          pointer: '',
-        },
-      },
-      execution: {
-        target_wait: { mode: 'none', timeout_ms: 0, poll_interval_ms: 0 },
-      },
-      runState: 'idle',
-    },
-  };
+    createWechatVisualGetTextOperation(
+      WECHAT_APPLICATION_NODE_ID,
+      text,
+      exact,
+      region,
+    ),
+    createWechatVisualExecutionPolicy(),
+  );
 }
 
-/** 创建用于吸收微信异步渲染时间的显式短等待。 */
-function createDelayNode(
-  id: string,
-  label: string,
-  position: WorkflowCanvasNode['position'],
-  milliseconds: number,
-): WorkflowCanvasNode {
+/** 创建字符串字面量值表达式。 */
+function literalText(value: string): ValueExpr {
+  return { type: 'literal', value };
+}
+
+/** 创建读取本次运行输入的字符串表达式。 */
+function workflowInputText(key: 'group_name' | 'message'): ValueExpr {
   return {
-    id,
-    kind: 'delay',
-    position,
-    size: { ...WORKFLOW_NODE_SIZES.delay },
-    data: {
-      kind: 'delay',
-      label,
-      outputBindings: {},
-      milliseconds,
-      runState: 'idle',
-    },
+    type: 'ref',
+    source: { type: 'workflow_input', key },
+    pointer: '',
   };
 }
 

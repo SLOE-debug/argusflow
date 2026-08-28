@@ -1,5 +1,6 @@
 import type { ExecutionComponentFrame } from '../components/reusableFlowContracts';
 import type { KeyChord } from './inputContracts';
+import type { VisualQueryExpr } from './visual';
 /** 可在前后端无损传递的 JSON 值。 */
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 export type JsonObject = { [key: string]: JsonValue };
@@ -174,7 +175,7 @@ export type AqlQuery = {
 /** AQL、视觉查询、物理坐标或当前键盘焦点组成的目标判别联合。 */
 export type TargetLocator =
   | { type: 'query'; query: AqlQuery }
-  | { type: 'visual'; query: { text: string; exact: boolean } }
+  | { type: 'visual'; query: VisualQueryExpr }
   | { type: 'coordinate'; point: { x: number; y: number } }
   | { type: 'focused' };
 

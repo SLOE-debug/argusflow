@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use argusflow_core::{
     BackendKind, FieldProjectionSource, KeyboardKey, TargetLocator, TargetScope, TargetWaitMode,
-    TargetWaitPolicy, UiExecutionPolicy, UiOperation,
+    TargetWaitPolicy, UiExecutionPolicy, UiOperation, ValueExpr,
 };
 use argusflow_query::parse_stored_query;
 
@@ -31,6 +31,33 @@ fn validate_backend_policy(
     issues: &mut Vec<ValidationIssue>,
 ) {
     let target = operation.target();
+    if matches!(
+        &target.locator,
+        TargetLocator::Visual { .. } | TargetLocator::VisualResolved { .. }
+    ) {
+        let visual_backend_allowed = [
+            BackendKind::VisualCache,
+            BackendKind::OcrTiny,
+            BackendKind::OcrMedium,
+        ]
+        .into_iter()
+        .any(|backend| target.backend_policy.allows(backend));
+        if !visual_backend_allowed {
+            issues.push(context.issue(
+                ValidationIssueCode::InvalidBackendPolicy,
+                "视觉目标的后端策略必须允许 visual_cache、ocr_tiny 或 ocr_medium",
+            ));
+        }
+        if matches!(operation, UiOperation::Click { .. })
+            && !target.backend_policy.allows(BackendKind::SendInput)
+        {
+            issues.push(context.issue(
+                ValidationIssueCode::InvalidBackendPolicy,
+                "视觉点击的后端策略必须允许 send_input 完成物理点击",
+            ));
+        }
+        return;
+    }
     let application_backend = if is_input_operation(operation) {
         BackendKind::SendInput
     } else {
@@ -172,9 +199,7 @@ fn validate_wait_policy(
             mode: TargetWaitMode::Bounded,
             timeout_ms,
             poll_interval_ms,
-        } if !(1..=600_000).contains(&timeout_ms)
-            || !(1..=60_000).contains(&poll_interval_ms) =>
-        {
+        } if !(1..=600_000).contains(&timeout_ms) || !(1..=60_000).contains(&poll_interval_ms) => {
             issues.push(context.issue(
                 ValidationIssueCode::InvalidTargetWaitPolicy,
                 "目标等待超时必须在 1 到 600000 毫秒之间，轮询间隔必须在 1 到 60000 毫秒之间",
@@ -186,7 +211,8 @@ fn validate_wait_policy(
         } if matches!(
             &target.locator,
             TargetLocator::Coordinate { .. } | TargetLocator::Focused
-        ) => {
+        ) =>
+        {
             issues.push(context.issue(
                 ValidationIssueCode::InvalidTargetWaitPolicy,
                 "坐标或当前焦点目标没有元素就绪语义，不能启用目标等待",
@@ -219,10 +245,9 @@ fn validate_locator(
                 ));
             }
         }
-        TargetLocator::Visual { query } if query.text.trim().is_empty() => {
-            issues.push(
-                context.issue(ValidationIssueCode::InvalidAqlQuery, "视觉目标文字不能为空"),
-            );
+        TargetLocator::Visual { query } if visual_text_is_empty(&query.text) => {
+            issues
+                .push(context.issue(ValidationIssueCode::InvalidAqlQuery, "视觉目标文字不能为空"));
         }
         TargetLocator::Focused if !is_input_operation(operation) => {
             issues.push(context.issue(
@@ -231,9 +256,18 @@ fn validate_locator(
             ));
         }
         TargetLocator::Visual { .. }
+        | TargetLocator::VisualResolved { .. }
         | TargetLocator::Coordinate { .. }
         | TargetLocator::Focused => {}
     }
+}
+
+/// 只有静态空字符串可以在工作流校验阶段直接判定为空；动态值交给 Runtime 求值。
+fn visual_text_is_empty(expression: &ValueExpr) -> bool {
+    matches!(
+        expression,
+        ValueExpr::Literal { value } if value.as_str().is_some_and(|text| text.trim().is_empty())
+    )
 }
 
 /// 判断操作是否依赖应用当前键盘焦点。

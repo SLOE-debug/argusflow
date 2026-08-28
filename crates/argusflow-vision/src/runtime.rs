@@ -8,7 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use argusflow_core::WindowIdentity;
+use argusflow_core::{NormalizedRect, WindowIdentity};
 use async_trait::async_trait;
 use tokio::sync::Mutex;
 
@@ -20,6 +20,7 @@ use crate::{
     metrics::VisionMetrics,
     ocr::{OcrEngine, OcrProfile, OcrRequest},
     projection::ProjectionOptions,
+    region::normalized_region_to_physical,
     scene::{CacheLookup, SceneBuildOptions, VisualScene, VisualSceneBuilder, VisualSceneCache},
     source::{CapturePolicy, FrameSubscription, WindowFrameSource},
     stability::{StabilityConfig, StableFrameGate, TemporalNoiseMask},
@@ -43,6 +44,8 @@ pub struct SceneRefreshPolicy {
     pub ocr: OcrProfile,
     /// 只刷新与该 ROI 相交的内容；为空表示当前 viewport。
     pub query_region: Option<PhysicalRect>,
+    /// 以当前视觉 viewport 百分比表达的查询区域；由 runtime 映射为物理 ROI。
+    pub normalized_query_region: Option<NormalizedRect>,
     /// 当前调用方已确认的拓扑代数。
     pub topology_generation: TopologyGeneration,
     /// Compact/Spatial 文本设置。
@@ -60,6 +63,7 @@ impl SceneRefreshPolicy {
             diff: DiffConfig::default(),
             ocr: OcrProfile::tiny(),
             query_region: None,
+            normalized_query_region: None,
             topology_generation: TopologyGeneration::new(0),
             projection: ProjectionOptions::default(),
         }
@@ -192,11 +196,17 @@ impl VisionRuntime {
 
     /// 按窗口和 generation 查询 cache。
     pub fn lookup_cache(&self, window: WindowIdentity, policy: &SceneRefreshPolicy) -> CacheLookup {
+        let query_region = policy.query_region.or_else(|| {
+            policy
+                .normalized_query_region
+                .and_then(|region| self.cache.current())
+                .and_then(|scene| normalized_region_to_physical(region, scene.viewport))
+        });
         self.cache.lookup(
             window,
             policy.topology_generation,
             policy.max_age,
-            policy.query_region,
+            query_region,
         )
     }
 
@@ -249,7 +259,12 @@ impl VisionRuntime {
             .record_worker_queue_depth(health.worker.queue_depth);
         self.update_cache_invalidation(window, &frame, policy.diff)
             .await?;
-        let roi = policy.query_region.unwrap_or_else(|| frame.bounds());
+        let query_region = policy.query_region.or_else(|| {
+            policy
+                .normalized_query_region
+                .and_then(|region| normalized_region_to_physical(region, frame.bounds()))
+        });
+        let roi = query_region.unwrap_or_else(|| frame.bounds());
         let request = OcrRequest::from_frame(
             window,
             frame.frame_id,
@@ -278,13 +293,13 @@ impl VisionRuntime {
                 reason: "worker response belongs to an older or different request".to_owned(),
             });
         }
-        let base_scene = policy.query_region.and_then(|_| self.cache.current());
+        let base_scene = query_region.and_then(|_| self.cache.current());
         let options = SceneBuildOptions {
             region_kind: crate::scene::VisualRegionKind::Content,
             projection: policy.projection,
             row: crate::layout::RowConfig::default(),
             base_scene,
-            refresh_region: policy.query_region,
+            refresh_region: query_region,
         };
         let scene_merge_started_at = Instant::now();
         let mut builder = self.scene_builder.lock().await;
@@ -292,7 +307,7 @@ impl VisionRuntime {
         drop(builder);
         self.metrics
             .record_scene_merge_latency(scene_merge_started_at.elapsed());
-        if let Some(refresh_region) = policy.query_region {
+        if let Some(refresh_region) = query_region {
             self.cache.replace_region(scene.clone(), refresh_region);
         } else {
             self.cache.replace(scene.clone());

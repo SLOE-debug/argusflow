@@ -4,7 +4,7 @@ use argusflow_core::{
     ActionExecutionOptions, AppSession, AutomationAction, AutomationExecutionScope, BrowserSession,
     ExecutionEventKind, ExecutionEventPayload, ExtractCardinality, NodeEnvelope, NodeTypeId,
     ResourceTypeId, TargetLocator, TargetScope, TargetWaitPolicy, UiExecutionPolicy, UiOperation,
-    WorkflowPermissions,
+    VisualQuery, WorkflowPermissions,
 };
 use async_trait::async_trait;
 use serde::Deserialize;
@@ -26,7 +26,10 @@ struct UiPayloadV1 {
     operation: UiOperation,
 }
 
-/// UI 节点 v2 payload，把动作语义与节点执行预算明确分离。
+/// UI 节点 v2/v3 payload，把动作语义与节点执行预算明确分离。
+///
+/// v2 的旧视觉字符串和 v3 的 `ValueExpr` 都由 `VisualQueryExpr` 的反序列化边界
+/// 统一转换为当前内存契约；v3 是 Studio 当前写出的规范版本。
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct UiPayloadV2 {
@@ -72,7 +75,7 @@ impl NodeCompiler for UiCompiler {
                 let execution = legacy_execution_policy(payload.operation.target().locator.clone());
                 (payload.operation, execution)
             }
-            2 => {
+            2 | 3 => {
                 let payload = serde_json::from_value::<UiPayloadV2>(definition.payload.clone())
                     .map_err(|error| {
                         NodeCompileError::new(format!(
@@ -83,7 +86,7 @@ impl NodeCompiler for UiCompiler {
             }
             version => {
                 return Err(NodeCompileError::new(format!(
-                    "unsupported payload version {version}; expected 1 or 2"
+                    "unsupported payload version {version}; expected 1, 2 or 3"
                 )));
             }
         };
@@ -149,12 +152,17 @@ impl PreparedNode for UiNode {
     }
 
     fn value_inputs(&self) -> Vec<ValueInput<'_>> {
+        let mut inputs = Vec::new();
         match &self.operation {
             UiOperation::SetValue { value, .. } | UiOperation::TypeText { value, .. } => {
-                vec![ValueInput::text(value)]
+                inputs.push(ValueInput::text(value));
             }
-            _ => Vec::new(),
+            _ => {}
         }
+        if let TargetLocator::Visual { query } = &self.operation.target().locator {
+            inputs.push(ValueInput::text(&query.text));
+        }
+        inputs
     }
 
     fn resource_inputs(&self) -> Vec<ResourceInput<'_>> {
@@ -215,7 +223,7 @@ impl PreparedNode for UiNode {
         _permissions: &WorkflowPermissions,
         context: &mut RunContext,
     ) -> Result<NodeExecution, RuntimeError> {
-        let target = self.operation.target().clone();
+        let target = resolve_target(self.operation.target(), context)?;
         let scope = resolve_execution_scope(&target.scope, context)?;
         let action = match &self.operation {
             UiOperation::Click { .. } => AutomationAction::Click { target },
@@ -289,9 +297,33 @@ fn legacy_execution_policy(locator: TargetLocator) -> UiExecutionPolicy {
         TargetLocator::Coordinate { .. } => TargetWaitPolicy::none(),
         TargetLocator::Focused => TargetWaitPolicy::none(),
         TargetLocator::Query { .. } => TargetWaitPolicy::bounded(5_000, 100),
-        TargetLocator::Visual { .. } => TargetWaitPolicy::bounded(5_000, 300),
+        TargetLocator::Visual { .. } | TargetLocator::VisualResolved { .. } => {
+            TargetWaitPolicy::bounded(5_000, 300)
+        }
     };
     UiExecutionPolicy { target_wait }
+}
+
+/// 解析一次 UI 动作的视觉文字表达式，并把结果冻结为运行时定位契约。
+fn resolve_target(
+    target: &argusflow_core::AutomationTarget,
+    context: &RunContext,
+) -> Result<argusflow_core::AutomationTarget, RuntimeError> {
+    let TargetLocator::Visual { query } = &target.locator else {
+        return Ok(target.clone());
+    };
+    let resolved_query = VisualQuery {
+        text: context.resolve_text(&query.text)?,
+        exact: query.exact,
+        region: query.region,
+    };
+    Ok(argusflow_core::AutomationTarget {
+        scope: target.scope.clone(),
+        locator: TargetLocator::VisualResolved {
+            query: resolved_query,
+        },
+        backend_policy: target.backend_policy.clone(),
+    })
 }
 
 /// 把资源引用解析成不进入持久化定义的瞬时后端作用域。

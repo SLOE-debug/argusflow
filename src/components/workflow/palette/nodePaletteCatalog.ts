@@ -1,48 +1,35 @@
 import {
-  AlarmClock,
   AppWindow,
-  Bell,
   Braces,
   Bug,
   Clock3,
-  Globe2,
-  Navigation,
-  TableProperties,
   Combine,
-  Database,
   FileCode2,
   FileText,
   Filter,
   GitBranch,
-  MessageSquare,
+  Globe2,
+  Navigation,
   MousePointerClick,
   PlayCircle,
   Repeat2,
-  Send,
   Shuffle,
   Square,
+  TableProperties,
   Terminal,
-  Webhook,
   Workflow,
   type LucideIcon,
 } from 'lucide-react';
 
 import type { WorkflowNodeCreationKey } from '../../../features/workflow';
-import { NODE_PRESET_CATALOG } from '../../../features/workflow';
-import { FLOW_COMPONENT_CATALOG } from '../../../features/workflow';
 
-/** 节点库中稳定且有序的业务分组。 */
+/** 节点页中稳定且有序的五个业务分组。 */
 export type PaletteGroup =
-  | 'trigger'
   | 'control'
-  | 'advanced'
   | 'resource'
   | 'interface'
   | 'system'
-  | 'data'
-  | 'output'
-  | 'preset'
-  | 'component';
+  | 'data';
 
 /** 分组标题与用途说明。 */
 export type PaletteGroupDefinition = Readonly<{
@@ -67,100 +54,43 @@ export type PaletteItemDefinition = Readonly<{
   iconClassName: string;
 }>;
 
-/** 节点库的固定分组顺序；说明文本用于快速区分节点职责。 */
+/** 节点库的固定分组顺序；节点页不混入预设或组件。 */
 export const PALETTE_GROUPS = [
   {
-    id: 'preset',
-    label: '快捷操作',
-    description: '一键添加常用操作',
-  },
-  {
-    id: 'component',
-    label: '可复用流程',
-    description: '把常用流程重复使用',
-  },
-  {
-    id: 'trigger',
-    label: '触发流程',
-    description: '选择流程何时开始',
-  },
-  {
     id: 'control',
-    label: '流程分支',
-    description: '决定下一步怎么走',
-  },
-  {
-    id: 'advanced',
-    label: '等待',
-    description: '控制流程的运行节奏',
+    label: '流程控制',
+    description: '决定流程如何开始、暂停、分支和结束',
   },
   {
     id: 'resource',
-    label: '应用和浏览器',
-    description: '打开后续要用的应用',
+    label: '资源',
+    description: '打开后续操作要使用的应用或浏览器',
   },
   {
     id: 'interface',
-    label: '操作界面',
-    description: '点击、输入或读取界面内容',
+    label: '界面与浏览器',
+    description: '与桌面界面或浏览器页面交互',
   },
   {
     id: 'system',
-    label: '运行程序',
+    label: '系统',
     description: '运行程序或系统命令',
   },
   {
     id: 'data',
-    label: '处理数据',
-    description: '整理流程中的数据',
-  },
-  {
-    id: 'output',
-    label: '输出结果',
-    description: '保存结果或结束流程',
+    label: '数据与输出',
+    description: '保存、整理、记录和查看流程数据',
   },
 ] as const satisfies ReadonlyArray<PaletteGroupDefinition>;
 
-/** 节点库条目的文案、用途与视觉身份。 */
+/** 节点页的文案、用途与视觉身份。 */
 export const PALETTE_ITEMS = [
   {
     kind: 'start',
     title: '开始',
     description: '手动开始运行',
-    group: 'trigger',
+    group: 'control',
     icon: PlayCircle,
-    iconClassName: 'bg-emerald-50 text-emerald-700',
-  },
-  {
-    kind: 'variable',
-    title: '设置变量',
-    description: '保存流程中要重复使用的数据',
-    group: 'data',
-    icon: Braces,
-    iconClassName: 'bg-teal-50 text-teal-700',
-  },
-  {
-    kind: null,
-    title: '定时运行',
-    description: '按设定时间自动开始',
-    group: 'trigger',
-    icon: AlarmClock,
-    iconClassName: 'bg-emerald-50 text-emerald-700',
-  },
-  {
-    kind: null,
-    title: '收到请求',
-    description: '收到请求后自动开始',
-    group: 'trigger',
-    icon: Webhook,
-    iconClassName: 'bg-emerald-50 text-emerald-700',
-  },
-  {
-    kind: null,
-    title: '收到消息',
-    description: '收到消息后自动开始',
-    group: 'trigger',
-    icon: MessageSquare,
     iconClassName: 'bg-emerald-50 text-emerald-700',
   },
   {
@@ -170,6 +100,22 @@ export const PALETTE_ITEMS = [
     group: 'control',
     icon: GitBranch,
     iconClassName: 'bg-violet-50 text-violet-700',
+  },
+  {
+    kind: 'delay',
+    title: '固定暂停',
+    description: '暂停固定时长，不检测目标是否就绪',
+    group: 'control',
+    icon: Clock3,
+    iconClassName: 'bg-amber-50 text-amber-700',
+  },
+  {
+    kind: 'end',
+    title: '结束',
+    description: '在这里结束流程',
+    group: 'control',
+    icon: Square,
+    iconClassName: 'bg-rose-50 text-rose-700',
   },
   {
     kind: null,
@@ -188,14 +134,6 @@ export const PALETTE_ITEMS = [
     iconClassName: 'bg-violet-50 text-violet-700',
   },
   {
-    kind: 'delay',
-    title: '等待',
-    description: '等一段时间再继续',
-    group: 'advanced',
-    icon: Clock3,
-    iconClassName: 'bg-amber-50 text-amber-700',
-  },
-  {
     kind: 'application',
     title: '打开应用',
     description: '打开或连接已有应用',
@@ -212,12 +150,36 @@ export const PALETTE_ITEMS = [
     iconClassName: 'bg-sky-50 text-sky-700',
   },
   {
+    kind: 'ui',
+    title: '操作界面',
+    description: '点击、输入或读取界面内容',
+    group: 'interface',
+    icon: MousePointerClick,
+    iconClassName: 'bg-cyan-50 text-cyan-700',
+  },
+  {
     kind: 'navigate',
     title: '打开网页',
     description: '在浏览器中打开网址',
-    group: 'resource',
+    group: 'interface',
     icon: Navigation,
     iconClassName: 'bg-sky-50 text-sky-700',
+  },
+  {
+    kind: 'command',
+    title: '执行命令',
+    description: '运行程序或系统命令',
+    group: 'system',
+    icon: Terminal,
+    iconClassName: 'bg-slate-100 text-slate-700',
+  },
+  {
+    kind: 'variable',
+    title: '设置变量',
+    description: '保存流程中要重复使用的数据',
+    group: 'data',
+    icon: Braces,
+    iconClassName: 'bg-teal-50 text-teal-700',
   },
   {
     kind: 'format',
@@ -228,20 +190,20 @@ export const PALETTE_ITEMS = [
     iconClassName: 'bg-amber-50 text-amber-700',
   },
   {
-    kind: 'ui',
-    title: '操作界面',
-    description: '点击、输入或读取界面内容',
-    group: 'interface',
-    icon: MousePointerClick,
-    iconClassName: 'bg-cyan-50 text-cyan-700',
+    kind: 'log',
+    title: '记录日志',
+    description: '记录流程运行信息',
+    group: 'data',
+    icon: FileText,
+    iconClassName: 'bg-blue-50 text-blue-700',
   },
   {
-    kind: 'command',
-    title: '执行命令',
-    description: '运行程序或系统命令',
-    group: 'system',
-    icon: Terminal,
-    iconClassName: 'bg-slate-100 text-slate-700',
+    kind: 'debug',
+    title: '查看结果',
+    description: '查看节点运行结果',
+    group: 'data',
+    icon: Bug,
+    iconClassName: 'bg-fuchsia-50 text-fuchsia-700',
   },
   {
     kind: null,
@@ -275,68 +237,4 @@ export const PALETTE_ITEMS = [
     icon: Shuffle,
     iconClassName: 'bg-amber-50 text-amber-700',
   },
-  {
-    kind: null,
-    title: '写入数据库',
-    description: '把结果保存到数据库',
-    group: 'output',
-    icon: Database,
-    iconClassName: 'bg-blue-50 text-blue-700',
-  },
-  {
-    kind: null,
-    title: '发送 HTTP 请求',
-    description: '把数据发送到外部服务',
-    group: 'output',
-    icon: Send,
-    iconClassName: 'bg-blue-50 text-blue-700',
-  },
-  {
-    kind: 'log',
-    title: '记录日志',
-    description: '记录流程运行信息',
-    group: 'output',
-    icon: FileText,
-    iconClassName: 'bg-blue-50 text-blue-700',
-  },
-  {
-    kind: 'debug',
-    title: '查看结果',
-    description: '查看节点运行结果',
-    group: 'output',
-    icon: Bug,
-    iconClassName: 'bg-fuchsia-50 text-fuchsia-700',
-  },
-  {
-    kind: null,
-    title: '发送通知',
-    description: '向指定渠道发送消息',
-    group: 'output',
-    icon: Bell,
-    iconClassName: 'bg-blue-50 text-blue-700',
-  },
-  {
-    kind: 'end',
-    title: '结束',
-    description: '在这里结束流程',
-    group: 'output',
-    icon: Square,
-    iconClassName: 'bg-rose-50 text-rose-700',
-  },
-  ...NODE_PRESET_CATALOG.map((preset) => ({
-    kind: `preset:${preset.id}` as const,
-    title: preset.title,
-    description: preset.description,
-    group: 'preset' as const,
-    icon: MousePointerClick,
-    iconClassName: 'bg-cyan-50 text-cyan-700',
-  })),
-  ...FLOW_COMPONENT_CATALOG.map((item) => ({
-    kind: `component:${item.definition.id}@${item.definition.version}` as const,
-    title: item.title,
-    description: item.description,
-    group: 'component' as const,
-    icon: Workflow,
-    iconClassName: 'bg-violet-50 text-violet-700',
-  })),
 ] satisfies ReadonlyArray<PaletteItemDefinition>;

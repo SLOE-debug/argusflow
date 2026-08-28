@@ -1,8 +1,7 @@
 import {
   ChevronRight,
-  PanelLeft,
+  PanelLeftClose,
   Search,
-  Workflow,
 } from 'lucide-react';
 import {
   useMemo,
@@ -17,12 +16,11 @@ import {
 } from '../../../flow';
 import type {
   WorkflowEdgeData,
-  WorkflowNodeCreationKey,
   WorkflowNodeData,
 } from '../../../features/workflow';
 import type { FlowComponentCatalogItem } from '../../../features/workflow';
 import { FLOW_COMPONENT_CATALOG } from '../../../features/workflow';
-import { Input } from '../../ui';
+import { IconButton, Input } from '../../ui';
 import {
   PALETTE_GROUPS,
   PALETTE_ITEMS,
@@ -35,25 +33,26 @@ import {
   PaletteNavigation,
   type PaletteModule,
 } from './PaletteNavigation';
+import { PresetCatalogView } from './PresetCatalogView';
 
 type NodePaletteProps = Readonly<{
   /** 画布 Store；节点库仅订阅两个单例节点是否存在。 */
   store: StoreApi<FlowState<WorkflowNodeData, WorkflowEdgeData>>;
-  /** 恢复左侧面板的默认宽度。 */
-  onResetWidth: () => void;
+  /** 请求收起左侧停靠面板；宽度由外层工作区保留。 */
+  onCollapse: () => void;
   /** 内置和当前工作区可创建的精确版本组件。 */
   componentCatalog?: ReadonlyArray<FlowComponentCatalogItem>;
 }>;
 
 /** 目录中已接入运行时、可以直接创建的节点定义。 */
 type AvailablePaletteItem = PaletteItemDefinition & Readonly<{
-  kind: WorkflowNodeCreationKey;
+  kind: Exclude<PaletteItemDefinition['kind'], null>;
 }>;
 
 /** 可搜索的高密度分组节点库。 */
 export function NodePalette({
   store,
-  onResetWidth,
+  onCollapse,
   componentCatalog = FLOW_COMPONENT_CATALOG,
 }: NodePaletteProps) {
   const startExists = useStore(
@@ -71,26 +70,9 @@ export function NodePalette({
     () => new Set(),
   );
   const normalizedQuery = query.trim().toLocaleLowerCase();
-  /** 工作区组件在创建后立即进入同一目录，不需要修改静态 Runtime type。 */
-  const paletteItems = useMemo(() => {
-    const knownKeys = new Set(PALETTE_ITEMS.flatMap((item) => item.kind ? [item.kind] : []));
-    const workspaceComponents: PaletteItemDefinition[] = componentCatalog
-      .filter((item) => !knownKeys.has(
-        `component:${item.definition.id}@${item.definition.version}`,
-      ))
-      .map((item) => ({
-        kind: `component:${item.definition.id}@${item.definition.version}`,
-        title: item.title,
-        description: item.description,
-        group: 'component',
-        icon: Workflow,
-        iconClassName: 'bg-violet-50 text-violet-700',
-      }));
-    return [...PALETTE_ITEMS, ...workspaceComponents];
-  }, [componentCatalog]);
   const visibleGroups = useMemo(() => PALETTE_GROUPS.flatMap((group) => {
     /** 当前分组中符合搜索词的条目。 */
-    const matchingItems = paletteItems.filter((item) => (
+    const matchingItems = PALETTE_ITEMS.filter((item) => (
       item.group === group.id
       && (
         item.title.toLocaleLowerCase().includes(normalizedQuery)
@@ -102,7 +84,7 @@ export function NodePalette({
       isPaletteItemAvailable(item, startExists, endExists)
     ));
     return items.length > 0 ? [{ ...group, items }] : [];
-  }), [endExists, normalizedQuery, paletteItems, startExists]);
+  }), [endExists, normalizedQuery, startExists]);
   /** 切换单个分组时复制集合，保持 React 状态不可变。 */
   const toggleGroup = (groupId: PaletteGroup) => {
     setCollapsedGroups((current) => {
@@ -121,23 +103,19 @@ export function NodePalette({
             <h2 className="truncate text-[13px] leading-4 font-semibold text-slate-900">
               {findPaletteModule(activeModule).label}
             </h2>
-            {activeModule === 'nodes' ? (
+            {activeModule === 'nodes' || activeModule === 'presets' ? (
               <p className="truncate text-[10px] leading-3.5 text-slate-400">
-                把节点拖到画布
+                把内容拖到画布
               </p>
             ) : null}
           </div>
-          {activeModule === 'nodes' ? (
-            <button
-              type="button"
-              aria-label="恢复节点库宽度"
-              className="ml-auto flex size-7 shrink-0 items-center justify-center border border-slate-200 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
-              onClick={onResetWidth}
-              title="恢复节点库宽度"
-            >
-              <PanelLeft className="size-3.5 shrink-0" aria-hidden="true" />
-            </button>
-          ) : null}
+          <IconButton
+            label="收起左侧面板"
+            icon={PanelLeftClose}
+            size="compact"
+            className="ml-auto shrink-0 border-slate-200 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+            onClick={onCollapse}
+          />
         </header>
         {activeModule === 'nodes' ? (
           <>
@@ -207,6 +185,8 @@ export function NodePalette({
               ) : null}
             </div>
           </>
+        ) : activeModule === 'presets' ? (
+          <PresetCatalogView componentCatalog={componentCatalog} />
         ) : (
           <PaletteModulePlaceholder moduleId={activeModule} />
         )}

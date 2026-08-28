@@ -1,3 +1,4 @@
+import { PanelRightClose } from 'lucide-react';
 import { useStore, type StoreApi } from 'zustand';
 
 import type { FlowState } from '../../../flow';
@@ -22,6 +23,7 @@ import {
 import { WorkflowInspectorFields } from './WorkflowInspectorFields';
 import type { StructuredEditorTarget } from '../workspace/dock/structuredEditorTarget';
 import { ValueExprEditorProvider } from './node-fields/ValueExprFields';
+import { IconButton } from '../../ui';
 
 type NodeInspectorProps = Readonly<{
   /** 属性面板按选择状态订阅的工作流 Store。 */
@@ -46,6 +48,8 @@ type NodeInspectorProps = Readonly<{
   componentCatalog?: ReadonlyArray<FlowComponentCatalogItem>;
   /** 修改工作流名称。 */
   onNameChange: (name: string) => void;
+  /** 请求收起右侧属性面板；宽度由外层工作区保留。 */
+  onCollapse: () => void;
   /** 修改 JSON 变量。 */
   onVariablesChange: (draft: string) => void;
   /** 修改运行输入声明。 */
@@ -116,6 +120,13 @@ export function NodeInspector(props: NodeInspectorProps) {
         <span className="ml-auto rounded bg-slate-200/70 px-1.5 py-0.5 text-[10px] leading-none text-slate-500">
           {inspectorContext}
         </span>
+        <IconButton
+          label="收起右侧面板"
+          icon={PanelRightClose}
+          size="compact"
+          className="ml-1 shrink-0 border-slate-200 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+          onClick={props.onCollapse}
+        />
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {!node && !edge && selectedCount <= 1 ? (

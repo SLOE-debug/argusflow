@@ -51,7 +51,7 @@ impl ActionBackend for VisionBackend {
         action: &AutomationAction,
         context: &ExecutionContext,
     ) -> Result<Vec<PreparedCandidate>, PlanRejection> {
-        let TargetLocator::Visual { query } = &action.target().locator else {
+        let TargetLocator::VisualResolved { query } = &action.target().locator else {
             return Err(PlanRejection::Unsupported { backend: self.kind });
         };
         if !supports_observation(action) || !supports_extract(action) {
@@ -209,13 +209,25 @@ impl PreparedExecution for VisionPreparedExecution {
                 backend: self.backend,
                 message: "visual execution has no frozen window context".to_owned(),
             })?;
+        let mut refresh_policy = match self.backend {
+            BackendKind::VisualCache => SceneRefreshPolicy::tiny(),
+            BackendKind::OcrTiny => SceneRefreshPolicy::tiny(),
+            BackendKind::OcrMedium => SceneRefreshPolicy::medium(),
+            _ => {
+                return Err(AutomationError::BackendUnavailable {
+                    backend: self.backend,
+                    message: "unsupported visual backend".to_owned(),
+                });
+            }
+        };
+        refresh_policy.normalized_query_region = self.query.region;
         let scene = match self.backend {
             BackendKind::VisualCache => match self.runtime.lookup_cache(
                 argusflow_core::WindowIdentity {
                     handle: window.handle,
                     process_id: window.process_id,
                 },
-                &SceneRefreshPolicy::tiny(),
+                &refresh_policy,
             ) {
                 crate::scene::CacheLookup::Hit(scene) => scene,
                 crate::scene::CacheLookup::Miss(reason) => {
@@ -225,25 +237,14 @@ impl PreparedExecution for VisionPreparedExecution {
                     });
                 }
             },
-            BackendKind::OcrTiny => self
+            BackendKind::OcrTiny | BackendKind::OcrMedium => self
                 .runtime
                 .current_scene(
                     argusflow_core::WindowIdentity {
                         handle: window.handle,
                         process_id: window.process_id,
                     },
-                    &SceneRefreshPolicy::tiny(),
-                )
-                .await
-                .map_err(|error| vision_error_to_automation(self.backend, error))?,
-            BackendKind::OcrMedium => self
-                .runtime
-                .current_scene(
-                    argusflow_core::WindowIdentity {
-                        handle: window.handle,
-                        process_id: window.process_id,
-                    },
-                    &SceneRefreshPolicy::medium(),
+                    &refresh_policy,
                 )
                 .await
                 .map_err(|error| vision_error_to_automation(self.backend, error))?,

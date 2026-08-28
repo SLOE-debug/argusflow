@@ -26,7 +26,11 @@ describe('workflow UI operation transformations', () => {
 
     expect(visual.target.locator).toEqual({
       type: 'visual',
-      query: { text: '确定', exact: true },
+      query: {
+        text: { type: 'literal', value: '确定' },
+        exact: true,
+        region: null,
+      },
     });
     expect(visual.target.backend_policy).toEqual({ allow: [], deny: [], prefer: [] });
   });

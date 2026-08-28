@@ -1,6 +1,7 @@
 export { ComponentDrillDown } from './canvas/ComponentDrillDown';
 export { NodeInspector } from './inspector/NodeInspector';
 export { NodePalette } from './palette/NodePalette';
+export { PresetCatalogView } from './palette/PresetCatalogView';
 export { WorkflowCanvas } from './workspace/WorkflowCanvas';
 export { WorkflowWorkspace } from './workspace/WorkflowWorkspace';
 export { WorkspaceStatusBar } from './workspace/WorkspaceStatusBar';

@@ -5,9 +5,10 @@
 use argusflow_core::{
     AcquirePolicy, ActivationPolicy, ApplicationSpec, AqlQuery, AutomationTarget, BackendKind,
     BackendPolicy, CleanupPolicy, CommandOperation, CommandRunner, KeyChord, KeyboardKey,
-    KeyboardModifier, NodeEnvelope, Position, ResourceRef, TargetLocator, TargetScope, UiOperation,
-    ValueExpr, WindowTitleMatcher, WorkflowCapabilityId, WorkflowDefinition, WorkflowEdge,
-    WorkflowInputDefinition, WorkflowInputType, WorkflowNode, WorkflowPermissions,
+    KeyboardModifier, NodeEnvelope, NormalizedRect, Position, ResourceRef, TargetLocator,
+    TargetScope, UiOperation, ValueExpr, WindowTitleMatcher, WorkflowCapabilityId,
+    WorkflowDefinition, WorkflowEdge, WorkflowInputDefinition, WorkflowInputType, WorkflowNode,
+    WorkflowPermissions,
 };
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -161,7 +162,8 @@ fn focused_keyboard_operation_round_trips_through_json() {
         },
     };
 
-    let serialized = serde_json::to_string(&operation).expect("keyboard operation should serialize");
+    let serialized =
+        serde_json::to_string(&operation).expect("keyboard operation should serialize");
     let decoded: UiOperation =
         serde_json::from_str(&serialized).expect("keyboard operation should deserialize");
 
@@ -169,6 +171,58 @@ fn focused_keyboard_operation_round_trips_through_json() {
     assert!(serialized.contains("\"type\":\"focused\""));
     assert!(serialized.contains("\"modifiers\":[\"control\"]"));
     assert_eq!(decoded, operation);
+}
+
+#[test]
+fn legacy_visual_text_is_migrated_to_a_literal_value_expression() {
+    let operation: UiOperation = serde_json::from_value(json!({
+        "type": "click",
+        "target": {
+            "scope": { "type": "current" },
+            "locator": {
+                "type": "visual",
+                "query": { "text": "确定", "exact": true }
+            },
+            "backend_policy": { "allow": [], "deny": [], "prefer": [] }
+        }
+    }))
+    .expect("legacy visual query should deserialize");
+
+    let UiOperation::Click { target } = &operation else {
+        panic!("fixture should decode as click");
+    };
+    let TargetLocator::Visual { query } = &target.locator else {
+        panic!("fixture should retain persisted visual locator");
+    };
+    assert_eq!(query.text, ValueExpr::text("确定"));
+    assert!(query.region.is_none());
+    assert!(
+        serde_json::to_string(&operation)
+            .expect("migrated visual query should serialize")
+            .contains("\"type\":\"literal\"")
+    );
+}
+
+#[test]
+fn normalized_visual_regions_reject_out_of_bounds_values() {
+    assert!(
+        serde_json::from_value::<NormalizedRect>(json!({
+            "x": 0.8,
+            "y": 0.0,
+            "width": 0.4,
+            "height": 0.2
+        }))
+        .is_err()
+    );
+    assert!(
+        serde_json::from_value::<NormalizedRect>(json!({
+            "x": 0.0,
+            "y": 0.0,
+            "width": 0.4,
+            "height": 0.2
+        }))
+        .is_ok()
+    );
 }
 
 /// 以稳定布局构造 schema v8 开放节点。

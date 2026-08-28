@@ -9,6 +9,7 @@ export {
 export {
   FLOW_COMPONENT_CATALOG,
   findFlowComponent,
+  WECHAT_MESSAGE_COMPONENT_ID,
   type FlowComponentCatalogItem,
 } from './components/componentCatalog';
 export {
@@ -58,6 +59,10 @@ export {
   getNodeValueOutputs,
   WORKFLOW_NODE_DEFINITIONS,
 } from './model/workflowNodeDefinitions';
+export type {
+  NormalizedRect,
+  VisualQueryExpr,
+} from './model/visual';
 export {
   DEFAULT_WORKFLOW_INPUTS,
   DEFAULT_WORKFLOW_NAME,

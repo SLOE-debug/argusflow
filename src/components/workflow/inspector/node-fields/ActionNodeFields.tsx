@@ -27,6 +27,7 @@ import { AqlFieldSummary } from '../common/AqlFieldSummary';
 import { ValueExprFields } from './ValueExprFields';
 import { ExtractNodeFields } from './ExtractNodeFields';
 import { KeyboardChordFields } from './KeyboardChordFields';
+import { VisualTargetFields } from './VisualTargetFields';
 import type { StructuredEditorTarget } from '../../workspace/dock/structuredEditorTarget';
 
 type ActionNodeFieldsProps = Readonly<{
@@ -72,11 +73,6 @@ const BACKEND_OPTIONS = [
   { value: 'windows_uia', label: 'Windows UI 自动化' },
   { value: 'browser_cdp', label: '浏览器自动化' },
   { value: 'send_input', label: '键盘输入' },
-] as const;
-
-const VISUAL_MATCH_OPTIONS = [
-  { value: 'exact', label: '完全匹配' },
-  { value: 'contains', label: '包含文字' },
 ] as const;
 
 /** 编辑 UI 操作、资源作用域、定位方式和后端偏好。 */
@@ -356,48 +352,6 @@ function QueryTargetFields({
           </InspectorField>
         </div>
       </details>
-    </>
-  );
-}
-
-/** 编辑显式 OCR/视觉文字目标。 */
-function VisualTargetFields({
-  operation,
-  locator,
-  onChange,
-}: Readonly<{
-  operation: UiOperation;
-  locator: Extract<UiOperation['target']['locator'], { type: 'visual' }>;
-  onChange: (operation: UiOperation) => void;
-}>) {
-  const visualQuery = locator.query;
-  return (
-    <>
-      <InspectorField label="目标文字">
-        <Input
-          aria-label="视觉目标文字"
-          value={visualQuery.text}
-          containerClassName="border-slate-300 bg-white"
-          onChange={(event) => onChange(changeTargetLocator(operation, {
-            type: 'visual',
-            query: { ...visualQuery, text: event.target.value },
-          }))}
-        />
-      </InspectorField>
-      <InspectorField label="匹配方式">
-        <Select<'exact' | 'contains'>
-          value={visualQuery.exact ? 'exact' : 'contains'}
-          options={VISUAL_MATCH_OPTIONS}
-          containerClassName="border-slate-300 bg-white"
-          onValueChange={(mode) => onChange(changeTargetLocator(operation, {
-            type: 'visual',
-            query: { ...visualQuery, exact: mode === 'exact' },
-          }))}
-        />
-      </InspectorField>
-      <p className={INSPECTOR_HELP_CLASS_NAME}>
-        输入画面上能看到的文字，程序会在画面中寻找它。
-      </p>
     </>
   );
 }

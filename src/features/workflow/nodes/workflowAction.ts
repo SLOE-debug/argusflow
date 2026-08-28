@@ -263,7 +263,14 @@ function createTargetLocator(kind: TargetLocatorKind): TargetLocator {
         query: { language_version: 1, source: DEFAULT_ACTION_AQL_SOURCE },
       };
     case 'visual':
-      return { type: 'visual', query: { text: '确定', exact: true } };
+      return {
+        type: 'visual',
+        query: {
+          text: { type: 'literal', value: '确定' },
+          exact: true,
+          region: null,
+        },
+      };
     case 'coordinate':
       return { type: 'coordinate', point: { x: 0, y: 0 } };
     case 'focused':

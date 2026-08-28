@@ -61,7 +61,7 @@ const NODE_KIND_LABELS: Readonly<Record<WorkflowNodeData['kind'], string>> = {
   start: '开始',
   log: '记录日志',
   debug: '查看结果',
-  delay: '等待',
+  delay: '固定暂停',
   condition: '条件判断',
   variable: '设置变量',
   application: '打开应用',
@@ -225,7 +225,7 @@ function NodeKindFields({
       );
     case 'delay':
       return (
-        <InspectorField label="等待时间（毫秒）">
+        <InspectorField label="暂停时间（毫秒）">
           <input
             className={`${INSPECTOR_CONTROL_CLASS_NAME} h-8`}
             type="number"

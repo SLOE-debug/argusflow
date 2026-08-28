@@ -15,7 +15,7 @@ use argusflow_vision::{
 use argusflow_windows::{
     capture::WindowsGraphicsCapture,
     context::WindowsExecutionContextProvider,
-    input::SendInputBackend,
+    input::{SendInputBackend, WindowsVisualTargetResolver},
     uia::{UiaBackend, UiaRuntime},
     window::WindowsApplicationSessionProvider,
 };
@@ -41,6 +41,7 @@ impl AppState {
             Arc::new(WindowsGraphicsCapture::new()),
             build_vision_worker(),
         ));
+        let visual_resolver = Arc::new(WindowsVisualTargetResolver::new(vision_runtime.clone()));
         // 注册顺序不决定执行优先级；ActionRouter 会比较支持等级、成本与用户偏好。
         let backends: Vec<Arc<dyn ActionBackend>> = vec![
             Arc::new(UiaBackend::new(uia_runtime.clone())),
@@ -53,8 +54,11 @@ impl AppState {
                 vision_runtime.clone(),
                 BackendKind::OcrTiny,
             )),
-            Arc::new(VisionBackend::new(vision_runtime, BackendKind::OcrMedium)),
-            Arc::new(SendInputBackend),
+            Arc::new(VisionBackend::new(
+                vision_runtime.clone(),
+                BackendKind::OcrMedium,
+            )),
+            Arc::new(SendInputBackend::new(visual_resolver)),
         ];
         let context_provider = Arc::new(WindowsExecutionContextProvider::new(uia_runtime.health()));
         let router = Arc::new(

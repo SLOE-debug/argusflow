@@ -32,6 +32,7 @@ describe('NodeInspector', () => {
         runInputValuesError={null}
         permissions={DEFAULT_WORKFLOW_PERMISSIONS}
         onNameChange={vi.fn()}
+        onCollapse={vi.fn()}
         onVariablesChange={vi.fn()}
         onInputDefinitionsChange={vi.fn()}
         onRunInputValuesChange={vi.fn()}

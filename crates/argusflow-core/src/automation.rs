@@ -3,7 +3,9 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::{AqlQuery, CapabilitySet, KeyChord, ResourceRef, ValueExpr};
+use crate::{
+    AqlQuery, CapabilitySet, KeyChord, ResourceRef, ValueExpr, VisualQuery, VisualQueryExpr,
+};
 
 /// Extract 操作返回单个目标还是目标集合。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -328,6 +330,13 @@ pub enum TargetLocator {
     /// 通过 OCR 或视觉模型描述目标。
     Visual {
         /// 视觉后端使用的查询条件。
+        query: VisualQueryExpr,
+    },
+    /// Runtime 已解析文字表达式、准备交给视觉后端或物理输入后端的查询。
+    ///
+    /// 该变体只存在于一次动作执行的内存契约中，不应由编辑器持久化。
+    VisualResolved {
+        /// 已冻结的视觉查询条件。
         query: VisualQuery,
     },
     /// 直接使用屏幕物理像素坐标定位目标。
@@ -362,15 +371,6 @@ impl WindowTitleMatcher {
             Self::Equal { value } | Self::Contains { value } => value,
         }
     }
-}
-
-/// 视觉/OCR 后端使用的显式目标描述。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct VisualQuery {
-    /// 需要识别的屏幕文字。
-    pub text: String,
-    /// 是否要求识别文字完全相等。
-    pub exact: bool,
 }
 
 /// Windows 虚拟屏幕中的物理像素点。

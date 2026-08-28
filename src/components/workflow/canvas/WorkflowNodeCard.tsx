@@ -180,7 +180,7 @@ export const workflowNodeRegistry = {
   },
   log: createDefinition('log', '记录日志', WORKFLOW_NODE_SIZES.log),
   debug: createDefinition('debug', '查看结果', WORKFLOW_NODE_SIZES.debug),
-  delay: createDefinition('delay', '等待', WORKFLOW_NODE_SIZES.delay),
+  delay: createDefinition('delay', '固定暂停', WORKFLOW_NODE_SIZES.delay),
   condition: createDefinition('condition', '条件判断', WORKFLOW_NODE_SIZES.condition),
   variable: createDefinition('variable', '设置变量', WORKFLOW_NODE_SIZES.variable),
   application: createDefinition('application', '打开应用', WORKFLOW_NODE_SIZES.application),
@@ -264,7 +264,7 @@ function resolveNodeDetail(data: WorkflowNodeData): string {
     case 'debug':
       return valueExprDetail(data.value);
     case 'delay':
-      return `等待 ${data.milliseconds / 1000} 秒`;
+      return `暂停 ${data.milliseconds / 1000} 秒`;
     case 'condition':
       return `${valueExprDetail(data.left)} · ${CONDITION_OPERATOR_LABELS[data.operator]}`;
     case 'variable':

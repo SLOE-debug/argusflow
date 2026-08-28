@@ -80,7 +80,7 @@ describe('workflow model', () => {
 
     expect(workflow.nodes[0]).toMatchObject({
       type_id: 'argus.ui',
-      version: 2,
+      version: 3,
       payload: {
         operation: {
           type: 'click',
@@ -122,12 +122,13 @@ describe('workflow model', () => {
       { key: 'message', value_type: 'text' },
     ]);
     expect(DEFAULT_RUN_INPUT_VALUES).toEqual({
-      group_name: '三人行必有三狗',
-      message: '测试消息',
+      group_name: 'ArgusFlow 测试群',
+      message: 'ArgusFlow 自动化测试消息',
     });
     expect(workflow.nodes.some((node) => node.type_id === 'argus.condition')).toBe(false);
-    expect(workflow.nodes.filter((node) => node.type_id === 'argus.delay')).toHaveLength(3);
-    expect(workflow.edges).toHaveLength(11);
+    expect(workflow.nodes.filter((node) => node.type_id === 'argus.delay')).toHaveLength(0);
+    expect(workflow.nodes.filter((node) => node.type_id === 'argus.ui')).toHaveLength(10);
+    expect(workflow.edges).toHaveLength(12);
     expect(workflow.edges.every((edge) => edge.branch === null)).toBe(true);
     expect(workflow.nodes).toContainEqual(expect.objectContaining({
       id: 'wechat_application_1',
@@ -188,6 +189,44 @@ describe('workflow model', () => {
           },
         }),
         execution: expect.any(Object),
+      },
+    }));
+    expect(workflow.nodes).toContainEqual(expect.objectContaining({
+      id: 'wechat_click_group_1',
+      type_id: 'argus.ui',
+      payload: {
+        operation: {
+          type: 'click',
+          target: {
+            locator: {
+              type: 'visual',
+              query: {
+                text: {
+                  type: 'ref',
+                  source: { type: 'workflow_input', key: 'group_name' },
+                  pointer: '',
+                },
+                exact: true,
+                region: {
+                  x: 0,
+                  y: 0,
+                  width: 0.58,
+                  height: 0.72,
+                },
+              },
+            },
+          },
+        },
+      },
+    }));
+    expect(workflow.nodes).toContainEqual(expect.objectContaining({
+      id: 'wechat_verify_message_1',
+      type_id: 'argus.ui',
+      payload: {
+        operation: {
+          type: 'get_text',
+          target: { locator: { type: 'visual' } },
+        },
       },
     }));
     expect(workflow.nodes).toContainEqual(expect.objectContaining({
@@ -264,7 +303,7 @@ describe('workflow model', () => {
       previewEdgeRoute(edge, DEFAULT_NODES)?.route ?? null
     ));
     const groupNameWaitEdgeIndex = DEFAULT_EDGES.findIndex(
-      (edge) => edge.id === 'edge_group_name_wait',
+      (edge) => edge.id === 'edge_group_name_find',
     );
     const routeGroups = [
       ['exact', exactRoutes],

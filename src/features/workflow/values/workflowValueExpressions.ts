@@ -10,6 +10,7 @@ export type ValueExprLocation =
   | { type: 'output_binding'; name: string }
   | { type: 'ui_set_value' }
   | { type: 'ui_type_text' }
+  | { type: 'ui_visual_text' }
   | {
       type: 'command_field';
       field: 'program' | 'script' | 'working_directory' | 'stdin';
@@ -42,6 +43,10 @@ export function readNodeValueExpr(
     case 'ui_type_text':
       return data.kind === 'ui' && data.operation.type === 'type_text'
         ? data.operation.value
+        : null;
+    case 'ui_visual_text':
+      return data.kind === 'ui' && data.operation.target.locator.type === 'visual'
+        ? data.operation.target.locator.query.text
         : null;
     case 'command_field':
       return data.kind === 'command' ? data.operation[location.field] : null;
@@ -97,6 +102,25 @@ export function updateNodeValueExpr(
       return {
         ...data,
         operation: { ...data.operation, value },
+        invalid: false,
+      };
+    case 'ui_visual_text':
+      if (data.kind !== 'ui' || data.operation.target.locator.type !== 'visual') return data;
+      return {
+        ...data,
+        operation: {
+          ...data.operation,
+          target: {
+            ...data.operation.target,
+            locator: {
+              ...data.operation.target.locator,
+              query: {
+                ...data.operation.target.locator.query,
+                text: value,
+              },
+            },
+          },
+        },
         invalid: false,
       };
     case 'command_field':

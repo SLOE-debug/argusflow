@@ -16,6 +16,7 @@ mod keyboard;
 mod query;
 mod resource;
 mod value;
+mod visual;
 mod workflow;
 
 pub use application::{AcquirePolicy, ActivationPolicy, ApplicationSpec, CleanupPolicy};
@@ -23,8 +24,7 @@ pub use automation::{
     ActionExecutionOptions, ActionOutcome, AutomationAction, AutomationExecutionScope,
     AutomationTarget, BackendKind, BackendPolicy, DiagnosticEvidenceReference, ExtractCardinality,
     FieldProjection, FieldProjectionSource, ScreenPoint, TargetLocator, TargetScope,
-    TargetWaitMode, TargetWaitPolicy, UiExecutionPolicy, UiOperation, VisualQuery,
-    WindowTitleMatcher,
+    TargetWaitMode, TargetWaitPolicy, UiExecutionPolicy, UiOperation, WindowTitleMatcher,
 };
 pub use browser::{
     AcquireBrowserSpec, BrowserAcquireMode, BrowserCleanupPolicy, BrowserOperation, BrowserSpec,
@@ -56,6 +56,7 @@ pub use resource::{
     ResourceTypeId, WindowIdentity,
 };
 pub use value::{ValueExpr, ValueSource};
+pub use visual::{NormalizedRect, VisualQuery, VisualQueryExpr};
 pub use workflow::{
     ControlPortId, NodeEnvelope, NodeTypeId, Position, WorkflowDefinition, WorkflowEdge,
     WorkflowNode,

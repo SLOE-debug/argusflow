@@ -3,6 +3,8 @@
 mod backend;
 mod keyboard;
 mod mouse;
+mod visual_resolver;
 
 pub use backend::SendInputBackend;
 pub use mouse::{MouseInputError, inject_scroll_wheel};
+pub use visual_resolver::WindowsVisualTargetResolver;

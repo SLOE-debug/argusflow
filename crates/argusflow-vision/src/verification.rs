@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::scene::{SceneId, VisualNode, VisualNodeId, VisualRegionId, VisualScene};
 
 /// 当前视觉快照上可以安全解释的验证条件。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum VisualCondition {
     /// 指定区域内存在满足查询的文本。
     TextExists {
@@ -252,6 +252,7 @@ mod tests {
                 query: VisualQuery {
                     text: "新消息".to_owned(),
                     exact: true,
+                    region: None,
                 },
                 since_scene_id: first.scene_id,
                 region: None,
@@ -270,6 +271,7 @@ mod tests {
                 query: VisualQuery {
                     text: "新消息".to_owned(),
                     exact: true,
+                    region: None,
                 },
                 since_scene_id: first.scene_id,
                 region: None,
