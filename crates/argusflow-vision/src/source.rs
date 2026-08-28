@@ -9,7 +9,7 @@ use tokio::sync::Mutex;
 use crate::{error::VisionError, image::CapturedFrame};
 
 /// HWND 捕获流的策略；像素和窗口作用域不在此处隐式扩大。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CapturePolicy {
     /// FramePool 保留的缓冲数量。
     pub frame_pool_size: u32,

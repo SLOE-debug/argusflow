@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use argusflow_core::{
     BackendKind, FieldProjectionSource, KeyboardKey, TargetLocator, TargetScope, TargetWaitMode,
-    TargetWaitPolicy, UiExecutionPolicy, UiOperation, ValueExpr,
+    TargetWaitPolicy, UiExecutionPolicy, UiOperation, UiPostcondition, ValueExpr,
 };
 use argusflow_query::parse_stored_query;
 
@@ -11,15 +11,24 @@ use crate::{NodeValidationContext, ValidationIssue, ValidationIssueCode};
 /// 校验 UI 操作的后端、目标、输入负载和目标等待契约。
 pub(super) fn validate_ui_node(
     operation: &UiOperation,
-    execution: UiExecutionPolicy,
+    execution: &UiExecutionPolicy,
     context: &NodeValidationContext<'_>,
 ) -> Vec<ValidationIssue> {
     let target = operation.target();
     let mut issues = Vec::new();
+    if matches!(operation, UiOperation::GetValue { .. })
+        && matches!(&target.locator, TargetLocator::Visual { .. })
+    {
+        issues.push(context.issue(
+            ValidationIssueCode::InvalidNodeDefinition,
+            "视觉后端只提供文本事实；GetValue 必须使用 UIA 或 CDP 语义目标",
+        ));
+    }
     validate_backend_policy(operation, context, &mut issues);
     validate_input_operation(operation, context, &mut issues);
     validate_extract(operation, context, &mut issues);
     validate_wait_policy(target, execution, context, &mut issues);
+    validate_postcondition(operation, execution, context, &mut issues);
     validate_locator(operation, context, &mut issues);
     issues
 }
@@ -31,10 +40,7 @@ fn validate_backend_policy(
     issues: &mut Vec<ValidationIssue>,
 ) {
     let target = operation.target();
-    if matches!(
-        &target.locator,
-        TargetLocator::Visual { .. } | TargetLocator::VisualResolved { .. }
-    ) {
+    if matches!(&target.locator, TargetLocator::Visual { .. }) {
         let visual_backend_allowed = [
             BackendKind::VisualCache,
             BackendKind::OcrTiny,
@@ -178,7 +184,7 @@ fn validate_extract(
 /// 校验当前定位类别是否允许配置目标等待。
 fn validate_wait_policy(
     target: &argusflow_core::AutomationTarget,
-    execution: UiExecutionPolicy,
+    execution: &UiExecutionPolicy,
     context: &NodeValidationContext<'_>,
     issues: &mut Vec<ValidationIssue>,
 ) {
@@ -225,6 +231,30 @@ fn validate_wait_policy(
     }
 }
 
+/// 校验视觉后置条件只附着在需要确认结果的物理输入动作上。
+fn validate_postcondition(
+    operation: &UiOperation,
+    execution: &UiExecutionPolicy,
+    context: &NodeValidationContext<'_>,
+    issues: &mut Vec<ValidationIssue>,
+) {
+    let Some(UiPostcondition::NewText { query }) = &execution.postcondition else {
+        return;
+    };
+    if !is_input_operation(operation) {
+        issues.push(context.issue(
+            ValidationIssueCode::InvalidNodeDefinition,
+            "视觉新事实后置条件只能用于按键或物理文本输入动作",
+        ));
+    }
+    if visual_text_is_empty(&query.text) {
+        issues.push(context.issue(
+            ValidationIssueCode::InvalidAqlQuery,
+            "视觉后置条件文字不能为空",
+        ));
+    }
+}
+
 /// 校验 AQL、视觉文字和当前焦点定位的专属约束。
 fn validate_locator(
     operation: &UiOperation,
@@ -256,7 +286,6 @@ fn validate_locator(
             ));
         }
         TargetLocator::Visual { .. }
-        | TargetLocator::VisualResolved { .. }
         | TargetLocator::Coordinate { .. }
         | TargetLocator::Focused => {}
     }

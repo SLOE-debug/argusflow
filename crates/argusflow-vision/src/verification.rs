@@ -3,6 +3,7 @@
 use argusflow_core::VisualQuery;
 use serde::{Deserialize, Serialize};
 
+use crate::region::normalized_region_to_physical;
 use crate::scene::{SceneId, VisualNode, VisualNodeId, VisualRegionId, VisualScene};
 
 /// 当前视觉快照上可以安全解释的验证条件。
@@ -152,6 +153,14 @@ fn matching_nodes<'scene>(
         .iter()
         .filter(|node| region.is_none_or(|region| node.region_id == Some(region)))
         .filter(|node| {
+            query
+                .region
+                .and_then(|query_region| {
+                    normalized_region_to_physical(query_region, scene.viewport)
+                })
+                .is_none_or(|query_region| node.bbox.intersects(query_region))
+        })
+        .filter(|node| {
             if query.exact {
                 node.normalized_text == expected
             } else {
@@ -175,6 +184,10 @@ mod tests {
     use argusflow_core::WindowIdentity;
 
     fn scenes() -> (VisualScene, VisualScene) {
+        scenes_with_texts("旧消息", "新消息")
+    }
+
+    fn scenes_with_texts(first_text: &str, second_text: &str) -> (VisualScene, VisualScene) {
         let window = WindowIdentity {
             handle: 1,
             process_id: 2,
@@ -223,7 +236,7 @@ mod tests {
             .build(
                 window,
                 &first_frame,
-                &[response(&first_frame, "旧消息", 10.0)],
+                &[response(&first_frame, first_text, 10.0)],
                 &SceneBuildOptions::default(),
             )
             .expect("first scene is valid");
@@ -232,7 +245,7 @@ mod tests {
             .build(
                 window,
                 &second_frame,
-                &[response(&second_frame, "新消息", 10.0)],
+                &[response(&second_frame, second_text, 10.0)],
                 &SceneBuildOptions::default(),
             )
             .expect("second scene is valid");
@@ -282,5 +295,25 @@ mod tests {
             second.viewport,
             PhysicalRect::new(0, 0, 100, 100).expect("fixture rect")
         );
+    }
+
+    #[test]
+    fn historical_same_text_is_not_a_new_send_result() {
+        let (first, second) = scenes_with_texts("重复消息", "重复消息");
+        let outcome = evaluate_visual_condition(
+            Some(&second),
+            Some(&first),
+            &VisualCondition::NewTextExistsSince {
+                query: VisualQuery {
+                    text: "重复消息".to_owned(),
+                    exact: true,
+                    region: None,
+                },
+                since_scene_id: first.scene_id,
+                region: None,
+            },
+        );
+
+        assert!(matches!(outcome, VerificationOutcome::Rejected { .. }));
     }
 }

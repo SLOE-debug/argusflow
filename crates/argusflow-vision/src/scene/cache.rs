@@ -44,8 +44,8 @@ struct CacheState {
     scene: Option<Arc<VisualScene>>,
     /// 仍未被新 OCR 覆盖的 dirty ROI。
     dirty_regions: Vec<PhysicalRect>,
-    /// 写入 cache 的本地单调时刻。
-    stored_at: Option<Instant>,
+    /// 每个已经重新识别的区域的独立 freshness 起点。
+    fresh_regions: Vec<(PhysicalRect, Instant)>,
 }
 
 /// 只缓存最近稳定 VisualScene，不缓存 PNG 或跨页历史。
@@ -69,13 +69,26 @@ impl VisualSceneCache {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         state.scene = Some(scene);
         state.dirty_regions.clear();
-        state.stored_at = Some(Instant::now());
+        let now = Instant::now();
+        state.fresh_regions = state
+            .scene
+            .as_ref()
+            .map(|scene| vec![(scene.viewport, now)])
+            .unwrap_or_default();
     }
 
     /// 写入一次局部 OCR 结果，只清除被该刷新区域完整覆盖的 dirty ROI。
     ///
     /// 其它 dirty ROI 仍然保留，避免一次局部查询把未重新识别的旧节点误报为新鲜事实。
     pub fn replace_region(&self, scene: Arc<VisualScene>, refreshed_region: PhysicalRect) {
+        self.replace_regions(scene, &[refreshed_region]);
+    }
+
+    /// 写入多块局部 OCR 结果，并分别维护各区域的 freshness。
+    pub fn replace_regions(&self, scene: Arc<VisualScene>, refreshed_regions: &[PhysicalRect]) {
+        if refreshed_regions.is_empty() {
+            return;
+        }
         let mut state = self
             .state
             .write()
@@ -83,23 +96,48 @@ impl VisualSceneCache {
         let had_previous_scene = state.scene.is_some();
         let scene_viewport = scene.viewport;
         state.scene = Some(scene);
+        let now = Instant::now();
         if !had_previous_scene {
             // 首次局部 OCR 结果不能伪装成完整 scene；保留 viewport 未观测部分的
             // dirty 标记，避免调用方把缺失节点当成已经识别的事实。
-            state.dirty_regions = subtract_region(scene_viewport, refreshed_region);
-            state.stored_at = Some(Instant::now());
+            state.dirty_regions = subtract_regions(scene_viewport, refreshed_regions);
+            state.fresh_regions = refreshed_regions
+                .iter()
+                .copied()
+                .map(|region| (region, now))
+                .collect();
             return;
         }
         let mut remaining_dirty = Vec::new();
         for dirty in state.dirty_regions.drain(..) {
-            if dirty.intersects(refreshed_region) {
-                remaining_dirty.extend(subtract_region(dirty, refreshed_region));
-            } else {
-                remaining_dirty.push(dirty);
+            let mut fragments = vec![dirty];
+            for refreshed in refreshed_regions {
+                fragments = fragments
+                    .into_iter()
+                    .flat_map(|fragment| subtract_region(fragment, *refreshed))
+                    .collect();
             }
+            remaining_dirty.extend(fragments);
         }
         state.dirty_regions = remaining_dirty;
-        state.stored_at = Some(Instant::now());
+        let mut remaining_fresh = Vec::new();
+        for (fresh, stored_at) in state.fresh_regions.drain(..) {
+            let mut fragments = vec![fresh];
+            for refreshed in refreshed_regions {
+                fragments = fragments
+                    .into_iter()
+                    .flat_map(|fragment| subtract_region(fragment, *refreshed))
+                    .collect();
+            }
+            remaining_fresh.extend(fragments.into_iter().map(|fragment| (fragment, stored_at)));
+        }
+        remaining_fresh.extend(
+            refreshed_regions
+                .iter()
+                .copied()
+                .map(|region| (region, now)),
+        );
+        state.fresh_regions = remaining_fresh;
     }
 
     /// 用差分结果只使相交区域失效。
@@ -139,10 +177,10 @@ impl VisualSceneCache {
         if !topology_generation.is_unknown() && scene.topology_generation != topology_generation {
             return CacheLookup::Miss(CacheMissReason::TopologyMismatch);
         }
-        if state
-            .stored_at
-            .is_none_or(|stored_at| stored_at.elapsed() > max_age)
-        {
+        let fresh = query_region
+            .map(|region| region_is_fresh(region, &state.fresh_regions, max_age))
+            .unwrap_or_else(|| region_is_fresh(scene.viewport, &state.fresh_regions, max_age));
+        if !fresh {
             return CacheLookup::Miss(CacheMissReason::Expired);
         }
         let dirty = match query_region {
@@ -175,6 +213,41 @@ impl VisualSceneCache {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         *state = CacheState::default();
     }
+}
+
+/// 判断一个查询区域是否被尚未过期的 freshness 矩形完整覆盖。
+fn region_is_fresh(
+    query: PhysicalRect,
+    fresh_regions: &[(PhysicalRect, Instant)],
+    max_age: Duration,
+) -> bool {
+    let mut uncovered = vec![query];
+    for (fresh, stored_at) in fresh_regions {
+        if stored_at.elapsed() > max_age {
+            continue;
+        }
+        uncovered = uncovered
+            .into_iter()
+            .flat_map(|region| subtract_region(region, *fresh))
+            .collect();
+        if uncovered.is_empty() {
+            return true;
+        }
+    }
+    false
+}
+
+/// 从一个基础区域中连续移除多块刷新区域，返回仍未覆盖的边带集合。
+fn subtract_regions(base: PhysicalRect, refreshed_regions: &[PhysicalRect]) -> Vec<PhysicalRect> {
+    refreshed_regions
+        .iter()
+        .copied()
+        .fold(vec![base], |remaining, refreshed| {
+            remaining
+                .into_iter()
+                .flat_map(|region| subtract_region(region, refreshed))
+                .collect()
+        })
 }
 
 /// 从一个 dirty rectangle 中移除已重新识别的区域，保留未覆盖的四个边带。

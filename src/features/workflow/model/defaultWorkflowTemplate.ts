@@ -1,6 +1,9 @@
 import type {
+  ApplicationSpec,
   JsonObject,
+  JsonValue,
   UiExecutionPolicy,
+  UiOperation,
   ValueExpr,
   WorkflowInputDefinition,
   WorkflowPermissions,
@@ -15,13 +18,11 @@ import {
   WECHAT_HEADER_REGION,
   WECHAT_MESSAGE_REGION,
   WECHAT_SEARCH_RESULTS_REGION,
-  createWechatInputExecutionPolicy,
-  createWechatPressKeyOperation,
-  createWechatTypeTextOperation,
-  createWechatVisualClickOperation,
-  createWechatVisualExecutionPolicy,
-  createWechatVisualGetTextOperation,
 } from './wechatTemplateParts';
+import {
+  createWechatMessageDefinition,
+  WECHAT_MESSAGE_COMPONENT_ID,
+} from '../components/builtin/wechatMessage';
 
 /** 获取或启动微信并提供稳定 AppSession 的节点。 */
 export const WECHAT_APPLICATION_NODE_ID = 'wechat_application_1';
@@ -73,215 +74,159 @@ export const DEFAULT_WORKFLOW_PERMISSIONS = {
 /** 默认选中应用节点，便于先核对 EXE 和窗口匹配条件。 */
 export const DEFAULT_SELECTED_NODE_ID = WECHAT_APPLICATION_NODE_ID;
 
-/** 默认微信流程按“准备、搜索、定位、发送、确认”串联完整闭环。 */
-export const DEFAULT_NODES = [
-  {
-    id: 'start_1',
-    kind: 'start',
-    position: { x: 28, y: 104 },
-    size: { ...WORKFLOW_NODE_SIZES.start },
-    data: { kind: 'start', label: '开始', outputBindings: {}, runState: 'idle' },
-  },
-  {
-    id: WECHAT_APPLICATION_NODE_ID,
-    kind: 'application',
-    position: { x: 188, y: 104 },
-    size: { ...WORKFLOW_NODE_SIZES.application },
-    data: {
-      kind: 'application',
-      label: '打开微信',
-      outputBindings: {},
-      spec: {
-        executable_path: 'C:\\Program Files\\Tencent\\Weixin\\Weixin.exe',
-        arguments: [],
-        window_title: { type: 'equal', value: '微信' },
-        acquire_policy: 'attach_or_start',
-        launch_timeout_ms: 15_000,
-        cleanup_policy: 'leave_running',
-        activation_policy: 'required',
-      },
-      runState: 'idle',
-    },
-  },
-  createUiNode(
-    WECHAT_OPEN_SEARCH_NODE_ID,
-    '打开搜索',
-    { x: 402, y: 104 },
-    createWechatPressKeyOperation(
-      WECHAT_APPLICATION_NODE_ID,
-      { type: 'character', value: 'f' },
-      ['control'],
-    ),
-  ),
-  createVisualGetTextNode(
-    WECHAT_VERIFY_SEARCH_NODE_ID,
-    '确认搜索界面',
-    { x: 610, y: 104 },
-    literalText('搜索'),
-    false,
-    WECHAT_SEARCH_RESULTS_REGION,
-  ),
-  createUiNode(
-    WECHAT_SELECT_SEARCH_TEXT_NODE_ID,
-    '选中搜索文字',
-    { x: 788, y: 104 },
-    createWechatPressKeyOperation(
-      WECHAT_APPLICATION_NODE_ID,
-      { type: 'character', value: 'a' },
-      ['control'],
-    ),
-  ),
-  createUiNode(
-    WECHAT_TYPE_GROUP_NAME_NODE_ID,
-    '输入群名称',
-    { x: 1002, y: 104 },
-    createWechatTypeTextOperation(WECHAT_APPLICATION_NODE_ID, 'group_name'),
-  ),
-  createVisualGetTextNode(
-    'wechat_find_group_1',
-    '确认群搜索结果',
-    { x: 1002, y: 220 },
-    workflowInputText('group_name'),
-    true,
-    WECHAT_SEARCH_RESULTS_REGION,
-  ),
-  createUiNode(
-    WECHAT_CLICK_GROUP_NODE_ID,
-    '打开群聊',
-    { x: 788, y: 220 },
-    createWechatVisualClickOperation(
-      WECHAT_APPLICATION_NODE_ID,
-      workflowInputText('group_name'),
-      true,
-      WECHAT_SEARCH_RESULTS_REGION,
-    ),
-    createWechatVisualExecutionPolicy(),
-  ),
-  createVisualGetTextNode(
-    'wechat_verify_header_1',
-    '确认群聊标题',
-    { x: 610, y: 220 },
-    workflowInputText('group_name'),
-    true,
-    WECHAT_HEADER_REGION,
-  ),
-  createUiNode(
-    WECHAT_TYPE_MESSAGE_NODE_ID,
-    '输入测试消息',
-    { x: 402, y: 220 },
-    createWechatTypeTextOperation(WECHAT_APPLICATION_NODE_ID, 'message'),
-  ),
-  createUiNode(
-    WECHAT_SEND_MESSAGE_NODE_ID,
-    '发送消息',
-    { x: 188, y: 220 },
-    createWechatPressKeyOperation(WECHAT_APPLICATION_NODE_ID, { type: 'enter' }, []),
-  ),
-  createVisualGetTextNode(
-    'wechat_verify_message_1',
-    '确认消息已发送',
-    { x: 28, y: 336 },
-    workflowInputText('message'),
-    true,
-    WECHAT_MESSAGE_REGION,
-  ),
-  {
-    id: 'end_1',
-    kind: 'end',
-    position: { x: 240, y: 336 },
-    size: { ...WORKFLOW_NODE_SIZES.end },
-    data: { kind: 'end', label: '结束', outputBindings: {}, runState: 'idle' },
-  },
-] as const satisfies ReadonlyArray<WorkflowCanvasNode>;
+/** 默认模板直接由 canonical 微信组件图展开，避免维护第二套节点拓扑。 */
+export const DEFAULT_NODES = createDefaultWechatNodes();
 
-/** 默认模板的边按视觉验证门逐段串联，删除固定等待节点。 */
-export const DEFAULT_EDGES = [
-  createDefaultEdge('edge_start_application', 'start_1', WECHAT_APPLICATION_NODE_ID),
-  createDefaultEdge('edge_application_search', WECHAT_APPLICATION_NODE_ID, WECHAT_OPEN_SEARCH_NODE_ID),
-  createDefaultEdge('edge_search_ready', WECHAT_OPEN_SEARCH_NODE_ID, WECHAT_VERIFY_SEARCH_NODE_ID),
-  createDefaultEdge('edge_ready_select', WECHAT_VERIFY_SEARCH_NODE_ID, WECHAT_SELECT_SEARCH_TEXT_NODE_ID),
-  createDefaultEdge('edge_select_group_name', WECHAT_SELECT_SEARCH_TEXT_NODE_ID, WECHAT_TYPE_GROUP_NAME_NODE_ID),
-  createDefaultEdge(
-    'edge_group_name_find',
-    WECHAT_TYPE_GROUP_NAME_NODE_ID,
-    'wechat_find_group_1',
-    'bottom',
-    'top',
-  ),
-  createDefaultEdge('edge_find_click', 'wechat_find_group_1', WECHAT_CLICK_GROUP_NODE_ID, 'left'),
-  createDefaultEdge('edge_click_header', WECHAT_CLICK_GROUP_NODE_ID, 'wechat_verify_header_1', 'left'),
-  createDefaultEdge('edge_header_message', 'wechat_verify_header_1', WECHAT_TYPE_MESSAGE_NODE_ID, 'left'),
-  createDefaultEdge('edge_message_send', WECHAT_TYPE_MESSAGE_NODE_ID, WECHAT_SEND_MESSAGE_NODE_ID, 'left'),
-  createDefaultEdge(
-    'edge_send_verify',
-    WECHAT_SEND_MESSAGE_NODE_ID,
-    'wechat_verify_message_1',
-    'bottom',
-    'top',
-  ),
-  createDefaultEdge('edge_verify_end', 'wechat_verify_message_1', 'end_1', 'right', 'left'),
-] as const satisfies ReadonlyArray<WorkflowCanvasEdge>;
+/** 默认模板的边由 canonical 微信组件图转换，并保留画布端口布局。 */
+export const DEFAULT_EDGES = createDefaultWechatEdges();
 
-type UiNodeOperation = Extract<WorkflowCanvasNode['data'], { kind: 'ui' }>['operation'];
+/** 把 canonical 组件节点转换成主画布节点，转换只负责展示布局和类型适配。 */
+function createDefaultWechatNodes(): ReadonlyArray<WorkflowCanvasNode> {
+  const definition = createWechatMessageDefinition();
+  return definition.nodes.map((node) => {
+    const id = canvasNodeId(node.id);
+    const position = canvasPosition(node.id);
+    const outputBindings = node.output_bindings;
+    if (node.type_id === 'argus.start') {
+      return {
+        id,
+        kind: 'start',
+        position,
+        size: { ...WORKFLOW_NODE_SIZES.start },
+        data: { kind: 'start', label: '开始', outputBindings, runState: 'idle' },
+      };
+    }
+    if (node.type_id === 'argus.end') {
+      return {
+        id,
+        kind: 'end',
+        position,
+        size: { ...WORKFLOW_NODE_SIZES.end },
+        data: { kind: 'end', label: '结束', outputBindings, runState: 'idle' },
+      };
+    }
+    if (node.type_id === 'argus.application') {
+      const payload = asObject(node.payload);
+      return {
+        id,
+        kind: 'application',
+        position,
+        size: { ...WORKFLOW_NODE_SIZES.application },
+        data: {
+          kind: 'application',
+          label: '打开微信',
+          outputBindings,
+          spec: asApplicationSpec(payload.spec),
+          runState: 'idle',
+        },
+      };
+    }
+    if (node.type_id === 'argus.ui') {
+      const payload = asObject(node.payload);
+      return {
+        id,
+        kind: 'ui',
+        position,
+        size: { ...WORKFLOW_NODE_SIZES.ui },
+        data: {
+          kind: 'ui',
+          label: canvasNodeLabel(node.id),
+          outputBindings,
+          operation: asUiOperation(rewriteNodeReferences(payload.operation)),
+          execution: asUiExecutionPolicy(payload.execution),
+          runState: 'idle',
+        },
+      };
+    }
+    return unreachableCanonicalNode(node.type_id);
+  });
+}
 
-/** 创建一个使用共享 UI operation helper 的画布 UI 节点。 */
-function createUiNode(
-  id: string,
-  label: string,
-  position: WorkflowCanvasNode['position'],
-  operation: UiNodeOperation,
-  execution: UiExecutionPolicy = createWechatInputExecutionPolicy(),
-): WorkflowCanvasNode {
-  return {
-    id,
-    kind: 'ui',
-    position,
-    size: { ...WORKFLOW_NODE_SIZES.ui },
-    data: {
-      kind: 'ui',
-      label,
-      outputBindings: {},
-      operation,
-      execution,
-      runState: 'idle',
-    },
+/** 把 canonical 组件边转换为主画布边，并保持默认示例的可读路由方向。 */
+function createDefaultWechatEdges(): ReadonlyArray<WorkflowCanvasEdge> {
+  const definition = createWechatMessageDefinition();
+  return definition.edges.map((edge) => {
+    const source = canvasNodeId(edge.source);
+    const target = canvasNodeId(edge.target);
+    const port = defaultPortFor(edge.source, edge.target);
+    return createDefaultEdge(port.id, source, target, port.sourceSide, port.targetSide);
+  });
+}
+
+/** 画布节点 ID 映射；组件内部 ID 保持独立，主画布 ID 保留现有稳定名称。 */
+function canvasNodeId(nodeId: string): string {
+  if (nodeId === 'entry') return 'start_1';
+  if (nodeId === 'exit') return 'end_1';
+  return `${nodeId.startsWith('wechat_') ? nodeId : `wechat_${nodeId}`}_1`;
+}
+
+/** 默认示例使用的紧凑二维布局，拓扑本身不在这里定义。 */
+function canvasPosition(nodeId: string): { x: number; y: number } {
+  const positions: Readonly<Record<string, { x: number; y: number }>> = {
+    entry: { x: 28, y: 104 },
+    wechat_application: { x: 188, y: 104 },
+    open_search: { x: 402, y: 104 },
+    verify_search: { x: 610, y: 104 },
+    select_search: { x: 788, y: 104 },
+    type_group: { x: 1002, y: 104 },
+    find_group: { x: 1002, y: 220 },
+    click_group: { x: 788, y: 220 },
+    verify_header: { x: 610, y: 220 },
+    type_message: { x: 402, y: 220 },
+    send_message: { x: 188, y: 220 },
+    verify_message: { x: 28, y: 336 },
+    exit: { x: 240, y: 336 },
   };
+  return positions[nodeId] ?? { x: 28, y: 104 };
 }
 
-/** 创建视觉读取节点，输出文本事实供校验与后续调试使用。 */
-function createVisualGetTextNode(
-  id: string,
-  label: string,
-  position: WorkflowCanvasNode['position'],
-  text: ValueExpr,
-  exact: boolean,
-  region: NormalizedRect,
-): WorkflowCanvasNode {
-  return createUiNode(
-    id,
-    label,
-    position,
-    createWechatVisualGetTextOperation(
-      WECHAT_APPLICATION_NODE_ID,
-      text,
-      exact,
-      region,
-    ),
-    createWechatVisualExecutionPolicy(),
-  );
+/** canonical 节点在主画布上的用户可读标题。 */
+function canvasNodeLabel(nodeId: string): string {
+  const labels: Readonly<Record<string, string>> = {
+    open_search: '打开搜索',
+    verify_search: '确认搜索界面',
+    select_search: '选中搜索文字',
+    type_group: '输入群名称',
+    find_group: '确认群搜索结果',
+    click_group: '打开群聊',
+    verify_header: '确认群聊标题',
+    type_message: '输入测试消息',
+    send_message: '发送消息',
+    verify_message: '确认消息已发送',
+  };
+  return labels[nodeId] ?? nodeId;
 }
 
-/** 创建字符串字面量值表达式。 */
-function literalText(value: string): ValueExpr {
-  return { type: 'literal', value };
-}
+/** 默认画布的稳定边 ID 与端口方向映射。 */
+type DefaultPort = {
+  id: string;
+  sourceSide: WorkflowCanvasEdge['source']['side'];
+  targetSide: WorkflowCanvasEdge['target']['side'];
+};
 
-/** 创建读取本次运行输入的字符串表达式。 */
-function workflowInputText(key: 'group_name' | 'message'): ValueExpr {
-  return {
-    type: 'ref',
-    source: { type: 'workflow_input', key },
-    pointer: '',
+function defaultPortFor(
+  source: string,
+  target: string,
+): DefaultPort {
+  const key = `${source}:${target}`;
+  const ports: Readonly<Record<string, DefaultPort>> = {
+    'entry:wechat_application': { id: 'edge_start_application', sourceSide: 'right', targetSide: 'left' },
+    'wechat_application:open_search': { id: 'edge_application_search', sourceSide: 'right', targetSide: 'left' },
+    'open_search:verify_search': { id: 'edge_search_ready', sourceSide: 'right', targetSide: 'left' },
+    'verify_search:select_search': { id: 'edge_ready_select', sourceSide: 'right', targetSide: 'left' },
+    'select_search:type_group': { id: 'edge_select_group_name', sourceSide: 'right', targetSide: 'left' },
+    'type_group:find_group': { id: 'edge_group_name_find', sourceSide: 'bottom', targetSide: 'top' },
+    'find_group:click_group': { id: 'edge_find_click', sourceSide: 'left', targetSide: 'right' },
+    'click_group:verify_header': { id: 'edge_click_header', sourceSide: 'left', targetSide: 'right' },
+    'verify_header:type_message': { id: 'edge_header_message', sourceSide: 'left', targetSide: 'right' },
+    'type_message:send_message': { id: 'edge_message_send', sourceSide: 'left', targetSide: 'right' },
+    'send_message:verify_message': { id: 'edge_send_verify', sourceSide: 'bottom', targetSide: 'top' },
+    'verify_message:exit': { id: 'edge_verify_end', sourceSide: 'right', targetSide: 'left' },
+  };
+  return ports[key] ?? {
+    id: `edge_${source}_${target}`,
+    sourceSide: 'right',
+    targetSide: 'left',
   };
 }
 
@@ -290,13 +235,73 @@ function createDefaultEdge(
   id: string,
   sourceNodeId: string,
   targetNodeId: string,
-  sourceSide: WorkflowCanvasEdge['source']['side'] = 'right',
-  targetSide: WorkflowCanvasEdge['target']['side'] = 'left',
+  sourceSide: WorkflowCanvasEdge['source']['side'],
+  targetSide: WorkflowCanvasEdge['target']['side'],
 ): WorkflowCanvasEdge {
   return {
     id,
     source: { nodeId: sourceNodeId, side: sourceSide },
     target: { nodeId: targetNodeId, side: targetSide },
     data: { branch: null },
+  };
+}
+
+/** 递归改写组件实例化后资源引用，保持操作字段仍然是强类型 JSON。 */
+function rewriteNodeReferences(value: JsonValue): JsonValue {
+  if (typeof value === 'string') {
+    return value === 'wechat_application' ? WECHAT_APPLICATION_NODE_ID : value;
+  }
+  if (Array.isArray(value)) return value.map(rewriteNodeReferences);
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, rewriteNodeReferences(item)]),
+    );
+  }
+  return value;
+}
+
+/** 从 canonical JSON payload 建立对象边界；不把未定义 payload 传播到画布。 */
+function asObject(value: JsonValue | undefined): JsonObject {
+  if (value !== null && typeof value === 'object' && !Array.isArray(value)) return value;
+  throw new Error(`canonical WeChat payload is not an object: ${WECHAT_MESSAGE_COMPONENT_ID}`);
+}
+
+/** 将 canonical application payload 收窄到应用资源模型。 */
+function asApplicationSpec(value: JsonValue | undefined): ApplicationSpec {
+  return asObject(value) as unknown as ApplicationSpec;
+}
+
+/** 将 canonical UI payload 收窄到 UI 操作模型。 */
+function asUiOperation(value: JsonValue): UiOperation {
+  return value as unknown as UiOperation;
+}
+
+/** 将 canonical UI payload 收窄到执行策略模型。 */
+function asUiExecutionPolicy(value: JsonValue | undefined): UiExecutionPolicy {
+  return asObject(value) as unknown as UiExecutionPolicy;
+}
+
+/** canonical factory 发生未预期类型时中止初始化，避免静默生成错误工作流。 */
+function unreachableCanonicalNode(typeId: string): never {
+  throw new Error(`unsupported canonical WeChat node type: ${typeId}`);
+}
+
+/** 保留模板测试和输入面板需要的区域常量导出引用。 */
+export const DEFAULT_WECHAT_REGIONS: Readonly<{
+  searchResults: NormalizedRect;
+  header: NormalizedRect;
+  message: NormalizedRect;
+}> = {
+  searchResults: WECHAT_SEARCH_RESULTS_REGION,
+  header: WECHAT_HEADER_REGION,
+  message: WECHAT_MESSAGE_REGION,
+};
+
+/** 创建从流程输入读取字符串的表达式，供外部模板扩展复用。 */
+export function workflowInputText(key: 'group_name' | 'message'): ValueExpr {
+  return {
+    type: 'ref',
+    source: { type: 'workflow_input', key },
+    pointer: '',
   };
 }

@@ -493,6 +493,8 @@ fn evidence_trigger(error: &AutomationError) -> Option<EvidenceTrigger> {
         AutomationError::AmbiguousTarget { .. } => Some(EvidenceTrigger::AmbiguousTarget),
         AutomationError::ActionUnsupported { .. } => Some(EvidenceTrigger::ActionUnsupported),
         AutomationError::BackendUnavailable { .. } => Some(EvidenceTrigger::BackendUnavailable),
-        AutomationError::NoBackendAvailable | AutomationError::BackendFailed { .. } => None,
+        AutomationError::NoBackendAvailable
+        | AutomationError::BackendFailed { .. }
+        | AutomationError::OutcomeUnknown { .. } => None,
     }
 }

@@ -5,10 +5,13 @@ use argusflow_core::{AutomationError, BackendKind};
 mod device;
 mod dpi;
 mod error;
+mod readback;
 mod topology;
 mod wgc;
 
-pub use topology::{WindowRole, WindowTopology, WindowTopologyEntry, WindowTopologyTracker};
+pub use topology::{
+    CaptureSurfaceMode, WindowRole, WindowTopology, WindowTopologyEntry, WindowTopologyTracker,
+};
 pub use wgc::WindowsGraphicsCapture;
 
 #[derive(Debug, Default)]

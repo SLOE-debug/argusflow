@@ -81,6 +81,7 @@ export function createWechatVisualTarget(
 export function createWechatVisualExecutionPolicy(): UiExecutionPolicy {
   return {
     target_wait: { mode: 'bounded', timeout_ms: 5_000, poll_interval_ms: 300 },
+    postcondition: null,
   };
 }
 
@@ -88,6 +89,26 @@ export function createWechatVisualExecutionPolicy(): UiExecutionPolicy {
 export function createWechatInputExecutionPolicy(): UiExecutionPolicy {
   return {
     target_wait: { mode: 'none', timeout_ms: 0, poll_interval_ms: 0 },
+    postcondition: null,
+  };
+}
+
+/** 发送消息使用视觉 scene delta 验证新增事实，拒绝重复历史文本误报。 */
+export function createWechatSendMessageExecutionPolicy(): UiExecutionPolicy {
+  return {
+    target_wait: { mode: 'none', timeout_ms: 0, poll_interval_ms: 0 },
+    postcondition: {
+      type: 'new_text',
+      query: {
+        text: {
+          type: 'ref',
+          source: { type: 'workflow_input', key: 'message' },
+          pointer: '',
+        },
+        exact: true,
+        region: WECHAT_MESSAGE_REGION,
+      },
+    },
   };
 }
 

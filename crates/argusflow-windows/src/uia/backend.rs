@@ -62,7 +62,6 @@ impl ActionBackend for UiaBackend {
                     }),
             ),
             TargetLocator::Visual { .. }
-            | TargetLocator::VisualResolved { .. }
             | TargetLocator::Coordinate { .. }
             | TargetLocator::Focused => {
                 return Err(PlanRejection::Unsupported {

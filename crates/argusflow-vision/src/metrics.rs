@@ -10,6 +10,8 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
+use crate::refresh::RefreshPlan;
+
 /// VisionRuntime 的无锁计数器集合。
 #[derive(Debug, Default)]
 pub struct VisionMetrics {
@@ -47,6 +49,20 @@ pub struct VisionMetrics {
     scene_query_latency_ms: AtomicU64,
     /// 观测到的 worker 最大排队深度。
     max_worker_queue_depth: AtomicU64,
+    /// 刷新计划选择为完整 OCR 的次数。
+    full_refreshes: AtomicU64,
+    /// 刷新计划选择为局部 OCR 的次数。
+    partial_refreshes: AtomicU64,
+    /// 刷新计划选择为只读 cache 的次数。
+    cache_only_queries: AtomicU64,
+    /// dirty ROI 的累计物理像素数量。
+    dirty_pixels: AtomicU64,
+    /// 调用方查询 ROI 的累计物理像素数量。
+    query_pixels: AtomicU64,
+    /// 局部或完整 scene 中估算为复用的节点数。
+    reused_nodes: AtomicU64,
+    /// 局部或完整 scene 中估算为重新识别的节点数。
+    refreshed_nodes: AtomicU64,
 }
 
 impl VisionMetrics {
@@ -99,6 +115,39 @@ impl VisionMetrics {
     /// 记录一次 scene query。
     pub fn record_scene_query(&self) {
         self.scene_queries.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// 记录刷新规划结果，确保 cache-only、partial、full 三条路径可观测。
+    pub fn record_refresh_plan(&self, plan: &RefreshPlan) {
+        match plan {
+            RefreshPlan::CacheOnly { .. } => {
+                self.cache_only_queries.fetch_add(1, Ordering::Relaxed);
+            }
+            RefreshPlan::Partial { .. } => {
+                self.partial_refreshes.fetch_add(1, Ordering::Relaxed);
+            }
+            RefreshPlan::Full { .. } => {
+                self.full_refreshes.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
+
+    /// 记录一次调用方查询的物理像素规模。
+    pub fn record_query_pixels(&self, pixels: u64) {
+        self.query_pixels.fetch_add(pixels, Ordering::Relaxed);
+    }
+
+    /// 记录差分标记覆盖的物理像素规模。
+    pub fn record_dirty_pixels(&self, pixels: u64) {
+        self.dirty_pixels.fetch_add(pixels, Ordering::Relaxed);
+    }
+
+    /// 记录 scene merge 后保留和刷新节点的估算数量。
+    pub fn record_node_merge(&self, reused: usize, refreshed: usize) {
+        self.reused_nodes
+            .fetch_add(reused as u64, Ordering::Relaxed);
+        self.refreshed_nodes
+            .fetch_add(refreshed as u64, Ordering::Relaxed);
     }
 
     /// 记录一份差分结果；原子整数避免在共享指标中直接存储浮点值。
@@ -172,6 +221,13 @@ impl VisionMetrics {
             scene_merge_latency_ms: self.scene_merge_latency_ms.load(Ordering::Relaxed),
             scene_query_latency_ms: self.scene_query_latency_ms.load(Ordering::Relaxed),
             max_worker_queue_depth: self.max_worker_queue_depth.load(Ordering::Relaxed),
+            full_refreshes: self.full_refreshes.load(Ordering::Relaxed),
+            partial_refreshes: self.partial_refreshes.load(Ordering::Relaxed),
+            cache_only_queries: self.cache_only_queries.load(Ordering::Relaxed),
+            dirty_pixels: self.dirty_pixels.load(Ordering::Relaxed),
+            query_pixels: self.query_pixels.load(Ordering::Relaxed),
+            reused_nodes: self.reused_nodes.load(Ordering::Relaxed),
+            refreshed_nodes: self.refreshed_nodes.load(Ordering::Relaxed),
         }
     }
 }
@@ -216,6 +272,20 @@ pub struct VisionMetricsSnapshot {
     pub scene_query_latency_ms: u64,
     /// 观测到的 worker 最大排队深度。
     pub max_worker_queue_depth: u64,
+    /// 刷新计划选择为完整 OCR 的次数。
+    pub full_refreshes: u64,
+    /// 刷新计划选择为局部 OCR 的次数。
+    pub partial_refreshes: u64,
+    /// 刷新计划选择为只读 cache 的次数。
+    pub cache_only_queries: u64,
+    /// dirty ROI 的累计物理像素数量。
+    pub dirty_pixels: u64,
+    /// 调用方查询 ROI 的累计物理像素数量。
+    pub query_pixels: u64,
+    /// scene merge 中估算复用的节点数。
+    pub reused_nodes: u64,
+    /// scene merge 中估算重新识别的节点数。
+    pub refreshed_nodes: u64,
 }
 
 impl VisionMetricsSnapshot {

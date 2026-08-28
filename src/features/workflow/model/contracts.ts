@@ -1,6 +1,12 @@
 import type { ExecutionComponentFrame } from '../components/reusableFlowContracts';
 import type { KeyChord } from './inputContracts';
 import type { VisualQueryExpr } from './visual';
+export type {
+  TargetWaitMode,
+  TargetWaitPolicy,
+  UiExecutionPolicy,
+  UiPostcondition,
+} from './uiExecutionContracts';
 /** 可在前后端无损传递的 JSON 值。 */
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 export type JsonObject = { [key: string]: JsonValue };
@@ -78,21 +84,6 @@ export type FieldProjection = Readonly<{
 
 /** UI 节点允许选择的强类型操作类别。 */
 export type UiOperationKind = UiOperation['type'];
-
-/** 当前 UI 节点自己的目标就绪等待模式。 */
-export type TargetWaitMode = 'none' | 'bounded';
-
-/** 只对当前 operation 的 `TargetNotFound` 生效的等待预算。 */
-export type TargetWaitPolicy = Readonly<{
-  mode: TargetWaitMode;
-  timeout_ms: number;
-  poll_interval_ms: number;
-}>;
-
-/** UI 节点与动作语义分离的执行策略。 */
-export type UiExecutionPolicy = Readonly<{
-  target_wait: TargetWaitPolicy;
-}>;
 
 /** AQL 语义与执行后端选择分离的动作目标。 */
 export type AutomationTarget = {

@@ -41,7 +41,6 @@ fn inspect_with_router(state: &AppState, target: AutomationTarget) -> AqlInspect
     let query = match &target.locator {
         TargetLocator::Query { query } => query,
         TargetLocator::Visual { .. }
-        | TargetLocator::VisualResolved { .. }
         | TargetLocator::Coordinate { .. }
         | TargetLocator::Focused => {
             return AqlInspection::Invalid {

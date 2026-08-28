@@ -14,7 +14,7 @@ use crate::{
 };
 
 use super::{
-    client::{read_framed_json, write_framed_json},
+    client::{read_framed_message, write_framed_message},
     protocol::{
         VISION_PROTOCOL_VERSION, WorkerCommand, WorkerHealth, WorkerOcrRequest,
         WorkerProtocolEnvelope, WorkerResponse,
@@ -59,7 +59,14 @@ impl NamedPipeOcrEngine {
             session_token: self.session_token.clone(),
             payload: WorkerCommand::Health,
         };
-        let response = self.round_trip(envelope, Duration::from_secs(3)).await?;
+        let (response, body) = self
+            .round_trip(envelope, &[], Duration::from_secs(3))
+            .await?;
+        if !body.is_empty() {
+            return Err(VisionError::Protocol {
+                message: "worker health response unexpectedly contained a binary body".to_owned(),
+            });
+        }
         match response.payload {
             WorkerResponse::Health { health } => Ok(health),
             WorkerResponse::Recognize { .. } => Err(VisionError::Protocol {
@@ -89,8 +96,9 @@ impl NamedPipeOcrEngine {
     async fn round_trip(
         &self,
         envelope: WorkerProtocolEnvelope<WorkerCommand>,
+        body: &[u8],
         timeout: Duration,
-    ) -> Result<WorkerProtocolEnvelope<WorkerResponse>, VisionError> {
+    ) -> Result<(WorkerProtocolEnvelope<WorkerResponse>, Vec<u8>), VisionError> {
         let mut connection = self.connection.lock().await;
         if connection.is_none() {
             let client = ClientOptions::new()
@@ -108,10 +116,10 @@ impl NamedPipeOcrEngine {
                 message: "vision worker pipe connection was not installed".to_owned(),
             })?;
         let exchange = async {
-            write_framed_json(client, &envelope).await?;
-            read_framed_json(client).await
+            write_framed_message(client, &envelope, body).await?;
+            read_framed_message(client).await
         };
-        let response: WorkerProtocolEnvelope<WorkerResponse> =
+        let (response, response_body): (WorkerProtocolEnvelope<WorkerResponse>, Vec<u8>) =
             match tokio::time::timeout(timeout, exchange).await {
                 Ok(Ok(response)) => response,
                 Ok(Err(error)) => {
@@ -146,6 +154,25 @@ impl NamedPipeOcrEngine {
             self.mark_failed(error.to_string());
             return Err(error);
         }
+        if !response_body.is_empty() {
+            *connection = None;
+            let error = VisionError::Protocol {
+                message: "worker response must not contain a binary body".to_owned(),
+            };
+            self.mark_failed(error.to_string());
+            return Err(error);
+        }
+        if let WorkerResponse::Recognize {
+            error: Some(worker_error),
+            ..
+        } = &response.payload
+            && worker_error.code == "deadline_exceeded"
+        {
+            // 超时后的同步 Paddle 推理进程会被 worker 主动终止；在返回 FrameTimeout 前先
+            // 清除连接和 health，避免下一次 Planner 误以为旧 worker 仍可用。
+            *connection = None;
+            self.mark_failed("worker terminated after OCR deadline exceeded");
+        }
         if let WorkerResponse::Health { ref health } = response.payload {
             let mut current = self
                 .health
@@ -153,7 +180,7 @@ impl NamedPipeOcrEngine {
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             *current = health.clone();
         }
-        Ok(response)
+        Ok((response, response_body))
     }
 }
 
@@ -164,7 +191,7 @@ impl OcrEngine for NamedPipeOcrEngine {
     }
 
     async fn recognize(&self, request: OcrRequest) -> Result<OcrResponse, VisionError> {
-        let wire_request = WorkerOcrRequest::from_request(&request)?;
+        let (wire_request, body) = WorkerOcrRequest::from_request(&request)?;
         let envelope = WorkerProtocolEnvelope {
             protocol_version: VISION_PROTOCOL_VERSION.to_owned(),
             request_id: wire_request.request_id.clone(),
@@ -173,7 +200,12 @@ impl OcrEngine for NamedPipeOcrEngine {
                 request: wire_request,
             },
         };
-        let response = self.round_trip(envelope, request.deadline).await?;
+        let (response, response_body) = self.round_trip(envelope, &body, request.deadline).await?;
+        if !response_body.is_empty() {
+            return Err(VisionError::Protocol {
+                message: "worker OCR response unexpectedly contained a binary body".to_owned(),
+            });
+        }
         match response.payload {
             WorkerResponse::Recognize {
                 response: Some(response),
@@ -194,6 +226,10 @@ impl OcrEngine for NamedPipeOcrEngine {
                 if error.code == "cancelled" {
                     Err(VisionError::OcrCancelled {
                         reason: error.message,
+                    })
+                } else if error.code == "deadline_exceeded" {
+                    Err(VisionError::FrameTimeout {
+                        timeout_ms: request.deadline.as_millis().min(u128::from(u64::MAX)) as u64,
                     })
                 } else {
                     Err(VisionError::OcrFailed {

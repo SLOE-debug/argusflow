@@ -28,6 +28,14 @@ pub enum WindowRole {
     SameProcessTopLevel,
 }
 
+/// 当前 Windows capture 实际交付给 VisionRuntime 的 surface 范围。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CaptureSurfaceMode {
+    /// 只捕获 AppSession 的 primary HWND；其它条目只用于拓扑失效检测。
+    PrimaryOnly,
+}
+
 /// 拓扑中的一个窗口条目。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WindowTopologyEntry {
@@ -44,9 +52,11 @@ pub struct WindowTopologyEntry {
 pub struct WindowTopology {
     /// 主窗口身份。
     pub primary: WindowIdentity,
+    /// 当前捕获实现真实承诺的 surface 范围。
+    pub surface_mode: CaptureSurfaceMode,
     /// 当前拓扑代数。
     pub generation: TopologyGeneration,
-    /// 同进程可见顶层窗口及 owned popup。
+    /// 同进程可见顶层窗口及 owned popup；这些条目不会自动加入 capture surface set。
     pub windows: Vec<WindowTopologyEntry>,
 }
 
@@ -117,6 +127,7 @@ impl WindowTopologyTracker {
         }
         Ok(WindowTopology {
             primary,
+            surface_mode: CaptureSurfaceMode::PrimaryOnly,
             generation: TopologyGeneration::new(self.generation),
             windows: search.entries,
         })

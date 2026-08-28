@@ -3,9 +3,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::{
-    AqlQuery, CapabilitySet, KeyChord, ResourceRef, ValueExpr, VisualQuery, VisualQueryExpr,
-};
+use crate::{AqlQuery, CapabilitySet, KeyChord, ResourceRef, ValueExpr};
 
 /// Extract 操作返回单个目标还是目标集合。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -46,77 +44,6 @@ pub struct FieldProjection {
     pub name: String,
     /// 从每个命中目标读取字段值的语义来源。
     pub source: FieldProjectionSource,
-}
-
-/// UI 节点为了满足当前动作前置条件而采用的目标等待模式。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TargetWaitMode {
-    /// 只执行一次冻结计划，目标未出现时立即返回失败。
-    None,
-    /// 在一个共享截止时间内重复执行同一冻结计划。
-    Bounded,
-}
-
-/// 节点级目标就绪等待策略。
-///
-/// 该策略描述动作的执行预算，不属于 `AutomationTarget` 的定位语义。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TargetWaitPolicy {
-    /// 是否允许在目标暂时不存在时继续等待。
-    pub mode: TargetWaitMode,
-    /// `Bounded` 模式下整份 PreparedPlan 共享的总等待时长。
-    pub timeout_ms: u64,
-    /// 两次完整 PreparedPlan 尝试之间的轮询间隔。
-    pub poll_interval_ms: u64,
-}
-
-impl TargetWaitPolicy {
-    /// 创建不进行目标等待的单次执行策略。
-    pub const fn none() -> Self {
-        Self {
-            mode: TargetWaitMode::None,
-            timeout_ms: 0,
-            poll_interval_ms: 0,
-        }
-    }
-
-    /// 创建使用显式毫秒预算的有界等待策略。
-    pub const fn bounded(timeout_ms: u64, poll_interval_ms: u64) -> Self {
-        Self {
-            mode: TargetWaitMode::Bounded,
-            timeout_ms,
-            poll_interval_ms,
-        }
-    }
-}
-
-impl Default for TargetWaitPolicy {
-    fn default() -> Self {
-        Self::none()
-    }
-}
-
-/// UI 节点除动作语义以外的执行策略。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct UiExecutionPolicy {
-    /// 等待当前 operation 自身目标满足动作要求的策略。
-    pub target_wait: TargetWaitPolicy,
-}
-
-impl Default for UiExecutionPolicy {
-    fn default() -> Self {
-        Self {
-            target_wait: TargetWaitPolicy::none(),
-        }
-    }
-}
-
-/// Runtime 传给动作分发器的节点级执行选项。
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct ActionExecutionOptions {
-    /// 只对 `TargetNotFound` 生效的统一目标等待策略。
-    pub target_wait: TargetWaitPolicy,
 }
 
 /// Workflow 层保存的语义界面操作。
@@ -331,13 +258,6 @@ pub enum TargetLocator {
     Visual {
         /// 视觉后端使用的查询条件。
         query: VisualQueryExpr,
-    },
-    /// Runtime 已解析文字表达式、准备交给视觉后端或物理输入后端的查询。
-    ///
-    /// 该变体只存在于一次动作执行的内存契约中，不应由编辑器持久化。
-    VisualResolved {
-        /// 已冻结的视觉查询条件。
-        query: VisualQuery,
     },
     /// 直接使用屏幕物理像素坐标定位目标。
     Coordinate {

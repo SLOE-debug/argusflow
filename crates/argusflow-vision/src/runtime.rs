@@ -18,12 +18,13 @@ use crate::{
     frame::{PhysicalRect, TopologyGeneration},
     image::CapturedFrame,
     metrics::VisionMetrics,
-    ocr::{OcrEngine, OcrProfile, OcrRequest},
+    ocr::{OcrProfile, OcrRequest},
     projection::ProjectionOptions,
+    refresh::{RefreshPlan, choose_refresh_plan},
     region::normalized_region_to_physical,
     scene::{CacheLookup, SceneBuildOptions, VisualScene, VisualSceneBuilder, VisualSceneCache},
     source::{CapturePolicy, FrameSubscription, WindowFrameSource},
-    stability::{StabilityConfig, StableFrameGate, TemporalNoiseMask},
+    stability::{StabilityConfig, StableFrameGate},
     worker::{VisionWorkerClient, WorkerHealth},
 };
 
@@ -115,16 +116,10 @@ pub struct VisionRuntime {
     capture: Arc<dyn WindowFrameSource>,
     /// 共享的 Python/Named Pipe worker client。
     worker: Arc<VisionWorkerClient>,
-    /// 最近稳定 VisualScene cache。
-    cache: Arc<VisualSceneCache>,
+    /// 按窗口和捕获策略隔离的短期视觉状态。
+    scopes: crate::scope::ScopeRegistry,
     /// scene builder 的单调 ID 状态。
     scene_builder: Mutex<VisualSceneBuilder>,
-    /// 已打开的窗口订阅。
-    subscriptions: Mutex<Vec<(WindowIdentity, Arc<dyn FrameSubscription>)>>,
-    /// 最近一次稳定帧，用于把新帧差分到 cache 失效。
-    last_stable_frame: Mutex<Option<(WindowIdentity, Arc<CapturedFrame>)>>,
-    /// 跨次刷新调用保留的时序噪声证据。
-    temporal_noise: Mutex<TemporalNoiseMask>,
     /// 运行指标。
     metrics: Arc<VisionMetrics>,
     /// 捕获源健康状态。
@@ -137,11 +132,8 @@ impl VisionRuntime {
         Self {
             capture,
             worker,
-            cache: Arc::new(VisualSceneCache::new()),
+            scopes: crate::scope::ScopeRegistry::new(None),
             scene_builder: Mutex::new(VisualSceneBuilder::new()),
-            subscriptions: Mutex::new(Vec::new()),
-            last_stable_frame: Mutex::new(None),
-            temporal_noise: Mutex::new(TemporalNoiseMask::default()),
             metrics: Arc::new(VisionMetrics::default()),
             // capture source 已由宿主装配；首次 execute 仍会执行真实 HWND/PID 校验。
             capture_ready: AtomicBool::new(true),
@@ -158,20 +150,12 @@ impl VisionRuntime {
         Self {
             capture,
             worker,
-            cache,
+            scopes: crate::scope::ScopeRegistry::new(Some(cache)),
             scene_builder: Mutex::new(VisualSceneBuilder::new()),
-            subscriptions: Mutex::new(Vec::new()),
-            last_stable_frame: Mutex::new(None),
-            temporal_noise: Mutex::new(TemporalNoiseMask::default()),
             metrics,
             // capture source 已由宿主装配；首次 execute 仍会执行真实 HWND/PID 校验。
             capture_ready: AtomicBool::new(true),
         }
-    }
-
-    /// 返回共享 scene cache。
-    pub fn cache(&self) -> Arc<VisualSceneCache> {
-        self.cache.clone()
     }
 
     /// 返回共享 metrics。
@@ -191,18 +175,29 @@ impl VisionRuntime {
 
     /// 返回当前 cache 的只读 scene，供 evidence/inspector 使用。
     pub fn cached_scene(&self) -> Option<Arc<VisualScene>> {
-        self.cache.current()
+        self.scopes
+            .cache_snapshot()
+            .into_iter()
+            .filter_map(|cache| cache.current())
+            .max_by_key(|scene| scene.scene_id)
     }
 
     /// 按窗口和 generation 查询 cache。
     pub fn lookup_cache(&self, window: WindowIdentity, policy: &SceneRefreshPolicy) -> CacheLookup {
+        let cache = self.scopes.cache_for(window, policy.capture).or_else(|| {
+            self.scopes.get_or_create(window, policy.capture);
+            self.scopes.cache_for(window, policy.capture)
+        });
+        let Some(cache) = cache else {
+            return CacheLookup::Miss(crate::scene::CacheMissReason::Empty);
+        };
         let query_region = policy.query_region.or_else(|| {
             policy
                 .normalized_query_region
-                .and_then(|region| self.cache.current())
+                .and_then(|region| cache.current())
                 .and_then(|scene| normalized_region_to_physical(region, scene.viewport))
         });
-        self.cache.lookup(
+        cache.lookup(
             window,
             policy.topology_generation,
             policy.max_age,
@@ -216,20 +211,35 @@ impl VisionRuntime {
         window: WindowIdentity,
         policy: &SceneRefreshPolicy,
     ) -> Result<Arc<VisualScene>, VisionError> {
+        let cache_lookup = self.lookup_cache(window, policy);
         if !policy.force_refresh {
-            if let CacheLookup::Hit(scene) = self.lookup_cache(window, policy) {
+            if let CacheLookup::Hit(scene) = &cache_lookup {
+                let query_region = policy
+                    .query_region
+                    .or_else(|| {
+                        policy.normalized_query_region.and_then(|region| {
+                            normalized_region_to_physical(region, scene.viewport)
+                        })
+                    })
+                    .unwrap_or(scene.viewport);
+                self.metrics.record_query_pixels(query_region.area());
+                self.metrics.record_refresh_plan(&RefreshPlan::CacheOnly {
+                    reason: crate::refresh::RefreshReason::CacheValid,
+                });
                 self.metrics.record_scene_query();
-                return Ok(scene);
+                return Ok(scene.clone());
             }
         }
-        let health = self.health();
-        if !health.worker_ready {
-            return Err(VisionError::WorkerUnavailable {
-                message: health.worker.worker_version,
-            });
-        }
-        let subscription = self.subscription(window, policy.capture).await?;
+        let scope = self.scopes.get_or_create(window, policy.capture);
+        let subscription = match self.subscription(&scope, window, policy.capture).await {
+            Ok(subscription) => subscription,
+            Err(error) => {
+                self.scopes.remove(window, policy.capture);
+                return Err(error);
+            }
+        };
         if subscription.window() != window {
+            self.scopes.remove(window, policy.capture);
             return Err(VisionError::WindowIdentityChanged {
                 expected: window,
                 actual: Some(subscription.window()),
@@ -253,64 +263,137 @@ impl VisionRuntime {
                 reason: "captured frame topology is newer than the prepared policy".to_owned(),
             });
         }
+        let health = self.health();
         self.metrics
             .record_capture(frame.width as u64 * frame.height as u64);
         self.metrics
             .record_worker_queue_depth(health.worker.queue_depth);
-        self.update_cache_invalidation(window, &frame, policy.diff)
+        let dirty = self
+            .update_cache_invalidation(&scope, window, &frame, policy.diff)
             .await?;
+        if let Some(dirty) = &dirty {
+            self.metrics
+                .record_dirty_pixels(dirty.regions.iter().map(|region| region.rect.area()).sum());
+        }
         let query_region = policy.query_region.or_else(|| {
             policy
                 .normalized_query_region
                 .and_then(|region| normalized_region_to_physical(region, frame.bounds()))
         });
-        let roi = query_region.unwrap_or_else(|| frame.bounds());
-        let request = OcrRequest::from_frame(
-            window,
-            frame.frame_id,
-            frame.topology_generation,
-            &frame,
-            roi,
-            policy.ocr.clone(),
-            policy.stability.timeout,
-        )?;
-        let request_frame_id = request.frame_id;
-        let request_generation = request.topology_generation;
-        self.metrics.record_ocr(
-            request.profile.model,
-            request.image.width as u64 * request.image.height as u64,
-        );
-        let ocr_started_at = Instant::now();
-        let response = self.worker.recognize(request.clone()).await?;
+        let cache = self
+            .scopes
+            .cache_for(window, policy.capture)
+            .ok_or_else(|| VisionError::CaptureUnavailable {
+                message: "visual scope cache disappeared during scene refresh".to_owned(),
+            })?;
         self.metrics
-            .record_ocr_latency(request.profile.model, ocr_started_at.elapsed());
-        if response.request_id != request.request_id
-            || response.frame_id != request_frame_id
-            || response.topology_generation != request_generation
-        {
-            self.metrics.record_cancelled_stale_request();
-            return Err(VisionError::OcrCancelled {
-                reason: "worker response belongs to an older or different request".to_owned(),
+            .record_query_pixels(query_region.unwrap_or(frame.bounds()).area());
+        let base_scene = cache.current();
+        let refresh_plan = choose_refresh_plan(
+            dirty.as_ref(),
+            frame.bounds(),
+            query_region,
+            base_scene.is_some(),
+            matches!(
+                cache_lookup,
+                CacheLookup::Miss(
+                    crate::scene::CacheMissReason::Expired | crate::scene::CacheMissReason::Dirty
+                )
+            ),
+            policy.force_refresh,
+            policy.diff.full_refresh_dirty_ratio,
+        );
+        self.metrics.record_refresh_plan(&refresh_plan);
+        if let RefreshPlan::CacheOnly { .. } = &refresh_plan {
+            let Some(scene) = base_scene else {
+                return Err(VisionError::OcrFailed {
+                    message: "refresh planner selected cache-only without a base scene".to_owned(),
+                });
+            };
+            self.metrics.record_scene_query();
+            return Ok(scene);
+        }
+        if !health.worker_ready {
+            return Err(VisionError::WorkerUnavailable {
+                message: health.worker.worker_version,
             });
         }
-        let base_scene = query_region.and_then(|_| self.cache.current());
+        let full_refresh = refresh_plan.is_full();
+        let refresh_regions = if full_refresh {
+            vec![frame.bounds()]
+        } else {
+            refresh_plan.regions().to_vec()
+        };
+        let mut responses = Vec::with_capacity(refresh_regions.len());
+        for roi in &refresh_regions {
+            let request = OcrRequest::from_frame(
+                window,
+                frame.frame_id,
+                frame.topology_generation,
+                &frame,
+                *roi,
+                policy.ocr.clone(),
+                policy.stability.timeout,
+            )?;
+            let request_frame_id = request.frame_id;
+            let request_generation = request.topology_generation;
+            self.metrics.record_ocr(
+                request.profile.model,
+                request.image.width as u64 * request.image.height as u64,
+            );
+            let ocr_started_at = Instant::now();
+            let response = self.worker.recognize(request.clone()).await?;
+            self.metrics
+                .record_ocr_latency(request.profile.model, ocr_started_at.elapsed());
+            if response.request_id != request.request_id
+                || response.frame_id != request_frame_id
+                || response.topology_generation != request_generation
+            {
+                self.metrics.record_cancelled_stale_request();
+                return Err(VisionError::OcrCancelled {
+                    reason: "worker response belongs to an older or different request".to_owned(),
+                });
+            }
+            responses.push(response);
+        }
         let options = SceneBuildOptions {
             region_kind: crate::scene::VisualRegionKind::Content,
             projection: policy.projection,
             row: crate::layout::RowConfig::default(),
-            base_scene,
-            refresh_region: query_region,
+            base_scene: if full_refresh { None } else { base_scene },
+            refresh_regions: if full_refresh {
+                Vec::new()
+            } else {
+                refresh_regions.clone()
+            },
         };
         let scene_merge_started_at = Instant::now();
         let mut builder = self.scene_builder.lock().await;
-        let scene = builder.build(window, &frame, &[response], &options)?;
+        let scene = builder.build(window, &frame, &responses, &options)?;
         drop(builder);
+        let refreshed_nodes = if full_refresh {
+            scene.nodes.len()
+        } else {
+            scene
+                .nodes
+                .iter()
+                .filter(|node| {
+                    refresh_regions
+                        .iter()
+                        .any(|region| node.bbox.intersects(*region))
+                })
+                .count()
+        };
+        self.metrics.record_node_merge(
+            scene.nodes.len().saturating_sub(refreshed_nodes),
+            refreshed_nodes,
+        );
         self.metrics
             .record_scene_merge_latency(scene_merge_started_at.elapsed());
-        if let Some(refresh_region) = query_region {
-            self.cache.replace_region(scene.clone(), refresh_region);
+        if full_refresh {
+            cache.replace(scene.clone());
         } else {
-            self.cache.replace(scene.clone());
+            cache.replace_regions(scene.clone(), &refresh_regions);
         }
         self.metrics.record_scene_built();
         Ok(scene)
@@ -318,64 +401,61 @@ impl VisionRuntime {
 
     /// 失效与 dirty map 相交的 cache 区域。
     pub fn invalidate(&self, dirty: &crate::diff::DirtyMap) {
-        self.cache.invalidate(dirty);
+        for cache in self.scopes.cache_snapshot() {
+            cache.invalidate(dirty);
+        }
     }
 
     /// 将当前稳定帧与上一份稳定帧比较，维护 VisualScene cache 的 ROI 失效边界。
     async fn update_cache_invalidation(
         &self,
+        scope: &Arc<tokio::sync::Mutex<crate::scope::ScopeState>>,
         window: WindowIdentity,
         frame: &Arc<CapturedFrame>,
         diff_config: DiffConfig,
-    ) -> Result<(), VisionError> {
-        let previous = {
-            let last_stable_frame = self.last_stable_frame.lock().await;
-            last_stable_frame
-                .as_ref()
-                .map(|(previous_window, previous_frame)| (*previous_window, previous_frame.clone()))
-        };
-        if let Some((previous_window, previous_frame)) = previous {
-            if previous_window != window
+    ) -> Result<Option<crate::diff::DirtyMap>, VisionError> {
+        let mut state = scope.lock().await;
+        let previous = state.last_stable_frame.clone();
+        let dirty = if let Some(previous_frame) = previous {
+            if previous_frame.window != window
                 || previous_frame.topology_generation != frame.topology_generation
             {
-                self.cache.clear();
-                self.temporal_noise.lock().await.clear();
+                state.cache.clear();
+                state.temporal_noise.clear();
                 self.metrics.record_diff(1.0);
+                None
             } else {
                 let dirty =
                     compute_dirty_map(Some(previous_frame.as_ref()), frame.as_ref(), diff_config)?;
-                let filtered = self.temporal_noise.lock().await.observe(
+                let filtered = state.temporal_noise.observe(
                     previous_frame.as_ref(),
                     frame.as_ref(),
                     &dirty,
                 )?;
-                self.cache.invalidate(&filtered);
+                state.cache.invalidate(&filtered);
                 self.metrics.record_diff(filtered.changed_area_ratio);
+                Some(filtered)
             }
         } else {
-            self.cache.clear();
-            self.temporal_noise.lock().await.clear();
+            state.cache.clear();
+            state.temporal_noise.clear();
             self.metrics.record_diff(1.0);
-        }
-        let mut last_stable_frame = self.last_stable_frame.lock().await;
-        *last_stable_frame = Some((window, frame.clone()));
-        Ok(())
+            None
+        };
+        state.last_stable_frame = Some(frame.clone());
+        drop(state);
+        Ok(dirty)
     }
 
     /// 在不跨 await 持锁的前提下复用同一窗口的 capture subscription。
     async fn subscription(
         &self,
+        scope: &Arc<tokio::sync::Mutex<crate::scope::ScopeState>>,
         window: WindowIdentity,
         policy: CapturePolicy,
     ) -> Result<Arc<dyn FrameSubscription>, VisionError> {
-        {
-            let subscriptions = self.subscriptions.lock().await;
-            if let Some((_, subscription)) = subscriptions
-                .iter()
-                .find(|(candidate, _)| *candidate == window)
-            {
-                return Ok(subscription.clone());
-            }
+        if let Some(subscription) = scope.lock().await.subscription.clone() {
+            return Ok(subscription);
         }
         let opened = match self.capture.open(window, policy).await {
             Ok(subscription) => subscription,
@@ -385,14 +465,11 @@ impl VisionRuntime {
             }
         };
         self.capture_ready.store(true, Ordering::Relaxed);
-        let mut subscriptions = self.subscriptions.lock().await;
-        if let Some((_, subscription)) = subscriptions
-            .iter()
-            .find(|(candidate, _)| *candidate == window)
-        {
-            Ok(subscription.clone())
+        let mut state = scope.lock().await;
+        if let Some(subscription) = state.subscription.clone() {
+            Ok(subscription)
         } else {
-            subscriptions.push((window, opened.clone()));
+            state.subscription = Some(opened.clone());
             Ok(opened)
         }
     }

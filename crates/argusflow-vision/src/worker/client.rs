@@ -15,42 +15,89 @@ use crate::{
     ocr::{OcrEngine, OcrRequest, OcrResponse},
 };
 
-use super::{WorkerHealth, WorkerLifecycle, protocol::VISION_PROTOCOL_VERSION};
+use super::{
+    WorkerHealth, WorkerLifecycle,
+    protocol::{MAX_PIXEL_BODY_BYTES, VISION_PROTOCOL_VERSION},
+};
 
-/// framed JSON 单帧的最大控制面 payload，防止错误 peer 申请无界内存。
-const MAX_CONTROL_FRAME_BYTES: usize = 4 * 1024 * 1024;
+/// framed message 单帧的最大控制面 payload，防止错误 peer 申请无界内存。
+pub const MAX_CONTROL_FRAME_BYTES: usize = 4 * 1024 * 1024;
 
-/// 通过 4 字节 little-endian 长度前缀读一条 JSON 消息。
-pub async fn read_framed_json<R, T>(reader: &mut R) -> Result<T, VisionError>
+/// binary body 帧头魔数，避免 v1 四字节长度帧被误读。
+const FRAME_MAGIC: [u8; 4] = *b"AFV2";
+
+/// binary body 帧头长度：magic、控制面长度和像素体长度。
+const FRAME_HEADER_BYTES: usize = 16;
+
+/// 读取一条带有控制面 JSON 和可选 binary body 的版本化消息。
+pub async fn read_framed_message<R, T>(reader: &mut R) -> Result<(T, Vec<u8>), VisionError>
 where
     R: AsyncRead + Unpin,
     T: DeserializeOwned,
 {
-    let frame_len = reader
-        .read_u32_le()
+    let mut header = [0_u8; FRAME_HEADER_BYTES];
+    reader
+        .read_exact(&mut header)
         .await
         .map_err(|error| VisionError::Protocol {
-            message: format!("failed to read frame length: {error}"),
-        })? as usize;
-    if frame_len > MAX_CONTROL_FRAME_BYTES {
+            message: format!("failed to read frame header: {error}"),
+        })?;
+    if header[..4] != FRAME_MAGIC {
         return Err(VisionError::Protocol {
-            message: format!("control frame is too large: {frame_len} bytes"),
+            message: "invalid vision worker frame magic".to_owned(),
         });
     }
-    let mut payload = vec![0_u8; frame_len];
+    let control_len =
+        u32::from_le_bytes(header[4..8].try_into().map_err(|_| VisionError::Protocol {
+            message: "invalid control length field".to_owned(),
+        })?) as usize;
+    let body_len =
+        u64::from_le_bytes(
+            header[8..16]
+                .try_into()
+                .map_err(|_| VisionError::Protocol {
+                    message: "invalid binary body length field".to_owned(),
+                })?,
+        );
+    if control_len > MAX_CONTROL_FRAME_BYTES {
+        return Err(VisionError::Protocol {
+            message: format!("control frame is too large: {control_len} bytes"),
+        });
+    }
+    let body_len = usize::try_from(body_len).map_err(|_| VisionError::Protocol {
+        message: "binary body length does not fit host memory".to_owned(),
+    })?;
+    if body_len > MAX_PIXEL_BODY_BYTES {
+        return Err(VisionError::Protocol {
+            message: format!("binary body is too large: {body_len} bytes"),
+        });
+    }
+    let mut payload = vec![0_u8; control_len];
     reader
         .read_exact(&mut payload)
         .await
         .map_err(|error| VisionError::Protocol {
             message: format!("failed to read control payload: {error}"),
         })?;
-    serde_json::from_slice(&payload).map_err(|error| VisionError::Protocol {
+    let message = serde_json::from_slice(&payload).map_err(|error| VisionError::Protocol {
         message: format!("invalid control JSON: {error}"),
-    })
+    })?;
+    let mut body = vec![0_u8; body_len];
+    reader
+        .read_exact(&mut body)
+        .await
+        .map_err(|error| VisionError::Protocol {
+            message: format!("failed to read binary body: {error}"),
+        })?;
+    Ok((message, body))
 }
 
-/// 通过 4 字节 little-endian 长度前缀写一条 JSON 消息。
-pub async fn write_framed_json<W, T>(writer: &mut W, value: &T) -> Result<(), VisionError>
+/// 写入一条带有控制面 JSON 和可选 binary body 的版本化消息。
+pub async fn write_framed_message<W, T>(
+    writer: &mut W,
+    value: &T,
+    body: &[u8],
+) -> Result<(), VisionError>
 where
     W: AsyncWrite + Unpin,
     T: Serialize,
@@ -63,17 +110,46 @@ where
             message: format!("control frame is too large: {} bytes", payload.len()),
         });
     }
+    if body.len() > MAX_PIXEL_BODY_BYTES {
+        return Err(VisionError::Protocol {
+            message: format!("binary body is too large: {} bytes", body.len()),
+        });
+    }
+    let control_len = u32::try_from(payload.len()).map_err(|_| VisionError::Protocol {
+        message: "control payload length does not fit frame header".to_owned(),
+    })?;
+    let body_len = u64::try_from(body.len()).map_err(|_| VisionError::Protocol {
+        message: "binary body length does not fit frame header".to_owned(),
+    })?;
     writer
-        .write_u32_le(payload.len() as u32)
+        .write_all(&FRAME_MAGIC)
+        .await
+        .map_err(|error| VisionError::Protocol {
+            message: format!("failed to write frame magic: {error}"),
+        })?;
+    writer
+        .write_u32_le(control_len)
         .await
         .map_err(|error| VisionError::Protocol {
             message: format!("failed to write control frame length: {error}"),
+        })?;
+    writer
+        .write_u64_le(body_len)
+        .await
+        .map_err(|error| VisionError::Protocol {
+            message: format!("failed to write binary body length: {error}"),
         })?;
     writer
         .write_all(&payload)
         .await
         .map_err(|error| VisionError::Protocol {
             message: format!("failed to write control payload: {error}"),
+        })?;
+    writer
+        .write_all(body)
+        .await
+        .map_err(|error| VisionError::Protocol {
+            message: format!("failed to write binary body: {error}"),
         })?;
     writer.flush().await.map_err(|error| VisionError::Protocol {
         message: format!("failed to flush control JSON: {error}"),
@@ -209,5 +285,27 @@ impl OcrEngine for StaticOcrEngine {
         let _deadline = request.deadline.min(Duration::from_secs(60));
         response.request_id = request.request_id;
         Ok(response)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{Value, json};
+
+    use super::{read_framed_message, write_framed_message};
+
+    #[tokio::test]
+    async fn framed_control_and_binary_body_round_trip_separately() {
+        let (mut writer, mut reader) = tokio::io::duplex(1024);
+        let body = vec![0_u8, 1, 2, 255];
+        write_framed_message(&mut writer, &json!({"kind": "recognize"}), &body)
+            .await
+            .expect("frame should be writable");
+
+        let (control, received_body): (Value, Vec<u8>) = read_framed_message(&mut reader)
+            .await
+            .expect("frame should be readable");
+        assert_eq!(control, json!({"kind": "recognize"}));
+        assert_eq!(received_body, body);
     }
 }

@@ -7,8 +7,9 @@ use argusflow_agent::{
     PlanStepKind, PreparedCandidate, PreparedExecution, RuntimeAvailability,
 };
 use argusflow_core::{
-    ActionCapability, ActionOutcome, AutomationAction, AutomationError, BackendKind,
-    ExtractCardinality, FieldProjectionSource, TargetLocator, VisualQuery,
+    ActionCapability, ActionOutcome, ActionOutputKey, AutomationAction, AutomationError,
+    BackendKind, ExtractCardinality, FieldProjectionSource, PreparedAutomationTarget,
+    PreparedTargetLocator, TargetLocator, VisualQuery,
 };
 use argusflow_query::{BranchPath, QueryCost, QueryPortability, SupportLevel};
 use async_trait::async_trait;
@@ -48,12 +49,27 @@ impl ActionBackend for VisionBackend {
 
     fn prepare(
         &self,
+        _action: &AutomationAction,
+        _context: &ExecutionContext,
+    ) -> Result<Vec<PreparedCandidate>, PlanRejection> {
+        Err(PlanRejection::Unsupported { backend: self.kind })
+    }
+
+    fn prepare_with_target(
+        &self,
         action: &AutomationAction,
         context: &ExecutionContext,
+        prepared_target: Option<&PreparedAutomationTarget>,
     ) -> Result<Vec<PreparedCandidate>, PlanRejection> {
-        let TargetLocator::VisualResolved { query } = &action.target().locator else {
+        let Some(prepared_target) = prepared_target else {
             return Err(PlanRejection::Unsupported { backend: self.kind });
         };
+        let PreparedTargetLocator::Visual { query } = prepared_target.locator() else {
+            return Err(PlanRejection::Unsupported { backend: self.kind });
+        };
+        if !matches!(&action.target().locator, TargetLocator::Visual { .. }) {
+            return Err(PlanRejection::Unsupported { backend: self.kind });
+        }
         if !supports_observation(action) || !supports_extract(action) {
             return Err(PlanRejection::Unsupported { backend: self.kind });
         }
@@ -269,9 +285,7 @@ impl PreparedExecution for VisionPreparedExecution {
 fn supports_observation(action: &AutomationAction) -> bool {
     matches!(
         action,
-        AutomationAction::GetText { .. }
-            | AutomationAction::GetValue { .. }
-            | AutomationAction::Extract { .. }
+        AutomationAction::GetText { .. } | AutomationAction::Extract { .. }
     )
 }
 
@@ -296,16 +310,19 @@ fn execute_observation(
     backend: BackendKind,
 ) -> Result<ActionOutcome, AutomationError> {
     match action {
-        AutomationAction::GetText { .. } | AutomationAction::GetValue { .. } => {
+        AutomationAction::GetText { .. } => {
             let VisualMatch::Unique(node) = evaluate_visual_query(scene, query)?;
             let mut outputs = BTreeMap::new();
-            outputs.insert("text".to_owned(), Value::String(node.raw_text.clone()));
-            Ok(ActionOutcome {
+            outputs.insert(
+                ActionOutputKey::Text.as_str().to_owned(),
+                Value::String(node.raw_text.clone()),
+            );
+            outcome_with_contract(
+                action,
                 backend,
-                message: "已从视觉场景读取目标文本".to_owned(),
+                "已从视觉场景读取目标文本".to_owned(),
                 outputs,
-                diagnostic_evidence: Vec::new(),
-            })
+            )
         }
         AutomationAction::Extract {
             cardinality,
@@ -325,25 +342,60 @@ fn execute_observation(
                 .collect::<Result<Vec<_>, _>>()?;
             let mut outputs = BTreeMap::new();
             outputs.insert(
-                "value".to_owned(),
+                if *cardinality == ExtractCardinality::One {
+                    ActionOutputKey::Item.as_str().to_owned()
+                } else {
+                    ActionOutputKey::Items.as_str().to_owned()
+                },
                 if *cardinality == ExtractCardinality::One {
                     values.into_iter().next().unwrap_or_else(|| json!({}))
                 } else {
                     Value::Array(values)
                 },
             );
-            Ok(ActionOutcome {
+            outcome_with_contract(
+                action,
                 backend,
-                message: "已从视觉场景提取结构化文本".to_owned(),
+                "已从视觉场景提取结构化文本".to_owned(),
                 outputs,
-                diagnostic_evidence: Vec::new(),
-            })
+            )
         }
+        AutomationAction::GetValue { .. } => Err(AutomationError::ActionUnsupported {
+            backend,
+            query: query.text.clone(),
+            semantic_matches: 1,
+            required: ActionCapability::ReadValue,
+        }),
         _ => Err(AutomationError::BackendUnavailable {
             backend,
             message: "视觉 P0 只提供观察动作，未执行物理输入".to_owned(),
         }),
     }
+}
+
+/// 构造并校验视觉后端输出，防止后端字段名偏离核心动作契约。
+fn outcome_with_contract(
+    action: &AutomationAction,
+    backend: BackendKind,
+    message: String,
+    outputs: BTreeMap<String, Value>,
+) -> Result<ActionOutcome, AutomationError> {
+    action
+        .output_contract()
+        .validate(&outputs)
+        .map_err(|error| AutomationError::BackendFailed {
+            backend,
+            message: format!(
+                "visual output contract mismatch: expected {:?}, got {:?}",
+                error.expected, error.actual
+            ),
+        })?;
+    Ok(ActionOutcome {
+        backend,
+        message,
+        outputs,
+        diagnostic_evidence: Vec::new(),
+    })
 }
 
 /// 把一个视觉节点投影成 Extract 字段对象。

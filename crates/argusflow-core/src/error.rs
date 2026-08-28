@@ -78,4 +78,12 @@ pub enum AutomationError {
         /// 后端返回的失败原因。
         message: String,
     },
+    /// 非幂等动作已经执行，但后置条件无法确认其最终事实，禁止自动重试。
+    #[error("backend {backend:?} outcome is unknown: {message}")]
+    OutcomeUnknown {
+        /// 实际完成物理动作的后端。
+        backend: BackendKind,
+        /// 未确认的原因。
+        message: String,
+    },
 }

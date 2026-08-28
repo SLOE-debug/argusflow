@@ -149,6 +149,7 @@ export type {
   TargetWaitMode,
   TargetWaitPolicy,
   UiExecutionPolicy,
+  UiPostcondition,
   UiOperation,
   UiOperationKind,
   ValidationReport,

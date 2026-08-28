@@ -1,4 +1,7 @@
-//! Windows.Graphics.Capture HWND 捕获和 D3D11 staging readback。
+//! Windows.Graphics.Capture primary HWND 捕获和 D3D11 staging readback。
+//!
+//! Owned popup 与同进程顶层窗口当前只参与 topology generation；真正的 capture surface
+//! 明确限定为 AppSession primary HWND，直到 VisualSurfaceSet 有完整实现和 fixture 验证。
 
 use std::{
     ffi::c_void,
@@ -11,43 +14,33 @@ use std::{
 
 use argusflow_core::WindowIdentity;
 use argusflow_vision::{
-    CapturePolicy, CapturedFrame, FrameId, FrameSubscription, QpcTimestamp, TopologyGeneration,
-    VisionError, WindowFrameSource,
+    CapturePolicy, CapturedFrame, FrameId, FrameSubscription, TopologyGeneration, VisionError,
+    WindowFrameSource,
 };
 use async_trait::async_trait;
 use tokio::sync::Notify;
 use windows::{
     Foundation::TypedEventHandler,
     Graphics::{
-        Capture::{
-            Direct3D11CaptureFrame, Direct3D11CaptureFramePool, GraphicsCaptureItem,
-            GraphicsCaptureSession,
-        },
-        DirectX::{Direct3D11::IDirect3DSurface, DirectXPixelFormat},
+        Capture::{Direct3D11CaptureFramePool, GraphicsCaptureItem, GraphicsCaptureSession},
+        DirectX::DirectXPixelFormat,
         SizeInt32,
     },
     Win32::{
         Foundation::HWND,
-        Graphics::{
-            Direct3D11::{
-                D3D11_CPU_ACCESS_READ, D3D11_MAP_READ, D3D11_MAPPED_SUBRESOURCE,
-                D3D11_TEXTURE2D_DESC, D3D11_USAGE_STAGING, ID3D11Resource, ID3D11Texture2D,
-            },
-            Dxgi::Common::{DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC},
-        },
         System::WinRT::{
             Direct3D11::IDirect3DDxgiInterfaceAccess,
             Graphics::Capture::IGraphicsCaptureItemInterop, RoGetActivationFactory,
         },
         UI::WindowsAndMessaging::{GetWindowThreadProcessId, IsWindow},
     },
-    core::{HSTRING, IInspectable, Interface},
+    core::{HSTRING, IInspectable},
 };
 
 use super::{
     device::{GraphicsDevice, create_graphics_device},
-    dpi::window_dpi,
     error::{capture_error, invalid_capture},
+    readback::{ReadbackState, readback_frame},
     topology::WindowTopologyTracker,
 };
 
@@ -73,7 +66,7 @@ impl WindowFrameSource for WindowsGraphicsCapture {
     }
 }
 
-/// 创建一个绑定 HWND/PID、独立 frame pool 和 topology tracker 的订阅。
+/// 创建一个绑定 primary HWND/PID、独立 frame pool 和 topology tracker 的订阅。
 fn open_capture(
     window: WindowIdentity,
     policy: CapturePolicy,
@@ -133,7 +126,7 @@ fn open_capture(
         graphics,
         notify,
         topology: Mutex::new(WindowTopologyTracker::new()),
-        readback: Mutex::new(()),
+        readback: Mutex::new(ReadbackState::default()),
         capture_size: Mutex::new(size),
         frame_pool_size: policy.frame_pool_size as i32,
         next_frame_id: AtomicU64::new(0),
@@ -155,8 +148,8 @@ struct WindowFrameSubscription {
     notify: Arc<Notify>,
     /// 该订阅自己的拓扑追踪器。
     topology: Mutex<WindowTopologyTracker>,
-    /// immediate context 不允许并发 Map/Unmap。
-    readback: Mutex<()>,
+    /// immediate context 与该订阅专属 staging texture 不允许并发使用。
+    readback: Mutex<ReadbackState>,
     /// 当前 frame pool 的尺寸；窗口 resize 后在下一帧前重建 pool。
     capture_size: Mutex<SizeInt32>,
     /// 用于 resize 后重建 frame pool 的 buffer 数量。
@@ -192,13 +185,14 @@ impl FrameSubscription for WindowFrameSubscription {
                 }
             };
             let result = {
-                let _readback = self
+                let mut readback = self
                     .readback
                     .lock()
                     .map_err(|_| invalid_capture("D3D11 readback mutex was poisoned"))?;
                 readback_frame(
                     &frame,
                     &self.graphics,
+                    &mut readback,
                     self.window,
                     frame_id,
                     topology_generation,
@@ -259,6 +253,10 @@ impl WindowFrameSubscription {
             )
             .map_err(|error| capture_error("failed to recreate resized WGC frame pool", error))?;
         *size = new_size;
+        self.readback
+            .lock()
+            .map_err(|_| invalid_capture("D3D11 readback mutex was poisoned"))?
+            .clear();
         Ok(())
     }
 }
@@ -311,125 +309,6 @@ fn valid_size(size: SizeInt32) -> Result<(u32, u32), VisionError> {
     (width > 0 && height > 0)
         .then_some((width, height))
         .ok_or_else(|| invalid_capture("capture item has an empty size"))
-}
-
-/// 把 WGC GPU surface 复制到 staging texture，并复制成短期拥有型 BGRA8 buffer。
-fn readback_frame(
-    frame: &Direct3D11CaptureFrame,
-    graphics: &GraphicsDevice,
-    window: WindowIdentity,
-    frame_id: FrameId,
-    topology_generation: TopologyGeneration,
-) -> Result<Arc<CapturedFrame>, VisionError> {
-    let surface: IDirect3DSurface = frame
-        .Surface()
-        .map_err(|error| capture_error("failed to get WGC frame surface", error))?;
-    let access: IDirect3DDxgiInterfaceAccess = surface
-        .cast()
-        .map_err(|error| capture_error("failed to access WGC DXGI surface", error))?;
-    let source_texture: ID3D11Texture2D = unsafe { access.GetInterface() }
-        .map_err(|error| capture_error("failed to query WGC D3D11 texture", error))?;
-    let mut source_desc = D3D11_TEXTURE2D_DESC::default();
-    // SAFETY: source_desc 是 texture API 的独占输出缓冲区。
-    unsafe { source_texture.GetDesc(&mut source_desc) };
-    if source_desc.Format != DXGI_FORMAT_B8G8R8A8_UNORM || source_desc.SampleDesc.Count != 1 {
-        return Err(invalid_capture(
-            "WGC returned a non-BGRA8 or multisampled texture",
-        ));
-    }
-    let timestamp_qpc = frame
-        .SystemRelativeTime()
-        .map(|time| QpcTimestamp::new(time.Duration.max(0) as u64))
-        .map_err(|error| capture_error("failed to read WGC frame timestamp", error))?;
-    let row_bytes = usize::try_from(source_desc.Width)
-        .ok()
-        .and_then(|width| width.checked_mul(4))
-        .ok_or_else(|| invalid_capture("capture row byte length overflow"))?;
-    let pixel_bytes = row_bytes
-        .checked_mul(source_desc.Height as usize)
-        .ok_or_else(|| invalid_capture("capture pixel byte length overflow"))?;
-    let staging_desc = D3D11_TEXTURE2D_DESC {
-        Width: source_desc.Width,
-        Height: source_desc.Height,
-        MipLevels: 1,
-        ArraySize: 1,
-        Format: source_desc.Format,
-        SampleDesc: DXGI_SAMPLE_DESC {
-            Count: 1,
-            Quality: 0,
-        },
-        Usage: D3D11_USAGE_STAGING,
-        BindFlags: 0,
-        CPUAccessFlags: D3D11_CPU_ACCESS_READ.0 as u32,
-        MiscFlags: 0,
-    };
-    let mut staging: Option<ID3D11Texture2D> = None;
-    // SAFETY: staging_desc 和输出槽在调用期间保持有效；创建的 texture 由 Option 接管所有权。
-    unsafe {
-        graphics.device.CreateTexture2D(
-            &staging_desc,
-            None,
-            Some(&mut staging as *mut Option<ID3D11Texture2D>),
-        )
-    }
-    .map_err(|error| capture_error("failed to create D3D11 staging texture", error))?;
-    let staging = staging.ok_or_else(|| invalid_capture("D3D11 returned no staging texture"))?;
-    let source_resource: ID3D11Resource = source_texture
-        .cast()
-        .map_err(|error| capture_error("failed to cast source texture resource", error))?;
-    let staging_resource: ID3D11Resource = staging
-        .cast()
-        .map_err(|error| capture_error("failed to cast staging texture resource", error))?;
-    // SAFETY: 两个资源均为当前设备创建/拥有的 D3D11 资源，CopyResource 不跨设备。
-    unsafe {
-        graphics
-            .context
-            .CopyResource(&staging_resource, &source_resource)
-    };
-    let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
-    // SAFETY: staging texture 使用 CPU_READ，且 immediate context 由 readback mutex 独占。
-    unsafe {
-        graphics
-            .context
-            .Map(&staging_resource, 0, D3D11_MAP_READ, 0, Some(&mut mapped))
-    }
-    .map_err(|error| capture_error("failed to map D3D11 staging texture", error))?;
-    let result = if mapped.pData.is_null() || (mapped.RowPitch as usize) < row_bytes {
-        Err(invalid_capture("D3D11 map returned an invalid row pitch"))
-    } else {
-        match (mapped.RowPitch as usize).checked_mul(source_desc.Height as usize) {
-            None => Err(invalid_capture("mapped row byte length overflow")),
-            Some(mapped_len) => {
-                // SAFETY: Map 成功后 pData 指向至少 mapped_len 字节的 texture 子资源内存。
-                let mapped_pixels =
-                    unsafe { std::slice::from_raw_parts(mapped.pData.cast::<u8>(), mapped_len) };
-                let mut pixels = vec![0_u8; pixel_bytes];
-                for row in 0..source_desc.Height as usize {
-                    let source_start = row * mapped.RowPitch as usize;
-                    let target_start = row * row_bytes;
-                    pixels[target_start..target_start + row_bytes]
-                        .copy_from_slice(&mapped_pixels[source_start..source_start + row_bytes]);
-                }
-                let dpi = window_dpi(native_window(window.handle));
-                CapturedFrame::from_bgra8(
-                    frame_id,
-                    topology_generation,
-                    window,
-                    timestamp_qpc,
-                    source_desc.Width,
-                    source_desc.Height,
-                    dpi,
-                    dpi,
-                    row_bytes,
-                    pixels,
-                )
-                .map(Arc::new)
-            }
-        }
-    };
-    // SAFETY: Map 已成功返回，且 staging_resource 仍由当前函数持有。
-    unsafe { graphics.context.Unmap(&staging_resource, 0) };
-    result
 }
 
 /// 把领域层的不透明 HWND 表示恢复为 Windows 类型。

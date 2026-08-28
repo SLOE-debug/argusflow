@@ -3,7 +3,8 @@
 use std::collections::BTreeMap;
 
 use argusflow_core::{
-    ActionOutcome, BackendKind, ExtractCardinality, FieldProjection, FieldProjectionSource,
+    ActionOutcome, ActionOutputKey, BackendKind, ExtractCardinality, FieldProjection,
+    FieldProjectionSource,
 };
 use serde_json::{Map, Value};
 use windows::Win32::UI::Accessibility::{
@@ -53,14 +54,17 @@ pub(super) fn execute_extract(
     let (message, outputs) = match cardinality {
         ExtractCardinality::One => (
             "已通过 UI Automation 提取 1 个目标".to_owned(),
-            BTreeMap::from([("item".to_owned(), Value::Object(items.remove(0)))]),
+            BTreeMap::from([(
+                ActionOutputKey::Item.as_str().to_owned(),
+                Value::Object(items.remove(0)),
+            )]),
         ),
         ExtractCardinality::Many => {
             let count = items.len();
             (
                 format!("已通过 UI Automation 批量提取 {count} 个目标"),
                 BTreeMap::from([(
-                    "items".to_owned(),
+                    ActionOutputKey::Items.as_str().to_owned(),
                     Value::Array(items.into_iter().map(Value::Object).collect()),
                 )]),
             )

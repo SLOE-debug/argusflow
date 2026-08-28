@@ -145,9 +145,13 @@ async fn read_output_is_resolved_for_debug_and_the_following_set_value() {
         &[
             ActionExecutionOptions {
                 target_wait: TargetWaitPolicy::bounded(5_000, 100),
+                prepared_target: None,
+                postcondition: None,
             },
             ActionExecutionOptions {
                 target_wait: TargetWaitPolicy::bounded(5_000, 100),
+                prepared_target: None,
+                postcondition: None,
             },
         ]
     );

@@ -46,8 +46,8 @@ pub struct SceneBuildOptions {
     pub row: RowConfig,
     /// ROI 局部 OCR 时需要保留的上一份 scene；全帧 OCR 时为空。
     pub base_scene: Option<Arc<VisualScene>>,
-    /// 本次 OCR 覆盖的帧本地区域；区域外节点可从 base scene 保留。
-    pub refresh_region: Option<PhysicalRect>,
+    /// 本次 OCR 覆盖的帧本地区域集合；区域外节点可从 base scene 保留。
+    pub refresh_regions: Vec<PhysicalRect>,
 }
 
 impl Default for SceneBuildOptions {
@@ -57,7 +57,7 @@ impl Default for SceneBuildOptions {
             projection: ProjectionOptions::default(),
             row: RowConfig::default(),
             base_scene: None,
-            refresh_region: None,
+            refresh_regions: Vec::new(),
         }
     }
 }
@@ -158,15 +158,17 @@ impl VisualSceneBuilder {
                 merge_node(&mut nodes, node);
             }
         }
-        if let (Some(base_scene), Some(refresh_region)) =
-            (&options.base_scene, options.refresh_region)
-        {
+        if let Some(base_scene) = &options.base_scene {
             if base_scene.window == window
                 && (base_scene.topology_generation.is_unknown()
                     || base_scene.topology_generation == frame.topology_generation)
             {
                 for node in &base_scene.nodes {
-                    if !node.bbox.intersects(refresh_region) {
+                    let refreshed = options
+                        .refresh_regions
+                        .iter()
+                        .any(|region| node.bbox.intersects(*region));
+                    if options.refresh_regions.is_empty() || !refreshed {
                         merge_node(&mut nodes, node.clone());
                     }
                 }

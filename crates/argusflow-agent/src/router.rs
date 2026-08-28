@@ -1,8 +1,10 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use argusflow_core::{
     ActionExecutionOptions, ActionOutcome, AutomationAction, AutomationError,
-    AutomationExecutionScope, BackendKind, CapabilityId, TargetScope,
+    AutomationExecutionScope, BackendKind, CapabilityId, PreparedAutomationTarget,
+    PreparedTargetLocator, PreparedVisualPostcondition, TargetLocator, TargetScope, TargetWaitMode,
+    TargetWaitPolicy,
 };
 use argusflow_query::{
     Diagnostic, DiagnosticCode, DiagnosticSeverity, QueryCost, QueryPortability, SupportLevel,
@@ -12,8 +14,9 @@ use async_trait::async_trait;
 
 use crate::{
     ActionBackend, ContextFitness, EvidenceSettings, ExecutionContext, ExecutionContextProvider,
-    PlanExplain, PlanRejection, PlanningReport, PreparedCandidate, PreparedPlan,
-    RuntimeAvailability, StaticExecutionContext, WindowContext,
+    MaterializedTarget, PlanExplain, PlanRejection, PlanningReport, PreparedCandidate,
+    PreparedPlan, PreparedTargetMaterializer, RuntimeAvailability, StaticExecutionContext,
+    VisualMaterializationPlan, VisualVerificationProvider, VisualVerificationResult, WindowContext,
 };
 
 /// 能力、可用性、上下文和成本相同时使用的稳定兜底顺序。
@@ -35,6 +38,10 @@ pub struct ActionRouter {
     context_provider: Arc<dyn ExecutionContextProvider>,
     /// PreparedPlan 使用的失败证据策略与 sink。
     evidence: EvidenceSettings,
+    /// 非幂等输入动作使用的视觉基线/新事实 provider。
+    visual_verification: Option<Arc<dyn VisualVerificationProvider>>,
+    /// Planner 统一调用的视觉目标物化器；物理输入后端不再持有该依赖。
+    target_materializer: Option<Arc<dyn PreparedTargetMaterializer>>,
 }
 
 impl ActionRouter {
@@ -44,6 +51,8 @@ impl ActionRouter {
             backends,
             context_provider: Arc::new(StaticExecutionContext::default()),
             evidence: EvidenceSettings::default(),
+            visual_verification: None,
+            target_materializer: None,
         }
     }
 
@@ -56,12 +65,32 @@ impl ActionRouter {
             backends,
             context_provider,
             evidence: EvidenceSettings::default(),
+            visual_verification: None,
+            target_materializer: None,
         }
     }
 
     /// 为随后生成的 PreparedPlan 注入证据策略与宿主持久化边界。
     pub fn with_evidence(mut self, evidence: EvidenceSettings) -> Self {
         self.evidence = evidence;
+        self
+    }
+
+    /// 注入与 SendInput 共用 VisionRuntime 的发送后验证 provider。
+    pub fn with_visual_verification(
+        mut self,
+        provider: Arc<dyn VisualVerificationProvider>,
+    ) -> Self {
+        self.visual_verification = Some(provider);
+        self
+    }
+
+    /// 注入由 Planner 统一管理的视觉目标物化器。
+    pub fn with_target_materializer(
+        mut self,
+        materializer: Arc<dyn PreparedTargetMaterializer>,
+    ) -> Self {
+        self.target_materializer = Some(materializer);
         self
     }
 
@@ -73,7 +102,7 @@ impl ActionRouter {
     /// 使用显式上下文准备并排序所有候选，返回只读 Planner 报告。
     pub fn inspect(&self, action: &AutomationAction, context: &ExecutionContext) -> PlanningReport {
         let mut explains = self
-            .collect(action, context)
+            .collect(action, context, None, None)
             .into_iter()
             .flat_map(|result| match result {
                 Ok(candidates) => candidates
@@ -112,22 +141,17 @@ impl ActionRouter {
         action: &AutomationAction,
         context: &ExecutionContext,
     ) -> Result<PreparedPlan, AutomationError> {
-        let mut candidates = self
-            .collect(action, context)
-            .into_iter()
-            .filter_map(Result::ok)
-            .flatten()
-            .filter(|candidate| {
-                candidate.explain().support.is_supported()
-                    && candidate.explain().availability.is_ready()
-            })
-            .collect::<Vec<_>>();
-        candidates
-            .sort_by_key(|candidate| candidate_rank(candidate, &action.target().backend_policy));
-        if candidates.is_empty() {
-            return Err(AutomationError::NoBackendAvailable);
-        }
-        Ok(PreparedPlan::new(candidates, self.evidence.clone()))
+        self.prepare_with_target(action, context, None)
+    }
+
+    /// 使用 Runtime 已冻结的目标准备并排序可执行候选。
+    pub fn prepare_with_target(
+        &self,
+        action: &AutomationAction,
+        context: &ExecutionContext,
+        prepared_target: Option<&PreparedAutomationTarget>,
+    ) -> Result<PreparedPlan, AutomationError> {
+        self.prepare_candidates(action, context, prepared_target, None)
     }
 
     /// 逐 backend prepare，用户约束在任何能力排序之前过滤候选。
@@ -135,11 +159,20 @@ impl ActionRouter {
         &self,
         action: &AutomationAction,
         context: &ExecutionContext,
+        prepared_target: Option<&PreparedAutomationTarget>,
+        materialized_target: Option<&MaterializedTarget>,
     ) -> Vec<Result<Vec<PreparedCandidate>, PlanRejection>> {
         self.backends
             .iter()
             .filter(|backend| action.target().backend_policy.allows(backend.kind()))
-            .map(|backend| backend.prepare(action, context))
+            .map(|backend| {
+                backend.prepare_with_materialized_target(
+                    action,
+                    context,
+                    prepared_target,
+                    materialized_target,
+                )
+            })
             .collect()
     }
 }
@@ -192,9 +225,177 @@ impl ActionDispatcher for ActionRouter {
             context.accessibility.ready = false;
             context.visual_cache.ready = false;
         }
-        self.prepare(action, &context)?
-            .execute_with_wait(options.target_wait)
-            .await
+        let materialized_target = self
+            .materialize_visual_target(
+                action,
+                &context,
+                options.prepared_target.as_ref(),
+                options.target_wait,
+            )
+            .await?;
+        let postcondition = options.postcondition;
+        let mut baseline = match (&postcondition, &self.visual_verification) {
+            (Some(PreparedVisualPostcondition::NewText { query }), Some(provider)) => {
+                let window = context.foreground_window.as_ref().ok_or_else(|| {
+                    AutomationError::BackendUnavailable {
+                        backend: BackendKind::SendInput,
+                        message: "visual postcondition requires a frozen window context".to_owned(),
+                    }
+                })?;
+                Some(provider.capture_baseline(window, query).await?)
+            }
+            (Some(PreparedVisualPostcondition::NewText { .. }), None) => {
+                return Err(AutomationError::BackendUnavailable {
+                    backend: BackendKind::SendInput,
+                    message: "visual postcondition provider is not configured".to_owned(),
+                });
+            }
+            (None, _) => None,
+        };
+        let prepared = match self.prepare_candidates(
+            action,
+            &context,
+            options.prepared_target.as_ref(),
+            materialized_target.as_ref(),
+        ) {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                if let (Some(provider), Some(baseline)) =
+                    (self.visual_verification.as_ref(), baseline.take())
+                {
+                    provider.discard_baseline(baseline).await;
+                }
+                return Err(error);
+            }
+        };
+        let execution_wait = if materialized_target.is_some() {
+            TargetWaitPolicy::none()
+        } else {
+            options.target_wait
+        };
+        let outcome = match prepared.execute_with_wait(execution_wait).await {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                if let (Some(provider), Some(baseline)) =
+                    (self.visual_verification.as_ref(), baseline.take())
+                {
+                    provider.discard_baseline(baseline).await;
+                }
+                return Err(error);
+            }
+        };
+        if let (
+            Some(PreparedVisualPostcondition::NewText { query }),
+            Some(baseline),
+            Some(provider),
+        ) = (postcondition, baseline, self.visual_verification.as_ref())
+        {
+            let verification =
+                provider
+                    .verify_new_text(baseline, &query)
+                    .await
+                    .map_err(|error| match error {
+                        AutomationError::OutcomeUnknown { .. } => error,
+                        other => AutomationError::OutcomeUnknown {
+                            backend: BackendKind::SendInput,
+                            message: format!("visual postcondition verification failed: {other}"),
+                        },
+                    })?;
+            match verification {
+                VisualVerificationResult::Confirmed => {}
+                VisualVerificationResult::Rejected { reason }
+                | VisualVerificationResult::Uncertain { reason } => {
+                    return Err(AutomationError::OutcomeUnknown {
+                        backend: outcome.backend,
+                        message: reason,
+                    });
+                }
+            }
+        }
+        Ok(outcome)
+    }
+}
+
+impl ActionRouter {
+    /// 只为 Visual Click 执行一次由 Planner 冻结的 Cache -> Tiny -> Medium 链。
+    async fn materialize_visual_target(
+        &self,
+        action: &AutomationAction,
+        context: &ExecutionContext,
+        prepared_target: Option<&PreparedAutomationTarget>,
+        wait: TargetWaitPolicy,
+    ) -> Result<Option<MaterializedTarget>, AutomationError> {
+        let AutomationAction::Click { target } = action else {
+            return Ok(None);
+        };
+        if !target.backend_policy.allows(BackendKind::SendInput)
+            || !matches!(&target.locator, TargetLocator::Visual { .. })
+        {
+            return Ok(None);
+        }
+        let Some(prepared_target) = prepared_target else {
+            return Ok(None);
+        };
+        let PreparedTargetLocator::Visual { query } = prepared_target.locator() else {
+            return Ok(None);
+        };
+        let Some(window) = context.foreground_window.as_ref() else {
+            return Ok(None);
+        };
+        let Some(materializer) = self.target_materializer.as_ref() else {
+            return Err(AutomationError::BackendUnavailable {
+                backend: BackendKind::VisualCache,
+                message: "visual click has no Planner target materializer".to_owned(),
+            });
+        };
+        let plan = VisualMaterializationPlan::for_input();
+        let deadline = tokio::time::Instant::now() + Duration::from_millis(wait.timeout_ms);
+        loop {
+            match materializer.materialize(window, query, &plan).await {
+                Ok(target) => return Ok(Some(target)),
+                Err(AutomationError::TargetNotFound { query })
+                    if wait.mode == TargetWaitMode::Bounded
+                        && tokio::time::Instant::now() < deadline =>
+                {
+                    tokio::time::sleep(Duration::from_millis(wait.poll_interval_ms.max(1))).await;
+                }
+                Err(AutomationError::TargetNotFound { query })
+                    if wait.mode == TargetWaitMode::Bounded =>
+                {
+                    return Err(AutomationError::TargetWaitTimeout {
+                        query,
+                        timeout_ms: wait.timeout_ms,
+                    });
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    }
+
+    /// 在同步 API 中准备没有异步视觉物化结果的候选；真实 Visual Click 由异步入口完成物化。
+    fn prepare_candidates(
+        &self,
+        action: &AutomationAction,
+        context: &ExecutionContext,
+        prepared_target: Option<&PreparedAutomationTarget>,
+        materialized_target: Option<&MaterializedTarget>,
+    ) -> Result<PreparedPlan, AutomationError> {
+        let mut candidates = self
+            .collect(action, context, prepared_target, materialized_target)
+            .into_iter()
+            .filter_map(Result::ok)
+            .flatten()
+            .filter(|candidate| {
+                candidate.explain().support.is_supported()
+                    && candidate.explain().availability.is_ready()
+            })
+            .collect::<Vec<_>>();
+        candidates
+            .sort_by_key(|candidate| candidate_rank(candidate, &action.target().backend_policy));
+        if candidates.is_empty() {
+            return Err(AutomationError::NoBackendAvailable);
+        }
+        Ok(PreparedPlan::new(candidates, self.evidence.clone()))
     }
 }
 

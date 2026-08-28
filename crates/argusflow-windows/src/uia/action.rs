@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use argusflow_core::ActionCapability;
+use argusflow_core::{ActionCapability, ActionOutputKey};
 use serde_json::Value;
 use windows::{
     Win32::UI::Accessibility::{
@@ -229,7 +229,10 @@ fn get_text(element: &IUIAutomationElement) -> Result<ExecutedUiaAction, UiaErro
         .map_err(|source| UiaError::from_native(UiaOperation::GetText, source))?;
     Ok(ExecutedUiaAction {
         message: "已通过 UI Automation 读取目标文本",
-        outputs: BTreeMap::from([("text".to_owned(), Value::String(text))]),
+        outputs: BTreeMap::from([(
+            ActionOutputKey::Text.as_str().to_owned(),
+            Value::String(text),
+        )]),
     })
 }
 
@@ -245,7 +248,10 @@ fn get_value(element: &IUIAutomationElement) -> Result<ExecutedUiaAction, UiaErr
         .map_err(|source| UiaError::from_native(UiaOperation::GetValue, source))?;
     Ok(ExecutedUiaAction {
         message: "已通过 UI Automation ValuePattern 读取目标值",
-        outputs: BTreeMap::from([("value".to_owned(), Value::String(value))]),
+        outputs: BTreeMap::from([(
+            ActionOutputKey::Value.as_str().to_owned(),
+            Value::String(value),
+        )]),
     })
 }
 

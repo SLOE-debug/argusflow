@@ -10,7 +10,10 @@ use crate::{
 };
 
 /// 当前 Rust/Python worker 协议版本。
-pub const VISION_PROTOCOL_VERSION: &str = "argusflow.vision.v1";
+pub const VISION_PROTOCOL_VERSION: &str = "argusflow.vision.v2";
+
+/// 单次 Named Pipe 消息允许携带的最大原始像素体大小。
+pub const MAX_PIXEL_BODY_BYTES: usize = 64 * 1024 * 1024;
 
 /// worker 的生命周期状态。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -90,20 +93,20 @@ impl WorkerHealth {
     }
 }
 
-/// 像素平面传输方式；P0 支持小 ROI inline，P1 可切换共享内存 lease。
+/// 像素平面传输方式；控制面只描述像素体，原始字节放在同一帧的 binary body。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum PixelTransport {
-    /// 小 ROI 直接放入 framed message 的 bytes。
+    /// 当前帧的 binary body 中携带 BGRA 字节。
     InlineBytes {
-        /// BGRA 字节数组；P0 使用 framed JSON 直接传输。
-        bytes: Vec<u8>,
         /// 图片宽度。
         width: u32,
         /// 图片高度。
         height: u32,
         /// 行步长。
         stride_bytes: u32,
+        /// binary body 的字节数，必须等于 `stride_bytes * height`。
+        body_length: u64,
     },
     /// 共享内存 ring slot 的租约描述。
     SharedMemory {
@@ -193,8 +196,8 @@ pub struct WorkerError {
 }
 
 impl WorkerOcrRequest {
-    /// 从内部 OCR 请求创建可传输 DTO；P0 直接复制短期 ROI 像素。
-    pub fn from_request(request: &crate::ocr::OcrRequest) -> Result<Self, VisionError> {
+    /// 从内部 OCR 请求创建控制面 DTO 与 binary body。
+    pub fn from_request(request: &crate::ocr::OcrRequest) -> Result<(Self, Vec<u8>), VisionError> {
         if request.deadline.is_zero() {
             return Err(VisionError::Protocol {
                 message: "OCR request deadline must be non-zero".to_owned(),
@@ -204,25 +207,133 @@ impl WorkerOcrRequest {
             u32::try_from(request.image.stride_bytes).map_err(|_| VisionError::Protocol {
                 message: "OCR image stride does not fit worker protocol".to_owned(),
             })?;
+        let minimum_stride =
+            request
+                .image
+                .width
+                .checked_mul(4)
+                .ok_or_else(|| VisionError::Protocol {
+                    message: "OCR image width overflows BGRA stride".to_owned(),
+                })?;
+        let expected_bytes = u64::from(stride_bytes)
+            .checked_mul(u64::from(request.image.height))
+            .ok_or_else(|| VisionError::Protocol {
+                message: "OCR image byte length overflows worker protocol".to_owned(),
+            })?;
+        let expected_bytes_usize =
+            usize::try_from(expected_bytes).map_err(|_| VisionError::Protocol {
+                message: "OCR image byte length does not fit host memory".to_owned(),
+            })?;
+        if request.image.width == 0
+            || request.image.height == 0
+            || stride_bytes < minimum_stride
+            || expected_bytes_usize > MAX_PIXEL_BODY_BYTES
+        {
+            return Err(VisionError::Protocol {
+                message: "OCR image dimensions, stride, or body size are invalid".to_owned(),
+            });
+        }
+        let pixels = request.image.pixels();
+        if pixels.len() != expected_bytes_usize {
+            return Err(VisionError::Protocol {
+                message: "OCR image buffer length must equal stride*height".to_owned(),
+            });
+        }
         let deadline_ms = u64::try_from(request.deadline.as_millis().max(1)).map_err(|_| {
             VisionError::Protocol {
                 message: "OCR request deadline does not fit worker protocol".to_owned(),
             }
         })?;
-        Ok(Self {
-            request_id: request.request_id.as_uuid().to_string(),
-            window: request.window,
-            frame_id: request.frame_id,
-            topology_generation: request.topology_generation,
-            profile: request.profile.clone(),
-            roi: request.roi,
-            pixel_transport: PixelTransport::InlineBytes {
-                bytes: request.image.pixels().to_vec(),
-                width: request.image.width,
-                height: request.image.height,
-                stride_bytes,
+        Ok((
+            Self {
+                request_id: request.request_id.as_uuid().to_string(),
+                window: request.window,
+                frame_id: request.frame_id,
+                topology_generation: request.topology_generation,
+                profile: request.profile.clone(),
+                roi: request.roi,
+                pixel_transport: PixelTransport::InlineBytes {
+                    width: request.image.width,
+                    height: request.image.height,
+                    stride_bytes,
+                    body_length: expected_bytes,
+                },
+                deadline_ms,
             },
-            deadline_ms,
-        })
+            pixels.to_vec(),
+        ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        frame::{FrameId, PixelFormat, TopologyGeneration},
+        image::PixelImage,
+        ocr::{OcrRequest, OcrRequestId},
+    };
+
+    fn request(width: u32, height: u32, stride_bytes: usize, pixels: Vec<u8>) -> OcrRequest {
+        OcrRequest {
+            request_id: OcrRequestId::new(),
+            window: WindowIdentity {
+                handle: 11,
+                process_id: 22,
+            },
+            frame_id: FrameId::new(3),
+            topology_generation: TopologyGeneration::new(4),
+            profile: OcrProfile::tiny(),
+            roi: PhysicalRect::new(0, 0, width, height).expect("fixture ROI is non-empty"),
+            image: PixelImage::new(width, height, stride_bytes, PixelFormat::Bgra8Unorm, pixels)
+                .expect("fixture image is valid"),
+            deadline: std::time::Duration::from_secs(1),
+        }
+    }
+
+    #[test]
+    fn binary_body_preserves_large_roi_without_json_pixel_array() {
+        let wire_request = request(1_200, 800, 1_200 * 4, vec![17; 1_200 * 800 * 4]);
+        let (wire, body) = WorkerOcrRequest::from_request(&wire_request)
+            .expect("large ROI should fit the binary transport");
+
+        assert_eq!(body.len(), 1_200 * 800 * 4);
+        assert!(matches!(
+            wire.pixel_transport,
+            PixelTransport::InlineBytes {
+                width: 1_200,
+                height: 800,
+                body_length: 3_840_000,
+                ..
+            }
+        ));
+        let encoded = serde_json::to_string(&wire).expect("control DTO should serialize");
+        assert!(!encoded.contains("17,17,17"));
+    }
+
+    #[test]
+    fn stride_padding_is_kept_in_the_binary_body() {
+        let request = request(4, 2, 20, vec![0; 40]);
+        let (wire, body) = WorkerOcrRequest::from_request(&request)
+            .expect("row padding should be a valid transport detail");
+
+        assert_eq!(body.len(), 40);
+        assert!(matches!(
+            wire.pixel_transport,
+            PixelTransport::InlineBytes {
+                stride_bytes: 20,
+                body_length: 40,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn extra_pixel_storage_is_rejected_instead_of_silently_truncated() {
+        let request = request(4, 2, 16, vec![0; 40]);
+
+        let error = WorkerOcrRequest::from_request(&request)
+            .expect_err("body length must match stride*height exactly");
+        assert!(matches!(error, VisionError::Protocol { .. }));
     }
 }

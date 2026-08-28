@@ -254,6 +254,8 @@ async fn execute_with_wait(
             AutomationExecutionScope::Current,
             ActionExecutionOptions {
                 target_wait: TargetWaitPolicy::bounded(timeout_ms, poll_interval_ms),
+                prepared_target: None,
+                postcondition: None,
             },
         )
         .await

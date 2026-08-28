@@ -14,9 +14,11 @@ mod metrics;
 mod ocr;
 mod projection;
 mod query;
+mod refresh;
 mod region;
 mod runtime;
 mod scene;
+mod scope;
 mod scroll;
 mod source;
 mod stability;
@@ -43,20 +45,15 @@ pub use projection::{ProjectionOptions, compact_text, spatial_text};
 pub use query::{
     VisualCandidate, VisualMatch, evaluate_visual_query, fuzzy_candidates, matching_nodes,
 };
+pub use refresh::{RefreshPlan, RefreshReason, choose_refresh_plan};
 pub use runtime::{SceneRefreshPolicy, VisionHealth, VisionRuntime, VisualSceneService};
 pub use scene::{
     CacheLookup, CacheMissReason, RoleHint, SceneBuildOptions, SceneId, VisualNode,
     VisualNodeChange, VisualNodeId, VisualNodeSource, VisualRegion, VisualRegionId,
     VisualRegionKind, VisualScene, VisualSceneDelta, diff_scenes,
 };
-pub use scroll::{
-    AcceptedPage, AnchorMatchEvidence, DisplacementConfig, DisplacementEstimate,
-    DisplacementMethod, HistoryAppend, PageItem, PageSnapshot, PageTransition, ScrollAnchor,
-    ScrollCalibration, ScrollController, ScrollControllerConfig, ScrollControllerOutcome,
-    ScrollDirection, ScrollDocumentHistory, ScrollEndConfig, ScrollEndDetector, ScrollRegion,
-    ScrollSession, WheelSteps, estimate_displacement, estimate_displacement_with_config,
-    match_anchors,
-};
+// Windows 输入层仍以该强类型值表达滚轮批次；其余滚动编排保持 crate 内部实现。
+pub use scroll::WheelSteps;
 pub use source::{CapturePolicy, FrameSubscription, MemoryFrameSource, WindowFrameSource};
 pub use stability::{
     StabilityConfig, StabilityState, StableFrameGate, TemporalNoiseConfig, TemporalNoiseMask,
@@ -65,8 +62,7 @@ pub use verification::{VerificationOutcome, VisualCondition, evaluate_visual_con
 #[cfg(target_os = "windows")]
 pub use worker::NamedPipeOcrEngine;
 pub use worker::{
-    PixelTransport, RestartDecision, StaticOcrEngine, UnavailableOcrEngine,
+    MAX_PIXEL_BODY_BYTES, PixelTransport, StaticOcrEngine, UnavailableOcrEngine,
     VISION_PROTOCOL_VERSION, VisionWorkerClient, WorkerCommand, WorkerError, WorkerHealth,
     WorkerLifecycle, WorkerModelInfo, WorkerOcrRequest, WorkerProtocolEnvelope, WorkerResponse,
-    WorkerRestartPolicy, WorkerSupervisor,
 };

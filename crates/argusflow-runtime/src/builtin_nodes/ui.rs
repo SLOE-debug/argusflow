@@ -1,10 +1,12 @@
 use std::sync::Arc;
 
 use argusflow_core::{
-    ActionExecutionOptions, AppSession, AutomationAction, AutomationExecutionScope, BrowserSession,
-    ExecutionEventKind, ExecutionEventPayload, ExtractCardinality, NodeEnvelope, NodeTypeId,
-    ResourceTypeId, TargetLocator, TargetScope, TargetWaitPolicy, UiExecutionPolicy, UiOperation,
-    VisualQuery, WorkflowPermissions,
+    ActionExecutionOptions, ActionOutputContract, ActionOutputKey, AppSession, AutomationAction,
+    AutomationError, AutomationExecutionScope, BrowserSession, ExecutionEventKind,
+    ExecutionEventPayload, ExtractCardinality, NodeEnvelope, NodeTypeId, PreparedAutomationTarget,
+    PreparedTargetLocator, PreparedVisualPostcondition, ResourceTypeId, TargetLocator, TargetScope,
+    TargetWaitPolicy, UiExecutionPolicy, UiOperation, UiPostcondition, VisualQuery,
+    WorkflowPermissions,
 };
 use async_trait::async_trait;
 use serde::Deserialize;
@@ -26,13 +28,13 @@ struct UiPayloadV1 {
     operation: UiOperation,
 }
 
-/// UI 节点 v2/v3 payload，把动作语义与节点执行预算明确分离。
+/// 当前 UI payload，把动作语义与节点执行预算明确分离。
 ///
 /// v2 的旧视觉字符串和 v3 的 `ValueExpr` 都由 `VisualQueryExpr` 的反序列化边界
 /// 统一转换为当前内存契约；v3 是 Studio 当前写出的规范版本。
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct UiPayloadV2 {
+struct CurrentUiPayload {
     /// 资源作用域、目标定位与动作语义。
     operation: UiOperation,
     /// 当前节点为了完成动作可以使用的执行策略。
@@ -76,12 +78,13 @@ impl NodeCompiler for UiCompiler {
                 (payload.operation, execution)
             }
             2 | 3 => {
-                let payload = serde_json::from_value::<UiPayloadV2>(definition.payload.clone())
-                    .map_err(|error| {
-                        NodeCompileError::new(format!(
-                            "payload does not match registered schema: {error}"
-                        ))
-                    })?;
+                let payload =
+                    serde_json::from_value::<CurrentUiPayload>(definition.payload.clone())
+                        .map_err(|error| {
+                            NodeCompileError::new(format!(
+                                "payload does not match registered schema: {error}"
+                            ))
+                        })?;
                 (payload.operation, payload.execution)
             }
             version => {
@@ -148,7 +151,7 @@ impl PreparedNode for UiNode {
     }
 
     fn validate(&self, context: &NodeValidationContext<'_>) -> Vec<ValidationIssue> {
-        validation::validate_ui_node(&self.operation, self.execution, context)
+        validation::validate_ui_node(&self.operation, &self.execution, context)
     }
 
     fn value_inputs(&self) -> Vec<ValueInput<'_>> {
@@ -160,6 +163,9 @@ impl PreparedNode for UiNode {
             _ => {}
         }
         if let TargetLocator::Visual { query } = &self.operation.target().locator {
+            inputs.push(ValueInput::text(&query.text));
+        }
+        if let Some(UiPostcondition::NewText { query }) = &self.execution.postcondition {
             inputs.push(ValueInput::text(&query.text));
         }
         inputs
@@ -181,19 +187,25 @@ impl PreparedNode for UiNode {
     }
 
     fn value_output(&self, name: &str) -> Option<ValueTypeId> {
-        match &self.operation {
-            UiOperation::GetText { .. } if name == "text" => Some(ValueTypeId::text()),
-            UiOperation::GetValue { .. } if name == "value" => Some(ValueTypeId::text()),
-            UiOperation::Extract {
-                cardinality: ExtractCardinality::One,
-                ..
-            } if name == "item" => Some(ValueTypeId::json()),
-            UiOperation::Extract {
-                cardinality: ExtractCardinality::Many,
-                ..
-            } if name == "items" => Some(ValueTypeId::json()),
-            UiOperation::CollectLinks { .. } if name == "text" => Some(ValueTypeId::text()),
-            UiOperation::CollectLinks { .. } if name == "links" => Some(ValueTypeId::json()),
+        match (self.operation.output_contract(), name) {
+            (ActionOutputContract::Text, key) if key == ActionOutputKey::Text.as_str() => {
+                Some(ValueTypeId::text())
+            }
+            (ActionOutputContract::Value, key) if key == ActionOutputKey::Value.as_str() => {
+                Some(ValueTypeId::text())
+            }
+            (ActionOutputContract::Item, key) if key == ActionOutputKey::Item.as_str() => {
+                Some(ValueTypeId::json())
+            }
+            (ActionOutputContract::Items, key) if key == ActionOutputKey::Items.as_str() => {
+                Some(ValueTypeId::json())
+            }
+            (ActionOutputContract::TextAndLinks, key) if key == ActionOutputKey::Text.as_str() => {
+                Some(ValueTypeId::text())
+            }
+            (ActionOutputContract::TextAndLinks, key) if key == ActionOutputKey::Links.as_str() => {
+                Some(ValueTypeId::json())
+            }
             _ => None,
         }
     }
@@ -223,7 +235,8 @@ impl PreparedNode for UiNode {
         _permissions: &WorkflowPermissions,
         context: &mut RunContext,
     ) -> Result<NodeExecution, RuntimeError> {
-        let target = resolve_target(self.operation.target(), context)?;
+        let (target, prepared_target) = resolve_target(self.operation.target(), context)?;
+        let postcondition = resolve_postcondition(&self.execution.postcondition, context)?;
         let scope = resolve_execution_scope(&target.scope, context)?;
         let action = match &self.operation {
             UiOperation::Click { .. } => AutomationAction::Click { target },
@@ -259,9 +272,24 @@ impl PreparedNode for UiNode {
                 scope,
                 ActionExecutionOptions {
                     target_wait: self.execution.target_wait,
+                    prepared_target: Some(prepared_target),
+                    postcondition,
                 },
             )
             .await?;
+        if let Err(error) = self
+            .operation
+            .output_contract()
+            .validate(&action_outcome.outputs)
+        {
+            return Err(RuntimeError::Automation(AutomationError::BackendFailed {
+                backend: action_outcome.backend,
+                message: format!(
+                    "UI action output contract mismatch: expected {:?}, got {:?}",
+                    error.expected, error.actual
+                ),
+            }));
+        }
         // 失败现场在 fallback 前产生，因此事件顺序也先于最终成功后端。
         let mut events = action_outcome
             .diagnostic_evidence
@@ -297,33 +325,58 @@ fn legacy_execution_policy(locator: TargetLocator) -> UiExecutionPolicy {
         TargetLocator::Coordinate { .. } => TargetWaitPolicy::none(),
         TargetLocator::Focused => TargetWaitPolicy::none(),
         TargetLocator::Query { .. } => TargetWaitPolicy::bounded(5_000, 100),
-        TargetLocator::Visual { .. } | TargetLocator::VisualResolved { .. } => {
-            TargetWaitPolicy::bounded(5_000, 300)
-        }
+        TargetLocator::Visual { .. } => TargetWaitPolicy::bounded(5_000, 300),
     };
-    UiExecutionPolicy { target_wait }
+    UiExecutionPolicy {
+        target_wait,
+        postcondition: None,
+    }
 }
 
 /// 解析一次 UI 动作的视觉文字表达式，并把结果冻结为运行时定位契约。
 fn resolve_target(
     target: &argusflow_core::AutomationTarget,
     context: &RunContext,
-) -> Result<argusflow_core::AutomationTarget, RuntimeError> {
-    let TargetLocator::Visual { query } = &target.locator else {
-        return Ok(target.clone());
-    };
-    let resolved_query = VisualQuery {
-        text: context.resolve_text(&query.text)?,
-        exact: query.exact,
-        region: query.region,
-    };
-    Ok(argusflow_core::AutomationTarget {
-        scope: target.scope.clone(),
-        locator: TargetLocator::VisualResolved {
-            query: resolved_query,
+) -> Result<(argusflow_core::AutomationTarget, PreparedAutomationTarget), RuntimeError> {
+    let prepared_locator = match &target.locator {
+        TargetLocator::Query { query } => PreparedTargetLocator::Query {
+            query: query.clone(),
         },
-        backend_policy: target.backend_policy.clone(),
-    })
+        TargetLocator::Visual { query } => PreparedTargetLocator::Visual {
+            query: VisualQuery {
+                text: context.resolve_text(&query.text)?,
+                exact: query.exact,
+                region: query.region,
+            },
+        },
+        TargetLocator::Coordinate { point } => PreparedTargetLocator::Coordinate { point: *point },
+        TargetLocator::Focused => PreparedTargetLocator::Focused,
+    };
+    Ok((
+        target.clone(),
+        PreparedAutomationTarget::new(
+            target.scope.clone(),
+            prepared_locator,
+            target.backend_policy.clone(),
+        ),
+    ))
+}
+
+/// 解析发送后视觉新事实所需的动态文字表达式。
+fn resolve_postcondition(
+    postcondition: &Option<UiPostcondition>,
+    context: &RunContext,
+) -> Result<Option<PreparedVisualPostcondition>, RuntimeError> {
+    let Some(UiPostcondition::NewText { query }) = postcondition else {
+        return Ok(None);
+    };
+    Ok(Some(PreparedVisualPostcondition::NewText {
+        query: VisualQuery {
+            text: context.resolve_text(&query.text)?,
+            exact: query.exact,
+            region: query.region,
+        },
+    }))
 }
 
 /// 把资源引用解析成不进入持久化定义的瞬时后端作用域。

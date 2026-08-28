@@ -38,6 +38,7 @@ describe('WorkspaceDockPanel', () => {
             },
             execution: {
               target_wait: { mode: 'bounded', timeout_ms: 5_000, poll_interval_ms: 100 },
+              postcondition: null,
             },
           },
         }]}

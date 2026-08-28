@@ -130,8 +130,8 @@ class VisionWorker:
             next(iter(pipeline.predict(warmup)), None)
         self.lifecycle = "ready"
 
-    def recognize(self, request: dict[str, Any]) -> dict[str, Any]:
-        """Decode a Rust ROI, run PaddleOCR, and return frame-local polygons."""
+    def recognize(self, request: dict[str, Any], body: bytes) -> dict[str, Any]:
+        """Decode a Rust ROI binary body, run PaddleOCR, and return frame-local polygons."""
 
         started = time.perf_counter()
         transport = request.get("pixel_transport")
@@ -143,19 +143,15 @@ class VisionWorker:
         width = int(transport["width"])
         height = int(transport["height"])
         stride = int(transport["stride_bytes"])
-        raw_pixels = transport["bytes"]
-        if not isinstance(raw_pixels, list):
-            raise ProtocolError("invalid_pixels", "inline bytes must be a JSON byte array")
-        if any(not isinstance(value, int) or not 0 <= value <= 255 for value in raw_pixels):
-            raise ProtocolError("invalid_pixels", "inline bytes contain a value outside 0..255")
         if width <= 0 or height <= 0 or stride < width * 4:
             raise ProtocolError("invalid_pixels", "ROI dimensions or stride are invalid")
         required_bytes = stride * height
-        if len(raw_pixels) < required_bytes:
-            raise ProtocolError("invalid_pixels", "inline pixel buffer is shorter than stride*height")
-        bgra = numpy.asarray(raw_pixels[:required_bytes], dtype=numpy.uint8).reshape(height, stride)[
-            :, : width * 4
-        ]
+        declared_length = int(transport.get("body_length", -1))
+        if declared_length != required_bytes or len(body) != required_bytes:
+            raise ProtocolError("invalid_pixels", "binary pixel body length must equal stride*height")
+        bgra = numpy.frombuffer(memoryview(body), dtype=numpy.uint8, count=required_bytes).reshape(
+            height, stride
+        )[:, : width * 4]
         rgb = bgra.reshape(height, width, 4)[:, :, :3][:, :, ::-1].copy()
         profile = request.get("profile")
         if not isinstance(profile, dict):
@@ -265,7 +261,7 @@ def serve(pipe_name: str, session_token: str) -> None:
             connect_server(handle)
             while True:
                 try:
-                    envelope = read_frame(handle)
+                    envelope, body = read_frame(handle)
                     if envelope.get("protocol_version") != PROTOCOL_VERSION:
                         write_frame(
                             handle,
@@ -287,6 +283,11 @@ def serve(pipe_name: str, session_token: str) -> None:
                         raise ProtocolError("invalid_message", "payload must be an object")
                     kind = payload.get("kind")
                     if kind == "health":
+                        if body:
+                            raise ProtocolError(
+                                "unexpected_body",
+                                "health requests must not carry a binary body",
+                            )
                         health = worker.health()
                         if startup_error is not None:
                             health["lifecycle"] = "failed"
@@ -303,9 +304,15 @@ def serve(pipe_name: str, session_token: str) -> None:
                             raise ProtocolError("invalid_request", "recognize request is missing")
                         worker.queue_depth = 1
                         try:
-                            result = worker.recognize(request)
+                            result = worker.recognize(request, body)
                         except ProtocolError as error:
                             write_frame(handle, _error_response(envelope, error.code, error.message))
+                            if error.code == "deadline_exceeded":
+                                # Paddle predict is synchronous and cannot be cooperatively
+                                # cancelled; terminate this worker so the deployment owner can
+                                # replace the contaminated inference process.
+                                worker.lifecycle = "failed"
+                                return
                         except Exception as error:
                             write_frame(handle, _error_response(envelope, "ocr_failed", str(error)))
                         else:
@@ -330,6 +337,10 @@ def serve(pipe_name: str, session_token: str) -> None:
                         _error_response({}, error.code, error.message),
                     )
                 except (OSError, pywintypes.error):
-                    break
+                    # The Rust client drops the pipe on its deadline. The synchronous
+                    # inference may still be running, so a broken pipe is a process-level
+                    # health failure and must be recovered by the deployment owner.
+                    worker.lifecycle = "failed"
+                    return
         finally:
             close_server(handle)

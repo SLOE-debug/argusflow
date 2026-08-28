@@ -15,7 +15,7 @@ use argusflow_vision::{
 use argusflow_windows::{
     capture::WindowsGraphicsCapture,
     context::WindowsExecutionContextProvider,
-    input::{SendInputBackend, WindowsVisualTargetResolver},
+    input::{SendInputBackend, WindowsVisualTargetMaterializer},
     uia::{UiaBackend, UiaRuntime},
     window::WindowsApplicationSessionProvider,
 };
@@ -41,7 +41,8 @@ impl AppState {
             Arc::new(WindowsGraphicsCapture::new()),
             build_vision_worker(),
         ));
-        let visual_resolver = Arc::new(WindowsVisualTargetResolver::new(vision_runtime.clone()));
+        let visual_materializer =
+            Arc::new(WindowsVisualTargetMaterializer::new(vision_runtime.clone()));
         // 注册顺序不决定执行优先级；ActionRouter 会比较支持等级、成本与用户偏好。
         let backends: Vec<Arc<dyn ActionBackend>> = vec![
             Arc::new(UiaBackend::new(uia_runtime.clone())),
@@ -58,19 +59,20 @@ impl AppState {
                 vision_runtime.clone(),
                 BackendKind::OcrMedium,
             )),
-            Arc::new(SendInputBackend::new(visual_resolver)),
+            Arc::new(SendInputBackend::new()),
         ];
         let context_provider = Arc::new(WindowsExecutionContextProvider::new(uia_runtime.health()));
         let router = Arc::new(
-            ActionRouter::with_context_provider(backends, context_provider).with_evidence(
-                EvidenceSettings {
+            ActionRouter::with_context_provider(backends, context_provider)
+                .with_target_materializer(visual_materializer.clone())
+                .with_visual_verification(visual_materializer)
+                .with_evidence(EvidenceSettings {
                     policy: EvidenceCapturePolicy::FinalFailure,
                     sink: Arc::new(FileSystemEvidenceSink::new(
                         ".argusflow/runs/local/evidence",
                     )),
                     ..EvidenceSettings::default()
-                },
-            ),
+                }),
         );
 
         Self {

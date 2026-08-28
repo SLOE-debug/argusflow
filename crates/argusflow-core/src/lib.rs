@@ -2,6 +2,7 @@
 //!
 //! 本 crate 只定义跨编辑器、运行时和自动化后端共享的数据结构，不负责实际执行。
 
+mod action_options;
 mod application;
 mod automation;
 mod browser;
@@ -13,18 +14,23 @@ mod error;
 mod execution;
 mod input;
 mod keyboard;
+mod output;
+mod prepared;
 mod query;
 mod resource;
 mod value;
 mod visual;
 mod workflow;
 
+pub use action_options::{
+    ActionExecutionOptions, TargetWaitMode, TargetWaitPolicy, UiExecutionPolicy, UiPostcondition,
+};
 pub use application::{AcquirePolicy, ActivationPolicy, ApplicationSpec, CleanupPolicy};
 pub use automation::{
-    ActionExecutionOptions, ActionOutcome, AutomationAction, AutomationExecutionScope,
-    AutomationTarget, BackendKind, BackendPolicy, DiagnosticEvidenceReference, ExtractCardinality,
-    FieldProjection, FieldProjectionSource, ScreenPoint, TargetLocator, TargetScope,
-    TargetWaitMode, TargetWaitPolicy, UiExecutionPolicy, UiOperation, WindowTitleMatcher,
+    ActionOutcome, AutomationAction, AutomationExecutionScope, AutomationTarget, BackendKind,
+    BackendPolicy, DiagnosticEvidenceReference, ExtractCardinality, FieldProjection,
+    FieldProjectionSource, ScreenPoint, TargetLocator, TargetScope, UiOperation,
+    WindowTitleMatcher,
 };
 pub use browser::{
     AcquireBrowserSpec, BrowserAcquireMode, BrowserCleanupPolicy, BrowserOperation, BrowserSpec,
@@ -45,6 +51,8 @@ pub use execution::{
 };
 pub use input::{RunInputs, WorkflowInputDefinition, WorkflowInputType};
 pub use keyboard::{KeyChord, KeyboardKey, KeyboardModifier};
+pub use output::{ActionOutputContract, ActionOutputKey, OutputContractError};
+pub use prepared::{PreparedAutomationTarget, PreparedTargetLocator, PreparedVisualPostcondition};
 pub use query::{
     AqlQuery, DomAttribute, ElementMatcher, ElementRole, MatchOperator, PredicateValue,
     PropertyPredicate, QueryExpr, QueryLanguageVersion, RegexLiteral, SelectorAttribute, UiQuery,

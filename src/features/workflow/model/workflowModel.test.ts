@@ -99,6 +99,7 @@ describe('workflow model', () => {
             timeout_ms: 5_000,
             poll_interval_ms: 100,
           },
+          postcondition: null,
         },
       },
     });
@@ -173,6 +174,7 @@ describe('workflow model', () => {
             timeout_ms: 0,
             poll_interval_ms: 0,
           },
+          postcondition: null,
         },
       },
     }));

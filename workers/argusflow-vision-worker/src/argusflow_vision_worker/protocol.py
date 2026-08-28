@@ -10,8 +10,11 @@ import pywintypes
 import win32file
 import win32pipe
 
-PROTOCOL_VERSION = "argusflow.vision.v1"
-MAX_FRAME_BYTES = 4 * 1024 * 1024
+PROTOCOL_VERSION = "argusflow.vision.v2"
+MAX_CONTROL_FRAME_BYTES = 4 * 1024 * 1024
+MAX_PIXEL_BODY_BYTES = 64 * 1024 * 1024
+FRAME_MAGIC = b"AFV2"
+FRAME_HEADER = struct.Struct("<4sIQ")
 
 
 class ProtocolError(RuntimeError):
@@ -35,34 +38,40 @@ def _read_exact(handle: pywintypes.HANDLE, length: int) -> bytes:
     return b"".join(chunks)
 
 
-def read_frame(handle: pywintypes.HANDLE) -> dict[str, Any]:
-    """Read one little-endian length-prefixed JSON object."""
+def read_frame(handle: pywintypes.HANDLE) -> tuple[dict[str, Any], bytes]:
+    """Read one control JSON object followed by an optional binary pixel body."""
 
-    header = _read_exact(handle, 4)
-    (length,) = struct.unpack("<I", header)
-    if length > MAX_FRAME_BYTES:
-        raise ProtocolError("frame_too_large", f"control frame is {length} bytes")
+    header = _read_exact(handle, FRAME_HEADER.size)
+    magic, control_length, body_length = FRAME_HEADER.unpack(header)
+    if magic != FRAME_MAGIC:
+        raise ProtocolError("invalid_frame", "vision worker frame magic mismatch")
+    if control_length > MAX_CONTROL_FRAME_BYTES:
+        raise ProtocolError("frame_too_large", f"control frame is {control_length} bytes")
+    if body_length > MAX_PIXEL_BODY_BYTES:
+        raise ProtocolError("body_too_large", f"binary body is {body_length} bytes")
     try:
-        payload = _read_exact(handle, length)
+        payload = _read_exact(handle, control_length)
         decoded = json.loads(payload.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ProtocolError("invalid_json", f"invalid control JSON: {error}") from error
     if not isinstance(decoded, dict):
         raise ProtocolError("invalid_message", "control payload must be a JSON object")
-    return decoded
+    return decoded, _read_exact(handle, body_length)
 
 
-def write_frame(handle: pywintypes.HANDLE, message: dict[str, Any]) -> None:
-    """Write one little-endian length-prefixed JSON object."""
+def write_frame(handle: pywintypes.HANDLE, message: dict[str, Any], body: bytes = b"") -> None:
+    """Write one control JSON object followed by an optional binary body."""
 
     payload = json.dumps(
         message,
         ensure_ascii=False,
         separators=(",", ":"),
     ).encode("utf-8")
-    if len(payload) > MAX_FRAME_BYTES:
+    if len(payload) > MAX_CONTROL_FRAME_BYTES:
         raise ProtocolError("frame_too_large", f"control frame is {len(payload)} bytes")
-    frame = struct.pack("<I", len(payload)) + payload
+    if len(body) > MAX_PIXEL_BODY_BYTES:
+        raise ProtocolError("body_too_large", f"binary body is {len(body)} bytes")
+    frame = FRAME_HEADER.pack(FRAME_MAGIC, len(payload), len(body)) + payload + body
     win32file.WriteFile(handle, frame)
 
 
@@ -76,8 +85,8 @@ def create_server(pipe_name: str) -> pywintypes.HANDLE:
         | win32pipe.PIPE_READMODE_BYTE
         | win32pipe.PIPE_WAIT,
         1,
-        MAX_FRAME_BYTES,
-        MAX_FRAME_BYTES,
+        MAX_CONTROL_FRAME_BYTES,
+        MAX_CONTROL_FRAME_BYTES,
         0,
         None,
     )

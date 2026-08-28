@@ -3,12 +3,12 @@
 //! 通过 JSON 往返确认开放节点 envelope、资源引用和强类型 payload 能无损持久化。
 
 use argusflow_core::{
-    AcquirePolicy, ActivationPolicy, ApplicationSpec, AqlQuery, AutomationTarget, BackendKind,
-    BackendPolicy, CleanupPolicy, CommandOperation, CommandRunner, KeyChord, KeyboardKey,
-    KeyboardModifier, NodeEnvelope, NormalizedRect, Position, ResourceRef, TargetLocator,
-    TargetScope, UiOperation, ValueExpr, WindowTitleMatcher, WorkflowCapabilityId,
-    WorkflowDefinition, WorkflowEdge, WorkflowInputDefinition, WorkflowInputType, WorkflowNode,
-    WorkflowPermissions,
+    AcquirePolicy, ActionOutputContract, ActionOutputKey, ActivationPolicy, ApplicationSpec,
+    AqlQuery, AutomationTarget, BackendKind, BackendPolicy, CleanupPolicy, CommandOperation,
+    CommandRunner, KeyChord, KeyboardKey, KeyboardModifier, NodeEnvelope, NormalizedRect, Position,
+    ResourceRef, TargetLocator, TargetScope, UiOperation, ValueExpr, WindowTitleMatcher,
+    WorkflowCapabilityId, WorkflowDefinition, WorkflowEdge, WorkflowInputDefinition,
+    WorkflowInputType, WorkflowNode, WorkflowPermissions,
 };
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -223,6 +223,57 @@ fn normalized_visual_regions_reject_out_of_bounds_values() {
         }))
         .is_ok()
     );
+}
+
+#[test]
+fn action_output_contract_uses_operation_semantics() {
+    let target = AutomationTarget::query(AqlQuery::v1("button(name = \"保存\")"));
+    let get_text = UiOperation::GetText {
+        target: target.clone(),
+    };
+    let get_value = UiOperation::GetValue {
+        target: target.clone(),
+    };
+    let extract_one = UiOperation::Extract {
+        target: target.clone(),
+        cardinality: argusflow_core::ExtractCardinality::One,
+        fields: vec![],
+    };
+    let extract_many = UiOperation::Extract {
+        target,
+        cardinality: argusflow_core::ExtractCardinality::Many,
+        fields: vec![],
+    };
+
+    assert_eq!(get_text.output_contract(), ActionOutputContract::Text);
+    assert_eq!(get_value.output_contract(), ActionOutputContract::Value);
+    assert_eq!(extract_one.output_contract(), ActionOutputContract::Item);
+    assert_eq!(extract_many.output_contract(), ActionOutputContract::Items);
+    assert_eq!(ActionOutputKey::Text.as_str(), "text");
+    assert_eq!(ActionOutputKey::Value.as_str(), "value");
+    assert_eq!(ActionOutputKey::Item.as_str(), "item");
+    assert_eq!(ActionOutputKey::Items.as_str(), "items");
+}
+
+#[test]
+fn output_contract_compares_btree_keys_as_a_set() {
+    let outputs = std::collections::BTreeMap::from([
+        (ActionOutputKey::Text.as_str().to_owned(), json!("标题")),
+        (ActionOutputKey::Links.as_str().to_owned(), json!([])),
+    ]);
+
+    ActionOutputContract::TextAndLinks
+        .validate(&outputs)
+        .expect("BTreeMap key order must not change the output contract");
+}
+
+#[test]
+fn runtime_only_visual_locator_is_not_a_persisted_variant() {
+    let result = serde_json::from_value::<TargetLocator>(json!({
+        "type": "visual_resolved",
+        "query": {"text": "保存", "exact": true}
+    }));
+    assert!(result.is_err());
 }
 
 /// 以稳定布局构造 schema v8 开放节点。

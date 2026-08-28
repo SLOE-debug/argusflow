@@ -75,6 +75,11 @@ const BACKEND_OPTIONS = [
   { value: 'send_input', label: '键盘输入' },
 ] as const;
 
+/** 只有会改变界面的物理输入动作才允许保留视觉新事实后置条件。 */
+function acceptsVisualPostcondition(operation: UiOperation): boolean {
+  return operation.type === 'press_key' || operation.type === 'type_text';
+}
+
 /** 编辑 UI 操作、资源作用域、定位方式和后端偏好。 */
 export function ActionNodeFields({
   nodeId,
@@ -104,9 +109,16 @@ export function ActionNodeFields({
           onValueChange={(kind) => {
             const nextOperation = changeUiOperationKind(operation, kind);
             onChange(nextOperation);
-            if (nextOperation.target.locator.type !== operation.target.locator.type) {
+            const locatorChanged = nextOperation.target.locator.type !== operation.target.locator.type;
+            if (locatorChanged || !acceptsVisualPostcondition(nextOperation)) {
               onExecutionChange({
-                target_wait: createTargetWaitPolicy(nextOperation.target.locator.type),
+                ...execution,
+                target_wait: locatorChanged
+                  ? createTargetWaitPolicy(nextOperation.target.locator.type)
+                  : execution.target_wait,
+                postcondition: acceptsVisualPostcondition(nextOperation)
+                  ? execution.postcondition
+                  : null,
               });
             }
           }}
@@ -186,7 +198,10 @@ export function ActionNodeFields({
             containerClassName="border-slate-300 bg-white"
             onValueChange={(kind) => {
               onChange(changeTargetLocatorKind(operation, kind));
-              onExecutionChange({ target_wait: createTargetWaitPolicy(kind) });
+              onExecutionChange({
+                ...execution,
+                target_wait: createTargetWaitPolicy(kind),
+              });
             }}
           />
         </InspectorField>
@@ -249,6 +264,7 @@ function TargetWaitFields({
             aria-label="找不到目标时自动等待"
             checked={enabled}
             onChange={(event) => onChange({
+              ...execution,
               target_wait: event.target.checked
                 ? createTargetWaitPolicy(locatorKind)
                 : { mode: 'none', timeout_ms: 0, poll_interval_ms: 0 },
@@ -267,6 +283,7 @@ function TargetWaitFields({
                 value={policy.timeout_ms}
                 containerClassName="border-slate-300 bg-white"
                 onChange={(event) => onChange({
+                  ...execution,
                   target_wait: {
                     ...policy,
                     timeout_ms: Number(event.target.value),
@@ -283,6 +300,7 @@ function TargetWaitFields({
                 value={policy.poll_interval_ms}
                 containerClassName="border-slate-300 bg-white"
                 onChange={(event) => onChange({
+                  ...execution,
                   target_wait: {
                     ...policy,
                     poll_interval_ms: Number(event.target.value),

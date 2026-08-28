@@ -32,5 +32,7 @@ pub use plan::{
 };
 pub use router::{ActionRouter, ROUTE_TIE_BREAK_ORDER};
 pub use visual::{
-    ResolvedVisualTarget, VisualResolvePolicy, VisualTargetBounds, VisualTargetResolver,
+    MaterializedTarget, PreparedTargetMaterializer, SharedTargetMaterializer, VisualBaseline,
+    VisualMaterializationPlan, VisualMaterializationStage, VisualTargetBounds,
+    VisualVerificationProvider, VisualVerificationResult,
 };

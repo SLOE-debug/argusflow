@@ -30,12 +30,26 @@ pub(crate) async fn execute_cdp_action(
             query: query.to_owned(),
             matches: result.matches,
         }),
-        "ok" => Ok(ActionOutcome {
-            backend: BackendKind::BrowserCdp,
-            message: result.message,
-            outputs: result.outputs,
-            diagnostic_evidence: Vec::new(),
-        }),
+        "ok" => {
+            action
+                .output_contract()
+                .validate(&result.outputs)
+                .map_err(|error| {
+                    CdpExecutionError::InvalidExecutorResponse {
+                        message: format!(
+                            "output contract mismatch: expected {:?}, got {:?}",
+                            error.expected, error.actual
+                        ),
+                    }
+                    .into_automation_error()
+                })?;
+            Ok(ActionOutcome {
+                backend: BackendKind::BrowserCdp,
+                message: result.message,
+                outputs: result.outputs,
+                diagnostic_evidence: Vec::new(),
+            })
+        }
         status => Err(CdpExecutionError::InvalidExecutorResponse {
             message: format!("unknown page action status '{status}'"),
         }
