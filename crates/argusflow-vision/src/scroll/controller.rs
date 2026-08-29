@@ -5,8 +5,9 @@ use serde::{Deserialize, Serialize};
 use argusflow_core::WindowIdentity;
 
 use super::{
-    AcceptedPage, PageSnapshot, PageTransition, ScrollDirection, ScrollEndConfig,
-    ScrollEndDetector, ScrollRegion, ScrollSession, WheelSteps,
+    end::{ScrollEndConfig, ScrollEndDetector},
+    model::{PageSnapshot, ScrollDirection, ScrollRegion, WheelSteps},
+    session::{AcceptedPage, PageTransition, ScrollSession},
 };
 use crate::error::VisionError;
 
