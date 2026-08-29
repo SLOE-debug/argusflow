@@ -4,7 +4,7 @@ use argusflow_core::{
     BackendKind, FieldProjectionSource, KeyboardKey, TargetLocator, TargetScope, TargetWaitMode,
     TargetWaitPolicy, UiExecutionPolicy, UiOperation, UiPostcondition, ValueExpr,
 };
-use argusflow_query::parse_stored_query;
+use argusflow_query::{parse_stored_query, query_parameter_names};
 
 use crate::{NodeValidationContext, ValidationIssue, ValidationIssueCode};
 
@@ -286,8 +286,8 @@ fn validate_locator(
     issues: &mut Vec<ValidationIssue>,
 ) {
     match &operation.target().locator {
-        TargetLocator::Query { query } => {
-            if let Err(error) = parse_stored_query(query) {
+        TargetLocator::Query { query } => match parse_stored_query(query) {
+            Err(error) => {
                 let help = error
                     .help
                     .as_deref()
@@ -298,7 +298,17 @@ fn validate_locator(
                     format!("AQL 查询无效：{error}{help}"),
                 ));
             }
-        }
+            Ok(parsed) => {
+                let referenced = query_parameter_names(&parsed);
+                let bound = query.bindings.keys().cloned().collect();
+                if referenced != bound {
+                    issues.push(context.issue(
+                        ValidationIssueCode::InvalidAqlQuery,
+                        format!("AQL 参数绑定与源码不一致：引用 {referenced:?}，绑定 {bound:?}"),
+                    ));
+                }
+            }
+        },
         TargetLocator::Visual { query } if visual_text_is_empty(&query.text) => {
             issues
                 .push(context.issue(ValidationIssueCode::InvalidAqlQuery, "视觉目标文字不能为空"));

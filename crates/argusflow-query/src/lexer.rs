@@ -16,6 +16,8 @@ pub(crate) struct Token {
 pub(crate) enum TokenKind {
     /// 角色、属性、操作符关键字或组合器名称。
     Identifier(String),
+    /// 已移除 `$` 前缀的运行时参数名。
+    Parameter(String),
     /// 已按 JSON 字符串转义规则解码的文本。
     String(String),
     /// 已移除分隔符并解析 `i` 标志的正则字面量。
@@ -76,6 +78,7 @@ pub(crate) fn lex(source: &str) -> Result<Vec<Token>, AqlError> {
 fn lower_token(source: &str, token: &RawToken) -> Result<Token, AqlError> {
     let kind = match token.kind {
         RawTokenKind::Identifier => TokenKind::Identifier(token.text.clone()),
+        RawTokenKind::Parameter => TokenKind::Parameter(token.text[1..].to_owned()),
         RawTokenKind::String => {
             TokenKind::String(serde_json::from_str(&token.text).map_err(|error| {
                 AqlError::at(

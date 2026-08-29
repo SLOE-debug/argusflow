@@ -98,6 +98,19 @@ pub fn completions(source: &str, position: EditorPosition) -> Vec<CompletionItem
             ("focused", CompletionItemKind::Property, "是否拥有焦点"),
             ("checked", CompletionItemKind::Property, "是否勾选"),
             ("selected", CompletionItemKind::Property, "是否选中"),
+            ("anchor", CompletionItemKind::Property, "空间查询锚点"),
+            ("target", CompletionItemKind::Property, "空间查询目标"),
+            (
+                "direction",
+                CompletionItemKind::Property,
+                "相对于锚点的方向",
+            ),
+            (
+                "index",
+                CompletionItemKind::Property,
+                "从 1 开始的显式距离名次",
+            ),
+            ("metric", CompletionItemKind::Property, "分辨率无关距离度量"),
             (
                 "uia.automation_id",
                 CompletionItemKind::Property,
@@ -132,6 +145,16 @@ pub fn completions(source: &str, position: EditorPosition) -> Vec<CompletionItem
             ("matches", CompletionItemKind::Operator, "正则匹配"),
             ("true", CompletionItemKind::Value, "布尔真值"),
             ("false", CompletionItemKind::Value, "布尔假值"),
+            ("above", CompletionItemKind::Value, "锚点上方"),
+            ("below", CompletionItemKind::Value, "锚点下方"),
+            ("left", CompletionItemKind::Value, "锚点左侧"),
+            ("right", CompletionItemKind::Value, "锚点右侧"),
+            ("edge_gap", CompletionItemKind::Value, "归一化矩形边缘间隙"),
+            (
+                "center_distance",
+                CompletionItemKind::Value,
+                "归一化中心距离",
+            ),
         ]
     } else {
         &[
@@ -143,6 +166,11 @@ pub fn completions(source: &str, position: EditorPosition) -> Vec<CompletionItem
             ("not", CompletionItemKind::Function, "排除查询结果"),
             ("first", CompletionItemKind::Function, "选择第一个结果"),
             ("nth", CompletionItemKind::Function, "选择第 N 个结果"),
+            (
+                "nearest",
+                CompletionItemKind::Function,
+                "按 anchor 相对距离选择目标",
+            ),
             (
                 "css",
                 CompletionItemKind::Function,
@@ -243,6 +271,7 @@ fn classify_token(token: &RawToken) -> SyntaxToken {
         RawTokenKind::String => SyntaxTokenKind::String,
         RawTokenKind::Regex => SyntaxTokenKind::Regex,
         RawTokenKind::Integer => SyntaxTokenKind::Integer,
+        RawTokenKind::Parameter => SyntaxTokenKind::Parameter,
         RawTokenKind::Boolean => SyntaxTokenKind::Boolean,
         RawTokenKind::LeftParen | RawTokenKind::RightParen | RawTokenKind::Comma => {
             SyntaxTokenKind::Punctuation
@@ -261,7 +290,10 @@ fn classify_token(token: &RawToken) -> SyntaxToken {
 
 /// 使用唯一 Rust 语言实现对标识符做高亮分类。
 fn classify_identifier(identifier: &str) -> SyntaxTokenKind {
-    if matches!(identifier, "any" | "not" | "first" | "nth" | "css") {
+    if matches!(
+        identifier,
+        "any" | "not" | "first" | "nth" | "nearest" | "css"
+    ) {
         SyntaxTokenKind::Function
     } else if matches!(
         identifier,

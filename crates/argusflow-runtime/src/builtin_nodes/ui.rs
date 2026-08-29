@@ -165,6 +165,9 @@ impl PreparedNode for UiNode {
         if let TargetLocator::Visual { query } = &self.operation.target().locator {
             inputs.push(ValueInput::text(&query.text));
         }
+        if let TargetLocator::Query { query } = &self.operation.target().locator {
+            inputs.extend(query.bindings.values().map(ValueInput::text));
+        }
         if let Some(UiPostcondition::NewText { query }) = &self.execution.postcondition {
             inputs.push(ValueInput::text(&query.text));
         }
@@ -374,6 +377,15 @@ fn resolve_target(
     let prepared_locator = match &target.locator {
         TargetLocator::Query { query } => PreparedTargetLocator::Query {
             query: query.clone(),
+            parameters: query
+                .bindings
+                .iter()
+                .map(|(name, expression)| {
+                    context
+                        .resolve_text(expression)
+                        .map(|value| (name.clone(), value))
+                })
+                .collect::<Result<_, _>>()?,
         },
         TargetLocator::Visual { query } => PreparedTargetLocator::Visual {
             query: VisualQuery {

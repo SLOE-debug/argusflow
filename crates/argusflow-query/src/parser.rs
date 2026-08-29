@@ -2,8 +2,8 @@ use std::num::NonZeroUsize;
 
 use argusflow_core::{
     AqlQuery, DomAttribute, ElementMatcher, ElementRole, MatchOperator, PredicateValue,
-    PropertyPredicate, QueryExpr, QueryLanguageVersion, RegexLiteral, SelectorAttribute, UiQuery,
-    UiaAttribute,
+    PropertyPredicate, QueryExpr, QueryLanguageVersion, QueryParameter, QueryValueType,
+    RegexLiteral, SelectorAttribute, UiQuery, UiaAttribute,
 };
 use regex::RegexBuilder;
 
@@ -12,10 +12,12 @@ use crate::{
     lexer::{Token, TokenKind, lex},
 };
 
+mod nearest;
+
 /// 按持久化查询携带的语言版本解析 AQL。
 pub fn parse_stored_query(query: &AqlQuery) -> Result<UiQuery, AqlError> {
     match query.language_version {
-        QueryLanguageVersion::V1 => parse_query(&query.source),
+        QueryLanguageVersion::V1 | QueryLanguageVersion::V2 => parse_query(&query.source),
     }
 }
 
@@ -99,6 +101,7 @@ impl Parser<'_> {
             "not" => self.parse_unary_query("not"),
             "first" => self.parse_unary_query("first"),
             "nth" => self.parse_nth(),
+            "nearest" => self.parse_nearest(),
             role => self.parse_matcher(role, &token),
         }
     }
@@ -348,11 +351,23 @@ impl Parser<'_> {
             }));
         }
 
-        let TokenKind::String(text) = &value_token.kind else {
-            return Err(self.unexpected(&value_token, "文本属性的右值必须使用双引号字符串"));
-        };
-        self.advance();
-        Ok(PredicateValue::Text(text.clone()))
+        match &value_token.kind {
+            TokenKind::String(text) => {
+                self.advance();
+                Ok(PredicateValue::Text(text.clone()))
+            }
+            TokenKind::Parameter(name) => {
+                self.advance();
+                Ok(PredicateValue::Parameter(QueryParameter {
+                    name: name.clone(),
+                    expected_type: QueryValueType::Text,
+                }))
+            }
+            _ => Err(self.unexpected(
+                &value_token,
+                "文本属性的右值必须是双引号字符串或 $parameter",
+            )),
+        }
     }
 
     /// 要求并消费左括号。

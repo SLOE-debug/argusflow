@@ -8,6 +8,7 @@ import type {
 export type SyntaxTokenKind =
   | 'role' | 'function' | 'property' | 'namespace' | 'operator'
   | 'string' | 'regex' | 'boolean' | 'integer' | 'punctuation'
+  | 'parameter'
   | 'trivia' | 'unknown';
 
 /** Rust semantic token 及其 UTF-16 范围。 */

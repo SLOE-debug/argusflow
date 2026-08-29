@@ -192,16 +192,11 @@ describe('workflow model', () => {
           type: 'get_text',
           target: expect.objectContaining({
             locator: {
-              type: 'visual',
+              type: 'query',
               query: {
-                text: { type: 'literal', value: '网络结果' },
-                exact: false,
-                region: {
-                  x: 0.08,
-                  y: 0.1,
-                  width: 0.38,
-                  height: 0.12,
-                },
+                language_version: 2,
+                source: 'text(name contains "网络结果")',
+                bindings: {},
               },
             },
           }),
@@ -231,19 +226,16 @@ describe('workflow model', () => {
           type: 'click',
           target: expect.objectContaining({
             locator: {
-              type: 'visual',
+              type: 'query',
               query: {
-                text: {
-                  type: 'ref',
-                  source: { type: 'workflow_input', key: 'group_name' },
-                  pointer: '',
-                },
-                exact: true,
-                region: {
-                  x: 0,
-                  y: 0,
-                  width: 0.58,
-                  height: 0.72,
+                language_version: 2,
+                source: 'nearest(anchor = text(name contains "网络结果"), target = text(name = $group_name), direction = below, index = 1)',
+                bindings: {
+                  group_name: {
+                    type: 'ref',
+                    source: { type: 'workflow_input', key: 'group_name' },
+                    pointer: '',
+                  },
                 },
               },
             },
@@ -258,16 +250,18 @@ describe('workflow model', () => {
           type: 'get_text',
           target: expect.objectContaining({
             locator: {
-              type: 'visual',
-              query: expect.objectContaining({
-                exact: true,
-                region: {
-                  x: 0.34,
-                  y: 0,
-                  width: 0.4,
-                  height: 0.18,
+              type: 'query',
+              query: {
+                language_version: 2,
+                source: 'text(name = $group_name)',
+                bindings: {
+                  group_name: {
+                    type: 'ref',
+                    source: { type: 'workflow_input', key: 'group_name' },
+                    pointer: '',
+                  },
                 },
-              }),
+              },
             },
           }),
         }),
@@ -311,6 +305,10 @@ describe('workflow model', () => {
             timeout_ms: 5_000,
             poll_interval_ms: 150,
           },
+          postcondition: expect.objectContaining({
+            type: 'new_text',
+            query: expect.objectContaining({ region: null }),
+          }),
         }),
       }),
     }));

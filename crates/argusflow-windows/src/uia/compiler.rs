@@ -129,6 +129,7 @@ fn compile_expression(
                 .collect())
         }
         QueryExpr::Css { .. } => Err(UiaQueryCompileError::UnsupportedQuery),
+        QueryExpr::Nearest { .. } => Err(UiaQueryCompileError::UnsupportedQuery),
     }
 }
 

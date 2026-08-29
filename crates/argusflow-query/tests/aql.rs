@@ -7,7 +7,7 @@ use argusflow_core::{
 use argusflow_query::{
     AqlErrorKind, DiagnosticCode, EditorPosition, QueryBackend, QueryPortability, analyze_query,
     byte_range_to_editor_range, canonicalize_query, code_actions, completions, format_query,
-    format_source, hover, parse_document, parse_query,
+    format_source, hover, parse_document, parse_query, query_parameter_names,
 };
 
 #[test]
@@ -108,6 +108,44 @@ fn parses_any_not_first_nth_and_css() {
     assert!(matches!(&queries[2], QueryExpr::First { .. }));
     assert!(matches!(&queries[3], QueryExpr::Nth { .. }));
     assert!(matches!(&queries[4], QueryExpr::Css { .. }));
+}
+
+#[test]
+fn parses_parameterized_nearest_and_preserves_canonical_named_arguments() {
+    let query = parse_query(
+        r#"nearest(
+            anchor = text(name contains "网络结果"),
+            target = text(name = $group_name),
+            direction = below,
+            index = 2
+        )"#,
+    )
+    .expect("parameterized nearest should parse");
+
+    assert_eq!(
+        canonicalize_query(&query),
+        r#"nearest(anchor=text(name contains "网络结果"),target=text(name=$group_name),direction=below,index=2,metric=edge_gap)"#
+    );
+    assert_eq!(
+        query_parameter_names(&query),
+        std::collections::BTreeSet::from(["group_name".to_owned()])
+    );
+    assert!(matches!(query.expression, QueryExpr::Nearest { .. }));
+}
+
+#[test]
+fn nearest_rejects_zero_rank_and_unknown_direction() {
+    let zero = parse_query(
+        r#"nearest(anchor = text(name = "A"), target = text(name = "B"), direction = below, index = 0)"#,
+    )
+    .expect_err("nearest rank is one-based");
+    assert_eq!(zero.kind, AqlErrorKind::InvalidArgument);
+
+    let unknown = parse_query(
+        r#"nearest(anchor = text(name = "A"), target = text(name = "B"), direction = diagonal, index = 1)"#,
+    )
+    .expect_err("direction is a closed enum");
+    assert_eq!(unknown.kind, AqlErrorKind::InvalidArgument);
 }
 
 #[test]

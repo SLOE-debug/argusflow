@@ -14,11 +14,8 @@ pub(crate) fn deadline(
     action: &AutomationAction,
     wait: TargetWaitPolicy,
 ) -> Option<tokio::time::Instant> {
-    let is_visual_click = matches!(
-        action,
-        AutomationAction::Click { target }
-            if matches!(&target.locator, TargetLocator::Visual { .. })
-    );
+    let is_visual_click =
+        matches!(action, AutomationAction::Click { target } if visual_input_locator(target));
     (is_visual_click && wait.mode == TargetWaitMode::Bounded)
         .then(|| tokio::time::Instant::now() + Duration::from_millis(wait.timeout_ms))
 }
@@ -35,17 +32,13 @@ pub(crate) async fn materialize(
     let AutomationAction::Click { target } = action else {
         return Ok(None);
     };
-    if !target.backend_policy.allows(BackendKind::SendInput)
-        || !matches!(&target.locator, TargetLocator::Visual { .. })
-    {
+    if !visual_input_locator(target) {
         return Ok(None);
     }
     let Some(prepared_target) = prepared_target else {
         return Ok(None);
     };
-    let PreparedTargetLocator::Visual { query } = prepared_target.locator() else {
-        return Ok(None);
-    };
+    let query_summary = locator_summary(prepared_target.locator());
     let Some(window) = context.foreground_window.as_ref() else {
         return Ok(None);
     };
@@ -68,22 +61,27 @@ pub(crate) async fn materialize(
         let result = match deadline {
             Some(deadline) if tokio::time::Instant::now() >= deadline => {
                 Err(AutomationError::TargetWaitTimeout {
-                    query: query.text.clone(),
+                    query: query_summary.clone(),
                     timeout_ms: wait.timeout_ms,
                     details: String::new(),
                 })
             }
-            Some(deadline) => {
-                tokio::time::timeout_at(deadline, materializer.materialize(window, query, &plan))
+            Some(deadline) => tokio::time::timeout_at(
+                deadline,
+                materializer.materialize(window, prepared_target.locator(), &plan),
+            )
+            .await
+            .map_err(|_| AutomationError::TargetWaitTimeout {
+                query: query_summary.clone(),
+                timeout_ms: wait.timeout_ms,
+                details: String::new(),
+            })
+            .and_then(|result| result),
+            None => {
+                materializer
+                    .materialize(window, prepared_target.locator(), &plan)
                     .await
-                    .map_err(|_| AutomationError::TargetWaitTimeout {
-                        query: query.text.clone(),
-                        timeout_ms: wait.timeout_ms,
-                        details: String::new(),
-                    })
-                    .and_then(|result| result)
             }
-            None => materializer.materialize(window, query, &plan).await,
         };
         match result {
             Ok(target) => return Ok(Some(target)),
@@ -109,5 +107,43 @@ pub(crate) async fn materialize(
             }
             Err(error) => return Err(error),
         }
+    }
+}
+
+/// 判断目标是否显式要求由 Vision 物化后交给 SendInput。
+fn visual_input_locator(target: &argusflow_core::AutomationTarget) -> bool {
+    if !target.backend_policy.allows(BackendKind::SendInput) {
+        return false;
+    }
+    match &target.locator {
+        TargetLocator::Visual { .. } => true,
+        TargetLocator::Query { query } => {
+            query.language_version == argusflow_core::QueryLanguageVersion::V2
+                && target
+                    .backend_policy
+                    .allow
+                    .contains(&BackendKind::SendInput)
+                && target.backend_policy.allow.iter().any(|backend| {
+                    matches!(
+                        backend,
+                        BackendKind::VisualCache
+                            | BackendKind::OcrTiny
+                            | BackendKind::OcrSmall
+                            | BackendKind::OcrMedium
+                            | BackendKind::GuiGrounding
+                    )
+                })
+        }
+        TargetLocator::Coordinate { .. } | TargetLocator::Focused => false,
+    }
+}
+
+/// 返回等待错误使用的稳定查询摘要。
+fn locator_summary(locator: &PreparedTargetLocator) -> String {
+    match locator {
+        PreparedTargetLocator::Visual { query } => query.text.clone(),
+        PreparedTargetLocator::Query { query, .. } => query.source.clone(),
+        PreparedTargetLocator::Coordinate { point } => format!("{},{}", point.x, point.y),
+        PreparedTargetLocator::Focused => "focused".to_owned(),
     }
 }

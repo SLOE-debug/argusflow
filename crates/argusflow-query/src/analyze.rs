@@ -112,6 +112,10 @@ fn collect_specific_backends(expression: &QueryExpr, backends: &mut BTreeSet<Que
         QueryExpr::Not { query } | QueryExpr::First { query } | QueryExpr::Nth { query, .. } => {
             collect_specific_backends(query, backends)
         }
+        QueryExpr::Nearest { anchor, target, .. } => {
+            collect_specific_backends(anchor, backends);
+            collect_specific_backends(target, backends);
+        }
         QueryExpr::Css { .. } => {
             backends.insert(QueryBackend::BrowserCdp);
         }
@@ -120,5 +124,8 @@ fn collect_specific_backends(expression: &QueryExpr, backends: &mut BTreeSet<Que
 
 /// 判断根表达式是否明确约束为单个结果。
 const fn has_root_selection(expression: &QueryExpr) -> bool {
-    matches!(expression, QueryExpr::First { .. } | QueryExpr::Nth { .. })
+    matches!(
+        expression,
+        QueryExpr::First { .. } | QueryExpr::Nth { .. } | QueryExpr::Nearest { .. }
+    )
 }

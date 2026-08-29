@@ -10,6 +10,7 @@ mod error;
 mod evidence;
 mod frame;
 mod image;
+mod index;
 mod layout;
 mod metrics;
 mod ocr;
@@ -35,6 +36,10 @@ pub use frame::{
     CoordinateSpace, FrameId, PhysicalRect, PixelFormat, QpcTimestamp, TopologyGeneration,
 };
 pub use image::{CapturedFrame, PixelImage};
+pub use index::{
+    VisualSceneIndex, VisualSceneSnapshot, center_distance_normalized, direction_matches,
+    edge_gap_normalized,
+};
 pub use layout::{
     RowConfig, VisualLine, VisualLineId, VisualRow, VisualRowId, cluster_lines, cluster_rows,
 };
@@ -45,16 +50,19 @@ pub use ocr::{
 };
 pub use projection::{ProjectionOptions, compact_text, spatial_text};
 pub use query::{
-    VisualCandidate, VisualMatch, VisualQueryCandidateSummary, VisualQueryReport,
-    evaluate_visual_query, fuzzy_candidates, matching_nodes,
+    PreparedVisionQuery, VisionPlanExpr, VisionQueryCompileError, VisionQueryExecutionError,
+    VisionQueryPlan, VisionQueryResult, VisionTextPredicate, VisualCandidate, VisualMatch,
+    VisualQueryCandidateSummary, VisualQueryReport, compile_vision_query, evaluate_visual_query,
+    execute_unique_vision_query, execute_vision_query, fuzzy_candidates, matching_nodes,
 };
 pub use refresh::{RefreshPlan, RefreshReason, choose_refresh_plan};
 pub use region::normalized_region_to_physical;
 pub use runtime::{SceneRefreshPolicy, VisionHealth, VisionRuntime, VisualSceneService};
 pub use scene::{
-    CacheLookup, CacheMissReason, RoleHint, SceneBuildOptions, SceneId, SceneOcrSummary,
-    VisualNode, VisualNodeChange, VisualNodeId, VisualNodeSource, VisualRegion, VisualRegionId,
-    VisualRegionKind, VisualScene, VisualSceneBuilder, VisualSceneDelta, diff_scenes,
+    CacheLookup, CacheMissReason, FreshRegion, ObservationCoverage, ObservationState, RoleHint,
+    SceneBuildOptions, SceneId, SceneOcrSummary, VisualNode, VisualNodeChange, VisualNodeId,
+    VisualNodeSource, VisualRegion, VisualRegionId, VisualRegionKind, VisualScene,
+    VisualSceneBuilder, VisualSceneDelta, diff_scenes,
 };
 // Windows 输入层仍以该强类型值表达滚轮批次；其余滚动编排保持 crate 内部实现。
 pub use scroll::WheelSteps;

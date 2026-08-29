@@ -4,7 +4,6 @@ import type {
   WorkflowInputDefinition,
   WorkflowPermissions,
 } from './contracts';
-import type { NormalizedRect } from './visual';
 import {
   asObject,
   asApplicationSpec,
@@ -16,12 +15,6 @@ import {
   type WorkflowCanvasEdge,
   type WorkflowCanvasNode,
 } from './workflowModel';
-import {
-  WECHAT_HEADER_REGION,
-  WECHAT_MESSAGE_REGION,
-  WECHAT_SEARCH_OVERLAY_REGION,
-  WECHAT_SEARCH_RESULTS_REGION,
-} from './wechatTemplateParts';
 import { createWechatMessageDefinition } from '../components/builtin/wechatMessage';
 
 /** 获取或启动微信并提供稳定 AppSession 的节点。 */
@@ -262,19 +255,6 @@ function createDefaultEdge(
 function unreachableCanonicalNode(typeId: string): never {
   throw new Error(`unsupported canonical WeChat node type: ${typeId}`);
 }
-
-/** 保留模板测试和输入面板需要的区域常量导出引用。 */
-export const DEFAULT_WECHAT_REGIONS: Readonly<{
-  searchOverlay: NormalizedRect;
-  searchResults: NormalizedRect;
-  header: NormalizedRect;
-  message: NormalizedRect;
-}> = {
-  searchOverlay: WECHAT_SEARCH_OVERLAY_REGION,
-  searchResults: WECHAT_SEARCH_RESULTS_REGION,
-  header: WECHAT_HEADER_REGION,
-  message: WECHAT_MESSAGE_REGION,
-};
 
 /** 创建从流程输入读取字符串的表达式，供外部模板扩展复用。 */
 export function workflowInputText(key: 'group_name' | 'message'): ValueExpr {

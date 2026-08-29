@@ -1,8 +1,19 @@
 //! VisualScene 上的 deterministic exact/fuzzy 查询。
 
+mod compiler;
 mod diagnostics;
+mod prepared;
+mod spatial;
 
+pub use compiler::{
+    VisionPlanExpr, VisionQueryCompileError, VisionQueryPlan, VisionTextPredicate,
+    compile_vision_query,
+};
 pub use diagnostics::{VisualQueryCandidateSummary, VisualQueryReport};
+pub use prepared::PreparedVisionQuery;
+pub use spatial::{
+    VisionQueryExecutionError, VisionQueryResult, execute_unique_vision_query, execute_vision_query,
+};
 
 use argusflow_core::{AutomationError, VisualQuery};
 

@@ -37,6 +37,19 @@ fn normalize_expression(expression: &QueryExpr) -> QueryExpr {
             query: Box::new(normalize_expression(query)),
             index: *index,
         },
+        QueryExpr::Nearest {
+            anchor,
+            target,
+            direction,
+            index,
+            metric,
+        } => QueryExpr::Nearest {
+            anchor: Box::new(normalize_expression(anchor)),
+            target: Box::new(normalize_expression(target)),
+            direction: *direction,
+            index: *index,
+            metric: *metric,
+        },
         QueryExpr::Css { selector } => QueryExpr::Css {
             selector: selector.trim().to_owned(),
         },
@@ -93,6 +106,7 @@ fn predicate_sort_key(predicate: &PropertyPredicate) -> (String, String, String)
             regex.pattern,
             if regex.case_insensitive { "i" } else { "" }
         ),
+        PredicateValue::Parameter(parameter) => format!("${}", parameter.name),
     };
     (
         predicate.attribute.to_string(),

@@ -17,10 +17,10 @@ use crate::{
     error::VisionError,
     frame::{PhysicalRect, TopologyGeneration},
     image::CapturedFrame,
+    index::VisualSceneSnapshot,
     metrics::VisionMetrics,
     ocr::OcrProfile,
     projection::ProjectionOptions,
-    region::normalized_region_to_physical,
     scene::{CacheLookup, VisualScene, VisualSceneBuilder, VisualSceneCache},
     source::{CapturePolicy, FrameSubscription, WindowFrameSource},
     stability::StabilityConfig,
@@ -209,19 +209,57 @@ impl VisionRuntime {
         let Some(cache) = cache else {
             return CacheLookup::Miss(crate::scene::CacheMissReason::Empty);
         };
-        let query_region = policy.query_region.or_else(|| {
-            policy.normalized_query_region.and_then(|region| {
-                cache
-                    .current()
-                    .and_then(|scene| normalized_region_to_physical(region, scene.viewport))
-            })
-        });
-        cache.lookup(
-            window,
-            policy.topology_generation,
-            policy.max_age,
-            query_region,
-        )
+        cache.lookup(window, policy.topology_generation, policy.max_age, None)
+    }
+
+    /// 保证当前 surface 已完成整窗 bootstrap，并返回结构化索引快照。
+    pub async fn ensure_complete_scene(
+        &self,
+        window: WindowIdentity,
+        policy: &SceneRefreshPolicy,
+    ) -> Result<Arc<VisualSceneSnapshot>, VisionError> {
+        let mut complete_policy = policy.clone();
+        complete_policy.query_region = None;
+        complete_policy.normalized_query_region = None;
+        let cache = self.scopes.get_or_create(window, complete_policy.capture);
+        let observation = cache.lock().await.cache.observation();
+        if !observation.coverage.is_complete() {
+            complete_policy.force_refresh = true;
+            complete_policy.force_full_ocr = true;
+        }
+        let scene = self.current_scene(window, &complete_policy).await?;
+        let cache = self
+            .scopes
+            .cache_for(window, complete_policy.capture)
+            .ok_or_else(|| VisionError::CaptureUnavailable {
+                message: "visual scope cache disappeared after complete bootstrap".to_owned(),
+            })?;
+        let observation = cache.observation();
+        if !observation.coverage.is_complete() {
+            return Err(VisionError::OcrFailed {
+                message: "visual scene bootstrap did not establish complete observation".to_owned(),
+            });
+        }
+        Ok(Arc::new(VisualSceneSnapshot::new(scene, observation)))
+    }
+
+    /// 刷新全部 dirty 区域后返回同一 scene 的结构化索引快照。
+    pub async fn refresh_dirty_scene(
+        &self,
+        window: WindowIdentity,
+        policy: &SceneRefreshPolicy,
+    ) -> Result<Arc<VisualSceneSnapshot>, VisionError> {
+        let scene = self.current_scene(window, policy).await?;
+        let cache = self
+            .scopes
+            .cache_for(window, policy.capture)
+            .ok_or_else(|| VisionError::CaptureUnavailable {
+                message: "visual scope cache disappeared after dirty refresh".to_owned(),
+            })?;
+        Ok(Arc::new(VisualSceneSnapshot::new(
+            scene,
+            cache.observation(),
+        )))
     }
 
     /// 消费一张新捕获帧并更新 cache dirty 状态，不执行 OCR。

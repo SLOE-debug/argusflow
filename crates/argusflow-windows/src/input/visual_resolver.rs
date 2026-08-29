@@ -9,10 +9,12 @@ use argusflow_agent::{
     VisualMaterializationPlan, VisualMaterializationStage, VisualTargetBounds,
     VisualVerificationProvider, VisualVerificationResult, WindowContext,
 };
-use argusflow_core::{AutomationError, BackendKind, VisualQuery, WindowIdentity};
+use argusflow_core::{
+    AutomationError, BackendKind, PreparedTargetLocator, VisualQuery, WindowIdentity,
+};
 use argusflow_vision::{
     PhysicalRect, SceneRefreshPolicy, VerificationOutcome, VisionError, VisionRuntime,
-    VisualCondition, VisualNode, VisualQueryReport, evaluate_visual_condition, matching_nodes,
+    VisualCondition, evaluate_visual_condition,
 };
 use async_trait::async_trait;
 use windows::Win32::{
@@ -21,6 +23,7 @@ use windows::Win32::{
 };
 
 use super::surface_transform::SurfaceTransform;
+use super::visual_query_target::{prepare_query, select_click_node};
 
 /// 基于共享 VisionRuntime 的 Windows 视觉目标物化器。
 #[derive(Debug, Clone)]
@@ -40,9 +43,6 @@ impl WindowsVisualTargetMaterializer {
         }
     }
 }
-
-/// 视觉点击必须先通过置信度门槛，低置信度候选只能触发后续升级阶段。
-const MIN_CLICK_CONFIDENCE: f32 = 0.80;
 
 /// Cache 物化前允许的轻量新帧复验时间，避免使用半秒前的旧坐标。
 const CACHE_REVALIDATION_TIMEOUT: Duration = Duration::from_millis(75);
@@ -68,19 +68,24 @@ impl PreparedTargetMaterializer for WindowsVisualTargetMaterializer {
     async fn materialize(
         &self,
         window: &WindowContext,
-        query: &VisualQuery,
+        locator: &PreparedTargetLocator,
         plan: &VisualMaterializationPlan,
     ) -> Result<MaterializedTarget, AutomationError> {
         let identity = WindowIdentity {
             handle: window.handle,
             process_id: window.process_id,
         };
+        let query = prepare_query(locator)?;
+        let legacy_region = match &query {
+            argusflow_vision::PreparedVisionQuery::Legacy(query) => query.region,
+            argusflow_vision::PreparedVisionQuery::Aql { .. } => None,
+        };
         let mut last_error = None;
         for (stage_index, stage) in plan.stages.iter().enumerate() {
             let result = match stage {
                 VisualMaterializationStage::Cache => {
                     let mut refresh = SceneRefreshPolicy::tiny();
-                    refresh.normalized_query_region = query.region;
+                    refresh.normalized_query_region = legacy_region;
                     let topology_generation = match self
                         .runtime
                         .revalidate_cache(identity, CACHE_REVALIDATION_TIMEOUT)
@@ -107,7 +112,7 @@ impl PreparedTargetMaterializer for WindowsVisualTargetMaterializer {
                 }
                 VisualMaterializationStage::OcrTiny => {
                     let mut refresh = SceneRefreshPolicy::tiny();
-                    refresh.normalized_query_region = query.region;
+                    refresh.normalized_query_region = legacy_region;
                     self.runtime
                         .current_scene(identity, &refresh)
                         .await
@@ -115,7 +120,7 @@ impl PreparedTargetMaterializer for WindowsVisualTargetMaterializer {
                 }
                 VisualMaterializationStage::OcrSmall => {
                     let mut refresh = SceneRefreshPolicy::small();
-                    refresh.normalized_query_region = query.region;
+                    refresh.normalized_query_region = legacy_region;
                     self.runtime
                         .current_scene(identity, &refresh)
                         .await
@@ -123,7 +128,7 @@ impl PreparedTargetMaterializer for WindowsVisualTargetMaterializer {
                 }
                 VisualMaterializationStage::OcrMedium => {
                     let mut refresh = SceneRefreshPolicy::medium();
-                    refresh.normalized_query_region = query.region;
+                    refresh.normalized_query_region = legacy_region;
                     self.runtime
                         .current_scene(identity, &refresh)
                         .await
@@ -145,7 +150,7 @@ impl PreparedTargetMaterializer for WindowsVisualTargetMaterializer {
                                 .to_owned(),
                         });
                     }
-                    let node = match select_click_node(&scene, query) {
+                    let node = match select_click_node(&scene, &query) {
                         Err(error @ AutomationError::TargetNotFound { .. }) => {
                             last_error = Some(error);
                             continue;
@@ -394,37 +399,6 @@ fn has_later_ocr_stage(stages: &[VisualMaterializationStage]) -> bool {
             VisualMaterializationStage::OcrSmall | VisualMaterializationStage::OcrMedium
         )
     })
-}
-
-/// 视觉点击只接受区域内唯一且达到置信度门槛的节点；其余结果留给后续升级阶段。
-fn select_click_node<'scene>(
-    scene: &'scene argusflow_vision::VisualScene,
-    query: &VisualQuery,
-) -> Result<&'scene VisualNode, AutomationError> {
-    let candidates = matching_nodes(scene, query);
-    let report = VisualQueryReport::from_matches(scene, query, &candidates);
-    match candidates.as_slice() {
-        [] => Err(AutomationError::TargetNotFound {
-            query: query.text.clone(),
-            details: format!("；{}", report.summary()),
-        }),
-        [node] if node.confidence >= MIN_CLICK_CONFIDENCE => Ok(node),
-        candidates
-            if candidates
-                .iter()
-                .any(|node| node.confidence < MIN_CLICK_CONFIDENCE) =>
-        {
-            Err(AutomationError::TargetNotFound {
-                query: query.text.clone(),
-                details: format!("；{}", report.summary()),
-            })
-        }
-        candidates => Err(AutomationError::AmbiguousTarget {
-            query: query.text.clone(),
-            matches: candidates.len(),
-            details: format!("；{}", report.summary()),
-        }),
-    }
 }
 
 /// 读取已验证 HWND 的屏幕矩形。

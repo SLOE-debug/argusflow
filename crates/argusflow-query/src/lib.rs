@@ -13,6 +13,7 @@ mod lexer;
 mod normalize;
 mod parser;
 mod protocol;
+mod resolve;
 mod syntax;
 
 pub use alternative::{
@@ -35,5 +36,6 @@ pub use protocol::{
     CompletionItem, CompletionItemKind, EditorPosition, EditorRange, Hover, SyntaxToken,
     SyntaxTokenKind, TextEdit, byte_range_to_editor_range,
 };
+pub use resolve::{QueryParameterResolutionError, query_parameter_names, resolve_query_parameters};
 pub use syntax::{CstElement, CstNode, CstNodeKind, RawToken, RawTokenKind, SyntaxTree};
 pub(crate) use syntax::{build_recovery_tree, lex_lossless};

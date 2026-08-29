@@ -131,7 +131,6 @@ impl VisionRuntime {
         let refresh_plan = choose_refresh_plan(
             dirty.as_ref(),
             frame.bounds(),
-            query_region,
             base_scene.is_some(),
             matches!(
                 cache_lookup,

@@ -8,6 +8,8 @@ use crate::EditorRange;
 pub enum RawTokenKind {
     /// 标识符、属性、函数或关键字。
     Identifier,
+    /// `$name` 形式的运行时参数引用。
+    Parameter,
     /// 双引号字符串，包括未结束字符串。
     String,
     /// `/.../i` 正则，包括未结束正则。

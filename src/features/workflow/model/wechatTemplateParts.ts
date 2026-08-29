@@ -1,43 +1,11 @@
 import type {
   AutomationTarget,
+  AqlQuery,
   UiExecutionPolicy,
   UiOperation,
   ValueExpr,
 } from './contracts';
 import type { KeyboardKey, KeyboardModifier } from './inputContracts';
-import type { NormalizedRect } from './visual';
-
-/** 搜索弹层标题区域；只验证 Ctrl+F 弹层，排除输入框和下方历史搜索项。 */
-export const WECHAT_SEARCH_OVERLAY_REGION = {
-  x: 0.08,
-  y: 0.1,
-  width: 0.38,
-  height: 0.12,
-} as const satisfies NormalizedRect;
-
-/** 搜索结果区域；按微信窗口比例限制 OCR，减少侧栏和标题重复命中。 */
-export const WECHAT_SEARCH_RESULTS_REGION = {
-  x: 0,
-  y: 0,
-  width: 0.58,
-  height: 0.72,
-} as const satisfies NormalizedRect;
-
-/** 群聊标题区域；覆盖正文栏左上角，并排除右侧窗口与通话控制区。 */
-export const WECHAT_HEADER_REGION = {
-  x: 0.34,
-  y: 0,
-  width: 0.4,
-  height: 0.18,
-} as const satisfies NormalizedRect;
-
-/** 消息区域；验证文字只在聊天内容和输入区附近寻找。 */
-export const WECHAT_MESSAGE_REGION = {
-  x: 0.34,
-  y: 0.28,
-  width: 0.66,
-  height: 0.72,
-} as const satisfies NormalizedRect;
 
 /** 创建绑定微信 Application 节点的当前焦点输入目标。 */
 export function createWechatInputTarget(applicationNodeId: string): AutomationTarget {
@@ -58,12 +26,11 @@ export function createWechatInputTarget(applicationNodeId: string): AutomationTa
   };
 }
 
-/** 创建绑定微信 Application 节点的动态视觉文字目标。 */
-export function createWechatVisualTarget(
+/** 创建绑定微信 Application 节点的 AQL v2 视觉场景查询目标。 */
+export function createWechatAqlTarget(
   applicationNodeId: string,
-  text: ValueExpr,
-  exact: boolean,
-  region: NormalizedRect,
+  source: string,
+  bindings: AqlQuery['bindings'] = {},
 ): AutomationTarget {
   return {
     scope: {
@@ -74,13 +41,13 @@ export function createWechatVisualTarget(
       },
     },
     locator: {
-      type: 'visual',
-      query: { text, exact, region },
+      type: 'query',
+      query: { language_version: 2, source, bindings },
     },
     backend_policy: {
-      allow: [],
+      allow: ['visual_cache', 'ocr_small', 'ocr_medium', 'send_input'],
       deny: [],
-      prefer: [],
+      prefer: ['visual_cache', 'ocr_small', 'ocr_medium', 'send_input'],
     },
   };
 }
@@ -117,7 +84,7 @@ export function createWechatSendMessageExecutionPolicy(): UiExecutionPolicy {
           pointer: '',
         },
         exact: true,
-        region: WECHAT_MESSAGE_REGION,
+        region: null,
       },
     },
   };
@@ -152,28 +119,26 @@ export function createWechatTypeTextOperation(
   };
 }
 
-/** 创建从稳定画面读取一个文字事实的 UI 操作。 */
-export function createWechatVisualGetTextOperation(
+/** 创建从完整视觉场景执行 AQL 读取的 UI 操作。 */
+export function createWechatAqlGetTextOperation(
   applicationNodeId: string,
-  text: ValueExpr,
-  exact: boolean,
-  region: NormalizedRect,
+  source: string,
+  bindings: AqlQuery['bindings'] = {},
 ): Extract<UiOperation, { type: 'get_text' }> {
   return {
     type: 'get_text',
-    target: createWechatVisualTarget(applicationNodeId, text, exact, region),
+    target: createWechatAqlTarget(applicationNodeId, source, bindings),
   };
 }
 
-/** 创建通过视觉解析安全点再执行物理点击的 UI 操作。 */
-export function createWechatVisualClickOperation(
+/** 创建通过 AQL 空间查询解析安全点再执行物理点击的 UI 操作。 */
+export function createWechatAqlClickOperation(
   applicationNodeId: string,
-  text: ValueExpr,
-  exact: boolean,
-  region: NormalizedRect,
+  source: string,
+  bindings: AqlQuery['bindings'] = {},
 ): Extract<UiOperation, { type: 'click' }> {
   return {
     type: 'click',
-    target: createWechatVisualTarget(applicationNodeId, text, exact, region),
+    target: createWechatAqlTarget(applicationNodeId, source, bindings),
   };
 }

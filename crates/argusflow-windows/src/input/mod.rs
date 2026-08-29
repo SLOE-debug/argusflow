@@ -4,6 +4,7 @@ mod backend;
 mod keyboard;
 mod mouse;
 mod surface_transform;
+mod visual_query_target;
 mod visual_resolver;
 
 pub use backend::SendInputBackend;

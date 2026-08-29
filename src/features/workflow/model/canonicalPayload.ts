@@ -204,14 +204,23 @@ function asTargetLocator(value: JsonValue | undefined): TargetLocator {
         query.language_version,
         'target.locator.query.language_version',
       );
-      if (languageVersion !== 1) {
-        throw new Error("canonical AQL language_version must be 1");
+      if (languageVersion !== 1 && languageVersion !== 2) {
+        throw new Error("canonical AQL language_version must be 1 or 2");
       }
+      const bindingsObject = query.bindings === undefined
+        ? {}
+        : asObject(query.bindings, 'target.locator.query.bindings');
       return {
         type,
         query: {
-          language_version: 1,
+          language_version: languageVersion,
           source: asString(query.source, 'target.locator.query.source'),
+          bindings: Object.fromEntries(
+            Object.entries(bindingsObject).map(([name, expression]) => [
+              name,
+              asValueExpr(expression),
+            ]),
+          ),
         },
       };
     }

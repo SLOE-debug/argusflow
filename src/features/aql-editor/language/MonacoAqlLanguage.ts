@@ -32,6 +32,7 @@ const SEMANTIC_TOKEN_TYPES = [
   'constant.language',
   'constant.numeric',
   'punctuation',
+  'variable.other.readwrite',
 ] as const;
 
 /** semantic token 类别到协议索引的强类型映射。 */
@@ -46,13 +47,14 @@ const SEMANTIC_TOKEN_INDEX = {
   boolean: 7,
   integer: 8,
   punctuation: 9,
+  parameter: 10,
 } as const satisfies Readonly<Record<HighlightableSyntaxTokenKind, number>>;
 
 /** 需要覆盖 Monarch 基础着色的 Rust semantic token 类别。 */
 type HighlightableSyntaxTokenKind = Exclude<SyntaxTokenKind, 'trivia' | 'unknown'>;
 
 /** WASM 初始化前供 Monarch 使用的 AQL 函数清单。 */
-const AQL_FALLBACK_FUNCTIONS = ['any', 'not', 'first', 'nth', 'css'] as const;
+const AQL_FALLBACK_FUNCTIONS = ['any', 'not', 'first', 'nth', 'nearest', 'css'] as const;
 
 /** WASM 初始化前供 Monarch 使用的 AQL 属性清单。 */
 const AQL_FALLBACK_PROPERTIES = [
@@ -177,6 +179,7 @@ function registerLanguageDefinition(monaco: MonacoApi): void {
         [/\/(?:\\.|[^/\\])+\/[a-z]*/, 'string.regexp'],
         [/\b(?:true|false)\b/, 'constant.language'],
         [/\b\d+\b/, 'constant.numeric'],
+        [/\$[A-Za-z_][\w.]*/, 'variable.other.readwrite'],
         [/(?:!=|~=|\^=|\$=|\*=|>=|<=|=|>|<)/, 'keyword.operator'],
         [/[(),]/, 'punctuation'],
         [/\b(?:uia|dom)\.[A-Za-z_][\w-]*/, 'entity.name.namespace'],

@@ -12,7 +12,9 @@ use crate::{
     frame::{PhysicalRect, TopologyGeneration},
 };
 
-use super::VisualScene;
+use super::{
+    FreshRegion, ObservationCoverage, ObservationState, VisualScene, observation::duration_millis,
+};
 
 /// cache lookup 的失败原因，供 Planner Explain/Inspector 使用。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,7 +40,7 @@ pub enum CacheLookup {
     Miss(CacheMissReason),
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct CacheState {
     /// 最近一份稳定场景。
     scene: Option<Arc<VisualScene>>,
@@ -46,6 +48,19 @@ struct CacheState {
     dirty_regions: Vec<PhysicalRect>,
     /// 每个已经重新识别的区域的独立 freshness 起点。
     fresh_regions: Vec<(PhysicalRect, Instant)>,
+    /// 最近 scene 是否源自完整 viewport bootstrap。
+    coverage: ObservationCoverage,
+}
+
+impl Default for CacheState {
+    fn default() -> Self {
+        Self {
+            scene: None,
+            dirty_regions: Vec::new(),
+            fresh_regions: Vec::new(),
+            coverage: ObservationCoverage::Empty,
+        }
+    }
 }
 
 /// 只缓存最近稳定 VisualScene，不缓存 PNG 或跨页历史。
@@ -75,6 +90,7 @@ impl VisualSceneCache {
             .as_ref()
             .map(|scene| vec![(scene.viewport, now)])
             .unwrap_or_default();
+        state.coverage = ObservationCoverage::Complete;
     }
 
     /// 写入一次局部 OCR 结果，只清除被该刷新区域完整覆盖的 dirty ROI。
@@ -106,6 +122,9 @@ impl VisualSceneCache {
                 .copied()
                 .map(|region| (region, now))
                 .collect();
+            state.coverage = ObservationCoverage::Partial {
+                covered: refreshed_regions.to_vec(),
+            };
             return;
         }
         let mut remaining_dirty = Vec::new();
@@ -177,6 +196,11 @@ impl VisualSceneCache {
         if !topology_generation.is_unknown() && scene.topology_generation != topology_generation {
             return CacheLookup::Miss(CacheMissReason::TopologyMismatch);
         }
+        if query_region.is_none() && !state.coverage.is_complete() {
+            // 整窗查询必须建立在完整 bootstrap 上；即使若干局部 freshness
+            // 恰好拼满 viewport，也不能把 Partial 状态提升为完整场景事实。
+            return CacheLookup::Miss(CacheMissReason::Expired);
+        }
         let fresh = query_region
             .map(|region| region_is_fresh(region, &state.fresh_regions, max_age))
             .unwrap_or_else(|| region_is_fresh(scene.viewport, &state.fresh_regions, max_age));
@@ -203,6 +227,26 @@ impl VisualSceneCache {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .scene
             .clone()
+    }
+
+    /// 返回不暴露内部锁和 `Instant` 的只读观测状态。
+    pub fn observation(&self) -> ObservationState {
+        let state = self
+            .state
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        ObservationState {
+            coverage: state.coverage.clone(),
+            fresh_regions: state
+                .fresh_regions
+                .iter()
+                .map(|(region, stored_at)| FreshRegion {
+                    region: *region,
+                    age_ms: duration_millis(stored_at.elapsed()),
+                })
+                .collect(),
+            dirty_regions: state.dirty_regions.clone(),
+        }
     }
 
     /// 判断当前场景是否仍有尚未重新识别的 dirty 区域。
@@ -318,5 +362,92 @@ fn push_edges(output: &mut Vec<PhysicalRect>, left: i64, top: i64, right: i64, b
     };
     if let Some(rect) = PhysicalRect::new(x, y, width, height) {
         output.push(rect);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        frame::{FrameId, QpcTimestamp},
+        image::CapturedFrame,
+        ocr::{OcrModel, OcrPreprocessingSummary, OcrRequestId, OcrResponse},
+        scene::{SceneBuildOptions, VisualSceneBuilder},
+    };
+
+    #[test]
+    fn partial_bootstrap_never_satisfies_a_complete_scene_lookup() {
+        let scene = fixture_scene();
+        let cache = VisualSceneCache::new();
+        let partial = PhysicalRect::new(0, 0, 50, 100).expect("partial region is valid");
+
+        cache.replace_regions(scene.clone(), &[partial]);
+
+        assert!(matches!(
+            cache.observation().coverage,
+            ObservationCoverage::Partial { .. }
+        ));
+        assert!(matches!(
+            cache.lookup(
+                scene.window,
+                scene.topology_generation,
+                Duration::from_secs(1),
+                None,
+            ),
+            CacheLookup::Miss(CacheMissReason::Expired)
+        ));
+
+        cache.replace(scene.clone());
+
+        assert!(cache.observation().coverage.is_complete());
+        assert!(matches!(
+            cache.lookup(
+                scene.window,
+                scene.topology_generation,
+                Duration::from_secs(1),
+                None,
+            ),
+            CacheLookup::Hit(_)
+        ));
+    }
+
+    /// 构造无需真实捕获源和 OCR worker 的空文本场景。
+    fn fixture_scene() -> Arc<VisualScene> {
+        let window = WindowIdentity {
+            handle: 1,
+            process_id: 2,
+        };
+        let frame = CapturedFrame::from_bgra8(
+            FrameId::new(1),
+            TopologyGeneration::new(1),
+            window,
+            QpcTimestamp::new(1),
+            100,
+            100,
+            96,
+            96,
+            400,
+            vec![0; 100 * 100 * 4],
+        )
+        .expect("fixture frame is valid");
+        let response = OcrResponse {
+            request_id: OcrRequestId::new(),
+            frame_id: frame.frame_id,
+            topology_generation: frame.topology_generation,
+            model: OcrModel::PpOcrV6Tiny,
+            elapsed_ms: 1,
+            preprocessing: OcrPreprocessingSummary {
+                input_width: 100,
+                input_height: 100,
+                output_width: 100,
+                output_height: 100,
+                contrast_enhanced: false,
+                sharpened: false,
+            },
+            items: Vec::new(),
+        };
+        VisualSceneBuilder::new()
+            .build(window, &frame, &[response], &SceneBuildOptions::default())
+            .expect("fixture scene builds")
     }
 }

@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use crate::{AqlQuery, AutomationTarget, BackendPolicy, ScreenPoint, TargetScope, VisualQuery};
 
 /// 一次执行中已经解析完成的视觉后置条件。
@@ -20,6 +22,8 @@ pub enum PreparedTargetLocator {
     Query {
         /// 解析后的查询。
         query: AqlQuery,
+        /// 已由 Runtime 冻结且通过文本类型校验的参数值。
+        parameters: BTreeMap<String, String>,
     },
     /// 已冻结文字、范围和精确匹配规则的视觉查询。
     Visual {
@@ -80,6 +84,7 @@ impl PreparedAutomationTarget {
         let locator = match &target.locator {
             crate::TargetLocator::Query { query } => PreparedTargetLocator::Query {
                 query: query.clone(),
+                parameters: BTreeMap::new(),
             },
             crate::TargetLocator::Coordinate { point } => {
                 PreparedTargetLocator::Coordinate { point: *point }

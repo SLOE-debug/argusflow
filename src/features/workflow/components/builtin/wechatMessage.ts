@@ -5,16 +5,13 @@ import type {
   ValueExpr,
 } from '../../model/contracts';
 import {
-  WECHAT_HEADER_REGION,
-  WECHAT_SEARCH_OVERLAY_REGION,
-  WECHAT_SEARCH_RESULTS_REGION,
+  createWechatAqlClickOperation,
+  createWechatAqlGetTextOperation,
   createWechatInputExecutionPolicy,
   createWechatSendMessageExecutionPolicy,
   createWechatPressKeyOperation,
   createWechatTypeTextOperation,
-  createWechatVisualClickOperation,
   createWechatVisualExecutionPolicy,
-  createWechatVisualGetTextOperation,
 } from '../../model/wechatTemplateParts';
 
 /** 官方发送微信群消息组件的稳定 ID。 */
@@ -27,7 +24,7 @@ export function createWechatMessageDefinition(): FlowComponentDefinition {
   return {
     schema_version: 1,
     id: WECHAT_MESSAGE_COMPONENT_ID,
-    version: '1.2.0',
+    version: '2.0.0',
     name: '发送微信群消息',
     inputs: [
       { key: 'group_name', value_type: 'text' },
@@ -55,11 +52,9 @@ export function createWechatMessageDefinition(): FlowComponentDefinition {
         execution: createWechatInputExecutionPolicy(),
       }),
       componentNode('verify_search', 620, 'argus.ui', 3, {
-        operation: createWechatVisualGetTextOperation(
+        operation: createWechatAqlGetTextOperation(
           applicationNodeId,
-          literalText('网络结果'),
-          false,
-          WECHAT_SEARCH_OVERLAY_REGION,
+          'text(name contains "网络结果")',
         ),
         execution: visualExecution,
       }),
@@ -76,29 +71,26 @@ export function createWechatMessageDefinition(): FlowComponentDefinition {
         execution: createWechatInputExecutionPolicy(),
       }),
       componentNode('find_group', 1_280, 'argus.ui', 3, {
-        operation: createWechatVisualGetTextOperation(
+        operation: createWechatAqlGetTextOperation(
           applicationNodeId,
-          workflowInputText('group_name'),
-          true,
-          WECHAT_SEARCH_RESULTS_REGION,
+          'nearest(anchor = text(name contains "网络结果"), target = text(name = $group_name), direction = below, index = 1)',
+          { group_name: workflowInputText('group_name') },
         ),
         execution: visualExecution,
       }),
       componentNode('click_group', 1_500, 'argus.ui', 3, {
-        operation: createWechatVisualClickOperation(
+        operation: createWechatAqlClickOperation(
           applicationNodeId,
-          workflowInputText('group_name'),
-          true,
-          WECHAT_SEARCH_RESULTS_REGION,
+          'nearest(anchor = text(name contains "网络结果"), target = text(name = $group_name), direction = below, index = 1)',
+          { group_name: workflowInputText('group_name') },
         ),
         execution: visualExecution,
       }),
       componentNode('verify_header', 1_720, 'argus.ui', 3, {
-        operation: createWechatVisualGetTextOperation(
+        operation: createWechatAqlGetTextOperation(
           applicationNodeId,
-          workflowInputText('group_name'),
-          true,
-          WECHAT_HEADER_REGION,
+          'text(name = $group_name)',
+          { group_name: workflowInputText('group_name') },
         ),
         execution: visualExecution,
       }),
@@ -141,11 +133,6 @@ function createWechatApplicationSpec(): ApplicationSpec {
     cleanup_policy: 'leave_running',
     activation_policy: 'required',
   };
-}
-
-/** 创建组件内部的字符串字面量值表达式。 */
-function literalText(value: string): ValueExpr {
-  return { type: 'literal', value };
 }
 
 /** 创建组件输入引用，展开时由 Runtime 重写为实例输入。 */

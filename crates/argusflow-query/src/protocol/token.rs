@@ -24,6 +24,8 @@ pub enum SyntaxTokenKind {
     Boolean,
     /// 整数字面量。
     Integer,
+    /// `$name` 运行时参数引用。
+    Parameter,
     /// 括号、逗号和点号。
     Punctuation,
     /// 空白与换行 trivia。

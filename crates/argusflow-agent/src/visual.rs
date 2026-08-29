@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use argusflow_core::{BackendKind, BackendPolicy, ScreenPoint, TargetWaitPolicy, VisualQuery};
+use argusflow_core::{
+    BackendKind, BackendPolicy, PreparedTargetLocator, ScreenPoint, TargetWaitPolicy, VisualQuery,
+};
 use async_trait::async_trait;
 use uuid::Uuid;
 
@@ -188,7 +190,7 @@ pub trait PreparedTargetMaterializer: Send + Sync {
     async fn materialize(
         &self,
         window: &WindowContext,
-        query: &VisualQuery,
+        locator: &PreparedTargetLocator,
         plan: &VisualMaterializationPlan,
     ) -> Result<MaterializedTarget, argusflow_core::AutomationError>;
 }

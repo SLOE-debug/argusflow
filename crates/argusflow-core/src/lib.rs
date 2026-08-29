@@ -54,9 +54,9 @@ pub use keyboard::{KeyChord, KeyboardKey, KeyboardModifier};
 pub use output::{ActionOutputContract, ActionOutputKey, OutputContractError};
 pub use prepared::{PreparedAutomationTarget, PreparedTargetLocator, PreparedVisualPostcondition};
 pub use query::{
-    AqlQuery, DomAttribute, ElementMatcher, ElementRole, MatchOperator, PredicateValue,
-    PropertyPredicate, QueryExpr, QueryLanguageVersion, RegexLiteral, SelectorAttribute, UiQuery,
-    UiaAttribute,
+    AqlQuery, DistanceMetric, DomAttribute, ElementMatcher, ElementRole, MatchOperator,
+    PredicateValue, PropertyPredicate, QueryExpr, QueryLanguageVersion, QueryParameter,
+    QueryValueType, RegexLiteral, SelectorAttribute, SpatialDirection, UiQuery, UiaAttribute,
 };
 pub use resource::{
     AppSession, ApplicationError, ApplicationSessionProvider, BrowserError, BrowserSession,

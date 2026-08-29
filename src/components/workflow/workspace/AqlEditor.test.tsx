@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useLanguageDocument } from '../../../features/aql-editor/language/useLanguageDocument';
 import { useAqlInspection } from '../../../features/workflow';
 import { AqlEditor } from '../../../features/aql-editor/view/AqlEditor';
+import type { AqlQuery } from '../../../features/workflow/model/contracts';
 
 vi.mock('../../../features/workflow', () => ({
   useAqlInspection: vi.fn(),
@@ -199,7 +200,7 @@ describe('AqlEditor', () => {
 
   it('keeps native composition input as the document source', () => {
     function CompositionHarness() {
-      const [query, setQuery] = useState({
+      const [query, setQuery] = useState<AqlQuery>({
         language_version: 1 as const,
         source: 'button(name = "")',
       });

@@ -2,7 +2,7 @@
 //!
 //! 本模块只表达语义，不包含文本解析、能力分析或具体后端执行计划。
 
-use std::{fmt, num::NonZeroUsize};
+use std::{collections::BTreeMap, fmt, num::NonZeroUsize};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 
@@ -11,6 +11,8 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 pub enum QueryLanguageVersion {
     /// AQL v1 语法与语义。
     V1,
+    /// AQL v2 参数绑定与空间查询语义。
+    V2,
 }
 
 impl QueryLanguageVersion {
@@ -18,6 +20,7 @@ impl QueryLanguageVersion {
     pub const fn number(self) -> u16 {
         match self {
             Self::V1 => 1,
+            Self::V2 => 2,
         }
     }
 }
@@ -38,6 +41,7 @@ impl<'de> Deserialize<'de> for QueryLanguageVersion {
     {
         match u16::deserialize(deserializer)? {
             1 => Ok(Self::V1),
+            2 => Ok(Self::V2),
             version => Err(de::Error::custom(format_args!(
                 "unsupported AQL language version {version}"
             ))),
@@ -46,12 +50,15 @@ impl<'de> Deserialize<'de> for QueryLanguageVersion {
 }
 
 /// 工作流中持久化的 AQL 源码；编译缓存不属于该事实来源。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AqlQuery {
     /// 与工作流 schema 独立演进的查询语言版本。
     pub language_version: QueryLanguageVersion,
     /// 用户可读、可编辑的 AQL 文本。
     pub source: String,
+    /// 运行时解析的参数表达式；源码只保存 `$name`，不拼接动态值。
+    #[serde(default)]
+    pub bindings: BTreeMap<String, crate::ValueExpr>,
 }
 
 impl AqlQuery {
@@ -60,6 +67,16 @@ impl AqlQuery {
         Self {
             language_version: QueryLanguageVersion::V1,
             source: source.into(),
+            bindings: BTreeMap::new(),
+        }
+    }
+
+    /// 创建使用 AQL v2 的参数化查询。
+    pub fn v2(source: impl Into<String>, bindings: BTreeMap<String, crate::ValueExpr>) -> Self {
+        Self {
+            language_version: QueryLanguageVersion::V2,
+            source: source.into(),
+            bindings,
         }
     }
 }
@@ -123,11 +140,77 @@ pub enum QueryExpr {
         /// 从一开始计数且必须非零的索引。
         index: NonZeroUsize,
     },
+    /// 以唯一 anchor 为中心按相对方向和归一化距离选择显式名次。
+    Nearest {
+        /// 必须唯一命中的锚点查询。
+        anchor: Box<QueryExpr>,
+        /// 参与方向过滤和距离排序的目标查询。
+        target: Box<QueryExpr>,
+        /// 相对于锚点的方向约束。
+        direction: SpatialDirection,
+        /// 按距离 rank 从一开始计数的显式名次。
+        index: NonZeroUsize,
+        /// 与物理分辨率无关的距离度量。
+        metric: DistanceMetric,
+    },
     /// 只允许 Browser/CDP 后端执行的原生 CSS 查询。
     Css {
         /// 不由 AQL 解释的完整 CSS selector。
         selector: String,
     },
+}
+
+/// 空间查询相对于 anchor 的有限方向集合。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SpatialDirection {
+    /// 不限制方向。
+    Any,
+    /// 目标位于锚点上方。
+    Above,
+    /// 目标位于锚点下方。
+    Below,
+    /// 目标位于锚点左侧。
+    Left,
+    /// 目标位于锚点右侧。
+    Right,
+}
+
+impl fmt::Display for SpatialDirection {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Any => "any",
+            Self::Above => "above",
+            Self::Below => "below",
+            Self::Left => "left",
+            Self::Right => "right",
+        })
+    }
+}
+
+/// 视觉空间排序使用的分辨率无关距离度量。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DistanceMetric {
+    /// 两个矩形边缘间隙除以 viewport 对角线；相交轴不产生额外距离。
+    EdgeGapNormalized,
+    /// 两个矩形中心距离除以 viewport 对角线。
+    CenterDistanceNormalized,
+}
+
+impl Default for DistanceMetric {
+    fn default() -> Self {
+        Self::EdgeGapNormalized
+    }
+}
+
+impl fmt::Display for DistanceMetric {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::EdgeGapNormalized => "edge_gap",
+            Self::CenterDistanceNormalized => "center_distance",
+        })
+    }
 }
 
 /// 单个 UI 元素的语义角色和属性谓词。
@@ -357,6 +440,25 @@ pub enum PredicateValue {
     Boolean(bool),
     /// 正则表达式字面量。
     Regex(RegexLiteral),
+    /// 由 Runtime 在 prepare 阶段解析的文本参数。
+    Parameter(QueryParameter),
+}
+
+/// AQL 源码中的强类型参数引用。
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct QueryParameter {
+    /// 不含 `$` 前缀的参数名。
+    pub name: String,
+    /// 由属性上下文确定的期望值类型。
+    pub expected_type: QueryValueType,
+}
+
+/// 当前 AQL 参数绑定支持的值类型。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QueryValueType {
+    /// Unicode 文本。
+    Text,
 }
 
 /// 不依赖具体正则实现的 AQL 正则字面量。

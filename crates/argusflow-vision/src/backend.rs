@@ -1,5 +1,7 @@
 //! VisualCache/OcrTiny/OcrSmall/OcrMedium backend 与 PreparedPlan 的接入。
 
+mod aql_observation;
+
 use std::{collections::BTreeMap, sync::Arc, time::Instant};
 
 use argusflow_agent::{
@@ -17,9 +19,13 @@ use serde_json::{Value, json};
 
 use crate::{
     evidence::VisionPreparedDiagnostics,
-    query::{VisualMatch, VisualQueryReport, evaluate_visual_query, matching_nodes},
+    query::{
+        PreparedVisionQuery, VisualMatch, VisualQueryReport, evaluate_visual_query, matching_nodes,
+    },
     runtime::{SceneRefreshPolicy, VisionRuntime},
 };
+
+use self::aql_observation::execute_aql_observation;
 
 /// 共享 VisionRuntime 的视觉观察 backend。
 #[derive(Debug, Clone)]
@@ -64,10 +70,20 @@ impl ActionBackend for VisionBackend {
         let Some(prepared_target) = prepared_target else {
             return Err(PlanRejection::Unsupported { backend: self.kind });
         };
-        let PreparedTargetLocator::Visual { query } = prepared_target.locator() else {
-            return Err(PlanRejection::Unsupported { backend: self.kind });
+        let query = match prepared_target.locator() {
+            PreparedTargetLocator::Visual { query } => PreparedVisionQuery::Legacy(query.clone()),
+            PreparedTargetLocator::Query { query, parameters } => {
+                PreparedVisionQuery::from_aql(query, parameters)
+                    .map_err(|_| PlanRejection::Unsupported { backend: self.kind })?
+            }
+            PreparedTargetLocator::Coordinate { .. } | PreparedTargetLocator::Focused => {
+                return Err(PlanRejection::Unsupported { backend: self.kind });
+            }
         };
-        if !matches!(&action.target().locator, TargetLocator::Visual { .. }) {
+        if !matches!(
+            &action.target().locator,
+            TargetLocator::Visual { .. } | TargetLocator::Query { .. }
+        ) {
             return Err(PlanRejection::Unsupported { backend: self.kind });
         }
         if !supports_observation(action) || !supports_extract(action) {
@@ -77,7 +93,7 @@ impl ActionBackend for VisionBackend {
         let Some(window_ref) = window.as_ref() else {
             return Ok(vec![self.candidate(
                 action,
-                query,
+                &query,
                 None,
                 RuntimeAvailability::MissingContext,
             )]);
@@ -90,8 +106,7 @@ impl ActionBackend for VisionBackend {
                 } else {
                     // Cache backend 只有在本次窗口和查询区域确实命中时才可参与执行；
                     // 首次视觉动作必须让 OCR backend 生成 scene，不能由空 cache 抢占候选。
-                    let mut cache_policy = SceneRefreshPolicy::tiny();
-                    cache_policy.normalized_query_region = query.region;
+                    let cache_policy = SceneRefreshPolicy::tiny();
                     match self.runtime.lookup_cache(
                         argusflow_core::WindowIdentity {
                             handle: window_ref.handle,
@@ -117,7 +132,7 @@ impl ActionBackend for VisionBackend {
         };
         Ok(vec![self.candidate(
             action,
-            query,
+            &query,
             Some(window_ref),
             availability,
         )])
@@ -129,7 +144,7 @@ impl VisionBackend {
     fn candidate(
         &self,
         action: &AutomationAction,
-        query: &VisualQuery,
+        query: &PreparedVisionQuery,
         prepared_window: Option<&argusflow_agent::WindowContext>,
         availability: RuntimeAvailability,
     ) -> PreparedCandidate {
@@ -163,15 +178,11 @@ impl VisionBackend {
                     } else {
                         PlanStepKind::CandidateSource
                     },
-                    summary: format!("{} query: {:?}", self.kind_name(), query.text),
+                    summary: format!("{} query: {:?}", self.kind_name(), query.source()),
                 },
                 PlanStepExplain {
                     kind: PlanStepKind::Selection,
-                    summary: if query.exact {
-                        "exact query requires 0/1/N evaluation".to_owned()
-                    } else {
-                        "contains query returns explicit candidate set".to_owned()
-                    },
+                    summary: query.summary().join("; "),
                 },
             ],
             diagnostics: Vec::new(),
@@ -184,7 +195,7 @@ impl VisionBackend {
                     handle: window.handle,
                     process_id: window.process_id,
                 },
-                query.text.clone(),
+                query.source().to_owned(),
                 self.kind,
             )) as Arc<dyn argusflow_agent::PreparedDiagnostics>
         });
@@ -223,7 +234,7 @@ struct VisionPreparedExecution {
     /// 共享 runtime。
     runtime: Arc<VisionRuntime>,
     /// prepare 阶段冻结的查询。
-    query: VisualQuery,
+    query: PreparedVisionQuery,
     /// prepare 阶段冻结的窗口句柄；PID 由 scope 校验补齐。
     window: Option<argusflow_agent::WindowContext>,
     /// prepare 阶段冻结的动作类型和字段。
@@ -252,7 +263,9 @@ impl PreparedExecution for VisionPreparedExecution {
                 });
             }
         };
-        refresh_policy.normalized_query_region = self.query.region;
+        if let PreparedVisionQuery::Legacy(query) = &self.query {
+            refresh_policy.normalized_query_region = query.region;
+        }
         let scene = match self.backend {
             BackendKind::VisualCache => match self.runtime.lookup_cache(
                 argusflow_core::WindowIdentity {
@@ -290,7 +303,22 @@ impl PreparedExecution for VisionPreparedExecution {
         };
         self.runtime.metrics().record_scene_query();
         let query_started_at = Instant::now();
-        let result = execute_observation(&self.action, &scene, &self.query, self.backend);
+        let result = match &self.query {
+            PreparedVisionQuery::Legacy(query) => {
+                execute_observation(&self.action, &scene, query, self.backend)
+            }
+            PreparedVisionQuery::Aql { plan, .. } => {
+                let snapshot = crate::index::VisualSceneSnapshot::new(
+                    scene,
+                    crate::scene::ObservationState {
+                        coverage: crate::scene::ObservationCoverage::Complete,
+                        fresh_regions: Vec::new(),
+                        dirty_regions: Vec::new(),
+                    },
+                );
+                execute_aql_observation(&self.action, &snapshot, plan, self.backend)
+            }
+        };
         self.runtime
             .metrics()
             .record_scene_query_latency(query_started_at.elapsed());

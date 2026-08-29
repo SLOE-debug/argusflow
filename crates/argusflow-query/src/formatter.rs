@@ -51,6 +51,17 @@ fn format_compact_expression(expression: &QueryExpr) -> String {
         QueryExpr::Nth { query, index } => {
             format!("nth({},{index})", format_compact_expression(query))
         }
+        QueryExpr::Nearest {
+            anchor,
+            target,
+            direction,
+            index,
+            metric,
+        } => format!(
+            "nearest(anchor={},target={},direction={direction},index={index},metric={metric})",
+            format_compact_expression(anchor),
+            format_compact_expression(target),
+        ),
         QueryExpr::Css { selector } => format!("css({})", quote_string(selector)),
     }
 }
@@ -89,6 +100,22 @@ fn format_pretty_expression(expression: &QueryExpr, indent: usize) -> String {
                 " ".repeat(inner_indent),
                 index,
                 " ".repeat(indent)
+            )
+        }
+        QueryExpr::Nearest {
+            anchor,
+            target,
+            direction,
+            index,
+            metric,
+        } => {
+            let inner_indent = indent + 4;
+            let padding = " ".repeat(inner_indent);
+            format!(
+                "nearest(\n{padding}anchor = {},\n{padding}target = {},\n{padding}direction = {direction},\n{padding}index = {index},\n{padding}metric = {metric}\n{})",
+                format_pretty_expression(anchor, inner_indent + 9),
+                format_pretty_expression(target, inner_indent + 9),
+                " ".repeat(indent),
             )
         }
         QueryExpr::Css { selector } => format_pretty_css(selector, indent),
@@ -204,6 +231,7 @@ fn format_value(value: &PredicateValue) -> String {
         PredicateValue::Text(text) => quote_string(text),
         PredicateValue::Boolean(value) => value.to_string(),
         PredicateValue::Regex(regex) => format_regex(regex),
+        PredicateValue::Parameter(parameter) => format!("${}", parameter.name),
     }
 }
 

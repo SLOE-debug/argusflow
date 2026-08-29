@@ -136,6 +136,7 @@ fn compile_expression(
             branch_path: BranchPath::root(),
             diagnostics: Vec::new(),
         }]),
+        QueryExpr::Nearest { .. } => Err(CdpQueryCompileError::UnsupportedQuery),
     }
 }
 

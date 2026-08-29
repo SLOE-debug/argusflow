@@ -159,8 +159,10 @@ export type BackendPolicy = {
 
 /** 与 workflow schema 独立演进的持久化 AQL 源码。 */
 export type AqlQuery = {
-  language_version: 1;
+  language_version: 1 | 2;
   source: string;
+  /** 参数值独立于源码保存，Runtime prepare 时按文本类型冻结。 */
+  bindings?: Readonly<Record<string, ValueExpr>>;
 };
 
 /** AQL、视觉查询、物理坐标或当前键盘焦点组成的目标判别联合。 */

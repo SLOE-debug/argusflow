@@ -31,6 +31,24 @@ pub(crate) fn lex_lossless(source: &str) -> (Vec<RawToken>, Vec<Diagnostic>) {
                 cursor.take_while(|value| value.is_ascii_digit());
                 (RawTokenKind::Integer, None)
             }
+            '$' => {
+                cursor.bump();
+                if cursor.peek().is_some_and(is_identifier_start) {
+                    cursor.bump();
+                    cursor.take_while(is_identifier_continue);
+                    (RawTokenKind::Parameter, None)
+                } else {
+                    (
+                        RawTokenKind::Error,
+                        Some((
+                            DiagnosticCode::InvalidToken,
+                            DiagnosticParams::Expected {
+                                expected: "$identifier".to_owned(),
+                            },
+                        )),
+                    )
+                }
+            }
             '"' => lex_quoted(&mut cursor, '"', RawTokenKind::String),
             '/' => lex_regex(&mut cursor),
             '(' => single(&mut cursor, RawTokenKind::LeftParen),
