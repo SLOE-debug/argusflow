@@ -23,8 +23,6 @@ pub struct VisionMetrics {
     captured_pixels: AtomicU64,
     /// OCR 实际处理的 ROI 像素数量。
     ocr_processed_pixels: AtomicU64,
-    /// 发起的 tiny OCR 请求数。
-    tiny_requests: AtomicU64,
     /// 发起的 small OCR 请求数。
     small_requests: AtomicU64,
     /// 发起的 medium OCR 请求数。
@@ -41,8 +39,6 @@ pub struct VisionMetrics {
     diff_observations: AtomicU64,
     /// 稳定帧门控累计耗时，单位为毫秒。
     stable_frame_latency_ms: AtomicU64,
-    /// tiny OCR 累计耗时，单位为毫秒。
-    tiny_latency_ms: AtomicU64,
     /// small OCR 累计耗时，单位为毫秒。
     small_latency_ms: AtomicU64,
     /// medium OCR 累计耗时，单位为毫秒。
@@ -96,9 +92,6 @@ impl VisionMetrics {
         self.ocr_processed_pixels
             .fetch_add(pixels, Ordering::Relaxed);
         match model {
-            crate::ocr::OcrModel::PpOcrV6Tiny => {
-                self.tiny_requests.fetch_add(1, Ordering::Relaxed);
-            }
             crate::ocr::OcrModel::PpOcrV6Small => {
                 self.small_requests.fetch_add(1, Ordering::Relaxed);
             }
@@ -174,7 +167,6 @@ impl VisionMetrics {
     /// 记录一次 OCR 的端到端耗时。
     pub fn record_ocr_latency(&self, model: crate::ocr::OcrModel, elapsed: Duration) {
         let target = match model {
-            crate::ocr::OcrModel::PpOcrV6Tiny => &self.tiny_latency_ms,
             crate::ocr::OcrModel::PpOcrV6Small => &self.small_latency_ms,
             crate::ocr::OcrModel::PpOcrV6Medium => &self.medium_latency_ms,
         };
@@ -216,7 +208,6 @@ impl VisionMetrics {
             capture_frames: self.capture_frames.load(Ordering::Relaxed),
             captured_pixels: self.captured_pixels.load(Ordering::Relaxed),
             ocr_processed_pixels: self.ocr_processed_pixels.load(Ordering::Relaxed),
-            tiny_requests: self.tiny_requests.load(Ordering::Relaxed),
             small_requests: self.small_requests.load(Ordering::Relaxed),
             medium_requests: self.medium_requests.load(Ordering::Relaxed),
             cancelled_stale_requests: self.cancelled_stale_requests.load(Ordering::Relaxed),
@@ -225,7 +216,6 @@ impl VisionMetrics {
             last_changed_area_ratio_ppm: self.last_changed_area_ratio_ppm.load(Ordering::Relaxed),
             diff_observations: self.diff_observations.load(Ordering::Relaxed),
             stable_frame_latency_ms: self.stable_frame_latency_ms.load(Ordering::Relaxed),
-            tiny_latency_ms: self.tiny_latency_ms.load(Ordering::Relaxed),
             small_latency_ms: self.small_latency_ms.load(Ordering::Relaxed),
             medium_latency_ms: self.medium_latency_ms.load(Ordering::Relaxed),
             scene_merge_latency_ms: self.scene_merge_latency_ms.load(Ordering::Relaxed),
@@ -256,8 +246,6 @@ pub struct VisionMetricsSnapshot {
     pub captured_pixels: u64,
     /// OCR ROI 像素累计数。
     pub ocr_processed_pixels: u64,
-    /// tiny 请求数。
-    pub tiny_requests: u64,
     /// small 请求数。
     pub small_requests: u64,
     /// medium 请求数。
@@ -274,8 +262,6 @@ pub struct VisionMetricsSnapshot {
     pub diff_observations: u64,
     /// 稳定帧门控累计耗时，单位为毫秒。
     pub stable_frame_latency_ms: u64,
-    /// tiny OCR 累计耗时，单位为毫秒。
-    pub tiny_latency_ms: u64,
     /// small OCR 累计耗时，单位为毫秒。
     pub small_latency_ms: u64,
     /// medium OCR 累计耗时，单位为毫秒。
@@ -319,6 +305,6 @@ impl VisionMetricsSnapshot {
 
     /// 返回累计 OCR ROI 数量。
     pub const fn ocr_roi_count(self) -> u64 {
-        self.tiny_requests + self.small_requests + self.medium_requests
+        self.small_requests + self.medium_requests
     }
 }

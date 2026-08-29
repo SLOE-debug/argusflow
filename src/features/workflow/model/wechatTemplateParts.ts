@@ -45,9 +45,9 @@ export function createWechatAqlTarget(
       query: { language_version: 2, source, bindings },
     },
     backend_policy: {
-      allow: ['visual_cache', 'ocr_small', 'ocr_medium', 'send_input'],
+      allow: ['ocr_small', 'send_input'],
       deny: [],
-      prefer: ['visual_cache', 'ocr_small', 'ocr_medium', 'send_input'],
+      prefer: ['ocr_small', 'send_input'],
     },
   };
 }

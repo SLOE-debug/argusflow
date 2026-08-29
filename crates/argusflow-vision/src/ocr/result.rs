@@ -18,8 +18,6 @@ use crate::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OcrModel {
-    /// PP-OCRv6 tiny，高频增量 ROI 识别。
-    PpOcrV6Tiny,
     /// PP-OCRv6 small，桌面 GUI 的默认精度/延迟平衡档。
     PpOcrV6Small,
     /// PP-OCRv6 medium，低置信度升级和关键验证。
@@ -30,7 +28,6 @@ impl OcrModel {
     /// 返回模型对应的 ArgusFlow worker profile 名称。
     pub const fn profile_name(self) -> &'static str {
         match self {
-            Self::PpOcrV6Tiny => "pp_ocr_v6_tiny",
             Self::PpOcrV6Small => "pp_ocr_v6_small",
             Self::PpOcrV6Medium => "pp_ocr_v6_medium",
         }
@@ -39,37 +36,8 @@ impl OcrModel {
     /// 返回运行日志和诊断界面使用的模型名称。
     pub const fn display_name(self) -> &'static str {
         match self {
-            Self::PpOcrV6Tiny => "PP-OCRv6 Tiny",
             Self::PpOcrV6Small => "PP-OCRv6 Small",
             Self::PpOcrV6Medium => "PP-OCRv6 Medium",
-        }
-    }
-}
-
-/// OCR 结果来源，用于 scene provenance 和 Evidence 解释。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum OcrSource {
-    /// PP-OCRv6 tiny 识别结果。
-    OcrTiny,
-    /// PP-OCRv6 small 识别结果。
-    OcrSmall,
-    /// PP-OCRv6 medium 识别结果。
-    OcrMedium,
-    /// 根据几何或重复节奏推断的布局信息。
-    LayoutHeuristic,
-    /// UIA 外层语义投影。
-    UiaProjection,
-    /// 最后的无文字 GUI grounding 结果。
-    GuiGrounding,
-}
-
-impl From<OcrModel> for OcrSource {
-    fn from(model: OcrModel) -> Self {
-        match model {
-            OcrModel::PpOcrV6Tiny => Self::OcrTiny,
-            OcrModel::PpOcrV6Small => Self::OcrSmall,
-            OcrModel::PpOcrV6Medium => Self::OcrMedium,
         }
     }
 }
@@ -114,10 +82,12 @@ pub struct PolygonPoint {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OcrImagePreprocessing {
-    /// 保持截图像素不变，适合调用方已经完成图像优化的输入。
-    None,
+    /// 保持截图 RGB 语义不变。
+    Original,
     /// 对小型桌面文字 ROI 做有像素上限的放大、局部对比度增强和轻量锐化。
-    AdaptiveDesktopText,
+    DesktopText,
+    /// 仅在其它 profile 失败后使用的灰度自适应二值化。
+    BinaryFallback,
 }
 
 /// 一次识别请求的模型和预处理选项。
@@ -142,7 +112,7 @@ impl Default for OcrOptions {
             use_doc_orientation_classify: false,
             use_doc_unwarping: false,
             use_textline_orientation: false,
-            image_preprocessing: OcrImagePreprocessing::AdaptiveDesktopText,
+            image_preprocessing: OcrImagePreprocessing::DesktopText,
         }
     }
 }
@@ -157,14 +127,6 @@ pub struct OcrProfile {
 }
 
 impl OcrProfile {
-    /// 创建默认 tiny profile。
-    pub fn tiny() -> Self {
-        Self {
-            model: OcrModel::PpOcrV6Tiny,
-            options: OcrOptions::default(),
-        }
-    }
-
     /// 创建桌面 GUI 默认使用的 small profile。
     pub fn small() -> Self {
         Self {
@@ -178,6 +140,17 @@ impl OcrProfile {
         Self {
             model: OcrModel::PpOcrV6Medium,
             options: OcrOptions::default(),
+        }
+    }
+
+    /// 创建只在常规 Small/Medium 均无法可靠命中时使用的二值化 Medium profile。
+    pub fn medium_binary() -> Self {
+        Self {
+            model: OcrModel::PpOcrV6Medium,
+            options: OcrOptions {
+                image_preprocessing: OcrImagePreprocessing::BinaryFallback,
+                ..OcrOptions::default()
+            },
         }
     }
 }
@@ -197,6 +170,8 @@ pub struct OcrPreprocessingSummary {
     pub contrast_enhanced: bool,
     /// 是否执行了轻量锐化。
     pub sharpened: bool,
+    /// 是否执行了自适应二值化。
+    pub binarized: bool,
 }
 
 /// Worker 诊断 artifact 的无损图像编码。
@@ -248,6 +223,7 @@ impl OcrPreprocessingSummary {
             || self.input_height != self.output_height
             || self.contrast_enhanced
             || self.sharpened
+            || self.binarized
     }
 }
 

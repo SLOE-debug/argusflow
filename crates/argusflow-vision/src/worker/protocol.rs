@@ -10,7 +10,7 @@ use crate::{
 };
 
 /// 当前 Rust/Python worker 协议版本。
-pub const VISION_PROTOCOL_VERSION: &str = "argusflow.vision.v4";
+pub const VISION_PROTOCOL_VERSION: &str = "argusflow.vision.v5";
 
 /// 单次 Named Pipe 消息允许携带的最大原始像素体大小。
 pub const MAX_PIXEL_BODY_BYTES: usize = 64 * 1024 * 1024;
@@ -93,32 +93,21 @@ impl WorkerHealth {
     }
 }
 
-/// 像素平面传输方式；控制面只描述像素体，原始字节放在同一帧的 binary body。
+/// Pagefile-backed Windows 共享内存中的 BGRA 像素平面。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum PixelTransport {
-    /// 当前帧的 binary body 中携带 BGRA 字节。
-    InlineBytes {
-        /// 图片宽度。
-        width: u32,
-        /// 图片高度。
-        height: u32,
-        /// 行步长。
-        stride_bytes: u32,
-        /// binary body 的字节数，必须等于 `stride_bytes * height`。
-        body_length: u64,
-    },
-    /// 共享内存 ring slot 的租约描述。
-    SharedMemory {
-        /// 当前用户 ACL 下的 mapping 名称。
-        mapping_name: String,
-        /// slot 起始偏移。
-        offset: u64,
-        /// slot 有效字节数。
-        length: u64,
-        /// Rust 等待 worker ack 前使用的租约 token。
-        lease_id: String,
-    },
+pub struct SharedMemoryPixels {
+    /// 当前登录会话内的 mapping 名称。
+    pub mapping_name: String,
+    /// 图片宽度。
+    pub width: u32,
+    /// 图片高度。
+    pub height: u32,
+    /// 每行字节数，允许 D3D readback padding。
+    pub stride_bytes: u32,
+    /// mapping 中有效像素字节数，必须等于 `stride_bytes * height`。
+    pub length: u64,
+    /// 当前请求持有 mapping 的唯一租约 ID。
+    pub lease_id: String,
 }
 
 /// Named Pipe 中所有请求和响应共用的版本化 envelope。
@@ -140,9 +129,9 @@ pub struct WorkerProtocolEnvelope<T> {
 pub enum WorkerCommand {
     /// 请求当前 worker health 和版本信息。
     Health,
-    /// 请求对一个 ROI 执行 OCR。
+    /// 请求对一个共享内存 ROI 执行 OCR。
     Recognize {
-        /// OCR 请求及其 inline/shared-memory 像素描述。
+        /// OCR 请求及其共享内存像素描述。
         request: WorkerOcrRequest,
     },
 }
@@ -162,8 +151,8 @@ pub struct WorkerOcrRequest {
     pub profile: OcrProfile,
     /// 帧本地 ROI。
     pub roi: PhysicalRect,
-    /// P0 inline 或 P1 shared-memory 像素传输描述。
-    pub pixel_transport: PixelTransport,
+    /// pagefile-backed Windows 命名共享内存像素描述。
+    pub pixels: SharedMemoryPixels,
     /// 请求截止时间，单位为毫秒。
     pub deadline_ms: u64,
     /// 只控制旁路诊断产物，不改变 OCR 预处理或推理参数。
@@ -182,7 +171,7 @@ pub struct WorkerDiagnosticsRequest {
 /// Recognize 响应 binary body 的类型化元数据。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkerBinaryArtifact {
-    /// 当前 v4 只允许 model_input。
+    /// 当前 v5 只允许 model_input。
     pub kind: WorkerBinaryArtifactKind,
     /// binary body 的无损编码。
     pub encoding: OcrDiagnosticImageEncoding,
@@ -234,11 +223,13 @@ pub struct WorkerError {
 }
 
 impl WorkerOcrRequest {
-    /// 从内部 OCR 请求创建控制面 DTO 与 binary body。
+    /// 从内部 OCR 请求和已经写入像素的共享内存租约创建控制面 DTO。
     pub fn from_request(
         request: &crate::ocr::OcrRequest,
         capture_model_input: bool,
-    ) -> Result<(Self, Vec<u8>), VisionError> {
+        mapping_name: String,
+        lease_id: String,
+    ) -> Result<Self, VisionError> {
         if request.deadline.is_zero() {
             return Err(VisionError::Protocol {
                 message: "OCR request deadline must be non-zero".to_owned(),
@@ -285,28 +276,27 @@ impl WorkerOcrRequest {
                 message: "OCR request deadline does not fit worker protocol".to_owned(),
             }
         })?;
-        Ok((
-            Self {
-                request_id: request.request_id.as_uuid().to_string(),
-                window: request.window,
-                frame_id: request.frame_id,
-                topology_generation: request.topology_generation,
-                profile: request.profile.clone(),
-                roi: request.roi,
-                pixel_transport: PixelTransport::InlineBytes {
-                    width: request.image.width,
-                    height: request.image.height,
-                    stride_bytes,
-                    body_length: expected_bytes,
-                },
-                deadline_ms,
-                diagnostics: WorkerDiagnosticsRequest {
-                    capture_model_input,
-                    encoding: OcrDiagnosticImageEncoding::Png,
-                },
+        Ok(Self {
+            request_id: request.request_id.as_uuid().to_string(),
+            window: request.window,
+            frame_id: request.frame_id,
+            topology_generation: request.topology_generation,
+            profile: request.profile.clone(),
+            roi: request.roi,
+            pixels: SharedMemoryPixels {
+                mapping_name,
+                width: request.image.width,
+                height: request.image.height,
+                stride_bytes,
+                length: expected_bytes,
+                lease_id,
             },
-            pixels.to_vec(),
-        ))
+            deadline_ms,
+            diagnostics: WorkerDiagnosticsRequest {
+                capture_model_input,
+                encoding: OcrDiagnosticImageEncoding::Png,
+            },
+        })
     }
 }
 
@@ -328,7 +318,7 @@ mod tests {
             },
             frame_id: FrameId::new(3),
             topology_generation: TopologyGeneration::new(4),
-            profile: OcrProfile::tiny(),
+            profile: OcrProfile::small(),
             roi: PhysicalRect::new(0, 0, width, height).expect("fixture ROI is non-empty"),
             image: PixelImage::new(width, height, stride_bytes, PixelFormat::Bgra8Unorm, pixels)
                 .expect("fixture image is valid"),
@@ -339,19 +329,17 @@ mod tests {
     #[test]
     fn binary_body_preserves_large_roi_without_json_pixel_array() {
         let wire_request = request(1_200, 800, 1_200 * 4, vec![17; 1_200 * 800 * 4]);
-        let (wire, body) = WorkerOcrRequest::from_request(&wire_request, false)
-            .expect("large ROI should fit the binary transport");
+        let wire = WorkerOcrRequest::from_request(
+            &wire_request,
+            false,
+            "Local\\argusflow-test".to_owned(),
+            "lease".to_owned(),
+        )
+        .expect("large ROI should fit shared memory");
 
-        assert_eq!(body.len(), 1_200 * 800 * 4);
-        assert!(matches!(
-            wire.pixel_transport,
-            PixelTransport::InlineBytes {
-                width: 1_200,
-                height: 800,
-                body_length: 3_840_000,
-                ..
-            }
-        ));
+        assert_eq!(wire.pixels.width, 1_200);
+        assert_eq!(wire.pixels.height, 800);
+        assert_eq!(wire.pixels.length, 3_840_000);
         let encoded = serde_json::to_string(&wire).expect("control DTO should serialize");
         assert!(!encoded.contains("17,17,17"));
     }
@@ -359,26 +347,29 @@ mod tests {
     #[test]
     fn stride_padding_is_kept_in_the_binary_body() {
         let request = request(4, 2, 20, vec![0; 40]);
-        let (wire, body) = WorkerOcrRequest::from_request(&request, false)
-            .expect("row padding should be a valid transport detail");
+        let wire = WorkerOcrRequest::from_request(
+            &request,
+            false,
+            "Local\\argusflow-test".to_owned(),
+            "lease".to_owned(),
+        )
+        .expect("row padding should be a valid transport detail");
 
-        assert_eq!(body.len(), 40);
-        assert!(matches!(
-            wire.pixel_transport,
-            PixelTransport::InlineBytes {
-                stride_bytes: 20,
-                body_length: 40,
-                ..
-            }
-        ));
+        assert_eq!(wire.pixels.stride_bytes, 20);
+        assert_eq!(wire.pixels.length, 40);
     }
 
     #[test]
     fn extra_pixel_storage_is_rejected_instead_of_silently_truncated() {
         let request = request(4, 2, 16, vec![0; 40]);
 
-        let error = WorkerOcrRequest::from_request(&request, false)
-            .expect_err("body length must match stride*height exactly");
+        let error = WorkerOcrRequest::from_request(
+            &request,
+            false,
+            "Local\\argusflow-test".to_owned(),
+            "lease".to_owned(),
+        )
+        .expect_err("body length must match stride*height exactly");
         assert!(matches!(error, VisionError::Protocol { .. }));
     }
 }

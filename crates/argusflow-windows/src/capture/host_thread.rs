@@ -22,9 +22,8 @@ use super::{
     error::{capture_error, invalid_capture},
     host::{CaptureCommand, CaptureSubscriptionId, OpenedCapture, capture_host_error},
     readback::ReadbackState,
-    surface_set::CaptureSurfaceSet,
-    topology::WindowTopologyTracker,
     window_identity::{native_window, validate_window},
+    window_surface::WindowCaptureSurface,
 };
 
 /// 仅存在于捕获线程中的可变资源集合。
@@ -63,11 +62,9 @@ impl CaptureThreadState {
         }
         validate_window(native_window(window.handle), window)?;
         let notify = Arc::new(Notify::new());
-        let mut topology = WindowTopologyTracker::new();
-        let initial_topology = topology.refresh(window)?;
-        let surfaces = CaptureSurfaceSet::new(
-            &initial_topology,
-            self.graphics.clone(),
+        let surface = WindowCaptureSurface::new(
+            window,
+            &self.graphics,
             notify.clone(),
             policy.frame_pool_size as i32,
             policy.include_cursor,
@@ -81,10 +78,11 @@ impl CaptureThreadState {
         self.subscriptions.insert(
             subscription_id,
             HostedSubscription {
-                window,
-                topology,
-                surfaces,
+                surface,
+                graphics: self.graphics.clone(),
                 readback: ReadbackState::default(),
+                generation: TopologyGeneration::new(1),
+                last_bounds: None,
             },
         );
         Ok(OpenedCapture {
@@ -93,7 +91,7 @@ impl CaptureThreadState {
         })
     }
 
-    /// 刷新拓扑并从完整 surface set 读取一张组合帧。
+    /// 读取单 HWND 的下一张帧，并维护移动/缩放 generation。
     fn poll(
         &mut self,
         subscription_id: CaptureSubscriptionId,
@@ -105,36 +103,42 @@ impl CaptureThreadState {
             return Err(frame_timeout(timeout));
         }
         let subscription = self.subscription_mut(subscription_id)?;
-        let topology = subscription.topology.refresh(subscription.window)?;
-        let topology_generation = topology.generation;
-        subscription.surfaces.reconcile(&topology)?;
-        let updated = subscription.surfaces.poll_frames(
+        let bounds = subscription.surface.bounds()?;
+        if subscription
+            .last_bounds
+            .is_some_and(|previous| previous != bounds)
+        {
+            subscription.generation =
+                TopologyGeneration::new(subscription.generation.get().saturating_add(1));
+            subscription.readback.clear();
+        }
+        subscription.last_bounds = Some(bounds);
+        subscription.surface.poll(
+            &subscription.graphics,
             &mut subscription.readback,
-            subscription.window,
             frame_id,
-            topology_generation,
+            subscription.generation,
             deadline,
             timeout,
-        )?;
-        if updated && subscription.surfaces.has_complete_frame() {
-            subscription
-                .surfaces
-                .compose(frame_id, topology_generation, subscription.window)
-                .map(Some)
-        } else {
-            Ok(None)
-        }
+        )
     }
 
-    /// 刷新订阅拓扑，并在同一线程完成 surface reconciliation。
+    /// 返回单窗口当前 generation。
     fn current_topology_generation(
         &mut self,
         subscription_id: CaptureSubscriptionId,
     ) -> Result<TopologyGeneration, VisionError> {
         let subscription = self.subscription_mut(subscription_id)?;
-        let topology = subscription.topology.refresh(subscription.window)?;
-        subscription.surfaces.reconcile(&topology)?;
-        Ok(topology.generation)
+        let bounds = subscription.surface.bounds()?;
+        if subscription
+            .last_bounds
+            .is_some_and(|previous| previous != bounds)
+        {
+            subscription.generation =
+                TopologyGeneration::new(subscription.generation.get().saturating_add(1));
+        }
+        subscription.last_bounds = Some(bounds);
+        Ok(subscription.generation)
     }
 
     /// 取得仍存活的主机订阅。
@@ -150,14 +154,16 @@ impl CaptureThreadState {
 
 /// 主机线程拥有的单个窗口捕获状态。
 struct HostedSubscription {
-    /// 订阅创建时冻结的 HWND/PID。
-    window: WindowIdentity,
-    /// 当前窗口族的拓扑追踪器。
-    topology: WindowTopologyTracker,
-    /// primary 与 owned popup 的 WGC surface 集合。
-    surfaces: CaptureSurfaceSet,
+    /// 当前 HWND 唯一的 WGC capture surface。
+    surface: WindowCaptureSurface,
+    /// 复用共享 D3D11 device 的引用。
+    graphics: Arc<GraphicsDevice>,
     /// 该订阅复用的 staging texture。
     readback: ReadbackState,
+    /// 窗口移动或 resize 时递增。
+    generation: TopologyGeneration,
+    /// 上次读取到的 DWM 可见物理边界。
+    last_bounds: Option<argusflow_vision::PhysicalRect>,
 }
 
 /// 初始化主机线程并串行处理其完整生命周期命令。

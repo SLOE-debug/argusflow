@@ -159,14 +159,18 @@ impl ActionBackend for SendInputBackend {
         let window = context.foreground_window.clone();
         let availability = match (window.as_ref(), materialized_target) {
             (None, _) => RuntimeAvailability::MissingContext,
-            (Some(_), Some(materialized)) if window.as_ref() == Some(&materialized.window) => {
+            (Some(frozen), Some(materialized))
+                if frozen.process_id == materialized.window.process_id =>
+            {
                 RuntimeAvailability::Ready
             }
             (Some(_), Some(_)) | (Some(_), None) => RuntimeAvailability::Unavailable,
         };
         let stage_summary = materialized_target
             .map(|target| format!("planner materializer selected {:?}", target.source_backend))
-            .unwrap_or_else(|| "planner materializer pending: cache -> tiny -> medium".to_owned());
+            .unwrap_or_else(|| {
+                "planner materializer pending: Small with internal fallback".to_owned()
+            });
         let explain = PlanExplain {
             backend: BackendKind::SendInput,
             branch_path: Some(BranchPath::root()),
@@ -297,22 +301,24 @@ impl PreparedExecution for SendInputPreparedExecution {
             } => {
                 let materialized_target = materialized_target.as_ref().ok_or_else(|| {
                     AutomationError::BackendUnavailable {
-                        backend: BackendKind::VisualCache,
+                        backend: BackendKind::OcrSmall,
                         message: "planner did not provide a materialized visual target".to_owned(),
                     }
                 })?;
-                ensure_foreground_window(window).map_err(|error| {
+                if materialized_target.window.process_id != window.process_id {
+                    return Err(AutomationError::VisualTargetStale {
+                        message: "visual materializer crossed the frozen process boundary"
+                            .to_owned(),
+                    });
+                }
+                // 同一进程新建的 dialog/tool window 拥有独立 HWND；输入必须绑定实际命中
+                // 的窗口实例，而不是 prepare 时仅用于冻结进程身份的前台 HWND。
+                ensure_foreground_window(&materialized_target.window).map_err(|error| {
                     AutomationError::BackendFailed {
                         backend: BackendKind::SendInput,
                         message: error.to_string(),
                     }
                 })?;
-                if materialized_target.window != *window {
-                    return Err(AutomationError::VisualTargetStale {
-                        message: "visual materializer returned a different window identity"
-                            .to_owned(),
-                    });
-                }
                 if !contains_point(materialized_target.bounds, materialized_target.safe_point) {
                     return Err(AutomationError::BackendFailed {
                         backend: BackendKind::SendInput,
@@ -328,7 +334,7 @@ impl PreparedExecution for SendInputPreparedExecution {
                 })?;
                 validator.validate_before_input(materialized_target).await?;
                 inject_click_with_surface(
-                    window,
+                    &materialized_target.window,
                     materialized_target.safe_point,
                     Some(materialized_target.surface_bounds),
                 )

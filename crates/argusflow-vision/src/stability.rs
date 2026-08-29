@@ -14,10 +14,6 @@ use crate::{
     source::FrameSubscription,
 };
 
-mod noise;
-
-pub use noise::{TemporalNoiseConfig, TemporalNoiseMask};
-
 /// 稳定帧门控参数。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct StabilityConfig {
@@ -73,8 +69,6 @@ pub struct StableFrameGate {
     config: StabilityConfig,
     /// 差分参数。
     diff_config: DiffConfig,
-    /// 过滤短期周期性闪烁的时序 mask。
-    noise_mask: TemporalNoiseMask,
     /// 上一次观察到的帧。
     previous: Option<Arc<CapturedFrame>>,
     /// 当前连续稳定帧计数。
@@ -89,7 +83,6 @@ impl StableFrameGate {
         Ok(Self {
             config: config.validate()?,
             diff_config: diff_config.validate()?,
-            noise_mask: TemporalNoiseMask::default(),
             previous: None,
             consecutive_frames: 0,
             state: StabilityState::Collecting {
@@ -120,14 +113,10 @@ impl StableFrameGate {
                     || previous.topology_generation != frame.topology_generation =>
             {
                 // topology 变化即使像素暂时相同，也必须重新收集完整稳定窗口。
-                self.noise_mask.clear();
                 1.0
             }
             Some(previous) => {
-                let dirty = compute_dirty_map(Some(previous), &frame, self.diff_config)?;
-                self.noise_mask
-                    .observe(previous, &frame, &dirty)?
-                    .changed_area_ratio
+                compute_dirty_map(Some(previous), &frame, self.diff_config)?.changed_area_ratio
             }
         };
         self.previous = Some(frame.clone());
@@ -157,7 +146,6 @@ impl StableFrameGate {
     pub fn reset(&mut self) {
         self.previous = None;
         self.consecutive_frames = 0;
-        self.noise_mask.clear();
         self.state = StabilityState::Collecting {
             consecutive_frames: 0,
             changed_ratio: 1.0,

@@ -45,7 +45,7 @@ pub(crate) async fn materialize(
     };
     let Some(materializer) = materializer else {
         return Err(AutomationError::BackendUnavailable {
-            backend: BackendKind::VisualCache,
+            backend: BackendKind::OcrSmall,
             message: "visual click has no Planner target materializer".to_owned(),
         });
     };
@@ -54,7 +54,7 @@ pub(crate) async fn materialize(
         &materializer.available_stages(),
     )
     .ok_or_else(|| AutomationError::BackendUnavailable {
-        backend: BackendKind::VisualCache,
+        backend: BackendKind::OcrSmall,
         message: "backend policy and runtime availability leave no visual materialization stage"
             .to_owned(),
     })?;
@@ -117,24 +117,8 @@ fn visual_input_locator(target: &argusflow_core::AutomationTarget) -> bool {
         return false;
     }
     match &target.locator {
-        TargetLocator::Visual { .. } => true,
-        TargetLocator::Query { query } => {
-            query.language_version == argusflow_core::QueryLanguageVersion::V2
-                && target
-                    .backend_policy
-                    .allow
-                    .contains(&BackendKind::SendInput)
-                && target.backend_policy.allow.iter().any(|backend| {
-                    matches!(
-                        backend,
-                        BackendKind::VisualCache
-                            | BackendKind::OcrTiny
-                            | BackendKind::OcrSmall
-                            | BackendKind::OcrMedium
-                            | BackendKind::GuiGrounding
-                    )
-                })
-        }
+        TargetLocator::Visual { .. } => target.backend_policy.allows(BackendKind::OcrSmall),
+        TargetLocator::Query { .. } => false,
         TargetLocator::Coordinate { .. } | TargetLocator::Focused => false,
     }
 }

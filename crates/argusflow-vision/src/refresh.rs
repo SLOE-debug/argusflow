@@ -4,14 +4,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::{diff::DirtyMap, frame::PhysicalRect};
 
-/// 一次刷新计划的原因，供 metrics、Explain 和 evidence 关联。
+/// 一次刷新计划的原因，供 metrics 和 Explain 关联。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RefreshReason {
     /// 作用域没有可复用的基础场景。
     NoBaseScene,
-    /// 缓存超过本次调用允许的 freshness。
-    CacheExpired,
     /// 变化范围足够小，可以只刷新若干局部区域。
     DirtyRegion,
     /// 拓扑或画面发生大范围变化。
@@ -69,7 +67,6 @@ pub fn choose_refresh_plan(
     dirty: Option<&DirtyMap>,
     viewport: PhysicalRect,
     has_base_scene: bool,
-    cache_expired: bool,
     force_full: bool,
     full_refresh_dirty_ratio: f32,
 ) -> RefreshPlan {
@@ -84,14 +81,8 @@ pub fn choose_refresh_plan(
         };
     }
     let Some(dirty) = dirty else {
-        return if cache_expired {
-            RefreshPlan::Full {
-                reason: RefreshReason::CacheExpired,
-            }
-        } else {
-            RefreshPlan::CacheOnly {
-                reason: RefreshReason::CacheValid,
-            }
+        return RefreshPlan::CacheOnly {
+            reason: RefreshReason::CacheValid,
         };
     };
     if dirty.major_transition {
@@ -106,14 +97,8 @@ pub fn choose_refresh_plan(
         .map(|region| region.rect)
         .collect::<Vec<_>>();
     if regions.is_empty() {
-        return if cache_expired {
-            RefreshPlan::Full {
-                reason: RefreshReason::CacheExpired,
-            }
-        } else {
-            RefreshPlan::CacheOnly {
-                reason: RefreshReason::CacheValid,
-            }
+        return RefreshPlan::CacheOnly {
+            reason: RefreshReason::CacheValid,
         };
     }
 
@@ -187,7 +172,6 @@ mod tests {
             viewport(),
             true,
             false,
-            false,
             0.35,
         );
         assert!(
@@ -200,7 +184,6 @@ mod tests {
         let plan = choose_refresh_plan(
             Some(&dirty(viewport(), true)),
             viewport(),
-            true,
             false,
             false,
             0.35,
@@ -210,7 +193,7 @@ mod tests {
 
     #[test]
     fn first_query_always_bootstraps_the_complete_viewport() {
-        let plan = choose_refresh_plan(None, viewport(), false, true, false, 0.35);
+        let plan = choose_refresh_plan(None, viewport(), false, false, 0.35);
 
         assert!(matches!(
             plan,
@@ -222,7 +205,7 @@ mod tests {
 
     #[test]
     fn explicit_full_still_overrides_cache_state() {
-        let plan = choose_refresh_plan(None, viewport(), false, true, true, 0.35);
+        let plan = choose_refresh_plan(None, viewport(), false, true, 0.35);
 
         assert!(matches!(
             plan,
@@ -233,11 +216,31 @@ mod tests {
     }
 
     #[test]
+    fn unchanged_revalidation_reuses_scene_without_ocr() {
+        let unchanged = DirtyMap {
+            frame_id: FrameId::new(3),
+            changed_area_ratio: 0.0,
+            compared_samples: 100,
+            changed_samples: 0,
+            major_transition: false,
+            regions: Vec::new(),
+        };
+
+        let plan = choose_refresh_plan(Some(&unchanged), viewport(), true, false, 0.35);
+
+        assert!(matches!(
+            plan,
+            RefreshPlan::CacheOnly {
+                reason: RefreshReason::CacheValid
+            }
+        ));
+    }
+
+    #[test]
     fn major_transition_always_rebuilds_complete_geometry() {
         let plan = choose_refresh_plan(
             Some(&dirty(viewport(), true)),
             viewport(),
-            true,
             true,
             false,
             0.35,

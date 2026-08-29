@@ -42,18 +42,11 @@ fn validate_backend_policy(
 ) {
     let target = operation.target();
     if matches!(&target.locator, TargetLocator::Visual { .. }) {
-        let visual_backend_allowed = [
-            BackendKind::VisualCache,
-            BackendKind::OcrTiny,
-            BackendKind::OcrSmall,
-            BackendKind::OcrMedium,
-        ]
-        .into_iter()
-        .any(|backend| target.backend_policy.allows(backend));
+        let visual_backend_allowed = target.backend_policy.allows(BackendKind::OcrSmall);
         if !visual_backend_allowed {
             issues.push(context.issue(
                 ValidationIssueCode::InvalidBackendPolicy,
-                "视觉目标的后端策略必须允许 visual_cache、ocr_tiny、ocr_small 或 ocr_medium",
+                "视觉目标的后端策略必须允许 ocr_small",
             ));
         }
         if matches!(operation, UiOperation::Click { .. })

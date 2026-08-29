@@ -1,46 +1,62 @@
 //! VisualScene 上的 deterministic exact/fuzzy 查询。
 
-mod compiler;
 mod diagnostics;
-mod prepared;
-mod spatial;
-
-pub use compiler::{
-    VisionPlanExpr, VisionQueryCompileError, VisionQueryPlan, VisionTextPredicate,
-    compile_vision_query,
-};
 pub use diagnostics::{VisualQueryCandidateSummary, VisualQueryReport};
-pub use prepared::PreparedVisionQuery;
-pub use spatial::{
-    VisionQueryExecutionError, VisionQueryResult, execute_unique_vision_query, execute_vision_query,
-};
 
 use argusflow_core::{AutomationError, VisualQuery};
 
 use crate::{
+    app_scene::{AppNodeRef, AppScene},
     ocr::normalize_text,
     region::normalized_region_to_physical,
     scene::{VisualNode, VisualScene},
 };
+
+/// 在一个进程的全部窗口上执行文本查询，保持 0/1/N 语义。
+pub fn evaluate_app_query<'scene>(
+    scene: &'scene AppScene,
+    query: &VisualQuery,
+) -> Result<AppNodeRef<'scene>, AutomationError> {
+    let candidates = matching_app_nodes(scene, query);
+    match candidates.as_slice() {
+        [] => Err(AutomationError::TargetNotFound {
+            query: query.text.clone(),
+            details: format!("searched {} process windows", scene.windows.len()),
+        }),
+        [candidate] => Ok(*candidate),
+        candidates => Err(AutomationError::AmbiguousTarget {
+            query: query.text.clone(),
+            matches: candidates.len(),
+            details: "matching OCR text exists in multiple window nodes".to_owned(),
+        }),
+    }
+}
+
+/// 返回进程全部窗口中的匹配节点，窗口 Z-Order 优先于窗口内 reading order。
+pub fn matching_app_nodes<'scene>(
+    scene: &'scene AppScene,
+    query: &VisualQuery,
+) -> Vec<AppNodeRef<'scene>> {
+    scene
+        .windows
+        .iter()
+        .flat_map(|window| {
+            matching_nodes(&window.scene, query)
+                .into_iter()
+                .map(|node| AppNodeRef {
+                    window: &window.window,
+                    scene: &window.scene,
+                    node,
+                })
+        })
+        .collect()
+}
 
 /// 查询唯一命中时返回事实节点；多候选只作为显式候选集合返回。
 #[derive(Debug, Clone, Copy)]
 pub enum VisualMatch<'scene> {
     /// 唯一命中。
     Unique(&'scene VisualNode),
-}
-
-/// 供 fuzzy/Inspector 使用的候选摘要；排序不等于自动选择。
-#[derive(Debug, Clone, PartialEq)]
-pub struct VisualCandidate {
-    /// 候选节点 ID。
-    pub node_id: crate::scene::VisualNodeId,
-    /// 候选原始文本。
-    pub raw_text: String,
-    /// 归一化相似度，范围为 0 到 1。
-    pub score: f32,
-    /// 候选位置。
-    pub bbox: crate::frame::PhysicalRect,
 }
 
 /// 在 current viewport scene 上执行 exact/contains 查询，严格实现 0/1/N 语义。
@@ -96,58 +112,6 @@ pub fn matching_nodes<'scene>(
         .collect()
 }
 
-/// 只生成 fuzzy 候选，不把最高分隐式提升成目标。
-pub fn fuzzy_candidates(scene: &VisualScene, query: &VisualQuery) -> Vec<VisualCandidate> {
-    let expected = normalize_text(&query.text);
-    let region = query
-        .region
-        .map(|region| normalized_region_to_physical(region, scene.viewport));
-    if query.region.is_some() && region.flatten().is_none() {
-        return Vec::new();
-    }
-    let region = region.flatten();
-    let mut candidates = scene
-        .nodes
-        .iter()
-        .filter_map(|node| {
-            if !region.map_or(true, |bounds| node.bbox.intersects(bounds)) {
-                return None;
-            }
-            let score = similarity(&expected, &node.normalized_text);
-            (score > 0.0).then(|| VisualCandidate {
-                node_id: node.id,
-                raw_text: node.raw_text.clone(),
-                score,
-                bbox: node.bbox,
-            })
-        })
-        .collect::<Vec<_>>();
-    candidates.sort_by(|left, right| {
-        right
-            .score
-            .total_cmp(&left.score)
-            .then_with(|| left.node_id.cmp(&right.node_id))
-    });
-    candidates
-}
-
-/// 以字符集合交并比提供解释性 fuzzy 分数。
-fn similarity(expected: &str, actual: &str) -> f32 {
-    if expected.is_empty() || actual.is_empty() {
-        return 0.0;
-    }
-    if actual.contains(expected) {
-        return 1.0;
-    }
-    let expected_chars = expected.chars().collect::<Vec<_>>();
-    let actual_chars = actual.chars().collect::<Vec<_>>();
-    let overlap = expected_chars
-        .iter()
-        .filter(|character| actual_chars.contains(character))
-        .count();
-    overlap as f32 / expected_chars.len().max(actual_chars.len()) as f32
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -186,7 +150,7 @@ mod tests {
             request_id: OcrRequestId::new(),
             frame_id: frame.frame_id,
             topology_generation: frame.topology_generation,
-            model: OcrModel::PpOcrV6Tiny,
+            model: OcrModel::PpOcrV6Small,
             elapsed_ms: 1,
             preprocessing: OcrPreprocessingSummary {
                 input_width: 100,
@@ -195,6 +159,7 @@ mod tests {
                 output_height: 100,
                 contrast_enhanced: false,
                 sharpened: false,
+                binarized: false,
             },
             timings: crate::ocr::OcrTimingSummary {
                 preprocess_elapsed_ms: 0,
@@ -249,24 +214,10 @@ mod tests {
         assert!(matches!(
             &error,
             AutomationError::AmbiguousTarget { matches: 2, details, .. }
-                if details.contains("PP-OCRv6 Tiny")
+                if details.contains("PP-OCRv6 Small")
                     && details.contains("“确定” [10,10,10×10] 99%")
                     && details.contains("“确定” [50,10,10×10] 98%")
         ));
-    }
-
-    #[test]
-    fn fuzzy_candidates_do_not_select_a_winner() {
-        let scene = scene();
-        let candidates = fuzzy_candidates(
-            &scene,
-            &VisualQuery {
-                text: "定".to_owned(),
-                exact: false,
-                region: None,
-            },
-        );
-        assert_eq!(candidates.len(), 2);
     }
 
     #[test]

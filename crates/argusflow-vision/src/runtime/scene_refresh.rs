@@ -6,12 +6,10 @@ use argusflow_core::{RunTraceContext, WindowIdentity};
 
 use super::{SceneRefreshPolicy, VisionRuntime};
 use crate::{
-    error::{SceneExecutionPhase, VisionError},
+    error::VisionError,
     ocr::{OcrEngine, OcrRequest},
     refresh::{RefreshPlan, choose_refresh_plan},
-    region::normalized_region_to_physical,
     scene::{CacheLookup, SceneBuildOptions, VisualScene},
-    scene_execution::SceneExecutionTrace,
     stability::StableFrameGate,
 };
 
@@ -22,18 +20,7 @@ impl VisionRuntime {
         window: WindowIdentity,
         policy: &SceneRefreshPolicy,
     ) -> Result<Arc<VisualScene>, VisionError> {
-        self.current_scene_inner(window, policy, None, None).await
-    }
-
-    /// 获取稳定场景，并把端到端执行阶段提供给独立的截止时间任务。
-    pub(crate) async fn current_scene_traced(
-        &self,
-        window: WindowIdentity,
-        policy: &SceneRefreshPolicy,
-        trace: &SceneExecutionTrace,
-    ) -> Result<Arc<VisualScene>, VisionError> {
-        self.current_scene_inner(window, policy, Some(trace), None)
-            .await
+        self.current_scene_inner(window, policy, None).await
     }
 
     /// 执行场景刷新；轨迹为空时保持普通服务调用不产生诊断状态。
@@ -41,32 +28,20 @@ impl VisionRuntime {
         &self,
         window: WindowIdentity,
         policy: &SceneRefreshPolicy,
-        trace: Option<&SceneExecutionTrace>,
         run_trace: Option<&RunTraceContext>,
     ) -> Result<Arc<VisualScene>, VisionError> {
-        enter_phase(trace, SceneExecutionPhase::CacheLookup);
         let cache_lookup = self.lookup_cache(window, policy);
         if !policy.force_refresh {
             if let CacheLookup::Hit(scene) = &cache_lookup {
-                let query_region = policy
-                    .query_region
-                    .or_else(|| {
-                        policy.normalized_query_region.and_then(|region| {
-                            normalized_region_to_physical(region, scene.viewport)
-                        })
-                    })
-                    .unwrap_or(scene.viewport);
-                self.metrics.record_query_pixels(query_region.area());
+                self.metrics.record_query_pixels(scene.viewport.area());
                 self.metrics.record_refresh_plan(&RefreshPlan::CacheOnly {
                     reason: crate::refresh::RefreshReason::CacheValid,
                 });
                 self.metrics.record_scene_query();
-                enter_phase(trace, SceneExecutionPhase::Completed);
                 return Ok(scene.clone());
             }
         }
 
-        enter_phase(trace, SceneExecutionPhase::OpeningCapture);
         let scope = self.scopes.get_or_create(window, policy.capture);
         let subscription = match self.subscription(&scope, window, policy.capture).await {
             Ok(subscription) => subscription,
@@ -83,7 +58,6 @@ impl VisionRuntime {
             });
         }
 
-        enter_phase(trace, SceneExecutionPhase::WaitingForStableFrame);
         let stable_started_at = Instant::now();
         let mut gate = StableFrameGate::new(policy.stability, policy.diff)?;
         let frame = gate.wait_for_stable(subscription.as_ref()).await?;
@@ -103,7 +77,6 @@ impl VisionRuntime {
             });
         }
 
-        enter_phase(trace, SceneExecutionPhase::PlanningRefresh);
         let health = self.health();
         self.metrics
             .record_capture(frame.width as u64 * frame.height as u64);
@@ -116,30 +89,18 @@ impl VisionRuntime {
             self.metrics
                 .record_dirty_pixels(dirty.regions.iter().map(|region| region.rect.area()).sum());
         }
-        let query_region = policy.query_region.or_else(|| {
-            policy
-                .normalized_query_region
-                .and_then(|region| normalized_region_to_physical(region, frame.bounds()))
-        });
         let cache = self
             .scopes
             .cache_for(window, policy.capture)
             .ok_or_else(|| VisionError::CaptureUnavailable {
                 message: "visual scope cache disappeared during scene refresh".to_owned(),
             })?;
-        self.metrics
-            .record_query_pixels(query_region.unwrap_or(frame.bounds()).area());
+        self.metrics.record_query_pixels(frame.bounds().area());
         let base_scene = cache.current();
         let refresh_plan = choose_refresh_plan(
             dirty.as_ref(),
             frame.bounds(),
             base_scene.is_some(),
-            matches!(
-                cache_lookup,
-                CacheLookup::Miss(
-                    crate::scene::CacheMissReason::Expired | crate::scene::CacheMissReason::Dirty
-                )
-            ),
             policy.force_full_ocr,
             policy.diff.full_refresh_dirty_ratio,
         );
@@ -151,7 +112,6 @@ impl VisionRuntime {
                 });
             };
             self.metrics.record_scene_query();
-            enter_phase(trace, SceneExecutionPhase::Completed);
             return Ok(scene);
         }
         if !health.worker_ready {
@@ -168,7 +128,6 @@ impl VisionRuntime {
         };
         let mut responses = Vec::with_capacity(refresh_regions.len());
         for roi in &refresh_regions {
-            enter_phase(trace, SceneExecutionPhase::PreparingOcrInput);
             let request = OcrRequest::from_frame(
                 window,
                 frame.frame_id,
@@ -178,12 +137,8 @@ impl VisionRuntime {
                 policy.ocr.clone(),
                 policy.ocr_timeout,
             )?;
-            if let Some(trace) = trace {
-                trace.record_ocr_input(&request);
-            }
             let request_frame_id = request.frame_id;
             let request_generation = request.topology_generation;
-            enter_phase(trace, SceneExecutionPhase::WaitingForWorker);
             let ocr_started_at = Instant::now();
             let response = self.worker.recognize(request.clone()).await?;
             self.metrics
@@ -208,11 +163,7 @@ impl VisionRuntime {
             responses.push(response);
         }
 
-        enter_phase(trace, SceneExecutionPhase::MergingScene);
         let options = SceneBuildOptions {
-            region_kind: crate::scene::VisualRegionKind::Content,
-            projection: policy.projection,
-            row: crate::layout::RowConfig::default(),
             base_scene: if full_refresh { None } else { base_scene },
             refresh_regions: if full_refresh {
                 Vec::new()
@@ -249,14 +200,6 @@ impl VisionRuntime {
             cache.replace_regions(scene.clone(), &refresh_regions);
         }
         self.metrics.record_scene_built();
-        enter_phase(trace, SceneExecutionPhase::Completed);
         Ok(scene)
-    }
-}
-
-/// 在可选轨迹存在时记录阶段，普通 runtime 调用不分配诊断状态。
-fn enter_phase(trace: Option<&SceneExecutionTrace>, phase: SceneExecutionPhase) {
-    if let Some(trace) = trace {
-        trace.enter(phase);
     }
 }

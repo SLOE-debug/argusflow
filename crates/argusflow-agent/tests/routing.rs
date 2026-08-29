@@ -264,7 +264,7 @@ async fn target_not_found_only_advances_to_a_later_any_branch() {
         Arc::new(PlannedBackend {
             branch_path: BranchPath::from_indices([0]),
             executions: same_branch_executions.clone(),
-            ..planned(BackendKind::VisualCache, ExecutionResult::Success)
+            ..planned(BackendKind::OcrSmall, ExecutionResult::Success)
         }),
         Arc::new(PlannedBackend {
             branch_path: BranchPath::from_indices([1]),

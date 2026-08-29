@@ -131,7 +131,7 @@ impl CaptureHostClient {
         response.await.map_err(|_| host_stopped())?
     }
 
-    /// 在主机线程上轮询并合成一张捕获帧。
+    /// 在主机线程上轮询一张单 HWND 捕获帧。
     pub(super) async fn poll(
         &self,
         subscription_id: CaptureSubscriptionId,
@@ -196,13 +196,13 @@ pub(super) struct OpenedCapture {
 
 /// 发往唯一主机线程的串行命令。
 pub(super) enum CaptureCommand {
-    /// 创建完整窗口捕获订阅。
+    /// 创建单 HWND 捕获订阅。
     Open {
         window: WindowIdentity,
         policy: CapturePolicy,
         reply: oneshot::Sender<Result<OpenedCapture, VisionError>>,
     },
-    /// 轮询订阅的 surface 并按当前拓扑合成。
+    /// 轮询订阅的独立 surface。
     Poll {
         subscription_id: CaptureSubscriptionId,
         frame_id: FrameId,
@@ -233,11 +233,4 @@ pub(super) fn capture_host_error(message: impl Into<String>) -> VisionError {
 /// 主机已停止或正在停止时返回稳定错误。
 fn host_stopped() -> VisionError {
     capture_host_error("application capture host is not running")
-}
-
-/// 把等待时限转换为视觉层统一的超时错误。
-fn frame_timeout(timeout: Duration) -> VisionError {
-    VisionError::FrameTimeout {
-        timeout_ms: timeout.as_millis().min(u128::from(u64::MAX)) as u64,
-    }
 }

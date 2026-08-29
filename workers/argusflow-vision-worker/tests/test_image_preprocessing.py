@@ -17,10 +17,10 @@ from argusflow_vision_worker.diagnostic_artifact import encode_exact_model_input
 class ImagePreprocessingTests(unittest.TestCase):
     """Verify bounded enhancement and reversible ROI geometry."""
 
-    def test_none_preserves_pixels_and_geometry(self) -> None:
+    def test_original_preserves_pixels_and_geometry(self) -> None:
         image = numpy.full((80, 200, 3), 42, dtype=numpy.uint8)
 
-        prepared = prepare_ocr_image(image, ImagePreprocessingMode.NONE)
+        prepared = prepare_ocr_image(image, ImagePreprocessingMode.ORIGINAL)
 
         self.assertIs(prepared.pixels, image)
         self.assertEqual(prepared.summary()["output_width"], 200)
@@ -30,7 +30,7 @@ class ImagePreprocessingTests(unittest.TestCase):
         image = numpy.full((80, 200, 3), 40, dtype=numpy.uint8)
         image[30:50, 40:160] = 110
 
-        prepared = prepare_ocr_image(image, ImagePreprocessingMode.ADAPTIVE_DESKTOP_TEXT)
+        prepared = prepare_ocr_image(image, ImagePreprocessingMode.DESKTOP_TEXT)
 
         self.assertEqual((prepared.output_width, prepared.output_height), (400, 160))
         self.assertTrue(prepared.contrast_enhanced)
@@ -41,7 +41,7 @@ class ImagePreprocessingTests(unittest.TestCase):
     def test_large_frame_does_not_multiply_inference_pixels(self) -> None:
         image = numpy.full((700, 1_000, 3), 128, dtype=numpy.uint8)
 
-        prepared = prepare_ocr_image(image, ImagePreprocessingMode.ADAPTIVE_DESKTOP_TEXT)
+        prepared = prepare_ocr_image(image, ImagePreprocessingMode.DESKTOP_TEXT)
 
         self.assertEqual((prepared.output_width, prepared.output_height), (1_000, 700))
         self.assertFalse(prepared.contrast_enhanced)
@@ -58,10 +58,10 @@ class ImagePreprocessingTests(unittest.TestCase):
         sharpen = numpy.full((70, 180, 3), 30, dtype=numpy.uint8)
         sharpen[20:50, 30:150] = 110
         fixtures = [
-            prepare_ocr_image(no_op, ImagePreprocessingMode.NONE),
-            prepare_ocr_image(upscale, ImagePreprocessingMode.ADAPTIVE_DESKTOP_TEXT),
-            prepare_ocr_image(clahe, ImagePreprocessingMode.ADAPTIVE_DESKTOP_TEXT),
-            prepare_ocr_image(sharpen, ImagePreprocessingMode.ADAPTIVE_DESKTOP_TEXT),
+            prepare_ocr_image(no_op, ImagePreprocessingMode.ORIGINAL),
+            prepare_ocr_image(upscale, ImagePreprocessingMode.DESKTOP_TEXT),
+            prepare_ocr_image(clahe, ImagePreprocessingMode.DESKTOP_TEXT),
+            prepare_ocr_image(sharpen, ImagePreprocessingMode.DESKTOP_TEXT),
         ]
 
         for prepared in fixtures:
@@ -75,6 +75,17 @@ class ImagePreprocessingTests(unittest.TestCase):
             self.assertTrue(numpy.array_equal(decoded_rgb, prepared.pixels))
             self.assertEqual(artifact.width, prepared.output_width)
             self.assertEqual(artifact.height, prepared.output_height)
+
+    def test_binary_fallback_produces_three_channel_thresholded_pixels(self) -> None:
+        image = numpy.full((64, 160, 3), 32, dtype=numpy.uint8)
+        image[20:44, 30:130] = 92
+
+        prepared = prepare_ocr_image(image, ImagePreprocessingMode.BINARY_FALLBACK)
+
+        self.assertEqual(prepared.pixels.shape, image.shape)
+        self.assertTrue(prepared.contrast_enhanced)
+        self.assertTrue(prepared.binarized)
+        self.assertTrue(numpy.isin(prepared.pixels, [0, 255]).all())
 
 
 if __name__ == "__main__":

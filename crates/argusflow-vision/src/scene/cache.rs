@@ -220,7 +220,7 @@ impl VisualSceneCache {
         CacheLookup::Hit(scene.clone())
     }
 
-    /// 返回当前场景，仅供 evidence/inspector 使用，不绕过 freshness 检查。
+    /// 返回当前场景，仅供 runtime/inspector 使用，不绕过 freshness 检查。
     pub fn current(&self) -> Option<Arc<VisualScene>> {
         self.state
             .read()
@@ -434,7 +434,7 @@ mod tests {
             request_id: OcrRequestId::new(),
             frame_id: frame.frame_id,
             topology_generation: frame.topology_generation,
-            model: OcrModel::PpOcrV6Tiny,
+            model: OcrModel::PpOcrV6Small,
             elapsed_ms: 1,
             preprocessing: OcrPreprocessingSummary {
                 input_width: 100,
@@ -443,6 +443,7 @@ mod tests {
                 output_height: 100,
                 contrast_enhanced: false,
                 sharpened: false,
+                binarized: false,
             },
             timings: crate::ocr::OcrTimingSummary {
                 preprocess_elapsed_ms: 0,

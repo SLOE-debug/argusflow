@@ -1,4 +1,4 @@
-//! VisualScene 构造和 current viewport 事实模型。
+//! OCR 响应到单窗口 Scene 的完整构建与 Dirty ROI 合并。
 
 use std::{
     sync::Arc,
@@ -8,79 +8,54 @@ use std::{
 use argusflow_core::{ScreenPoint, WindowIdentity};
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    error::VisionError,
-    frame::{FrameId, PhysicalRect, TopologyGeneration},
-    image::CapturedFrame,
-    layout::{RowConfig, VisualLine, VisualRow, cluster_lines, cluster_rows},
-    ocr::{OcrModel, OcrResponse, OcrSource},
-    projection::{ProjectionOptions, compact_text, spatial_text},
-};
+use crate::{CapturedFrame, OcrModel, OcrResponse, PhysicalRect, VisionError};
 
-use super::{VisualNode, VisualRegion, VisualRegionId, VisualRegionKind};
+use super::{VisualNode, VisualNodeSource};
 
-/// VisualScene 的单调逻辑 ID。
+/// Runtime 单调分配的 Scene ID。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct SceneId(u64);
 
 impl SceneId {
-    /// 创建 scene ID。
+    /// 创建 Scene ID。
     pub const fn new(value: u64) -> Self {
         Self(value)
     }
 
-    /// 返回 scene ID 数值。
+    /// 返回底层值。
     pub const fn get(self) -> u64 {
         self.0
     }
 }
 
-/// Scene 构造阶段使用的布局弱先验和文本投影设置。
-#[derive(Debug, Clone, PartialEq)]
+/// Scene 增量构建需要的最小上下文。
+#[derive(Debug, Clone, Default)]
 pub struct SceneBuildOptions {
-    /// 默认 OCR 节点所属区域类型。
-    pub region_kind: VisualRegionKind,
-    /// 是否输出 region marker 以及空间列数。
-    pub projection: ProjectionOptions,
-    /// 列表/消息 row 的几何聚类参数。
-    pub row: RowConfig,
-    /// ROI 局部 OCR 时需要保留的上一份 scene；全帧 OCR 时为空。
+    /// 局部刷新时保留未相交节点的上一份 Scene。
     pub base_scene: Option<Arc<VisualScene>>,
-    /// 本次 OCR 覆盖的帧本地区域集合；区域外节点可从 base scene 保留。
+    /// 本次 OCR 实际覆盖的 Dirty ROI。
     pub refresh_regions: Vec<PhysicalRect>,
 }
 
-impl Default for SceneBuildOptions {
-    fn default() -> Self {
-        Self {
-            region_kind: VisualRegionKind::Content,
-            projection: ProjectionOptions::default(),
-            row: RowConfig::default(),
-            base_scene: None,
-            refresh_regions: Vec::new(),
-        }
-    }
-}
-
-/// 构建当前场景所使用的 OCR 请求摘要，不包含识别文字本身。
+/// 不包含敏感文本的 OCR 执行摘要。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SceneOcrSummary {
-    /// 实际参与构建的模型，按首次出现顺序去重。
+    /// 实际使用的 Small/Medium 档位。
     pub models: Vec<OcrModel>,
-    /// 合并进场景的 OCR 响应数量。
+    /// OCR ROI 请求数量。
     pub request_count: usize,
-    /// OCR worker 返回的原始文字段数量。
+    /// OCR 文本框数量。
     pub item_count: usize,
-    /// 所有 OCR 响应报告的处理耗时总和，单位为毫秒。
+    /// Worker 报告的总耗时。
     pub elapsed_ms: u64,
-    /// 实际改变 OCR 输入像素的请求数量。
+    /// 实际执行增强的 ROI 数量。
     pub enhanced_request_count: usize,
-    /// 所有响应中的最大图像放大比例，按千分值存储。
+    /// 最大几何放大比例千分值。
     pub max_scale_milli: u32,
 }
 
 impl SceneOcrSummary {
-    /// 从同一场景的响应集合生成不含敏感文字的执行摘要。
+    /// 汇总同一帧的一组 OCR 响应。
     fn from_responses(responses: &[OcrResponse]) -> Self {
         let mut models = Vec::new();
         let mut item_count = 0_usize;
@@ -93,9 +68,7 @@ impl SceneOcrSummary {
             }
             item_count = item_count.saturating_add(response.items.len());
             elapsed_ms = elapsed_ms.saturating_add(response.elapsed_ms);
-            if response.preprocessing.was_applied() {
-                enhanced_request_count = enhanced_request_count.saturating_add(1);
-            }
+            enhanced_request_count += usize::from(response.preprocessing.was_applied());
             max_scale_milli = max_scale_milli.max(response.preprocessing.scale_milli());
         }
         Self {
@@ -109,59 +82,43 @@ impl SceneOcrSummary {
     }
 }
 
-/// 当前窗口可见内容的完整视觉事实快照。
+/// 一个 HWND 最近一次稳定、可查询的 OCR Scene。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VisualScene {
-    /// 单调 scene ID。
+    /// 单调 Scene ID。
     pub scene_id: SceneId,
-    /// 产生该 scene 的帧 ID。
-    pub frame_id: FrameId,
-    /// 产生该 scene 的窗口拓扑代数。
-    pub topology_generation: TopologyGeneration,
-    /// 绑定的 HWND/PID 身份。
+    /// 捕获 Frame ID。
+    pub frame_id: crate::FrameId,
+    /// 窗口移动/resize Generation。
+    pub topology_generation: crate::TopologyGeneration,
+    /// HWND/PID 身份。
     pub window: WindowIdentity,
-    /// 当前 viewport 在帧中的物理像素范围。
+    /// 帧本地物理范围。
     pub viewport: PhysicalRect,
-    /// 当前 viewport 左上角在 virtual screen 中的物理坐标。
+    /// 帧左上角对应的虚拟屏幕坐标。
     pub viewport_origin: ScreenPoint,
-    /// 场景区域。
-    pub regions: Vec<VisualRegion>,
-    /// 场景内全部视觉节点。
+    /// 按 y/x 排序的 OCR 节点。
     pub nodes: Vec<VisualNode>,
-    /// 产生当前视觉事实的 OCR 模型、响应数和耗时摘要。
+    /// 本次 OCR 摘要。
     pub ocr: SceneOcrSummary,
-    /// 视觉行聚类。
-    pub lines: Vec<VisualLine>,
-    /// 联系人/消息 row 聚类。
-    pub rows: Vec<VisualRow>,
-    /// 面向日志、规则和模型的紧凑投影。
-    pub compact_text: String,
-    /// 面向 inspector/debug 的空间投影。
-    pub spatial_text: String,
-    /// 构建时的 Unix 毫秒时间，仅用于 freshness 诊断。
+    /// 构建时间，仅用于诊断 freshness。
     pub built_at_unix_ms: u64,
 }
 
-/// 负责从一个或多个 OCR ROI 响应构造新 current scene。
-#[derive(Debug)]
+/// 负责单调 Scene ID 和增量节点合并。
+#[derive(Debug, Default)]
 pub struct VisualSceneBuilder {
-    /// 下一个 scene ID；只在 runtime 内递增。
+    /// 下一个 Scene ID。
     next_scene_id: u64,
 }
 
-impl Default for VisualSceneBuilder {
-    fn default() -> Self {
+impl VisualSceneBuilder {
+    /// 创建从 Scene 1 开始的 Builder。
+    pub fn new() -> Self {
         Self { next_scene_id: 1 }
     }
-}
 
-impl VisualSceneBuilder {
-    /// 创建从 scene 1 开始的 builder。
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// 合并同一帧的 OCR 响应，去除重叠 ROI 的重复 node。
+    /// 从同一帧 OCR 响应构建完整或局部更新 Scene。
     pub fn build(
         &mut self,
         window: WindowIdentity,
@@ -169,104 +126,83 @@ impl VisualSceneBuilder {
         responses: &[OcrResponse],
         options: &SceneBuildOptions,
     ) -> Result<Arc<VisualScene>, VisionError> {
-        if frame.window != window {
-            return Err(VisionError::WindowIdentityChanged {
-                expected: window,
-                actual: Some(frame.window),
-            });
-        }
-        if responses.is_empty() {
+        if frame.window != window || responses.is_empty() {
             return Err(VisionError::OcrFailed {
-                message: "cannot build a scene without OCR responses".to_owned(),
+                message: "Scene build requires a matching frame and at least one OCR response"
+                    .to_owned(),
             });
         }
-        for response in responses {
-            if response.frame_id != frame.frame_id
+        if responses.iter().any(|response| {
+            response.frame_id != frame.frame_id
                 || response.topology_generation != frame.topology_generation
-            {
-                return Err(VisionError::OcrCancelled {
-                    reason: "OCR response generation is older than the current frame".to_owned(),
-                });
-            }
+        }) {
+            return Err(VisionError::OcrCancelled {
+                reason: "OCR response no longer belongs to the active frame".to_owned(),
+            });
         }
         let scene_id = SceneId::new(self.next_scene_id);
         self.next_scene_id = self.next_scene_id.saturating_add(1);
-        let region_id = VisualRegionId::new(1);
         let mut nodes = Vec::new();
         for response in responses {
-            let source = OcrSource::from(response.model);
+            let source = match response.model {
+                OcrModel::PpOcrV6Small => VisualNodeSource::OcrSmall,
+                OcrModel::PpOcrV6Medium => VisualNodeSource::OcrMedium,
+            };
             for item in &response.items {
-                let Some(node) = VisualNode::from_ocr(
+                if let Some(node) = VisualNode::from_ocr(
                     scene_id,
                     item.raw_text.clone(),
                     item.confidence,
                     item.polygon.clone(),
                     source,
-                    Some(region_id),
-                ) else {
-                    continue;
-                };
-                merge_node(&mut nodes, node);
-            }
-        }
-        if let Some(base_scene) = &options.base_scene {
-            if base_scene.window == window
-                && (base_scene.topology_generation.is_unknown()
-                    || base_scene.topology_generation == frame.topology_generation)
-            {
-                for node in &base_scene.nodes {
-                    let refreshed = options
-                        .refresh_regions
-                        .iter()
-                        .any(|region| node.bbox.intersects(*region));
-                    if options.refresh_regions.is_empty() || !refreshed {
-                        merge_node(&mut nodes, node.clone());
-                    }
+                ) {
+                    merge_node(&mut nodes, node);
                 }
             }
         }
-        nodes.sort_by_key(|node| (node.bbox.y, node.bbox.x, node.stable_hash));
-        for node in &mut nodes {
-            node.generation = scene_id;
-            node.line_id = None;
-            node.row_id = None;
+        if let Some(base) = &options.base_scene
+            && base.window == window
+            && base.topology_generation == frame.topology_generation
+        {
+            for node in &base.nodes {
+                if !options
+                    .refresh_regions
+                    .iter()
+                    .any(|region| node.bbox.intersects(*region))
+                {
+                    merge_node(&mut nodes, node.clone());
+                }
+            }
         }
-        let lines = cluster_lines(&mut nodes);
-        let rows = cluster_rows(&mut nodes, options.row);
-        let mut region = VisualRegion::new(region_id, options.region_kind, frame.bounds());
-        region.node_ids = nodes.iter().map(|node| node.id).collect();
-        let mut scene = VisualScene {
+        nodes.sort_by_key(|node| (node.bbox.y, node.bbox.x, node.id));
+        Ok(Arc::new(VisualScene {
             scene_id,
             frame_id: frame.frame_id,
             topology_generation: frame.topology_generation,
             window,
             viewport: frame.bounds(),
             viewport_origin: frame.screen_origin(),
-            regions: vec![region],
             nodes,
             ocr: SceneOcrSummary::from_responses(responses),
-            lines,
-            rows,
-            compact_text: String::new(),
-            spatial_text: String::new(),
-            built_at_unix_ms: unix_time_ms(),
-        };
-        scene.compact_text = compact_text(&scene, &options.projection);
-        scene.spatial_text = spatial_text(&scene, &options.projection);
-        Ok(Arc::new(scene))
+            built_at_unix_ms: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or(Duration::ZERO)
+                .as_millis() as u64,
+        }))
     }
 }
 
-/// 合并同一 ROI overlap 造成的重复文本；更高档模型或更高置信度结果优先。
+/// 去除重叠 ROI 的重复节点，Medium 或更高置信度优先。
 fn merge_node(nodes: &mut Vec<VisualNode>, candidate: VisualNode) {
-    let duplicate = nodes.iter().position(|existing| {
-        existing.normalized_text == candidate.normalized_text
-            && existing.bbox.intersects(candidate.bbox)
+    let duplicate = nodes.iter().position(|node| {
+        node.normalized_text == candidate.normalized_text && node.bbox.intersects(candidate.bbox)
     });
     if let Some(index) = duplicate {
-        if source_quality(candidate.source) > source_quality(nodes[index].source)
-            || (source_quality(candidate.source) == source_quality(nodes[index].source)
-                && candidate.confidence > nodes[index].confidence)
+        let existing = &nodes[index];
+        let better_model = matches!(candidate.source, VisualNodeSource::OcrMedium)
+            && matches!(existing.source, VisualNodeSource::OcrSmall);
+        if better_model
+            || (candidate.source == existing.source && candidate.confidence > existing.confidence)
         {
             nodes[index] = candidate;
         }
@@ -275,22 +211,123 @@ fn merge_node(nodes: &mut Vec<VisualNode>, candidate: VisualNode) {
     }
 }
 
-/// 返回 OCR provenance 的稳定质量等级；布局和外部投影不抢占 OCR 原始事实。
-const fn source_quality(source: super::node::VisualNodeSource) -> u8 {
-    match source {
-        super::node::VisualNodeSource::OcrTiny => 1,
-        super::node::VisualNodeSource::OcrSmall => 2,
-        super::node::VisualNodeSource::OcrMedium => 3,
-        super::node::VisualNodeSource::LayoutHeuristic
-        | super::node::VisualNodeSource::UiaProjection
-        | super::node::VisualNodeSource::GuiGrounding => 0,
-    }
-}
+#[cfg(test)]
+mod tests {
+    use argusflow_core::WindowIdentity;
 
-/// 获取不依赖外部时钟格式的构建时间。
-fn unix_time_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or(Duration::ZERO)
-        .as_millis() as u64
+    use super::*;
+    use crate::{
+        FrameId, OcrItem, OcrPreprocessingSummary, OcrRequestId, OcrTimingSummary, PolygonPoint,
+        QpcTimestamp, TopologyGeneration,
+    };
+
+    #[test]
+    fn dirty_roi_replaces_only_intersecting_nodes() {
+        let window = WindowIdentity {
+            handle: 7,
+            process_id: 11,
+        };
+        let first_frame = frame(window, 1);
+        let mut builder = VisualSceneBuilder::new();
+        let first = builder
+            .build(
+                window,
+                &first_frame,
+                &[response(
+                    &first_frame,
+                    OcrModel::PpOcrV6Small,
+                    vec![item("旧值", 10.0, 10.0), item("保持", 70.0, 70.0)],
+                )],
+                &SceneBuildOptions::default(),
+            )
+            .expect("initial full scene should build");
+        let retained_generation = first.nodes[1].generation;
+        let next_frame = frame(window, 2);
+        let refresh_region = PhysicalRect::new(0, 0, 40, 40).expect("valid dirty ROI");
+
+        let next = builder
+            .build(
+                window,
+                &next_frame,
+                &[response(
+                    &next_frame,
+                    OcrModel::PpOcrV6Small,
+                    vec![item("新值", 12.0, 12.0)],
+                )],
+                &SceneBuildOptions {
+                    base_scene: Some(first),
+                    refresh_regions: vec![refresh_region],
+                },
+            )
+            .expect("partial scene should merge");
+
+        assert_eq!(next.nodes.len(), 2);
+        assert!(next.nodes.iter().any(|node| node.raw_text == "新值"));
+        assert!(!next.nodes.iter().any(|node| node.raw_text == "旧值"));
+        assert_eq!(
+            next.nodes
+                .iter()
+                .find(|node| node.raw_text == "保持")
+                .expect("outside node should be retained")
+                .generation,
+            retained_generation,
+        );
+    }
+
+    fn frame(window: WindowIdentity, id: u64) -> CapturedFrame {
+        CapturedFrame::from_bgra8(
+            FrameId::new(id),
+            TopologyGeneration::new(1),
+            window,
+            QpcTimestamp::new(id),
+            100,
+            100,
+            96,
+            96,
+            400,
+            vec![0; 100 * 100 * 4],
+        )
+        .expect("fixture frame should be valid")
+    }
+
+    fn response(frame: &CapturedFrame, model: OcrModel, items: Vec<OcrItem>) -> OcrResponse {
+        OcrResponse {
+            request_id: OcrRequestId::new(),
+            frame_id: frame.frame_id,
+            topology_generation: frame.topology_generation,
+            model,
+            elapsed_ms: 1,
+            preprocessing: OcrPreprocessingSummary {
+                input_width: frame.width,
+                input_height: frame.height,
+                output_width: frame.width,
+                output_height: frame.height,
+                contrast_enhanced: false,
+                sharpened: false,
+                binarized: false,
+            },
+            timings: OcrTimingSummary {
+                preprocess_elapsed_ms: 0,
+                inference_elapsed_ms: 1,
+            },
+            model_input: None,
+            items,
+        }
+    }
+
+    fn item(text: &str, x: f32, y: f32) -> OcrItem {
+        OcrItem {
+            raw_text: text.to_owned(),
+            confidence: 0.99,
+            polygon: vec![
+                PolygonPoint { x, y },
+                PolygonPoint { x: x + 10.0, y },
+                PolygonPoint {
+                    x: x + 10.0,
+                    y: y + 10.0,
+                },
+                PolygonPoint { x, y: y + 10.0 },
+            ],
+        }
+    }
 }

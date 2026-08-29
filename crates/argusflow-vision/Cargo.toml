@@ -17,3 +17,9 @@ thiserror.workspace = true
 tokio.workspace = true
 uuid.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_System_Memory",
+] }
+

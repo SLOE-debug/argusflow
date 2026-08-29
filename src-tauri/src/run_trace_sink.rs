@@ -5,7 +5,7 @@ use std::sync::Arc;
 use argusflow_core::RunTraceContext;
 use argusflow_runtime::FileRunTraceStore;
 use argusflow_vision::{
-    CapturedFrame, OcrRequest, OcrResponse, VisionTraceSink, VisualQueryTrace, encode_bgra_as_bmp,
+    CapturedFrame, OcrRequest, OcrResponse, VisionTraceSink, encode_bgra_as_bmp,
 };
 use serde_json::json;
 
@@ -72,23 +72,6 @@ impl VisionTraceSink for RunVisionTraceSink {
             model_input,
             &request_metadata,
             &response_metadata,
-        );
-    }
-
-    fn record_query(&self, context: &RunTraceContext, trace: &VisualQueryTrace) {
-        let Ok(trace_value) = serde_json::to_value(trace) else {
-            return;
-        };
-        let mut value = trace_value;
-        if let Some(object) = value.as_object_mut() {
-            object.insert("run_id".to_owned(), json!(context.run_id));
-            object.insert("node_id".to_owned(), json!(context.node_id));
-        }
-        let _ = self.store.persist_query_trace(
-            context.run_id,
-            &context.node_id,
-            trace.scene_id,
-            &value,
         );
     }
 }

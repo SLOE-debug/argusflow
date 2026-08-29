@@ -20,6 +20,7 @@ use super::{
         VISION_PROTOCOL_VERSION, WorkerBinaryArtifactKind, WorkerCommand, WorkerHealth,
         WorkerOcrRequest, WorkerProtocolEnvelope, WorkerResponse,
     },
+    shared_memory::SharedMemoryLease,
 };
 
 /// 通过随机 session token 连接本地 PaddleOCR worker。
@@ -239,8 +240,13 @@ impl OcrEngine for NamedPipeOcrEngine {
     }
 
     async fn recognize(&self, request: OcrRequest) -> Result<OcrResponse, VisionError> {
-        let (wire_request, body) =
-            WorkerOcrRequest::from_request(&request, self.capture_model_input)?;
+        let pixels = SharedMemoryLease::create(request.image.pixels())?;
+        let wire_request = WorkerOcrRequest::from_request(
+            &request,
+            self.capture_model_input,
+            pixels.name().to_owned(),
+            pixels.lease_id().to_owned(),
+        )?;
         let envelope = WorkerProtocolEnvelope {
             protocol_version: VISION_PROTOCOL_VERSION.to_owned(),
             request_id: wire_request.request_id.clone(),
@@ -249,7 +255,7 @@ impl OcrEngine for NamedPipeOcrEngine {
                 request: wire_request,
             },
         };
-        let (response, response_body) = self.round_trip(envelope, &body, request.deadline).await?;
+        let (response, response_body) = self.round_trip(envelope, &[], request.deadline).await?;
         match response.payload {
             WorkerResponse::Recognize {
                 response: Some(mut response),

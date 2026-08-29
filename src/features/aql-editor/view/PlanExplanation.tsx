@@ -14,11 +14,7 @@ import { diagnosticLabel } from '../language/messages';
 const BACKEND_LABELS: Readonly<Record<BackendKind, string>> = {
   windows_uia: 'Windows UI 自动化',
   browser_cdp: '浏览器自动化',
-  visual_cache: '视觉缓存',
-  ocr_tiny: '快速文字识别',
   ocr_small: '桌面文字识别',
-  ocr_medium: '高精度文字识别',
-  gui_grounding: '视觉定位',
   send_input: '模拟输入',
 };
 

@@ -13,7 +13,6 @@ use crate::{
     image::CapturedFrame,
     scene::VisualSceneCache,
     source::{CapturePolicy, FrameSubscription},
-    stability::TemporalNoiseMask,
 };
 
 /// 一个视觉作用域由窗口身份和捕获策略共同决定。
@@ -34,8 +33,6 @@ pub(crate) struct ScopeState {
     pub(crate) subscription: Option<Arc<dyn FrameSubscription>>,
     /// 该作用域上一张稳定帧。
     pub(crate) last_stable_frame: Option<Arc<CapturedFrame>>,
-    /// 该作用域的时序噪声判定状态。
-    pub(crate) temporal_noise: TemporalNoiseMask,
 }
 
 impl ScopeState {
@@ -45,7 +42,6 @@ impl ScopeState {
             cache,
             subscription: None,
             last_stable_frame: None,
-            temporal_noise: TemporalNoiseMask::default(),
         }
     }
 }

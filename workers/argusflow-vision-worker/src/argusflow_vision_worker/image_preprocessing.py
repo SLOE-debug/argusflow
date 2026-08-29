@@ -12,8 +12,9 @@ import numpy
 class ImagePreprocessingMode(str, Enum):
     """Image transformation requested by the strongly typed Rust OCR profile."""
 
-    NONE = "none"
-    ADAPTIVE_DESKTOP_TEXT = "adaptive_desktop_text"
+    ORIGINAL = "original"
+    DESKTOP_TEXT = "desktop_text"
+    BINARY_FALLBACK = "binary_fallback"
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,6 +28,7 @@ class PreparedOcrImage:
     output_height: int
     contrast_enhanced: bool
     sharpened: bool
+    binarized: bool
 
     def map_x_to_input(self, value: float) -> float:
         """Map an OCR x coordinate back into the original screenshot ROI."""
@@ -48,6 +50,7 @@ class PreparedOcrImage:
             "output_height": self.output_height,
             "contrast_enhanced": self.contrast_enhanced,
             "sharpened": self.sharpened,
+            "binarized": self.binarized,
         }
 
 
@@ -69,8 +72,30 @@ def prepare_ocr_image(rgb: numpy.ndarray, mode: ImagePreprocessingMode) -> Prepa
     input_height, input_width = rgb.shape[:2]
     if input_width <= 0 or input_height <= 0:
         raise ValueError("OCR preprocessing requires a non-empty image")
-    if mode is ImagePreprocessingMode.NONE:
+    if mode is ImagePreprocessingMode.ORIGINAL:
         return _unchanged(rgb)
+
+    if mode is ImagePreprocessingMode.BINARY_FALLBACK:
+        gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+        enhanced = cv2.createCLAHE(clipLimit=1.8, tileGridSize=(8, 8)).apply(gray)
+        binary = cv2.adaptiveThreshold(
+            enhanced,
+            255,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY,
+            21,
+            7,
+        )
+        return PreparedOcrImage(
+            pixels=numpy.ascontiguousarray(cv2.cvtColor(binary, cv2.COLOR_GRAY2RGB)),
+            input_width=input_width,
+            input_height=input_height,
+            output_width=input_width,
+            output_height=input_height,
+            contrast_enhanced=True,
+            sharpened=False,
+            binarized=True,
+        )
 
     source_pixels = input_width * input_height
     short_side = min(input_width, input_height)
@@ -119,6 +144,7 @@ def prepare_ocr_image(rgb: numpy.ndarray, mode: ImagePreprocessingMode) -> Prepa
         output_height=output_height,
         contrast_enhanced=contrast_enhanced,
         sharpened=sharpened,
+        binarized=False,
     )
 
 
@@ -134,4 +160,5 @@ def _unchanged(rgb: numpy.ndarray) -> PreparedOcrImage:
         output_height=height,
         contrast_enhanced=False,
         sharpened=False,
+        binarized=False,
     )

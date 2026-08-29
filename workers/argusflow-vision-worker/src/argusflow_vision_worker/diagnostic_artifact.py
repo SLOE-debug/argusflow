@@ -19,7 +19,7 @@ class EncodedModelInput:
     sha256: str
 
     def metadata(self) -> dict[str, str | int]:
-        """Return the v4 binary artifact control contract."""
+        """Return the v5 optional binary artifact control contract."""
 
         return {
             "kind": "model_input",

@@ -50,7 +50,7 @@ impl SurfaceTransform {
         )
     }
 
-    /// 创建可处理 popup 合成帧的坐标变换；`viewport_origin` 是 frame viewport 的屏幕锚点。
+    /// 创建带屏幕锚点的坐标变换；`viewport_origin` 是当前 HWND 帧的屏幕原点。
     pub(super) fn new_with_origin(
         window_bounds: RECT,
         frame_viewport: PhysicalRect,

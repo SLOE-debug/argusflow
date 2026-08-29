@@ -42,8 +42,8 @@ describe('ExecutionLog', () => {
         node_id: 'log',
         edge_id: null,
         kind: 'backend_selected',
-        message: 'PP-OCRv6 Tiny 精确查询“搜索”：命中 1/61 段，耗时 409 ms；“搜索” [122,60,40×22] 99%',
-        payload: { type: 'backend_selected', backend: 'ocr_tiny' },
+        message: 'PP-OCRv6 Small 精确查询“搜索”：命中 1/61 段，耗时 409 ms；“搜索” [122,60,40×22] 99%',
+        payload: { type: 'backend_selected', backend: 'ocr_small' },
       },
     ];
     const nodes: WorkflowCanvasNode[] = [{
@@ -82,7 +82,7 @@ describe('ExecutionLog', () => {
     expect(screen.getByText(/ArgusFlow 已启动/)).not.toHaveClass('truncate');
     expect(screen.getByText('开始执行')).toBeVisible();
     expect(screen.getByText('已选择执行方式')).toBeVisible();
-    expect(screen.getByText(/快速文字识别 · PP-OCRv6 Tiny/)).toBeVisible();
+    expect(screen.getByText(/桌面文字识别 · PP-OCRv6 Small/)).toBeVisible();
     expect(screen.getByText(/“搜索” \[122,60,40×22\] 99%/)).toBeVisible();
     expect(screen.queryByText('node_started')).not.toBeInTheDocument();
     expect(screen.getAllByText('记录启动状态')).toHaveLength(3);
@@ -92,7 +92,7 @@ describe('ExecutionLog', () => {
     expect(writeText).toHaveBeenCalledWith([
       '01 [记录启动状态] 开始执行 正在执行',
       '02 [记录启动状态] 记录信息 ArgusFlow 已启动',
-      '03 [记录启动状态] 已选择执行方式 快速文字识别 · PP-OCRv6 Tiny 精确查询“搜索”：命中 1/61 段，耗时 409 ms；“搜索” [122,60,40×22] 99%',
+      '03 [记录启动状态] 已选择执行方式 桌面文字识别 · PP-OCRv6 Small 精确查询“搜索”：命中 1/61 段，耗时 409 ms；“搜索” [122,60,40×22] 99%',
     ].join('\n'));
   });
 });

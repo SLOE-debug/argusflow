@@ -10,7 +10,7 @@ import pywintypes
 import win32file
 import win32pipe
 
-PROTOCOL_VERSION = "argusflow.vision.v4"
+PROTOCOL_VERSION = "argusflow.vision.v5"
 MAX_CONTROL_FRAME_BYTES = 4 * 1024 * 1024
 MAX_PIXEL_BODY_BYTES = 64 * 1024 * 1024
 FRAME_MAGIC = b"AFV2"
@@ -39,7 +39,7 @@ def _read_exact(handle: pywintypes.HANDLE, length: int) -> bytes:
 
 
 def read_frame(handle: pywintypes.HANDLE) -> tuple[dict[str, Any], bytes]:
-    """Read one control JSON object followed by an optional binary pixel body."""
+    """Read one control JSON object followed by an optional diagnostic artifact."""
 
     header = _read_exact(handle, FRAME_HEADER.size)
     magic, control_length, body_length = FRAME_HEADER.unpack(header)

@@ -149,11 +149,7 @@ function asTargetScope(value: JsonValue | undefined): TargetScope {
 const BACKEND_KINDS = [
   'windows_uia',
   'browser_cdp',
-  'visual_cache',
-  'ocr_tiny',
   'ocr_small',
-  'ocr_medium',
-  'gui_grounding',
   'send_input',
 ] as const satisfies ReadonlyArray<BackendKind>;
 

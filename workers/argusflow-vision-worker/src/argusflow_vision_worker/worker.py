@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.metadata
 import json
+import mmap
 import os
 import time
 from pathlib import Path
@@ -49,8 +50,6 @@ def _prediction_json(prediction: Any) -> dict[str, Any]:
 def _model_name(model: str) -> tuple[str, str]:
     """Resolve an ArgusFlow profile to the official PP-OCRv6 pair."""
 
-    if model == "pp_ocr_v6_tiny":
-        return "PP-OCRv6_tiny_det", "PP-OCRv6_tiny_rec"
     if model == "pp_ocr_v6_small":
         return "PP-OCRv6_small_det", "PP-OCRv6_small_rec"
     if model == "pp_ocr_v6_medium":
@@ -128,11 +127,11 @@ class VisionWorker:
         }
 
     def prewarm(self) -> None:
-        """Load the default desktop tier; exceptional Tiny/Medium tiers stay lazy."""
+        """Load the default Small desktop tier; Medium fallback stays lazy."""
 
         self.lifecycle = "loading_models"
         warmup = numpy.zeros((64, 256, 3), dtype=numpy.uint8)
-        warmup_options = {"image_preprocessing": "none"}
+        warmup_options = {"image_preprocessing": "original"}
         model = "pp_ocr_v6_small"
         pipeline = self.models.pipeline(model, warmup_options)
         next(iter(pipeline.predict(warmup, text_rec_score_thresh=_minimum_score(model))), None)
@@ -143,28 +142,12 @@ class VisionWorker:
         request: dict[str, Any],
         body: bytes,
     ) -> tuple[dict[str, Any], dict[str, str | int] | None, bytes]:
-        """Decode a Rust ROI binary body, run PaddleOCR, and return frame-local polygons."""
+        """Map a Rust ROI, run PaddleOCR, and return frame-local polygons."""
 
         started = time.perf_counter()
-        transport = request.get("pixel_transport")
-        if not isinstance(transport, dict) or transport.get("type") != "inline_bytes":
-            raise ProtocolError(
-                "unsupported_transport",
-                "P0 worker accepts only inline_bytes; shared memory is reserved for P1",
-            )
-        width = int(transport["width"])
-        height = int(transport["height"])
-        stride = int(transport["stride_bytes"])
-        if width <= 0 or height <= 0 or stride < width * 4:
-            raise ProtocolError("invalid_pixels", "ROI dimensions or stride are invalid")
-        required_bytes = stride * height
-        declared_length = int(transport.get("body_length", -1))
-        if declared_length != required_bytes or len(body) != required_bytes:
-            raise ProtocolError("invalid_pixels", "binary pixel body length must equal stride*height")
-        bgra = numpy.frombuffer(memoryview(body), dtype=numpy.uint8, count=required_bytes).reshape(
-            height, stride
-        )[:, : width * 4]
-        rgb = bgra.reshape(height, width, 4)[:, :, :3][:, :, ::-1].copy()
+        if body:
+            raise ProtocolError("unexpected_body", "OCR pixels must use shared memory")
+        rgb = _read_shared_pixels(request.get("pixels"))
         profile = request.get("profile")
         if not isinstance(profile, dict):
             raise ProtocolError("invalid_profile", "OCR profile is missing")
@@ -232,11 +215,37 @@ class VisionWorker:
         return response, artifact.metadata() if artifact else None, artifact.body if artifact else b""
 
 
+def _read_shared_pixels(transport: Any) -> numpy.ndarray:
+    """Copy one BGRA mapping into a compact RGB array before releasing its lease."""
+
+    if not isinstance(transport, dict):
+        raise ProtocolError("invalid_pixels", "shared-memory pixel metadata is missing")
+    mapping_name = str(transport.get("mapping_name", ""))
+    lease_id = str(transport.get("lease_id", ""))
+    width = int(transport.get("width", 0))
+    height = int(transport.get("height", 0))
+    stride = int(transport.get("stride_bytes", 0))
+    length = int(transport.get("length", 0))
+    if not mapping_name or not lease_id:
+        raise ProtocolError("invalid_pixels", "shared-memory mapping or lease ID is empty")
+    if width <= 0 or height <= 0 or stride < width * 4 or length != stride * height:
+        raise ProtocolError("invalid_pixels", "shared-memory dimensions, stride, or length are invalid")
+    try:
+        mapping = mmap.mmap(-1, length, tagname=mapping_name, access=mmap.ACCESS_READ)
+    except (OSError, ValueError) as error:
+        raise ProtocolError("shared_memory_unavailable", str(error)) from error
+    try:
+        bgra = numpy.frombuffer(mapping, dtype=numpy.uint8, count=length).reshape(height, stride)
+        rgb = bgra[:, : width * 4].reshape(height, width, 4)[:, :, :3][:, :, ::-1].copy()
+        del bgra
+        return rgb
+    finally:
+        mapping.close()
+
+
 def _minimum_score(model: str) -> float:
     """Return the tier-specific junk-text filter used by Paddle and the response adapter."""
 
-    if model == "pp_ocr_v6_tiny":
-        return 0.45
     if model == "pp_ocr_v6_small":
         return 0.35
     if model == "pp_ocr_v6_medium":

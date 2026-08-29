@@ -240,11 +240,7 @@ export type QueryBackend = 'windows_uia' | 'browser_cdp' | 'vision';
 export type BackendKind =
   | 'windows_uia'
   | 'browser_cdp'
-  | 'visual_cache'
-  | 'ocr_tiny'
   | 'ocr_small'
-  | 'ocr_medium'
-  | 'gui_grounding'
   | 'send_input';
 
 /** 后端保持 AQL 语义所需的执行方式。 */

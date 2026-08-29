@@ -4,7 +4,6 @@ use std::mem::size_of;
 
 use argusflow_agent::{VisualTargetBounds, WindowContext};
 use argusflow_core::ScreenPoint;
-use argusflow_vision::WheelSteps;
 use thiserror::Error;
 use windows::Win32::{
     Foundation::{HWND, RECT},
@@ -22,6 +21,22 @@ use windows::Win32::{
 };
 
 use super::keyboard::ensure_foreground_window;
+
+/// 一次 SendInput 滚轮批次的有符号步数。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WheelSteps(i32);
+
+impl WheelSteps {
+    /// 创建非零滚轮步数；零不会产生任何滚动效果。
+    pub const fn new(value: i32) -> Option<Self> {
+        if value == 0 { None } else { Some(Self(value)) }
+    }
+
+    /// 返回用于换算 WHEEL_DELTA 的有符号步数。
+    pub const fn get(self) -> i32 {
+        self.0
+    }
+}
 
 /// 鼠标 SendInput 的前置校验或提交失败。
 #[derive(Debug, Error)]
@@ -54,7 +69,7 @@ pub(super) fn inject_click(
     inject_click_with_surface(window, point, None)
 }
 
-/// 对 primary 或合成 popup surface 执行一次经过边界复验的左键点击。
+/// 对已独立捕获的目标 HWND surface 执行一次经过边界复验的左键点击。
 pub(super) fn inject_click_with_surface(
     window: &WindowContext,
     point: ScreenPoint,
@@ -116,7 +131,7 @@ fn ensure_point_in_window(
     Ok(())
 }
 
-/// 确认点位仍属于当前合成 capture surface 的范围；该范围可包含 owned popup。
+/// 确认点位仍属于当前 HWND capture surface 的范围。
 fn ensure_point_in_surface(
     bounds: VisualTargetBounds,
     point: ScreenPoint,

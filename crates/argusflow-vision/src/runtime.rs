@@ -8,25 +8,24 @@ use std::{
     time::Duration,
 };
 
-use argusflow_core::{NormalizedRect, RunTraceContext, WindowIdentity};
+use argusflow_core::{RunTraceContext, WindowIdentity};
 use async_trait::async_trait;
 use tokio::sync::Mutex;
 
 use crate::{
-    diff::{DiffConfig, compute_dirty_map},
+    diff::DiffConfig,
     error::VisionError,
-    frame::{PhysicalRect, TopologyGeneration},
-    image::CapturedFrame,
-    index::VisualSceneSnapshot,
+    frame::TopologyGeneration,
     metrics::VisionMetrics,
     ocr::OcrProfile,
-    projection::ProjectionOptions,
-    scene::{CacheLookup, VisualScene, VisualSceneBuilder, VisualSceneCache},
-    source::{CapturePolicy, FrameSubscription, WindowFrameSource},
+    scene::{VisualScene, VisualSceneBuilder, VisualSceneCache},
+    source::{CapturePolicy, WindowFrameSource},
     stability::StabilityConfig,
     worker::{VisionWorkerClient, WorkerHealth},
 };
 
+mod app;
+mod cache_state;
 mod scene_refresh;
 
 /// 获取新 scene 时的刷新策略。
@@ -48,19 +47,13 @@ pub struct SceneRefreshPolicy {
     pub ocr: OcrProfile,
     /// 单次 OCR 请求自己的截止时间；不与 stable gate 的观察预算混用。
     pub ocr_timeout: Duration,
-    /// 只刷新与该 ROI 相交的内容；为空表示当前 viewport。
-    pub query_region: Option<PhysicalRect>,
-    /// 以当前视觉 viewport 百分比表达的查询区域；由 runtime 映射为物理 ROI。
-    pub normalized_query_region: Option<NormalizedRect>,
     /// 当前调用方已确认的拓扑代数。
     pub topology_generation: TopologyGeneration,
-    /// Compact/Spatial 文本设置。
-    pub projection: ProjectionOptions,
 }
 
 impl SceneRefreshPolicy {
-    /// 创建 cache-first tiny 刷新策略。
-    pub fn tiny() -> Self {
+    /// 创建桌面 GUI 默认使用的 Small ROI 刷新策略。
+    pub fn small() -> Self {
         Self {
             force_refresh: false,
             force_full_ocr: false,
@@ -68,22 +61,9 @@ impl SceneRefreshPolicy {
             capture: CapturePolicy::default(),
             stability: StabilityConfig::default(),
             diff: DiffConfig::default(),
-            ocr: OcrProfile::tiny(),
-            ocr_timeout: Duration::from_secs(3),
-            query_region: None,
-            normalized_query_region: None,
-            topology_generation: TopologyGeneration::new(0),
-            projection: ProjectionOptions::default(),
-        }
-    }
-
-    /// 创建桌面 GUI 默认使用的 small ROI 刷新策略。
-    pub fn small() -> Self {
-        Self {
-            max_age: Duration::from_millis(400),
             ocr: OcrProfile::small(),
             ocr_timeout: Duration::from_secs(6),
-            ..Self::tiny()
+            topology_generation: TopologyGeneration::new(0),
         }
     }
 
@@ -101,7 +81,7 @@ impl SceneRefreshPolicy {
 
 impl Default for SceneRefreshPolicy {
     fn default() -> Self {
-        Self::tiny()
+        Self::small()
     }
 }
 
@@ -193,15 +173,8 @@ impl VisionRuntime {
         policy: &SceneRefreshPolicy,
         context: &RunTraceContext,
     ) -> Result<Arc<VisualScene>, VisionError> {
-        self.current_scene_inner(window, policy, None, Some(context))
+        self.current_scene_inner(window, policy, Some(context))
             .await
-    }
-
-    /// 将输入层已经完成的 0/1/N 选择事实转发给同一个 Run Artifact sink。
-    pub fn record_query_trace(&self, context: &RunTraceContext, trace: &crate::VisualQueryTrace) {
-        if let Some(trace_sink) = &self.trace_sink {
-            trace_sink.record_query(context, trace);
-        }
     }
 
     /// 返回共享 metrics。
@@ -216,228 +189,6 @@ impl VisionRuntime {
             capture_ready: self.capture_ready.load(Ordering::Relaxed),
             worker_ready: worker.is_ready(),
             worker,
-        }
-    }
-
-    /// 返回当前 cache 的只读 scene，供 evidence/inspector 使用。
-    pub fn cached_scene(&self) -> Option<Arc<VisualScene>> {
-        self.scopes
-            .cache_snapshot()
-            .into_iter()
-            .filter_map(|cache| cache.current())
-            .max_by_key(|scene| scene.scene_id)
-    }
-
-    /// 按窗口和 generation 查询 cache。
-    pub fn lookup_cache(&self, window: WindowIdentity, policy: &SceneRefreshPolicy) -> CacheLookup {
-        let cache = self.scopes.cache_for(window, policy.capture).or_else(|| {
-            self.scopes.get_or_create(window, policy.capture);
-            self.scopes.cache_for(window, policy.capture)
-        });
-        let Some(cache) = cache else {
-            return CacheLookup::Miss(crate::scene::CacheMissReason::Empty);
-        };
-        cache.lookup(window, policy.topology_generation, policy.max_age, None)
-    }
-
-    /// 保证当前 surface 已完成整窗 bootstrap，并返回结构化索引快照。
-    pub async fn ensure_complete_scene(
-        &self,
-        window: WindowIdentity,
-        policy: &SceneRefreshPolicy,
-    ) -> Result<Arc<VisualSceneSnapshot>, VisionError> {
-        let mut complete_policy = policy.clone();
-        complete_policy.query_region = None;
-        complete_policy.normalized_query_region = None;
-        let cache = self.scopes.get_or_create(window, complete_policy.capture);
-        let observation = cache.lock().await.cache.observation();
-        if !observation.coverage.is_complete() {
-            complete_policy.force_refresh = true;
-            complete_policy.force_full_ocr = true;
-        }
-        let scene = self.current_scene(window, &complete_policy).await?;
-        let cache = self
-            .scopes
-            .cache_for(window, complete_policy.capture)
-            .ok_or_else(|| VisionError::CaptureUnavailable {
-                message: "visual scope cache disappeared after complete bootstrap".to_owned(),
-            })?;
-        let observation = cache.observation();
-        if !observation.coverage.is_complete() {
-            return Err(VisionError::OcrFailed {
-                message: "visual scene bootstrap did not establish complete observation".to_owned(),
-            });
-        }
-        Ok(Arc::new(VisualSceneSnapshot::new(scene, observation)))
-    }
-
-    /// 刷新全部 dirty 区域后返回同一 scene 的结构化索引快照。
-    pub async fn refresh_dirty_scene(
-        &self,
-        window: WindowIdentity,
-        policy: &SceneRefreshPolicy,
-    ) -> Result<Arc<VisualSceneSnapshot>, VisionError> {
-        let scene = self.current_scene(window, policy).await?;
-        let cache = self
-            .scopes
-            .cache_for(window, policy.capture)
-            .ok_or_else(|| VisionError::CaptureUnavailable {
-                message: "visual scope cache disappeared after dirty refresh".to_owned(),
-            })?;
-        Ok(Arc::new(VisualSceneSnapshot::new(
-            scene,
-            cache.observation(),
-        )))
-    }
-
-    /// 消费一张新捕获帧并更新 cache dirty 状态，不执行 OCR。
-    pub async fn revalidate_cache(
-        &self,
-        window: WindowIdentity,
-        timeout: Duration,
-    ) -> Result<TopologyGeneration, VisionError> {
-        let capture = CapturePolicy::default();
-        let scope = self.scopes.get_or_create(window, capture);
-        let subscription = self.subscription(&scope, window, capture).await?;
-        if subscription.window() != window {
-            return Err(VisionError::WindowIdentityChanged {
-                expected: window,
-                actual: Some(subscription.window()),
-            });
-        }
-        let frame = subscription.next(timeout).await?;
-        if frame.window != window {
-            return Err(VisionError::WindowIdentityChanged {
-                expected: window,
-                actual: Some(frame.window),
-            });
-        }
-        self.update_cache_invalidation(&scope, window, &frame, DiffConfig::default())
-            .await?;
-        Ok(frame.topology_generation)
-    }
-
-    /// 在输入提交点复验物化目标绑定的 scene、frame 和 topology 仍然可用。
-    pub async fn validate_materialized_target(
-        &self,
-        window: WindowIdentity,
-        scene_id: u64,
-        frame_id: u64,
-        topology_generation: u64,
-        target_region: PhysicalRect,
-    ) -> Result<(), VisionError> {
-        // 在物理输入 commit 前消费一张廉价新帧；若内容已变化，update_cache_invalidation
-        // 会把目标所在 ROI 标成 dirty，阻止旧 bbox 继续进入 SendInput。
-        let current_topology = self
-            .revalidate_cache(window, Duration::from_millis(75))
-            .await?;
-        let expected_topology = TopologyGeneration::new(topology_generation);
-        if !expected_topology.is_unknown() && current_topology != expected_topology {
-            return Err(VisionError::SceneStale);
-        }
-        let capture = CapturePolicy::default();
-        let scope = self.scopes.get_or_create(window, capture);
-        let (last_frame, cache) = {
-            let state = scope.lock().await;
-            (state.last_stable_frame.clone(), state.cache.clone())
-        };
-        let Some(last_frame) = last_frame else {
-            return Err(VisionError::SceneStale);
-        };
-        if last_frame.window != window
-            || (!expected_topology.is_unknown()
-                && last_frame.topology_generation != expected_topology)
-            || last_frame.frame_id.get() < frame_id
-            || cache.is_region_dirty(target_region)
-        {
-            return Err(VisionError::SceneStale);
-        }
-        let Some(scene) = cache.current() else {
-            return Err(VisionError::SceneStale);
-        };
-        if scene.window != window
-            || scene.scene_id.get() != scene_id
-            || scene.frame_id.get() != frame_id
-            || (!expected_topology.is_unknown() && scene.topology_generation != expected_topology)
-            || scene.frame_id.get() > last_frame.frame_id.get()
-        {
-            return Err(VisionError::SceneStale);
-        }
-        Ok(())
-    }
-
-    /// 失效与 dirty map 相交的 cache 区域。
-    pub fn invalidate(&self, dirty: &crate::diff::DirtyMap) {
-        for cache in self.scopes.cache_snapshot() {
-            cache.invalidate(dirty);
-        }
-    }
-
-    /// 将当前稳定帧与上一份稳定帧比较，维护 VisualScene cache 的 ROI 失效边界。
-    async fn update_cache_invalidation(
-        &self,
-        scope: &Arc<tokio::sync::Mutex<crate::scope::ScopeState>>,
-        window: WindowIdentity,
-        frame: &Arc<CapturedFrame>,
-        diff_config: DiffConfig,
-    ) -> Result<Option<crate::diff::DirtyMap>, VisionError> {
-        let mut state = scope.lock().await;
-        let previous = state.last_stable_frame.clone();
-        let dirty = if let Some(previous_frame) = previous {
-            if previous_frame.window != window
-                || previous_frame.topology_generation != frame.topology_generation
-            {
-                state.cache.clear();
-                state.temporal_noise.clear();
-                self.metrics.record_diff(1.0);
-                None
-            } else {
-                let dirty =
-                    compute_dirty_map(Some(previous_frame.as_ref()), frame.as_ref(), diff_config)?;
-                let filtered = state.temporal_noise.observe(
-                    previous_frame.as_ref(),
-                    frame.as_ref(),
-                    &dirty,
-                )?;
-                state.cache.invalidate(&filtered);
-                self.metrics.record_diff(filtered.changed_area_ratio);
-                Some(filtered)
-            }
-        } else {
-            state.cache.clear();
-            state.temporal_noise.clear();
-            self.metrics.record_diff(1.0);
-            None
-        };
-        state.last_stable_frame = Some(frame.clone());
-        drop(state);
-        Ok(dirty)
-    }
-
-    /// 在不跨 await 持锁的前提下复用同一窗口的 capture subscription。
-    async fn subscription(
-        &self,
-        scope: &Arc<tokio::sync::Mutex<crate::scope::ScopeState>>,
-        window: WindowIdentity,
-        policy: CapturePolicy,
-    ) -> Result<Arc<dyn FrameSubscription>, VisionError> {
-        if let Some(subscription) = scope.lock().await.subscription.clone() {
-            return Ok(subscription);
-        }
-        let opened = match self.capture.open(window, policy).await {
-            Ok(subscription) => subscription,
-            Err(error) => {
-                self.capture_ready.store(false, Ordering::Relaxed);
-                return Err(error);
-            }
-        };
-        self.capture_ready.store(true, Ordering::Relaxed);
-        let mut state = scope.lock().await;
-        if let Some(subscription) = state.subscription.clone() {
-            Ok(subscription)
-        } else {
-            state.subscription = Some(opened.clone());
-            Ok(opened)
         }
     }
 }

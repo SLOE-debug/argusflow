@@ -39,8 +39,8 @@ class PaddleModelPoolTests(unittest.TestCase):
     def test_explicit_model_pair_does_not_duplicate_pipeline_by_language(self) -> None:
         pool = PaddleModelPool()
 
-        chinese = pool.pipeline("pp_ocr_v6_tiny", {"language": "ch"})
-        english = pool.pipeline("pp_ocr_v6_tiny", {"language": "en"})
+        chinese = pool.pipeline("pp_ocr_v6_small", {"language": "ch"})
+        english = pool.pipeline("pp_ocr_v6_small", {"language": "en"})
 
         self.assertIs(chinese, english)
         self.assertEqual(len(FakePaddleOcr.created), 1)

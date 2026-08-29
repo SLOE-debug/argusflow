@@ -234,7 +234,7 @@ pub struct StaticOcrEngine {
 }
 
 impl StaticOcrEngine {
-    /// 创建一个已就绪的 static tiny worker。
+    /// 创建一个已就绪的静态测试 worker。
     pub fn new(responses: impl IntoIterator<Item = OcrResponse>) -> Self {
         Self {
             health: WorkerHealth {

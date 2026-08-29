@@ -5,5 +5,5 @@ mod result;
 pub use result::{
     OcrDiagnosticImageEncoding, OcrEngine, OcrImagePreprocessing, OcrItem, OcrModel,
     OcrModelInputArtifact, OcrOptions, OcrPreprocessingSummary, OcrProfile, OcrRequest,
-    OcrRequestId, OcrResponse, OcrSource, OcrTimingSummary, PolygonPoint, normalize_text,
+    OcrRequestId, OcrResponse, OcrTimingSummary, PolygonPoint, normalize_text,
 };

@@ -11,16 +11,8 @@ use crate::WindowContext;
 /// 视觉目标物化链中的单个观察阶段。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VisualMaterializationStage {
-    /// 只读取当前作用域仍然有效的场景缓存。
-    Cache,
-    /// 请求低延迟 OCR 刷新。
-    OcrTiny,
-    /// 请求桌面 GUI 默认的平衡型 OCR 刷新。
+    /// 调用内部执行缓存、Small 和 Medium 升级的单一视觉引擎。
     OcrSmall,
-    /// 请求高精度 OCR 刷新。
-    OcrMedium,
-    /// 请求 GUI grounding 刷新；当前由具体宿主决定是否装配。
-    GuiGrounding,
 }
 
 /// 由 Planner 冻结的视觉目标物化顺序。
@@ -44,23 +36,7 @@ impl VisualMaterializationPlan {
         policy: &BackendPolicy,
         available_stages: &[VisualMaterializationStage],
     ) -> Option<Self> {
-        let mut candidates = vec![
-            VisualMaterializationStage::Cache,
-            VisualMaterializationStage::OcrSmall,
-            VisualMaterializationStage::OcrMedium,
-            VisualMaterializationStage::GuiGrounding,
-        ];
-        // Tiny 是显式低延迟档；默认桌面链从 Small 开始，避免为同一目标先做一次
-        // 精度明显较低的 OCR。用户强制/偏好 Tiny，或排除其它 OCR 档时仍完整支持。
-        let tiny_requested = policy.allow.contains(&BackendKind::OcrTiny)
-            || policy.prefer.contains(&BackendKind::OcrTiny)
-            || (policy.allows(BackendKind::OcrTiny)
-                && !policy.allows(BackendKind::OcrSmall)
-                && !policy.allows(BackendKind::OcrMedium));
-        if tiny_requested {
-            candidates.push(VisualMaterializationStage::OcrTiny);
-        }
-        let mut stages = candidates
+        let mut stages = [VisualMaterializationStage::OcrSmall]
             .into_iter()
             .filter(|stage| available_stages.contains(stage) && policy.allows(stage.backend_kind()))
             .collect::<Vec<_>>();
@@ -78,22 +54,14 @@ impl VisualMaterializationStage {
     /// 返回该物化阶段对应的可配置后端类型。
     pub const fn backend_kind(self) -> BackendKind {
         match self {
-            Self::Cache => BackendKind::VisualCache,
-            Self::OcrTiny => BackendKind::OcrTiny,
             Self::OcrSmall => BackendKind::OcrSmall,
-            Self::OcrMedium => BackendKind::OcrMedium,
-            Self::GuiGrounding => BackendKind::GuiGrounding,
         }
     }
 
     /// 返回未配置用户偏好时使用的稳定阶段顺序。
     const fn stable_rank(self) -> u8 {
         match self {
-            Self::Cache => 0,
-            Self::OcrSmall => 1,
-            Self::OcrTiny => 2,
-            Self::OcrMedium => 3,
-            Self::GuiGrounding => 4,
+            Self::OcrSmall => 0,
         }
     }
 }
@@ -104,41 +72,16 @@ mod tests {
 
     /// 返回包含全部视觉能力的宿主阶段集合。
     fn available_stages() -> Vec<VisualMaterializationStage> {
-        vec![
-            VisualMaterializationStage::Cache,
-            VisualMaterializationStage::OcrTiny,
-            VisualMaterializationStage::OcrSmall,
-            VisualMaterializationStage::OcrMedium,
-            VisualMaterializationStage::GuiGrounding,
-        ]
+        vec![VisualMaterializationStage::OcrSmall]
     }
 
     #[test]
-    fn automatic_desktop_plan_starts_with_small_instead_of_repeating_tiny_work() {
+    fn automatic_desktop_plan_uses_the_single_visual_backend() {
         let plan =
             VisualMaterializationPlan::from_policy(&BackendPolicy::default(), &available_stages())
                 .expect("default visual plan should be non-empty");
 
-        assert_eq!(
-            plan.stages,
-            vec![
-                VisualMaterializationStage::Cache,
-                VisualMaterializationStage::OcrSmall,
-                VisualMaterializationStage::OcrMedium,
-                VisualMaterializationStage::GuiGrounding,
-            ]
-        );
-    }
-
-    #[test]
-    fn explicit_tiny_policy_keeps_the_low_latency_tier() {
-        let plan = VisualMaterializationPlan::from_policy(
-            &BackendPolicy::only(BackendKind::OcrTiny),
-            &available_stages(),
-        )
-        .expect("explicit tiny plan should be non-empty");
-
-        assert_eq!(plan.stages, vec![VisualMaterializationStage::OcrTiny]);
+        assert_eq!(plan.stages, vec![VisualMaterializationStage::OcrSmall]);
     }
 }
 
@@ -186,7 +129,7 @@ pub trait PreparedTargetMaterializer: Send + Sync {
     /// 返回当前宿主真正能够执行的观察阶段。
     fn available_stages(&self) -> Vec<VisualMaterializationStage>;
 
-    /// 按冻结顺序尝试缓存、OCR 或 grounding，并返回绑定当前窗口的目标事实。
+    /// 调用单一视觉引擎，并返回绑定实际命中窗口实例的目标事实。
     async fn materialize(
         &self,
         window: &WindowContext,

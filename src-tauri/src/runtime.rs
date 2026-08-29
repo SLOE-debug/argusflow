@@ -2,18 +2,15 @@
 
 use std::{sync::Arc, time::Duration};
 
-use argusflow_agent::{
-    ActionBackend, ActionRouter, EvidenceCapturePolicy, EvidenceSettings, FileSystemEvidenceSink,
-};
+use argusflow_agent::{ActionBackend, ActionRouter};
 use argusflow_browser::{CdpBackend, CdpRuntime};
-use argusflow_core::BackendKind;
 use argusflow_runtime::{FileRunTraceStore, RunTraceLevel, WorkflowEngine};
 use argusflow_vision::{
     NamedPipeOcrEngine, OcrEngine, UnavailableOcrEngine, VisionBackend, VisionError, VisionRuntime,
     VisionWorkerClient,
 };
 use argusflow_windows::{
-    capture::WindowsCaptureHost,
+    capture::{WindowsCaptureHost, WindowsWindowRegistry},
     context::WindowsExecutionContextProvider,
     input::{SendInputBackend, WindowsVisualTargetMaterializer},
     uia::{UiaBackend, UiaRuntime},
@@ -54,28 +51,16 @@ impl AppState {
                     run_store.clone(),
                 ))),
         );
-        let visual_materializer =
-            Arc::new(WindowsVisualTargetMaterializer::new(vision_runtime.clone()));
+        let window_registry = Arc::new(WindowsWindowRegistry);
+        let visual_materializer = Arc::new(WindowsVisualTargetMaterializer::new(
+            vision_runtime.clone(),
+            window_registry.clone(),
+        ));
         // 注册顺序不决定执行优先级；ActionRouter 会比较支持等级、成本与用户偏好。
         let backends: Vec<Arc<dyn ActionBackend>> = vec![
             Arc::new(UiaBackend::new(uia_runtime.clone())),
             Arc::new(CdpBackend::new(&cdp_runtime)),
-            Arc::new(VisionBackend::new(
-                vision_runtime.clone(),
-                BackendKind::VisualCache,
-            )),
-            Arc::new(VisionBackend::new(
-                vision_runtime.clone(),
-                BackendKind::OcrTiny,
-            )),
-            Arc::new(VisionBackend::new(
-                vision_runtime.clone(),
-                BackendKind::OcrSmall,
-            )),
-            Arc::new(VisionBackend::new(
-                vision_runtime.clone(),
-                BackendKind::OcrMedium,
-            )),
+            Arc::new(VisionBackend::new(vision_runtime.clone(), window_registry)),
             Arc::new(SendInputBackend::with_target_validator(
                 visual_materializer.clone(),
             )),
@@ -83,15 +68,7 @@ impl AppState {
         let context_provider = Arc::new(WindowsExecutionContextProvider::new(uia_runtime.health()));
         let router = Arc::new(
             ActionRouter::with_context_provider(backends, context_provider)
-                .with_target_materializer(visual_materializer.clone())
-                .with_visual_verification(visual_materializer)
-                .with_evidence(EvidenceSettings {
-                    policy: EvidenceCapturePolicy::FinalFailure,
-                    sink: Arc::new(FileSystemEvidenceSink::new(
-                        ".argusflow/runs/local/evidence",
-                    )),
-                    ..EvidenceSettings::default()
-                }),
+                .with_target_materializer(visual_materializer),
         );
 
         let engine = WorkflowEngine::with_resource_providers(
@@ -129,9 +106,7 @@ fn build_vision_worker() -> Arc<VisionWorkerClient> {
         )));
     };
 
-    let engine = Arc::new(
-        NamedPipeOcrEngine::new(pipe_name, session_token).with_model_input_diagnostics(true),
-    );
+    let engine = Arc::new(NamedPipeOcrEngine::new(pipe_name, session_token));
     let health_probe = engine.clone();
     tauri::async_runtime::spawn(async move {
         loop {

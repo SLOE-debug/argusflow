@@ -310,16 +310,8 @@ pub enum BackendKind {
     WindowsUia,
     /// 基于浏览器调试协议的后端。
     BrowserCdp,
-    /// 视觉缓存匹配后端。
-    VisualCache,
-    /// 轻量 OCR 后端。
-    OcrTiny,
     /// 桌面 GUI 默认使用的平衡型 OCR 后端。
     OcrSmall,
-    /// 中等精度 OCR 后端。
-    OcrMedium,
-    /// 基于 GUI grounding 的后端。
-    GuiGrounding,
     /// Windows SendInput 输入后端。
     SendInput,
 }

@@ -3,4 +3,3 @@
 mod ocr_input;
 
 pub use ocr_input::encode_bgra_as_bmp;
-pub(crate) use ocr_input::persist_scene_timeout;
