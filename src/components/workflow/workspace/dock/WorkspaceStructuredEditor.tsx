@@ -41,10 +41,10 @@ export function WorkspaceStructuredEditor({
 
   switch (target.type) {
     case 'aql': {
-      if (node.data.kind !== 'ui' || node.data.operation.target.locator.type !== 'query') {
+      const operation = node.data.kind === 'ui' ? node.data.operation : null;
+      if (!operation || operation.target.locator.type !== 'query') {
         return <UnavailableEditor message="此节点已改用其他查找方式，请关闭此编辑器。" />;
       }
-      const operation = node.data.operation;
       const locator = operation.target.locator;
       return (
         <AqlEditor

@@ -116,7 +116,7 @@ export function WorkspaceDockPanel({
     />
   );
   const editorNode = editorTarget
-    ? nodes.find((node) => node.id === editorTarget.nodeId)
+    ? (nodes.find((node) => node.id === editorTarget.nodeId) ?? null)
     : null;
 
   return (

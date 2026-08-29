@@ -81,6 +81,7 @@ export function createWechatVisualTarget(
 export function createWechatVisualExecutionPolicy(): UiExecutionPolicy {
   return {
     target_wait: { mode: 'bounded', timeout_ms: 5_000, poll_interval_ms: 300 },
+    postcondition_wait: { mode: 'bounded', timeout_ms: 5_000, poll_interval_ms: 150 },
     postcondition: null,
   };
 }
@@ -89,6 +90,7 @@ export function createWechatVisualExecutionPolicy(): UiExecutionPolicy {
 export function createWechatInputExecutionPolicy(): UiExecutionPolicy {
   return {
     target_wait: { mode: 'none', timeout_ms: 0, poll_interval_ms: 0 },
+    postcondition_wait: { mode: 'none', timeout_ms: 0, poll_interval_ms: 0 },
     postcondition: null,
   };
 }
@@ -97,6 +99,7 @@ export function createWechatInputExecutionPolicy(): UiExecutionPolicy {
 export function createWechatSendMessageExecutionPolicy(): UiExecutionPolicy {
   return {
     target_wait: { mode: 'none', timeout_ms: 0, poll_interval_ms: 0 },
+    postcondition_wait: { mode: 'bounded', timeout_ms: 5_000, poll_interval_ms: 150 },
     postcondition: {
       type: 'new_text',
       query: {

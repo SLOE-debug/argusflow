@@ -370,7 +370,7 @@ mod tests {
         assert!(script.contains("join('\\r\\n') + '\\r\\n'"));
         assert!(script.contains("element.closest('a[href]')"));
         assert!(script.contains("outputs: { links, text }"));
-        assert!(script.contains(r#"\"type\":\"css\""#));
+        assert!(script.contains(r#""type":"css""#));
         assert!(!script.contains("__ARGUS_PLAN__"));
     }
 
@@ -401,9 +401,9 @@ mod tests {
         )
         .expect("extract script should compile");
 
-        assert!(script.contains(r#"\"type\":\"extract\""#));
-        assert!(script.contains(r#"\"cardinality\":\"many\""#));
-        assert!(script.contains(r#"\"name\":\"href\""#));
+        assert!(script.contains(r#""type":"extract""#));
+        assert!(script.contains(r#""cardinality":"many""#));
+        assert!(script.contains(r#""name":"href""#));
         assert!(script.contains("outputs: { items }"));
     }
 
@@ -425,7 +425,7 @@ mod tests {
         let script = build_page_action_script(&expression, &action)
             .expect("semantic matcher should serialize");
 
-        assert!(script.contains(r#"\"source\":\"dom\""#));
+        assert!(script.contains(r#""source":"dom""#));
         assert!(script.contains("unsupported CDP candidate source"));
     }
 }

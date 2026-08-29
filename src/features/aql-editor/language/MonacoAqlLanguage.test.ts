@@ -6,7 +6,11 @@ import {
   AQL_LANGUAGE_ID,
   registerAqlMonacoLanguage,
 } from './MonacoAqlLanguage';
-import type { AqlLanguageService } from './types';
+import type {
+  AqlLanguageService,
+  CompletionItem,
+  LanguageDocument,
+} from './types';
 
 describe('MonacoAqlLanguage', () => {
   it('maps the Rust/WASM document protocol to Monaco providers', () => {
@@ -70,7 +74,7 @@ describe('MonacoAqlLanguage', () => {
       },
     } as unknown as MonacoApi;
     const service: AqlLanguageService = {
-      inspect: vi.fn(() => ({
+      inspect: vi.fn((): LanguageDocument => ({
         parsed: {
           diagnostics: [{
             code: 'unknown_role',
@@ -94,7 +98,7 @@ describe('MonacoAqlLanguage', () => {
         formatted_source: 'button()',
         canonical_source: null,
       })),
-      completions: vi.fn(() => [{
+      completions: vi.fn((): readonly CompletionItem[] => [{
         label: 'button',
         replacement_range: {
           start: { line: 0, utf16_column: 0 },

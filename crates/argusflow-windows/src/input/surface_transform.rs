@@ -8,10 +8,12 @@ use windows::Win32::Foundation::RECT;
 /// 将 capture viewport 与 HWND 屏幕矩形绑定的纯物理坐标变换。
 #[derive(Debug, Clone, Copy)]
 pub(super) struct SurfaceTransform {
-    /// 当前窗口在 virtual screen 中的物理矩形。
-    window_bounds: PhysicalRect,
     /// WGC frame 中的局部物理 viewport。
     frame_viewport: PhysicalRect,
+    /// frame viewport 左上角对应的 virtual-screen 物理坐标。
+    viewport_origin: ScreenPoint,
+    /// 当前捕获 viewport 在 virtual screen 中的安全输入范围。
+    capture_screen_bounds: PhysicalRect,
 }
 
 /// 物化后的矩形和可直接注入的安全中心点。
@@ -21,24 +23,51 @@ pub(super) struct MappedSurfaceTarget {
     pub(super) bounds: VisualTargetBounds,
     /// 位于窗口内的安全点击点。
     pub(super) safe_point: ScreenPoint,
+    /// 当前捕获 surface 在 virtual screen 中的输入范围。
+    pub(super) surface_bounds: VisualTargetBounds,
 }
 
 impl SurfaceTransform {
     /// 创建使用已经归一化为物理像素的窗口和 frame 变换。
+    #[cfg(test)]
     pub(super) fn new(
         window_bounds: RECT,
         frame_viewport: PhysicalRect,
     ) -> Result<Self, AutomationError> {
-        let width =
-            u32::try_from(i64::from(window_bounds.right) - i64::from(window_bounds.left))
-                .map_err(|_| invalid_mapping("target window has an invalid horizontal extent"))?;
-        let height = u32::try_from(i64::from(window_bounds.bottom) - i64::from(window_bounds.top))
-            .map_err(|_| invalid_mapping("target window has an invalid vertical extent"))?;
-        let window_bounds = PhysicalRect::new(window_bounds.left, window_bounds.top, width, height)
-            .ok_or_else(|| invalid_mapping("target window has an empty physical rectangle"))?;
-        Ok(Self {
-            window_bounds,
+        let window_bounds = physical_rect(window_bounds)?;
+        Self::new_with_origin(
+            RECT {
+                left: window_bounds.x,
+                top: window_bounds.y,
+                right: window_bounds.right() as i32,
+                bottom: window_bounds.bottom() as i32,
+            },
             frame_viewport,
+            ScreenPoint {
+                x: window_bounds.x,
+                y: window_bounds.y,
+            },
+        )
+    }
+
+    /// 创建可处理 popup 合成帧的坐标变换；`viewport_origin` 是 frame viewport 的屏幕锚点。
+    pub(super) fn new_with_origin(
+        window_bounds: RECT,
+        frame_viewport: PhysicalRect,
+        viewport_origin: ScreenPoint,
+    ) -> Result<Self, AutomationError> {
+        let _ = physical_rect(window_bounds)?;
+        let capture_screen_bounds = PhysicalRect::new(
+            viewport_origin.x,
+            viewport_origin.y,
+            frame_viewport.width,
+            frame_viewport.height,
+        )
+        .ok_or_else(|| invalid_mapping("capture viewport has an empty physical rectangle"))?;
+        Ok(Self {
+            frame_viewport,
+            viewport_origin,
+            capture_screen_bounds,
         })
     }
 
@@ -52,9 +81,9 @@ impl SurfaceTransform {
                 "visual bbox is outside the capture viewport",
             ));
         }
-        let x = i64::from(self.window_bounds.x) + i64::from(frame_rect.x)
+        let x = i64::from(self.viewport_origin.x) + i64::from(frame_rect.x)
             - i64::from(self.frame_viewport.x);
-        let y = i64::from(self.window_bounds.y) + i64::from(frame_rect.y)
+        let y = i64::from(self.viewport_origin.y) + i64::from(frame_rect.y)
             - i64::from(self.frame_viewport.y);
         let right = x + i64::from(frame_rect.width);
         let bottom = y + i64::from(frame_rect.height);
@@ -64,10 +93,10 @@ impl SurfaceTransform {
             || y < i64::from(i32::MIN)
             || right > i64::from(i32::MAX)
             || bottom > i64::from(i32::MAX)
-            || center_x < i64::from(self.window_bounds.x)
-            || center_y < i64::from(self.window_bounds.y)
-            || center_x >= self.window_bounds.right()
-            || center_y >= self.window_bounds.bottom()
+            || center_x < i64::from(self.capture_screen_bounds.x)
+            || center_y < i64::from(self.capture_screen_bounds.y)
+            || center_x >= self.capture_screen_bounds.right()
+            || center_y >= self.capture_screen_bounds.bottom()
         {
             return Err(invalid_mapping(
                 "visual target could not be mapped inside the target window",
@@ -84,8 +113,24 @@ impl SurfaceTransform {
                 x: center_x as i32,
                 y: center_y as i32,
             },
+            surface_bounds: VisualTargetBounds {
+                x: self.capture_screen_bounds.x,
+                y: self.capture_screen_bounds.y,
+                width: self.capture_screen_bounds.width,
+                height: self.capture_screen_bounds.height,
+            },
         })
     }
+}
+
+/// 将 Win32 RECT 转为领域层物理矩形并校验非空范围。
+fn physical_rect(bounds: RECT) -> Result<PhysicalRect, AutomationError> {
+    let width = u32::try_from(i64::from(bounds.right) - i64::from(bounds.left))
+        .map_err(|_| invalid_mapping("target window has an invalid horizontal extent"))?;
+    let height = u32::try_from(i64::from(bounds.bottom) - i64::from(bounds.top))
+        .map_err(|_| invalid_mapping("target window has an invalid vertical extent"))?;
+    PhysicalRect::new(bounds.left, bounds.top, width, height)
+        .ok_or_else(|| invalid_mapping("target window has an empty physical rectangle"))
 }
 
 /// 统一坐标契约错误，避免把映射边界问题误报为 OCR 或 SendInput 注入错误。

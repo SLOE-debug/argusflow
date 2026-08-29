@@ -99,6 +99,11 @@ describe('workflow model', () => {
             timeout_ms: 5_000,
             poll_interval_ms: 100,
           },
+          postcondition_wait: {
+            mode: 'bounded',
+            timeout_ms: 5_000,
+            poll_interval_ms: 150,
+          },
           postcondition: null,
         },
       },
@@ -128,8 +133,8 @@ describe('workflow model', () => {
     });
     expect(workflow.nodes.some((node) => node.type_id === 'argus.condition')).toBe(false);
     expect(workflow.nodes.filter((node) => node.type_id === 'argus.delay')).toHaveLength(0);
-    expect(workflow.nodes.filter((node) => node.type_id === 'argus.ui')).toHaveLength(10);
-    expect(workflow.edges).toHaveLength(12);
+    expect(workflow.nodes.filter((node) => node.type_id === 'argus.ui')).toHaveLength(9);
+    expect(workflow.edges).toHaveLength(11);
     expect(workflow.edges.every((edge) => edge.branch === null)).toBe(true);
     expect(workflow.nodes).toContainEqual(expect.objectContaining({
       id: 'wechat_application_1',
@@ -174,6 +179,7 @@ describe('workflow model', () => {
             timeout_ms: 0,
             poll_interval_ms: 0,
           },
+          postcondition_wait: { mode: 'none', timeout_ms: 0, poll_interval_ms: 0 },
           postcondition: null,
         },
       },
@@ -196,10 +202,10 @@ describe('workflow model', () => {
     expect(workflow.nodes).toContainEqual(expect.objectContaining({
       id: 'wechat_click_group_1',
       type_id: 'argus.ui',
-      payload: {
-        operation: {
+      payload: expect.objectContaining({
+        operation: expect.objectContaining({
           type: 'click',
-          target: {
+          target: expect.objectContaining({
             locator: {
               type: 'visual',
               query: {
@@ -217,19 +223,9 @@ describe('workflow model', () => {
                 },
               },
             },
-          },
-        },
-      },
-    }));
-    expect(workflow.nodes).toContainEqual(expect.objectContaining({
-      id: 'wechat_verify_message_1',
-      type_id: 'argus.ui',
-      payload: {
-        operation: {
-          type: 'get_text',
-          target: { locator: { type: 'visual' } },
-        },
-      },
+          }),
+        }),
+      }),
     }));
     expect(workflow.nodes).toContainEqual(expect.objectContaining({
       id: 'wechat_type_message_1',
@@ -259,6 +255,18 @@ describe('workflow model', () => {
         }),
         execution: expect.any(Object),
       },
+    }));
+    expect(workflow.nodes).toContainEqual(expect.objectContaining({
+      id: 'wechat_send_message_1',
+      payload: expect.objectContaining({
+        execution: expect.objectContaining({
+          postcondition_wait: {
+            mode: 'bounded',
+            timeout_ms: 5_000,
+            poll_interval_ms: 150,
+          },
+        }),
+      }),
     }));
   });
 

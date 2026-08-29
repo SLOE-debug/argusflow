@@ -1,14 +1,16 @@
 import type {
-  ApplicationSpec,
   JsonObject,
-  JsonValue,
-  UiExecutionPolicy,
-  UiOperation,
   ValueExpr,
   WorkflowInputDefinition,
   WorkflowPermissions,
 } from './contracts';
 import type { NormalizedRect } from './visual';
+import {
+  asObject,
+  asApplicationSpec,
+  asUiExecutionPolicy,
+  rewriteCanonicalOperationReferences,
+} from './canonicalPayload';
 import {
   WORKFLOW_NODE_SIZES,
   type WorkflowCanvasEdge,
@@ -19,10 +21,7 @@ import {
   WECHAT_MESSAGE_REGION,
   WECHAT_SEARCH_RESULTS_REGION,
 } from './wechatTemplateParts';
-import {
-  createWechatMessageDefinition,
-  WECHAT_MESSAGE_COMPONENT_ID,
-} from '../components/builtin/wechatMessage';
+import { createWechatMessageDefinition } from '../components/builtin/wechatMessage';
 
 /** 获取或启动微信并提供稳定 AppSession 的节点。 */
 export const WECHAT_APPLICATION_NODE_ID = 'wechat_application_1';
@@ -62,8 +61,8 @@ export const DEFAULT_WORKFLOW_INPUTS = [
 
 /** 当前验证场景的中性预填运行输入；用户可在运行前修改。 */
 export const DEFAULT_RUN_INPUT_VALUES = {
-  group_name: 'ArgusFlow 测试群',
-  message: 'ArgusFlow 自动化测试消息',
+  group_name: '崽崽',
+  message: '今日天气',
 } as const satisfies JsonObject;
 
 /** AttachOrStart 可能启动微信，因此只声明应用启动能力。 */
@@ -132,7 +131,10 @@ function createDefaultWechatNodes(): ReadonlyArray<WorkflowCanvasNode> {
           kind: 'ui',
           label: canvasNodeLabel(node.id),
           outputBindings,
-          operation: asUiOperation(rewriteNodeReferences(payload.operation)),
+          operation: rewriteCanonicalOperationReferences(
+            payload.operation,
+            WECHAT_APPLICATION_NODE_ID,
+          ),
           execution: asUiExecutionPolicy(payload.execution),
           runState: 'idle',
         },
@@ -155,8 +157,20 @@ function createDefaultWechatEdges(): ReadonlyArray<WorkflowCanvasEdge> {
 
 /** 画布节点 ID 映射；组件内部 ID 保持独立，主画布 ID 保留现有稳定名称。 */
 function canvasNodeId(nodeId: string): string {
-  if (nodeId === 'entry') return 'start_1';
-  if (nodeId === 'exit') return 'end_1';
+  const stableIds: Readonly<Record<string, string>> = {
+    entry: 'start_1',
+    wechat_application: WECHAT_APPLICATION_NODE_ID,
+    open_search: WECHAT_OPEN_SEARCH_NODE_ID,
+    verify_search: WECHAT_VERIFY_SEARCH_NODE_ID,
+    select_search: WECHAT_SELECT_SEARCH_TEXT_NODE_ID,
+    type_group: WECHAT_TYPE_GROUP_NAME_NODE_ID,
+    click_group: WECHAT_CLICK_GROUP_NODE_ID,
+    type_message: WECHAT_TYPE_MESSAGE_NODE_ID,
+    send_message: WECHAT_SEND_MESSAGE_NODE_ID,
+    exit: 'end_1',
+  };
+  const stableId = stableIds[nodeId];
+  if (stableId) return stableId;
   return `${nodeId.startsWith('wechat_') ? nodeId : `wechat_${nodeId}`}_1`;
 }
 
@@ -167,14 +181,13 @@ function canvasPosition(nodeId: string): { x: number; y: number } {
     wechat_application: { x: 188, y: 104 },
     open_search: { x: 402, y: 104 },
     verify_search: { x: 610, y: 104 },
-    select_search: { x: 788, y: 104 },
-    type_group: { x: 1002, y: 104 },
-    find_group: { x: 1002, y: 220 },
-    click_group: { x: 788, y: 220 },
-    verify_header: { x: 610, y: 220 },
+    select_search: { x: 820, y: 104 },
+    type_group: { x: 1024, y: 104 },
+    find_group: { x: 1024, y: 220 },
+    click_group: { x: 820, y: 220 },
+    verify_header: { x: 616, y: 220 },
     type_message: { x: 402, y: 220 },
     send_message: { x: 188, y: 220 },
-    verify_message: { x: 28, y: 336 },
     exit: { x: 240, y: 336 },
   };
   return positions[nodeId] ?? { x: 28, y: 104 };
@@ -192,7 +205,6 @@ function canvasNodeLabel(nodeId: string): string {
     verify_header: '确认群聊标题',
     type_message: '输入测试消息',
     send_message: '发送消息',
-    verify_message: '确认消息已发送',
   };
   return labels[nodeId] ?? nodeId;
 }
@@ -220,8 +232,7 @@ function defaultPortFor(
     'click_group:verify_header': { id: 'edge_click_header', sourceSide: 'left', targetSide: 'right' },
     'verify_header:type_message': { id: 'edge_header_message', sourceSide: 'left', targetSide: 'right' },
     'type_message:send_message': { id: 'edge_message_send', sourceSide: 'left', targetSide: 'right' },
-    'send_message:verify_message': { id: 'edge_send_verify', sourceSide: 'bottom', targetSide: 'top' },
-    'verify_message:exit': { id: 'edge_verify_end', sourceSide: 'right', targetSide: 'left' },
+    'send_message:exit': { id: 'edge_send_end', sourceSide: 'bottom', targetSide: 'top' },
   };
   return ports[key] ?? {
     id: `edge_${source}_${target}`,
@@ -244,41 +255,6 @@ function createDefaultEdge(
     target: { nodeId: targetNodeId, side: targetSide },
     data: { branch: null },
   };
-}
-
-/** 递归改写组件实例化后资源引用，保持操作字段仍然是强类型 JSON。 */
-function rewriteNodeReferences(value: JsonValue): JsonValue {
-  if (typeof value === 'string') {
-    return value === 'wechat_application' ? WECHAT_APPLICATION_NODE_ID : value;
-  }
-  if (Array.isArray(value)) return value.map(rewriteNodeReferences);
-  if (value !== null && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.entries(value).map(([key, item]) => [key, rewriteNodeReferences(item)]),
-    );
-  }
-  return value;
-}
-
-/** 从 canonical JSON payload 建立对象边界；不把未定义 payload 传播到画布。 */
-function asObject(value: JsonValue | undefined): JsonObject {
-  if (value !== null && typeof value === 'object' && !Array.isArray(value)) return value;
-  throw new Error(`canonical WeChat payload is not an object: ${WECHAT_MESSAGE_COMPONENT_ID}`);
-}
-
-/** 将 canonical application payload 收窄到应用资源模型。 */
-function asApplicationSpec(value: JsonValue | undefined): ApplicationSpec {
-  return asObject(value) as unknown as ApplicationSpec;
-}
-
-/** 将 canonical UI payload 收窄到 UI 操作模型。 */
-function asUiOperation(value: JsonValue): UiOperation {
-  return value as unknown as UiOperation;
-}
-
-/** 将 canonical UI payload 收窄到执行策略模型。 */
-function asUiExecutionPolicy(value: JsonValue | undefined): UiExecutionPolicy {
-  return asObject(value) as unknown as UiExecutionPolicy;
 }
 
 /** canonical factory 发生未预期类型时中止初始化，避免静默生成错误工作流。 */

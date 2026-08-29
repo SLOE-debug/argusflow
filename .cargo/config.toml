@@ -1,3 +1,6 @@
 [build]
 target = "x86_64-pc-windows-msvc"
 
+[target.x86_64-pc-windows-msvc]
+# MSVC link.exe 将正常的库创建状态写入 stdout，Rust 会将其识别为 linker_messages warning。
+rustflags = ["-A", "linker_messages"]

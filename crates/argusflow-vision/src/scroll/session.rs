@@ -247,6 +247,7 @@ mod tests {
     use crate::{
         frame::{FrameId, PhysicalRect},
         scene::VisualNodeId,
+        scroll::model::{PageItem, ScrollAnchor},
     };
 
     fn page(

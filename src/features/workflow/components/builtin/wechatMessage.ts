@@ -6,7 +6,6 @@ import type {
 } from '../../model/contracts';
 import {
   WECHAT_HEADER_REGION,
-  WECHAT_MESSAGE_REGION,
   WECHAT_SEARCH_RESULTS_REGION,
   createWechatInputExecutionPolicy,
   createWechatSendMessageExecutionPolicy,
@@ -23,12 +22,11 @@ export const WECHAT_MESSAGE_COMPONENT_ID = '4d9c8f1e-3e5b-4e7a-9c4d-2a7d0b6f51c8
 /** 创建微信桌面消息组件的唯一 canonical 节点图。 */
 export function createWechatMessageDefinition(): FlowComponentDefinition {
   const applicationNodeId = 'wechat_application';
-  const verifyMessageNodeId = 'verify_message';
   const visualExecution = createWechatVisualExecutionPolicy();
   return {
     schema_version: 1,
     id: WECHAT_MESSAGE_COMPONENT_ID,
-    version: '1.0.0',
+    version: '1.1.0',
     name: '发送微信群消息',
     inputs: [
       { key: 'group_name', value_type: 'text' },
@@ -38,8 +36,8 @@ export function createWechatMessageDefinition(): FlowComponentDefinition {
       name: 'confirmed',
       value: {
         type: 'ref',
-        source: { type: 'node', node_id: verifyMessageNodeId },
-        pointer: '/text',
+        source: { type: 'node', node_id: 'send_message' },
+        pointer: '/confirmed',
       },
     }],
     nodes: [
@@ -111,16 +109,7 @@ export function createWechatMessageDefinition(): FlowComponentDefinition {
         operation: createWechatPressKeyOperation(applicationNodeId, { type: 'enter' }, []),
         execution: createWechatSendMessageExecutionPolicy(),
       }),
-      componentNode(verifyMessageNodeId, 2_380, 'argus.ui', 3, {
-        operation: createWechatVisualGetTextOperation(
-          applicationNodeId,
-          workflowInputText('message'),
-          true,
-          WECHAT_MESSAGE_REGION,
-        ),
-        execution: visualExecution,
-      }),
-      componentNode('exit', 2_600, 'argus.end', 1, {}),
+      componentNode('exit', 2_380, 'argus.end', 1, {}),
     ],
     edges: [
       componentEdge('entry', applicationNodeId),
@@ -133,8 +122,7 @@ export function createWechatMessageDefinition(): FlowComponentDefinition {
       componentEdge('click_group', 'verify_header'),
       componentEdge('verify_header', 'type_message'),
       componentEdge('type_message', 'send_message'),
-      componentEdge('send_message', verifyMessageNodeId),
-      componentEdge(verifyMessageNodeId, 'exit'),
+      componentEdge('send_message', 'exit'),
     ],
     entry_node_id: 'entry',
     exit_node_id: 'exit',

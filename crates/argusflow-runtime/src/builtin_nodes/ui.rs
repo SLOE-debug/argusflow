@@ -1,9 +1,9 @@
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 use argusflow_core::{
     ActionExecutionOptions, ActionOutputContract, ActionOutputKey, AppSession, AutomationAction,
     AutomationError, AutomationExecutionScope, BrowserSession, ExecutionEventKind,
-    ExecutionEventPayload, ExtractCardinality, NodeEnvelope, NodeTypeId, PreparedAutomationTarget,
+    ExecutionEventPayload, NodeEnvelope, NodeTypeId, OutputContractError, PreparedAutomationTarget,
     PreparedTargetLocator, PreparedVisualPostcondition, ResourceTypeId, TargetLocator, TargetScope,
     TargetWaitPolicy, UiExecutionPolicy, UiOperation, UiPostcondition, VisualQuery,
     WorkflowPermissions,
@@ -187,6 +187,9 @@ impl PreparedNode for UiNode {
     }
 
     fn value_output(&self, name: &str) -> Option<ValueTypeId> {
+        if name == "confirmed" && self.execution.postcondition.is_some() {
+            return Some(ValueTypeId::json());
+        }
         match (self.operation.output_contract(), name) {
             (ActionOutputContract::Text, key) if key == ActionOutputKey::Text.as_str() => {
                 Some(ValueTypeId::text())
@@ -272,16 +275,17 @@ impl PreparedNode for UiNode {
                 scope,
                 ActionExecutionOptions {
                     target_wait: self.execution.target_wait,
+                    postcondition_wait: self.execution.postcondition_wait,
                     prepared_target: Some(prepared_target),
                     postcondition,
                 },
             )
             .await?;
-        if let Err(error) = self
-            .operation
-            .output_contract()
-            .validate(&action_outcome.outputs)
-        {
+        if let Err(error) = validate_action_outputs(
+            &self.operation,
+            self.execution.postcondition.is_some(),
+            &action_outcome.outputs,
+        ) {
             return Err(RuntimeError::Automation(AutomationError::BackendFailed {
                 backend: action_outcome.backend,
                 message: format!(
@@ -329,8 +333,37 @@ fn legacy_execution_policy(locator: TargetLocator) -> UiExecutionPolicy {
     };
     UiExecutionPolicy {
         target_wait,
+        postcondition_wait: TargetWaitPolicy::default(),
         postcondition: None,
     }
+}
+
+/// 校验普通动作输出，或校验已由视觉后置条件确认的输入动作输出。
+fn validate_action_outputs(
+    operation: &UiOperation,
+    has_postcondition: bool,
+    outputs: &BTreeMap<String, serde_json::Value>,
+) -> Result<(), OutputContractError> {
+    if !has_postcondition {
+        return operation.output_contract().validate(outputs);
+    }
+    let mut expected = operation
+        .output_contract()
+        .keys()
+        .iter()
+        .map(|key| key.as_str().to_owned())
+        .collect::<Vec<_>>();
+    expected.push("confirmed".to_owned());
+    expected.sort();
+    let actual = outputs.keys().cloned().collect::<Vec<_>>();
+    if actual == expected
+        && outputs
+            .get("confirmed")
+            .is_some_and(serde_json::Value::is_boolean)
+    {
+        return Ok(());
+    }
+    Err(OutputContractError { expected, actual })
 }
 
 /// 解析一次 UI 动作的视觉文字表达式，并把结果冻结为运行时定位契约。

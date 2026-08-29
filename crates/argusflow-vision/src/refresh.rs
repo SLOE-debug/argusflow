@@ -146,9 +146,9 @@ fn intersect(left: PhysicalRect, right: PhysicalRect) -> Option<PhysicalRect> {
 
 /// 以合并前区域面积估算 OCR 覆盖率；重叠区域不会重复计入。
 fn coverage_ratio(regions: &[PhysicalRect], viewport: PhysicalRect) -> f32 {
-    let mut merged = Vec::new();
+    let mut merged: Vec<PhysicalRect> = Vec::new();
     for region in regions {
-        let mut pending = *region;
+        let pending = *region;
         let mut merged_any = false;
         for existing in &mut merged {
             if existing.touches(pending) {

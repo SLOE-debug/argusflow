@@ -219,9 +219,12 @@ export const WORKFLOW_NODE_DEFINITIONS = {
           ];
         case 'click':
         case 'set_value':
+          return [];
         case 'press_key':
         case 'type_text':
-          return [];
+          return data.execution.postcondition === null
+            ? []
+            : [{ name: 'confirmed', valueType: 'json', label: '已确认' }];
       }
     },
   }),

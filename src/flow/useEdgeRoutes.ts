@@ -134,6 +134,8 @@ function sameRoutingInteraction(
   current: RoutingInteraction,
 ): boolean {
   if (!previous || previous.kind !== current.kind) return false;
-  return previous.kind === 'idle'
-    || previous.interactionId === current.interactionId;
+  if (previous.kind === 'idle') return true;
+  return previous.kind === 'node-drag'
+    && current.kind === 'node-drag'
+    && previous.interactionId === current.interactionId;
 }

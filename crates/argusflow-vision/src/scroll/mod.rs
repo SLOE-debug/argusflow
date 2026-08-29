@@ -1,5 +1,9 @@
 //! 以视觉事实驱动的安全滚动会话。
 
+// 滚动闭环的领域模型已经独立完成，但当前执行链只需要把强类型 wheel
+// 步数交给 Windows 输入层；其余实现待 runtime 滚动编排接入后再进入生产调用图。
+#![allow(dead_code)]
+
 mod controller;
 mod displacement;
 mod end;
@@ -7,15 +11,4 @@ mod history;
 mod model;
 mod session;
 
-pub use controller::{ScrollController, ScrollControllerConfig, ScrollControllerOutcome};
-pub use displacement::{
-    DisplacementConfig, DisplacementEstimate, DisplacementMethod, estimate_displacement,
-    estimate_displacement_with_config,
-};
-pub use end::{ScrollEndConfig, ScrollEndDetector};
-pub use history::{HistoryAppend, ScrollDocumentHistory};
-pub use model::{
-    AnchorMatchEvidence, PageItem, PageSnapshot, ScrollAnchor, ScrollCalibration, ScrollDirection,
-    ScrollRegion, WheelSteps, match_anchors,
-};
-pub use session::{AcceptedPage, PageTransition, ScrollSession};
+pub use model::WheelSteps;

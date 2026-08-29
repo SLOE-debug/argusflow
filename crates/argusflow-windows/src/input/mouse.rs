@@ -2,7 +2,7 @@
 
 use std::mem::size_of;
 
-use argusflow_agent::WindowContext;
+use argusflow_agent::{VisualTargetBounds, WindowContext};
 use argusflow_core::ScreenPoint;
 use argusflow_vision::WheelSteps;
 use thiserror::Error;
@@ -51,9 +51,22 @@ pub(super) fn inject_click(
     window: &WindowContext,
     point: ScreenPoint,
 ) -> Result<(), MouseInputError> {
+    inject_click_with_surface(window, point, None)
+}
+
+/// 对 primary 或合成 popup surface 执行一次经过边界复验的左键点击。
+pub(super) fn inject_click_with_surface(
+    window: &WindowContext,
+    point: ScreenPoint,
+    surface_bounds: Option<VisualTargetBounds>,
+) -> Result<(), MouseInputError> {
     ensure_foreground_window(window)
         .map_err(|error| MouseInputError::WindowValidation(error.to_string()))?;
-    ensure_point_in_window(window, point)?;
+    if let Some(surface_bounds) = surface_bounds {
+        ensure_point_in_surface(surface_bounds, point)?;
+    } else {
+        ensure_point_in_window(window, point)?;
+    }
     let move_input = absolute_move(point)?;
     let inputs = [
         move_input,
@@ -97,6 +110,23 @@ fn ensure_point_in_window(
         || point.y < bounds.top
         || point.x >= bounds.right
         || point.y >= bounds.bottom
+    {
+        return Err(MouseInputError::PointOutsideWindow);
+    }
+    Ok(())
+}
+
+/// 确认点位仍属于当前合成 capture surface 的范围；该范围可包含 owned popup。
+fn ensure_point_in_surface(
+    bounds: VisualTargetBounds,
+    point: ScreenPoint,
+) -> Result<(), MouseInputError> {
+    let right = i64::from(bounds.x) + i64::from(bounds.width);
+    let bottom = i64::from(bounds.y) + i64::from(bounds.height);
+    if i64::from(point.x) < i64::from(bounds.x)
+        || i64::from(point.y) < i64::from(bounds.y)
+        || i64::from(point.x) >= right
+        || i64::from(point.y) >= bottom
     {
         return Err(MouseInputError::PointOutsideWindow);
     }

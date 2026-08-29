@@ -37,6 +37,12 @@ pub enum AutomationError {
         /// UI 节点配置的共享总等待预算。
         timeout_ms: u64,
     },
+    /// 视觉目标在物理输入提交前已经不再对应最初观察到的画面。
+    #[error("visual target became stale before input commit: {message}")]
+    VisualTargetStale {
+        /// 目标、窗口或拓扑复验失败的安全摘要。
+        message: String,
+    },
     /// 查询返回多个元素且没有使用 first/nth 明确选择。
     #[error("query matched {matches} targets and requires an explicit selection: {query}")]
     AmbiguousTarget {

@@ -85,11 +85,7 @@ impl NamedPipeOcrEngine {
 
     /// 记录连接级故障并让 Planner 明确看到 worker 已不可用。
     fn mark_failed(&self, message: impl Into<String>) {
-        let mut health = self
-            .health
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        *health = WorkerHealth::failed(message);
+        mark_health_failed(&self.health, message);
     }
 
     /// 通过一条连接完成完整 framed request/response 交换。
@@ -110,7 +106,14 @@ impl NamedPipeOcrEngine {
                 })?;
             *connection = Some(client);
         }
-        let client = connection
+        let mut lease = ConnectionLease {
+            connection: &mut *connection,
+            health: &self.health,
+            keep_connection: false,
+            failure_marked: false,
+        };
+        let client = lease
+            .connection
             .as_mut()
             .ok_or_else(|| VisionError::WorkerUnavailable {
                 message: "vision worker pipe connection was not installed".to_owned(),
@@ -123,43 +126,38 @@ impl NamedPipeOcrEngine {
             match tokio::time::timeout(timeout, exchange).await {
                 Ok(Ok(response)) => response,
                 Ok(Err(error)) => {
-                    *connection = None;
-                    self.mark_failed(error.to_string());
+                    lease.fail(error.to_string());
                     return Err(error);
                 }
                 Err(_) => {
-                    *connection = None;
                     let error = VisionError::FrameTimeout {
                         timeout_ms: timeout.as_millis() as u64,
                     };
-                    self.mark_failed(error.to_string());
+                    lease.fail(error.to_string());
                     return Err(error);
                 }
             };
         if response.protocol_version != VISION_PROTOCOL_VERSION
             || response.session_token != self.session_token
         {
-            *connection = None;
             let error = VisionError::Protocol {
                 message: "worker protocol version or session token mismatch".to_owned(),
             };
-            self.mark_failed(error.to_string());
+            lease.fail(error.to_string());
             return Err(error);
         }
         if response.request_id != envelope.request_id {
-            *connection = None;
             let error = VisionError::Protocol {
                 message: "worker response request_id does not match the active envelope".to_owned(),
             };
-            self.mark_failed(error.to_string());
+            lease.fail(error.to_string());
             return Err(error);
         }
         if !response_body.is_empty() {
-            *connection = None;
             let error = VisionError::Protocol {
                 message: "worker response must not contain a binary body".to_owned(),
             };
-            self.mark_failed(error.to_string());
+            lease.fail(error.to_string());
             return Err(error);
         }
         if let WorkerResponse::Recognize {
@@ -170,8 +168,7 @@ impl NamedPipeOcrEngine {
         {
             // 超时后的同步 Paddle 推理进程会被 worker 主动终止；在返回 FrameTimeout 前先
             // 清除连接和 health，避免下一次 Planner 误以为旧 worker 仍可用。
-            *connection = None;
-            self.mark_failed("worker terminated after OCR deadline exceeded");
+            lease.fail("worker terminated after OCR deadline exceeded");
         }
         if let WorkerResponse::Health { ref health } = response.payload {
             let mut current = self
@@ -180,7 +177,50 @@ impl NamedPipeOcrEngine {
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             *current = health.clone();
         }
+        lease.keep_connection = !lease.failure_marked;
         Ok((response, response_body))
+    }
+}
+
+/// 在连接级失败或异步调用被取消时同步更新 worker health。
+fn mark_health_failed(health: &RwLock<WorkerHealth>, message: impl Into<String>) {
+    let mut health = health
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *health = WorkerHealth::failed(message);
+}
+
+/// 保证 `round_trip` 被外层 deadline 取消时不会留下半帧的可复用 Named Pipe 连接。
+struct ConnectionLease<'a> {
+    /// 当前被该请求独占的连接槽。
+    connection: &'a mut Option<NamedPipeClient>,
+    /// 与连接槽共享的健康状态。
+    health: &'a RwLock<WorkerHealth>,
+    /// 只有完整校验成功的响应才能保留连接。
+    keep_connection: bool,
+    /// 已显式记录失败时避免 Drop 覆盖原始错误原因。
+    failure_marked: bool,
+}
+
+impl ConnectionLease<'_> {
+    /// 清除当前连接并把失败原因发布给 Planner。
+    fn fail(&mut self, message: impl Into<String>) {
+        *self.connection = None;
+        mark_health_failed(self.health, message);
+        self.failure_marked = true;
+    }
+}
+
+impl Drop for ConnectionLease<'_> {
+    fn drop(&mut self) {
+        if self.keep_connection || self.failure_marked {
+            return;
+        }
+        *self.connection = None;
+        mark_health_failed(
+            self.health,
+            "vision worker request was cancelled before response validation",
+        );
     }
 }
 

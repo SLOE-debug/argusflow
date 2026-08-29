@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use argusflow_core::{BackendKind, ScreenPoint, VisualQuery};
+use argusflow_core::{BackendKind, BackendPolicy, ScreenPoint, TargetWaitPolicy, VisualQuery};
 use async_trait::async_trait;
 use uuid::Uuid;
 
@@ -35,21 +35,49 @@ impl VisualMaterializationPlan {
         Some(Self { stages })
     }
 
-    /// 返回 SendInput 当前使用的缓存到 OCR 的稳定链。
-    pub fn for_input() -> Self {
-        Self {
-            stages: vec![
-                VisualMaterializationStage::Cache,
-                VisualMaterializationStage::OcrTiny,
-                VisualMaterializationStage::OcrMedium,
-            ],
-        }
+    /// 按用户后端策略和宿主当前可用性生成视觉物化链。
+    pub fn from_policy(
+        policy: &BackendPolicy,
+        available_stages: &[VisualMaterializationStage],
+    ) -> Option<Self> {
+        let mut stages = [
+            VisualMaterializationStage::Cache,
+            VisualMaterializationStage::OcrTiny,
+            VisualMaterializationStage::OcrMedium,
+            VisualMaterializationStage::GuiGrounding,
+        ]
+        .into_iter()
+        .filter(|stage| available_stages.contains(stage) && policy.allows(stage.backend_kind()))
+        .collect::<Vec<_>>();
+        stages.sort_by_key(|stage| {
+            (
+                policy.preference_rank(stage.backend_kind()),
+                stage.stable_rank(),
+            )
+        });
+        Self::new(stages)
     }
 }
 
-impl Default for VisualMaterializationPlan {
-    fn default() -> Self {
-        Self::for_input()
+impl VisualMaterializationStage {
+    /// 返回该物化阶段对应的可配置后端类型。
+    pub const fn backend_kind(self) -> BackendKind {
+        match self {
+            Self::Cache => BackendKind::VisualCache,
+            Self::OcrTiny => BackendKind::OcrTiny,
+            Self::OcrMedium => BackendKind::OcrMedium,
+            Self::GuiGrounding => BackendKind::GuiGrounding,
+        }
+    }
+
+    /// 返回未配置用户偏好时使用的稳定阶段顺序。
+    const fn stable_rank(self) -> u8 {
+        match self {
+            Self::Cache => 0,
+            Self::OcrTiny => 1,
+            Self::OcrMedium => 2,
+            Self::GuiGrounding => 3,
+        }
     }
 }
 
@@ -66,6 +94,8 @@ pub struct MaterializedTarget {
     pub topology_generation: u64,
     /// 目标在虚拟屏幕物理坐标中的 bbox。
     pub bounds: VisualTargetBounds,
+    /// 该目标所属 capture surface 在虚拟屏幕中的输入范围。
+    pub surface_bounds: VisualTargetBounds,
     /// OCR 或视觉节点提供的置信度。
     pub confidence: f32,
     /// 经边界校验、适合实际点击的安全点。
@@ -90,6 +120,9 @@ pub struct VisualTargetBounds {
 /// 由 Planner 统一调用的视觉目标物化窄接口。
 #[async_trait]
 pub trait PreparedTargetMaterializer: Send + Sync {
+    /// 返回当前宿主真正能够执行的观察阶段。
+    fn available_stages(&self) -> Vec<VisualMaterializationStage>;
+
     /// 按冻结顺序尝试缓存、OCR 或 grounding，并返回绑定当前窗口的目标事实。
     async fn materialize(
         &self,
@@ -97,6 +130,16 @@ pub trait PreparedTargetMaterializer: Send + Sync {
         query: &VisualQuery,
         plan: &VisualMaterializationPlan,
     ) -> Result<MaterializedTarget, argusflow_core::AutomationError>;
+}
+
+/// 在物理输入提交点复验视觉目标新鲜度的最小契约。
+#[async_trait]
+pub trait MaterializedTargetValidator: Send + Sync {
+    /// 确认窗口、scene、frame、topology 和目标点仍对应同一事实。
+    async fn validate_before_input(
+        &self,
+        target: &MaterializedTarget,
+    ) -> Result<(), argusflow_core::AutomationError>;
 }
 
 /// 共享物化器的类型别名，便于后端结构保持只读依赖。
@@ -166,5 +209,6 @@ pub trait VisualVerificationProvider: Send + Sync {
         &self,
         baseline: VisualBaseline,
         query: &VisualQuery,
+        wait: TargetWaitPolicy,
     ) -> Result<VisualVerificationResult, argusflow_core::AutomationError>;
 }

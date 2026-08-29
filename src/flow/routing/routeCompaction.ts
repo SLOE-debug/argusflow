@@ -20,7 +20,7 @@ export function compactRouteCore(
   points: ReadonlyArray<FlowPoint>,
   collision: RouteCollisionContext,
 ): ReadonlyArray<FlowPoint> {
-  let current = simplifyOrthogonalPoints(points);
+  let current: ReadonlyArray<FlowPoint> = simplifyOrthogonalPoints(points);
   let compacted: ReadonlyArray<FlowPoint> | null;
   do {
     compacted = findCompactedRoute(current, collision);

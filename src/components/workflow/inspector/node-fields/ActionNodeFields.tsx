@@ -237,6 +237,66 @@ export function ActionNodeFields({
           onChange={onExecutionChange}
         />
       ) : null}
+      {execution.postcondition !== null ? (
+        <PostconditionWaitFields
+          execution={execution}
+          onChange={onExecutionChange}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/** 编辑视觉后置条件自己的观察预算，避免与动作前目标等待共享截止时间。 */
+function PostconditionWaitFields({
+  execution,
+  onChange,
+}: Readonly<{
+  execution: UiExecutionPolicy;
+  onChange: (execution: UiExecutionPolicy) => void;
+}>) {
+  const policy = execution.postcondition_wait;
+  return (
+    <div className="rounded-md border border-amber-200 bg-amber-50/60 px-2.5 py-2">
+      <InspectorField label="发送后观察超时（毫秒）">
+        <Input
+          aria-label="后置条件观察超时时间"
+          type="number"
+          min={1}
+          max={600_000}
+          value={policy.timeout_ms}
+          containerClassName="border-slate-300 bg-white"
+          onChange={(event) => onChange({
+            ...execution,
+            postcondition_wait: {
+              ...policy,
+              mode: 'bounded',
+              timeout_ms: Number(event.target.value),
+            },
+          })}
+        />
+      </InspectorField>
+      <InspectorField label="发送后检查间隔（毫秒）">
+        <Input
+          aria-label="后置条件观察轮询间隔"
+          type="number"
+          min={1}
+          max={60_000}
+          value={policy.poll_interval_ms}
+          containerClassName="border-slate-300 bg-white"
+          onChange={(event) => onChange({
+            ...execution,
+            postcondition_wait: {
+              ...policy,
+              mode: 'bounded',
+              poll_interval_ms: Number(event.target.value),
+            },
+          })}
+        />
+      </InspectorField>
+      <p className={INSPECTOR_HELP_CLASS_NAME}>
+        发送后会在此预算内重复观察，未确认时不会自动重发。
+      </p>
     </div>
   );
 }

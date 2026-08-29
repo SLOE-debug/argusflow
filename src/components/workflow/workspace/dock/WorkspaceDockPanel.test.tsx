@@ -25,6 +25,7 @@ describe('WorkspaceDockPanel', () => {
           data: {
             kind: 'ui',
             label: '保存按钮',
+            outputBindings: {},
             operation: {
               type: 'click',
               target: {
@@ -38,6 +39,7 @@ describe('WorkspaceDockPanel', () => {
             },
             execution: {
               target_wait: { mode: 'bounded', timeout_ms: 5_000, poll_interval_ms: 100 },
+              postcondition_wait: { mode: 'none', timeout_ms: 0, poll_interval_ms: 0 },
               postcondition: null,
             },
           },

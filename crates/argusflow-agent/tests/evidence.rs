@@ -287,6 +287,7 @@ async fn target_wait_captures_timeout_evidence_only_after_the_deadline() {
             AutomationExecutionScope::Current,
             ActionExecutionOptions {
                 target_wait: TargetWaitPolicy::bounded(10, 3),
+                postcondition_wait: TargetWaitPolicy::default(),
                 prepared_target: None,
                 postcondition: None,
             },

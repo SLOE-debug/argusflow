@@ -22,6 +22,8 @@ export type UiPostcondition =
 export type UiExecutionPolicy = Readonly<{
   /** 当前 operation 找不到目标时使用的共享等待预算。 */
   target_wait: TargetWaitPolicy;
+  /** 动作完成后观察视觉后置条件的独立等待预算。 */
+  postcondition_wait: TargetWaitPolicy;
   /** 高风险输入动作完成后必须满足的视觉新事实。 */
   postcondition: UiPostcondition | null;
 }>;

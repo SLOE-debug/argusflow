@@ -1,9 +1,9 @@
 import { shikiToMonaco } from '@shikijs/monaco';
 import { createHighlighterCore } from 'shiki/core';
 import { createJavaScriptRegexEngine } from 'shiki/engine/javascript';
-import batchLanguage from 'shiki/langs/bat';
-import powerShellLanguage from 'shiki/langs/powershell';
-import lightPlusTheme from 'shiki/themes/light-plus';
+import batchLanguage from 'shiki/langs/bat.mjs';
+import powerShellLanguage from 'shiki/langs/powershell.mjs';
+import lightPlusTheme from 'shiki/themes/light-plus.mjs';
 
 import type { MonacoApi } from './monacoLoader';
 
@@ -21,5 +21,6 @@ export async function registerShellSyntaxHighlighting(monaco: MonacoApi): Promis
     langs: [powerShellLanguage, batchLanguage],
     themes: [lightPlusTheme],
   });
-  shikiToMonaco(highlighter, monaco);
+  /** @shikijs/monaco 依赖 monaco-editor-core，而应用使用带完整语言包的 monaco-editor；两者运行时 API 同源。 */
+  shikiToMonaco(highlighter, monaco as Parameters<typeof shikiToMonaco>[1]);
 }

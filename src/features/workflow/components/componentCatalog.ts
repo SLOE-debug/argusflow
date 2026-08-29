@@ -45,7 +45,7 @@ export const FLOW_COMPONENT_CATALOG = [
       message: { type: 'literal', value: 'ArgusFlow 自动化测试消息' },
     },
     valueOutputs: [
-      { name: 'confirmed', valueType: 'text', label: '发送确认文本' },
+      { name: 'confirmed', valueType: 'json', label: '发送确认状态' },
     ],
   },
 ] as const satisfies ReadonlyArray<FlowComponentCatalogItem>;
@@ -123,6 +123,7 @@ function createWebLinkCollectorDefinition(): FlowComponentDefinition {
         },
         execution: {
           target_wait: { mode: 'bounded', timeout_ms: 5_000, poll_interval_ms: 100 },
+          postcondition_wait: { mode: 'none', timeout_ms: 0, poll_interval_ms: 0 },
           postcondition: null,
         },
       }),

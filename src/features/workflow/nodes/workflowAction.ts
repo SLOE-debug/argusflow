@@ -23,6 +23,11 @@ export function createDefaultUiExecutionPolicy(): UiExecutionPolicy {
       timeout_ms: 5_000,
       poll_interval_ms: 100,
     },
+    postcondition_wait: {
+      mode: 'bounded',
+      timeout_ms: 5_000,
+      poll_interval_ms: 150,
+    },
     postcondition: null,
   };
 }

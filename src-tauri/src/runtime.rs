@@ -1,6 +1,6 @@
 //! Tauri 应用共享运行时状态与自动化后端装配。
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use argusflow_agent::{
     ActionBackend, ActionRouter, EvidenceCapturePolicy, EvidenceSettings, FileSystemEvidenceSink,
@@ -59,7 +59,9 @@ impl AppState {
                 vision_runtime.clone(),
                 BackendKind::OcrMedium,
             )),
-            Arc::new(SendInputBackend::new()),
+            Arc::new(SendInputBackend::with_target_validator(
+                visual_materializer.clone(),
+            )),
         ];
         let context_provider = Arc::new(WindowsExecutionContextProvider::new(uia_runtime.health()));
         let router = Arc::new(
@@ -104,7 +106,10 @@ fn build_vision_worker() -> Arc<VisionWorkerClient> {
     let engine = Arc::new(NamedPipeOcrEngine::new(pipe_name, session_token));
     let health_probe = engine.clone();
     tauri::async_runtime::spawn(async move {
-        let _ = health_probe.refresh_health().await;
+        loop {
+            let _ = health_probe.refresh_health().await;
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
     });
     let engine: Arc<dyn OcrEngine> = engine;
     Arc::new(VisionWorkerClient::new(engine))

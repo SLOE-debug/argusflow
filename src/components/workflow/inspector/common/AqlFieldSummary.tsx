@@ -155,11 +155,12 @@ function resolvePlannerSummary(
   if (state.phase === 'unavailable') {
     return state.message;
   }
-  if (state.inspection.status !== 'valid') {
+  const inspection = state.inspection;
+  if (inspection.status !== 'valid') {
     return null;
   }
-  const selected = state.inspection.planning.candidates.find(
-    (candidate) => candidate.backend === state.inspection.planning.selected_backend,
+  const selected = inspection.planning.candidates.find(
+    (candidate) => candidate.backend === inspection.planning.selected_backend,
   );
   return selected
     ? `执行方式：${BACKEND_LABELS[selected.backend]} · ${SUPPORT_LABELS[selected.support]} · ${COST_LABELS[selected.cost]}`

@@ -1054,9 +1054,8 @@ target_wait = bounded
 | `wechat_click_group_1` | 打开群聊 | `ui.click.visual` | 同一 group_name exact unique；Vision -> bbox -> SendInput。 |
 | `wechat_verify_header_1` | 确认群聊 | `ui.get_text.visual` | Header region exact == group_name。 |
 | `wechat_type_message_1` | 输入消息 | `ui.type_text` | ValueExpr <- workflow_input.message。 |
-| `wechat_send_message_1` | 发送消息 | `ui.press_key` | Enter；非幂等动作。 |
-| `wechat_verify_message_1` | 确认已发送 | `verification/visual` | 新消息只允许确认一次，不做自动重发。 |
-| `end_1` | 结束 | `end` | 只有验证通过后正常结束。 |
+| `wechat_send_message_1` | 发送消息 | `ui.press_key` | Enter；非幂等动作；通过 `NewText` 后置条件确认新增消息并输出 `confirmed`。 |
+| `end_1` | 结束 | `end` | 只有发送动作的 `confirmed` 输出为真后正常结束。 |
 
 ## 15. 默认模板里的运行输入与测试数据
 

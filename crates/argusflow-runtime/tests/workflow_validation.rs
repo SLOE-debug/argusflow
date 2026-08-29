@@ -63,6 +63,7 @@ fn ui_payload_v1_remains_valid_and_v2_rejects_waiting_on_coordinates() {
             "operation": coordinate_operation,
             "execution": UiExecutionPolicy {
                 target_wait: TargetWaitPolicy::bounded(5_000, 100),
+                postcondition_wait: TargetWaitPolicy::default(),
                 postcondition: None,
             },
         }),

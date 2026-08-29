@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::{AqlQuery, CapabilitySet, KeyChord, ResourceRef, ValueExpr};
+use crate::{AqlQuery, CapabilitySet, KeyChord, ResourceRef, ValueExpr, VisualQueryExpr};
 
 /// Extract 操作返回单个目标还是目标集合。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

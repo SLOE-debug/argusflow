@@ -5,7 +5,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use argusflow_core::WindowIdentity;
+use argusflow_core::{ScreenPoint, WindowIdentity};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -75,6 +75,8 @@ pub struct VisualScene {
     pub window: WindowIdentity,
     /// 当前 viewport 在帧中的物理像素范围。
     pub viewport: PhysicalRect,
+    /// 当前 viewport 左上角在 virtual screen 中的物理坐标。
+    pub viewport_origin: ScreenPoint,
     /// 场景区域。
     pub regions: Vec<VisualRegion>,
     /// 场景内全部视觉节点。
@@ -190,6 +192,7 @@ impl VisualSceneBuilder {
             topology_generation: frame.topology_generation,
             window,
             viewport: frame.bounds(),
+            viewport_origin: frame.screen_origin(),
             regions: vec![region],
             nodes,
             lines,

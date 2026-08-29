@@ -121,13 +121,14 @@ class VisionWorker:
         }
 
     def prewarm(self) -> None:
-        """Load and exercise Chinese and English tiny pipelines before requests."""
+        """Load and exercise both OCR tiers before accepting requests."""
 
         self.lifecycle = "loading_models"
         warmup = numpy.zeros((64, 256, 3), dtype=numpy.uint8)
-        for language in ("ch", "en"):
-            pipeline = self.models.pipeline("pp_ocr_v6_tiny", {"language": language})
-            next(iter(pipeline.predict(warmup)), None)
+        for model in ("pp_ocr_v6_tiny", "pp_ocr_v6_medium"):
+            for language in ("ch", "en"):
+                pipeline = self.models.pipeline(model, {"language": language})
+                next(iter(pipeline.predict(warmup)), None)
         self.lifecycle = "ready"
 
     def recognize(self, request: dict[str, Any], body: bytes) -> dict[str, Any]:
@@ -244,19 +245,20 @@ def _error_response(envelope: dict[str, Any], code: str, message: str) -> dict[s
 
 
 def serve(pipe_name: str, session_token: str) -> None:
-    """Prewarm once and serve one authenticated application session."""
-
-    worker = VisionWorker()
-    try:
-        worker.prewarm()
-    except Exception as error:
-        worker.lifecycle = "failed"
-        startup_error = str(error)
-    else:
-        startup_error = None
+    """Supervise worker state and recreate the model pool after a bad inference."""
 
     while True:
+        worker = VisionWorker()
+        try:
+            worker.prewarm()
+        except Exception as error:
+            worker.lifecycle = "failed"
+            startup_error = str(error)
+        else:
+            startup_error = None
+
         handle = create_server(pipe_name)
+        restart_worker = False
         try:
             connect_server(handle)
             while True:
@@ -309,10 +311,11 @@ def serve(pipe_name: str, session_token: str) -> None:
                             write_frame(handle, _error_response(envelope, error.code, error.message))
                             if error.code == "deadline_exceeded":
                                 # Paddle predict is synchronous and cannot be cooperatively
-                                # cancelled; terminate this worker so the deployment owner can
-                                # replace the contaminated inference process.
+                                # cancelled; rebuild the model pool before accepting a new
+                                # connection so the Rust client can perform a fresh handshake.
                                 worker.lifecycle = "failed"
-                                return
+                                restart_worker = True
+                                break
                         except Exception as error:
                             write_frame(handle, _error_response(envelope, "ocr_failed", str(error)))
                         else:
@@ -332,15 +335,21 @@ def serve(pipe_name: str, session_token: str) -> None:
                     else:
                         raise ProtocolError("unknown_command", f"unknown worker command: {kind}")
                 except ProtocolError as error:
-                    write_frame(
-                        handle,
-                        _error_response({}, error.code, error.message),
-                    )
+                    try:
+                        write_frame(
+                            handle,
+                            _error_response({}, error.code, error.message),
+                        )
+                    except (OSError, pywintypes.error):
+                        restart_worker = True
+                        break
                 except (OSError, pywintypes.error):
-                    # The Rust client drops the pipe on its deadline. The synchronous
-                    # inference may still be running, so a broken pipe is a process-level
-                    # health failure and must be recovered by the deployment owner.
+                    # The Rust client drops the pipe on its deadline. Recreate the model
+                    # pool and wait for a new authenticated connection.
                     worker.lifecycle = "failed"
-                    return
+                    restart_worker = True
+                    break
         finally:
             close_server(handle)
+        if restart_worker:
+            time.sleep(0.05)

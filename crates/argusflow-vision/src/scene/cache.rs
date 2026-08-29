@@ -205,6 +205,16 @@ impl VisualSceneCache {
             .clone()
     }
 
+    /// 判断当前场景是否仍有尚未重新识别的 dirty 区域。
+    pub fn has_dirty_regions(&self) -> bool {
+        !self
+            .state
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .dirty_regions
+            .is_empty()
+    }
+
     /// 清除窗口关闭或拓扑重建后的所有短期事实。
     pub fn clear(&self) {
         let mut state = self

@@ -26,3 +26,4 @@ argusflow-vision.workspace = true
 argusflow-windows.workspace = true
 serde.workspace = true
 tauri = { version = "2.11.5", features = [] }
+tokio.workspace = true

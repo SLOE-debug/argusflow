@@ -21,6 +21,6 @@ argusflow-vision-worker `
 当前 P0 传输使用 `AFV2` little-endian 帧头：控制面是 JSON，像素面是同帧 raw BGRA
 binary body；控制面和像素体分别限制最大长度。共享内存 ring 保留给后续 P1 性能优化。
 
-worker 生命周期由部署层独占：桌面端超时或管道断开后会把当前 worker 视为 unhealthy，
-部署层负责按有界重启策略替换进程。Rust/Tauri 只负责 token 握手、健康状态和请求关联，
-不会在应用进程内偷偷复制第二套 worker owner。
+worker 在一次 OCR 截止时间超时或管道断开后会主动销毁当前模型池并重新监听同一个
+Named Pipe；Rust/Tauri 同时以固定间隔重新执行带 token 的 health handshake。这样超时的
+同步 Paddle 推理不会把后续请求永久锁在旧进程上，Planner 也能及时看到恢复后的健康状态。

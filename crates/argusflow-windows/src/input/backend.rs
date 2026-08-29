@@ -1,9 +1,9 @@
 use std::{fmt, sync::Arc};
 
 use argusflow_agent::{
-    ActionBackend, ContextFitness, ExecutionContext, MaterializedTarget, PlanExplain,
-    PlanRejection, PlanStepExplain, PlanStepKind, PreparedCandidate, PreparedExecution,
-    RuntimeAvailability, WindowContext,
+    ActionBackend, ContextFitness, ExecutionContext, MaterializedTarget,
+    MaterializedTargetValidator, PlanExplain, PlanRejection, PlanStepExplain, PlanStepKind,
+    PreparedCandidate, PreparedExecution, RuntimeAvailability, WindowContext,
 };
 use argusflow_core::{
     ActionOutcome, AutomationAction, AutomationError, BackendKind, KeyChord, PreparedTargetLocator,
@@ -14,17 +14,43 @@ use async_trait::async_trait;
 
 use super::{
     keyboard::{ensure_foreground_window, inject_chord, inject_text},
-    mouse::inject_click,
+    mouse::{inject_click, inject_click_with_surface},
 };
 
 /// 使用 Windows `SendInput` 向已验证前台窗口注入键盘事件的后端。
-#[derive(Debug, Default)]
-pub struct SendInputBackend;
+pub struct SendInputBackend {
+    /// 与视觉物化器共享的输入前最后一刻新鲜度复验器。
+    target_validator: Option<Arc<dyn MaterializedTargetValidator>>,
+}
+
+impl fmt::Debug for SendInputBackend {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("SendInputBackend")
+            .field("has_target_validator", &self.target_validator.is_some())
+            .finish()
+    }
+}
+
+impl Default for SendInputBackend {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl SendInputBackend {
     /// 创建只负责物理输入注入的后端。
     pub const fn new() -> Self {
-        Self
+        Self {
+            target_validator: None,
+        }
+    }
+
+    /// 创建带有视觉目标输入前复验能力的 SendInput 后端。
+    pub fn with_target_validator(validator: Arc<dyn MaterializedTargetValidator>) -> Self {
+        Self {
+            target_validator: Some(validator),
+        }
     }
 }
 
@@ -90,7 +116,11 @@ impl ActionBackend for SendInputBackend {
         };
         Ok(vec![PreparedCandidate::new(
             explain,
-            Arc::new(SendInputPreparedExecution { plan, window }),
+            Arc::new(SendInputPreparedExecution {
+                plan,
+                window,
+                target_validator: None,
+            }),
         )])
     }
 
@@ -176,6 +206,7 @@ impl ActionBackend for SendInputBackend {
                     materialized_target: materialized_target.cloned(),
                 },
                 window,
+                target_validator: self.target_validator.clone(),
             }),
         )])
     }
@@ -217,6 +248,8 @@ struct SendInputPreparedExecution {
     plan: SendInputPlan,
     /// AppSession 或当前前台窗口提供的 HWND/PID。
     window: Option<WindowContext>,
+    /// 视觉点击在注入前调用的最新 scene/topology 复验器。
+    target_validator: Option<Arc<dyn MaterializedTargetValidator>>,
 }
 
 impl fmt::Debug for SendInputPreparedExecution {
@@ -225,6 +258,7 @@ impl fmt::Debug for SendInputPreparedExecution {
             .debug_struct("SendInputPreparedExecution")
             .field("plan", &self.plan)
             .field("window", &self.window)
+            .field("has_target_validator", &self.target_validator.is_some())
             .finish()
     }
 }
@@ -274,8 +308,7 @@ impl PreparedExecution for SendInputPreparedExecution {
                     }
                 })?;
                 if materialized_target.window != *window {
-                    return Err(AutomationError::BackendFailed {
-                        backend: BackendKind::SendInput,
+                    return Err(AutomationError::VisualTargetStale {
                         message: "visual materializer returned a different window identity"
                             .to_owned(),
                     });
@@ -287,11 +320,21 @@ impl PreparedExecution for SendInputPreparedExecution {
                             .to_owned(),
                     });
                 }
-                inject_click(window, materialized_target.safe_point).map_err(|error| {
-                    AutomationError::BackendFailed {
+                let validator = self.target_validator.as_ref().ok_or_else(|| {
+                    AutomationError::BackendUnavailable {
                         backend: BackendKind::SendInput,
-                        message: error.to_string(),
+                        message: "visual click has no input freshness validator".to_owned(),
                     }
+                })?;
+                validator.validate_before_input(materialized_target).await?;
+                inject_click_with_surface(
+                    window,
+                    materialized_target.safe_point,
+                    Some(materialized_target.surface_bounds),
+                )
+                .map_err(|error| AutomationError::BackendFailed {
+                    backend: BackendKind::SendInput,
+                    message: error.to_string(),
                 })
             }
         };
@@ -362,6 +405,7 @@ fn coordinate_click_candidate(
         Arc::new(SendInputPreparedExecution {
             plan: SendInputPlan::Click { point: *point },
             window,
+            target_validator: None,
         }),
     )])
 }

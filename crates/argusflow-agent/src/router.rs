@@ -1,10 +1,9 @@
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use argusflow_core::{
     ActionExecutionOptions, ActionOutcome, AutomationAction, AutomationError,
     AutomationExecutionScope, BackendKind, CapabilityId, PreparedAutomationTarget,
-    PreparedTargetLocator, PreparedVisualPostcondition, TargetLocator, TargetScope, TargetWaitMode,
-    TargetWaitPolicy,
+    PreparedVisualPostcondition, TargetScope, TargetWaitPolicy,
 };
 use argusflow_query::{
     Diagnostic, DiagnosticCode, DiagnosticSeverity, QueryCost, QueryPortability, SupportLevel,
@@ -12,11 +11,12 @@ use argusflow_query::{
 use argusflow_runtime::ActionDispatcher;
 use async_trait::async_trait;
 
+use crate::visual_materialization;
 use crate::{
     ActionBackend, ContextFitness, EvidenceSettings, ExecutionContext, ExecutionContextProvider,
     MaterializedTarget, PlanExplain, PlanRejection, PlanningReport, PreparedCandidate,
     PreparedPlan, PreparedTargetMaterializer, RuntimeAvailability, StaticExecutionContext,
-    VisualMaterializationPlan, VisualVerificationProvider, VisualVerificationResult, WindowContext,
+    VisualVerificationProvider, VisualVerificationResult, WindowContext,
 };
 
 /// 能力、可用性、上下文和成本相同时使用的稳定兜底顺序。
@@ -225,14 +225,16 @@ impl ActionDispatcher for ActionRouter {
             context.accessibility.ready = false;
             context.visual_cache.ready = false;
         }
-        let materialized_target = self
-            .materialize_visual_target(
-                action,
-                &context,
-                options.prepared_target.as_ref(),
-                options.target_wait,
-            )
-            .await?;
+        let target_wait_deadline = visual_materialization::deadline(action, options.target_wait);
+        let mut materialized_target = visual_materialization::materialize(
+            self.target_materializer.as_deref(),
+            action,
+            &context,
+            options.prepared_target.as_ref(),
+            options.target_wait,
+            target_wait_deadline,
+        )
+        .await?;
         let postcondition = options.postcondition;
         let mut baseline = match (&postcondition, &self.visual_verification) {
             (Some(PreparedVisualPostcondition::NewText { query }), Some(provider)) => {
@@ -252,57 +254,93 @@ impl ActionDispatcher for ActionRouter {
             }
             (None, _) => None,
         };
-        let prepared = match self.prepare_candidates(
-            action,
-            &context,
-            options.prepared_target.as_ref(),
-            materialized_target.as_ref(),
-        ) {
-            Ok(prepared) => prepared,
-            Err(error) => {
-                if let (Some(provider), Some(baseline)) =
-                    (self.visual_verification.as_ref(), baseline.take())
-                {
-                    provider.discard_baseline(baseline).await;
+        let is_visual_click = materialized_target.is_some();
+        let mut outcome = loop {
+            let prepared = match self.prepare_candidates(
+                action,
+                &context,
+                options.prepared_target.as_ref(),
+                materialized_target.as_ref(),
+            ) {
+                Ok(prepared) => prepared,
+                Err(error) => {
+                    if let (Some(provider), Some(baseline)) =
+                        (self.visual_verification.as_ref(), baseline.take())
+                    {
+                        provider.discard_baseline(baseline).await;
+                    }
+                    return Err(error);
                 }
-                return Err(error);
-            }
-        };
-        let execution_wait = if materialized_target.is_some() {
-            TargetWaitPolicy::none()
-        } else {
-            options.target_wait
-        };
-        let outcome = match prepared.execute_with_wait(execution_wait).await {
-            Ok(outcome) => outcome,
-            Err(error) => {
-                if let (Some(provider), Some(baseline)) =
-                    (self.visual_verification.as_ref(), baseline.take())
+            };
+            let execution_wait = if materialized_target.is_some() {
+                TargetWaitPolicy::none()
+            } else {
+                options.target_wait
+            };
+            match prepared.execute_with_wait(execution_wait).await {
+                Ok(outcome) => break outcome,
+                Err(AutomationError::VisualTargetStale { message })
+                    if is_visual_click
+                        && target_wait_deadline
+                            .is_some_and(|deadline| tokio::time::Instant::now() < deadline) =>
                 {
-                    provider.discard_baseline(baseline).await;
+                    let refreshed = visual_materialization::materialize(
+                        self.target_materializer.as_deref(),
+                        action,
+                        &context,
+                        options.prepared_target.as_ref(),
+                        options.target_wait,
+                        target_wait_deadline,
+                    )
+                    .await;
+                    match refreshed {
+                        Ok(target) => {
+                            materialized_target = target;
+                        }
+                        Err(error) => {
+                            if let (Some(provider), Some(baseline)) =
+                                (self.visual_verification.as_ref(), baseline.take())
+                            {
+                                provider.discard_baseline(baseline).await;
+                            }
+                            return Err(error);
+                        }
+                    }
+                    let _ = message;
                 }
-                return Err(error);
+                Err(error) => {
+                    if let (Some(provider), Some(baseline)) =
+                        (self.visual_verification.as_ref(), baseline.take())
+                    {
+                        provider.discard_baseline(baseline).await;
+                    }
+                    return Err(error);
+                }
             }
         };
         if let (
             Some(PreparedVisualPostcondition::NewText { query }),
             Some(baseline),
             Some(provider),
-        ) = (postcondition, baseline, self.visual_verification.as_ref())
-        {
-            let verification =
-                provider
-                    .verify_new_text(baseline, &query)
-                    .await
-                    .map_err(|error| match error {
-                        AutomationError::OutcomeUnknown { .. } => error,
-                        other => AutomationError::OutcomeUnknown {
-                            backend: BackendKind::SendInput,
-                            message: format!("visual postcondition verification failed: {other}"),
-                        },
-                    })?;
+        ) = (
+            postcondition.as_ref(),
+            baseline.take(),
+            self.visual_verification.as_ref(),
+        ) {
+            let verification = provider
+                .verify_new_text(baseline, &query, options.postcondition_wait)
+                .await
+                .map_err(|error| match error {
+                    AutomationError::OutcomeUnknown { .. } => error,
+                    other => AutomationError::OutcomeUnknown {
+                        backend: BackendKind::SendInput,
+                        message: format!("visual postcondition verification failed: {other}"),
+                    },
+                })?;
             match verification {
-                VisualVerificationResult::Confirmed => {}
+                VisualVerificationResult::Confirmed => {
+                    outcome.outputs.insert("confirmed".to_owned(), true.into());
+                }
                 VisualVerificationResult::Rejected { reason }
                 | VisualVerificationResult::Uncertain { reason } => {
                     return Err(AutomationError::OutcomeUnknown {
@@ -317,61 +355,6 @@ impl ActionDispatcher for ActionRouter {
 }
 
 impl ActionRouter {
-    /// 只为 Visual Click 执行一次由 Planner 冻结的 Cache -> Tiny -> Medium 链。
-    async fn materialize_visual_target(
-        &self,
-        action: &AutomationAction,
-        context: &ExecutionContext,
-        prepared_target: Option<&PreparedAutomationTarget>,
-        wait: TargetWaitPolicy,
-    ) -> Result<Option<MaterializedTarget>, AutomationError> {
-        let AutomationAction::Click { target } = action else {
-            return Ok(None);
-        };
-        if !target.backend_policy.allows(BackendKind::SendInput)
-            || !matches!(&target.locator, TargetLocator::Visual { .. })
-        {
-            return Ok(None);
-        }
-        let Some(prepared_target) = prepared_target else {
-            return Ok(None);
-        };
-        let PreparedTargetLocator::Visual { query } = prepared_target.locator() else {
-            return Ok(None);
-        };
-        let Some(window) = context.foreground_window.as_ref() else {
-            return Ok(None);
-        };
-        let Some(materializer) = self.target_materializer.as_ref() else {
-            return Err(AutomationError::BackendUnavailable {
-                backend: BackendKind::VisualCache,
-                message: "visual click has no Planner target materializer".to_owned(),
-            });
-        };
-        let plan = VisualMaterializationPlan::for_input();
-        let deadline = tokio::time::Instant::now() + Duration::from_millis(wait.timeout_ms);
-        loop {
-            match materializer.materialize(window, query, &plan).await {
-                Ok(target) => return Ok(Some(target)),
-                Err(AutomationError::TargetNotFound { query })
-                    if wait.mode == TargetWaitMode::Bounded
-                        && tokio::time::Instant::now() < deadline =>
-                {
-                    tokio::time::sleep(Duration::from_millis(wait.poll_interval_ms.max(1))).await;
-                }
-                Err(AutomationError::TargetNotFound { query })
-                    if wait.mode == TargetWaitMode::Bounded =>
-                {
-                    return Err(AutomationError::TargetWaitTimeout {
-                        query,
-                        timeout_ms: wait.timeout_ms,
-                    });
-                }
-                Err(error) => return Err(error),
-            }
-        }
-    }
-
     /// 在同步 API 中准备没有异步视觉物化结果的候选；真实 Visual Click 由异步入口完成物化。
     fn prepare_candidates(
         &self,

@@ -6,6 +6,7 @@
 /coverage/
 /logs/
 /.argusflow/
+/src-tauri/.argusflow/
 /src-tauri/gen/schemas/
 /public/aql-wasm/
 /src/features/aql-editor/generated/

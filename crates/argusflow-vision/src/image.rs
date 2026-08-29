@@ -2,7 +2,7 @@
 
 use std::{fmt, sync::Arc};
 
-use argusflow_core::WindowIdentity;
+use argusflow_core::{ScreenPoint, WindowIdentity};
 
 use crate::{
     error::VisionError,
@@ -110,6 +110,8 @@ pub struct CapturedFrame {
     pub pixel_format: PixelFormat,
     /// 客户区内容在帧中的位置。
     pub content_rect: PhysicalRect,
+    /// 帧左上角在 Windows virtual screen 中的物理坐标；单 HWND 帧默认为零。
+    screen_origin: ScreenPoint,
     /// 每行字节步长。
     pub stride_bytes: usize,
     /// 短期内存像素存储。
@@ -130,6 +132,7 @@ impl fmt::Debug for CapturedFrame {
             .field("dpi_y", &self.dpi_y)
             .field("pixel_format", &self.pixel_format)
             .field("content_rect", &self.content_rect)
+            .field("screen_origin", &self.screen_origin)
             .field("stride_bytes", &self.stride_bytes)
             .field("byte_len", &self.storage.len())
             .finish()
@@ -173,6 +176,7 @@ impl CapturedFrame {
             dpi_y: dpi_y.max(1),
             pixel_format: image.format,
             content_rect,
+            screen_origin: ScreenPoint { x: 0, y: 0 },
             stride_bytes: image.stride_bytes,
             storage: pixels,
         })
@@ -186,6 +190,17 @@ impl CapturedFrame {
     /// 返回帧的边界矩形。
     pub fn bounds(&self) -> PhysicalRect {
         self.content_rect
+    }
+
+    /// 返回帧左上角对应的 virtual-screen 物理坐标。
+    pub const fn screen_origin(&self) -> ScreenPoint {
+        self.screen_origin
+    }
+
+    /// 为多 HWND 合成帧绑定其 virtual-screen 左上角坐标。
+    pub fn with_screen_origin(mut self, origin: ScreenPoint) -> Self {
+        self.screen_origin = origin;
+        self
     }
 
     /// 读取一个帧内像素的 BGRA 四元组。

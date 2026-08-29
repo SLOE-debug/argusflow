@@ -6,6 +6,7 @@ mod device;
 mod dpi;
 mod error;
 mod readback;
+mod surface_set;
 mod topology;
 mod wgc;
 

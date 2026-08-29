@@ -145,10 +145,23 @@ impl TemporalNoiseMask {
         if masked_area == 0 {
             return Ok(dirty.clone());
         }
-        let bounds_area = bounds.area().max(1);
-        let unmasked_ratio = 1.0 - (masked_area.min(bounds_area) as f32 / bounds_area as f32);
+        let dirty_area = dirty
+            .regions
+            .iter()
+            .map(|region| region.rect.area())
+            .sum::<u64>();
+        let retained_area = retained_regions
+            .iter()
+            .map(|region| region.rect.area())
+            .sum::<u64>();
         let mut filtered = dirty.clone();
-        filtered.changed_area_ratio = dirty.changed_area_ratio * unmasked_ratio;
+        // The ratio describes the remaining dirty signal, so scale it by the
+        // dirty regions that survived masking instead of by the whole frame.
+        filtered.changed_area_ratio = if dirty_area == 0 {
+            0.0
+        } else {
+            dirty.changed_area_ratio * retained_area as f32 / dirty_area as f32
+        };
         filtered.regions = retained_regions;
         Ok(filtered)
     }

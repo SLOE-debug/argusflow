@@ -1,4 +1,5 @@
 import { shikiToMonaco } from '@shikijs/monaco';
+import { codeToTokensBase } from 'shiki/core';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { MonacoApi } from './monacoLoader';
@@ -21,14 +22,20 @@ describe('Shell syntax highlighting', () => {
     expect(highlighter?.getLoadedThemes()).toEqual(['light-plus']);
     expect(shikiToMonaco).toHaveBeenCalledWith(highlighter, monaco);
 
-    const powerShellTokens = highlighter?.codeToTokensBase(
-      '[Console]::WriteLine($value)',
-      { lang: 'powershell', theme: MONACO_EDITOR_THEME },
-    ) ?? [];
-    const commandTokens = highlighter?.codeToTokensBase(
-      '@echo off\r\nset value=42',
-      { lang: 'bat', theme: MONACO_EDITOR_THEME },
-    ) ?? [];
+    const powerShellTokens = highlighter
+      ? codeToTokensBase(
+        highlighter,
+        '[Console]::WriteLine($value)',
+        { lang: 'powershell', theme: MONACO_EDITOR_THEME },
+      )
+      : [];
+    const commandTokens = highlighter
+      ? codeToTokensBase(
+        highlighter,
+        '@echo off\r\nset value=42',
+        { lang: 'bat', theme: MONACO_EDITOR_THEME },
+      )
+      : [];
     expect(uniqueTokenColors(powerShellTokens).size).toBeGreaterThan(1);
     expect(uniqueTokenColors(commandTokens).size).toBeGreaterThan(1);
   });

@@ -30,6 +30,7 @@ describe('ActionNodeFields', () => {
         operation={operation}
         execution={{
           target_wait: { mode: 'bounded', timeout_ms: 5_000, poll_interval_ms: 100 },
+          postcondition_wait: { mode: 'none', timeout_ms: 0, poll_interval_ms: 0 },
           postcondition: null,
         }}
         onChange={onChange}
@@ -71,6 +72,7 @@ describe('ActionNodeFields', () => {
         operation={operation}
         execution={{
           target_wait: { mode: 'bounded', timeout_ms: 5_000, poll_interval_ms: 100 },
+          postcondition_wait: { mode: 'none', timeout_ms: 0, poll_interval_ms: 0 },
           postcondition: null,
         }}
         onChange={vi.fn()}
@@ -85,12 +87,14 @@ describe('ActionNodeFields', () => {
     });
     expect(onExecutionChange).toHaveBeenCalledWith({
       target_wait: { mode: 'bounded', timeout_ms: 8_000, poll_interval_ms: 100 },
+      postcondition_wait: { mode: 'none', timeout_ms: 0, poll_interval_ms: 0 },
       postcondition: null,
     });
 
     fireEvent.click(screen.getByRole('checkbox', { name: '找不到目标时自动等待' }));
     expect(onExecutionChange).toHaveBeenLastCalledWith({
       target_wait: { mode: 'none', timeout_ms: 0, poll_interval_ms: 0 },
+      postcondition_wait: { mode: 'none', timeout_ms: 0, poll_interval_ms: 0 },
       postcondition: null,
     });
     expect(screen.getAllByText('button(name = "继续")')).toHaveLength(1);

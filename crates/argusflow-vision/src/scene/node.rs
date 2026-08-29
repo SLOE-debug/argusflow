@@ -101,6 +101,8 @@ pub struct VisualNode {
     pub row_id: Option<VisualRowId>,
     /// 用于相邻 scene 短期跟踪的确定性 patch/text hash。
     pub stable_hash: u64,
+    /// 用于跨 scene 关联文本事实的 hash；不包含 bbox，允许同一文字移动后继续关联。
+    pub identity_hash: u64,
 }
 
 impl VisualNode {
@@ -122,6 +124,7 @@ impl VisualNode {
             return None;
         }
         let stable_hash = stable_hash(&normalized_text, bbox, region_id);
+        let identity_hash = identity_hash(&normalized_text, region_id);
         Some(Self {
             id: VisualNodeId::new(stable_hash),
             generation,
@@ -136,6 +139,7 @@ impl VisualNode {
             line_id: None,
             row_id: None,
             stable_hash,
+            identity_hash,
         })
     }
 
@@ -188,6 +192,22 @@ fn stable_hash(text: &str, bbox: PhysicalRect, region_id: Option<VisualRegionId>
         .chain(bbox.y.to_le_bytes())
         .chain(bbox.width.to_le_bytes())
         .chain(bbox.height.to_le_bytes())
+        .chain(region_value.to_le_bytes())
+    {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
+}
+
+/// 计算不依赖几何位置的文本事实身份，用于动作前后场景关联。
+fn identity_hash(text: &str, region_id: Option<VisualRegionId>) -> u64 {
+    let mut hash = 0xcbf29ce484222325_u64;
+    let region_value = region_id.map_or(0, VisualRegionId::get);
+    for byte in text
+        .as_bytes()
+        .iter()
+        .copied()
         .chain(region_value.to_le_bytes())
     {
         hash ^= u64::from(byte);

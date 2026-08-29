@@ -1,17 +1,18 @@
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use argusflow_agent::{
-    MaterializedTarget, PreparedTargetMaterializer, VisualBaseline, VisualMaterializationPlan,
-    VisualMaterializationStage, VisualVerificationProvider, VisualVerificationResult,
-    WindowContext,
+    MaterializedTarget, MaterializedTargetValidator, PreparedTargetMaterializer, VisualBaseline,
+    VisualMaterializationPlan, VisualMaterializationStage, VisualVerificationProvider,
+    VisualVerificationResult, WindowContext,
 };
 use argusflow_core::{AutomationError, BackendKind, VisualQuery, WindowIdentity};
 use argusflow_vision::{
     SceneRefreshPolicy, VerificationOutcome, VisionError, VisionRuntime, VisualCondition,
-    VisualMatch, evaluate_visual_condition, evaluate_visual_query,
+    VisualNode, evaluate_visual_condition, matching_nodes,
 };
 use async_trait::async_trait;
 use windows::Win32::{
@@ -40,8 +41,29 @@ impl WindowsVisualTargetMaterializer {
     }
 }
 
+/// 视觉点击必须先通过置信度门槛，低置信度候选只能触发后续升级阶段。
+const MIN_CLICK_CONFIDENCE: f32 = 0.80;
+
+/// Cache 物化前允许的轻量新帧复验时间，避免使用半秒前的旧坐标。
+const CACHE_REVALIDATION_TIMEOUT: Duration = Duration::from_millis(75);
+
 #[async_trait]
 impl PreparedTargetMaterializer for WindowsVisualTargetMaterializer {
+    fn available_stages(&self) -> Vec<VisualMaterializationStage> {
+        let health = self.runtime.health();
+        if !health.capture_ready {
+            return Vec::new();
+        }
+        let mut stages = vec![VisualMaterializationStage::Cache];
+        if health.worker_ready {
+            stages.extend([
+                VisualMaterializationStage::OcrTiny,
+                VisualMaterializationStage::OcrMedium,
+            ]);
+        }
+        stages
+    }
+
     async fn materialize(
         &self,
         window: &WindowContext,
@@ -58,6 +80,19 @@ impl PreparedTargetMaterializer for WindowsVisualTargetMaterializer {
                 VisualMaterializationStage::Cache => {
                     let mut refresh = SceneRefreshPolicy::tiny();
                     refresh.normalized_query_region = query.region;
+                    let topology_generation = match self
+                        .runtime
+                        .revalidate_cache(identity, CACHE_REVALIDATION_TIMEOUT)
+                        .await
+                    {
+                        Ok(generation) => generation,
+                        Err(error) => {
+                            last_error = Some(map_vision_error(BackendKind::VisualCache, error));
+                            continue;
+                        }
+                    };
+                    refresh.max_age = CACHE_REVALIDATION_TIMEOUT;
+                    refresh.topology_generation = topology_generation;
                     match self.runtime.lookup_cache(identity, &refresh) {
                         argusflow_vision::CacheLookup::Hit(scene) => Ok(scene),
                         argusflow_vision::CacheLookup::Miss(reason) => {
@@ -101,15 +136,19 @@ impl PreparedTargetMaterializer for WindowsVisualTargetMaterializer {
                                 .to_owned(),
                         });
                     }
-                    let node = match evaluate_visual_query(&scene, query) {
-                        Ok(VisualMatch::Unique(node)) => node,
+                    let node = match select_click_node(&scene, query) {
                         Err(error @ AutomationError::TargetNotFound { .. }) => {
                             last_error = Some(error);
                             continue;
                         }
+                        Ok(node) => node,
                         Err(error) => return Err(error),
                     };
-                    let transform = SurfaceTransform::new(window_bounds(window)?, scene.viewport)?;
+                    let transform = SurfaceTransform::new_with_origin(
+                        window_bounds(window)?,
+                        scene.viewport,
+                        scene.viewport_origin,
+                    )?;
                     let mapped = transform.map_rect(node.bbox)?;
                     return Ok(MaterializedTarget {
                         window: window.clone(),
@@ -117,6 +156,7 @@ impl PreparedTargetMaterializer for WindowsVisualTargetMaterializer {
                         frame_id: scene.frame_id.get(),
                         topology_generation: scene.topology_generation.get(),
                         bounds: mapped.bounds,
+                        surface_bounds: mapped.surface_bounds,
                         confidence: node.confidence,
                         safe_point: mapped.safe_point,
                         source_backend: stage_backend(*stage),
@@ -146,6 +186,8 @@ impl VisualVerificationProvider for WindowsVisualTargetMaterializer {
             process_id: window.process_id,
         };
         let mut refresh = SceneRefreshPolicy::tiny();
+        refresh.force_refresh = true;
+        refresh.max_age = Duration::ZERO;
         refresh.normalized_query_region = query.region;
         let scene = self
             .runtime
@@ -178,6 +220,7 @@ impl VisualVerificationProvider for WindowsVisualTargetMaterializer {
         &self,
         baseline: VisualBaseline,
         query: &VisualQuery,
+        wait: argusflow_core::TargetWaitPolicy,
     ) -> Result<VisualVerificationResult, AutomationError> {
         let previous = self
             .baselines
@@ -192,39 +235,151 @@ impl VisualVerificationProvider for WindowsVisualTargetMaterializer {
             handle: baseline.window().handle,
             process_id: baseline.window().process_id,
         };
-        let mut refresh = SceneRefreshPolicy::medium();
-        refresh.normalized_query_region = query.region;
-        let current = self
-            .runtime
-            .current_scene(identity, &refresh)
-            .await
-            .map_err(|error| map_vision_error(BackendKind::OcrMedium, error))?;
-        let condition = VisualCondition::NewTextExistsSince {
-            query: query.clone(),
-            since_scene_id: previous.scene_id,
-            region: None,
+        let deadline = (wait.mode == argusflow_core::TargetWaitMode::Bounded)
+            .then(|| tokio::time::Instant::now() + Duration::from_millis(wait.timeout_ms));
+        let mut last_reason = "尚未得到动作后的新视觉场景".to_owned();
+        loop {
+            if deadline.is_some_and(|deadline| tokio::time::Instant::now() >= deadline) {
+                return Ok(VisualVerificationResult::Uncertain {
+                    reason: format!("视觉后置条件观察超时：{last_reason}"),
+                });
+            }
+            let mut refresh = SceneRefreshPolicy::medium();
+            refresh.normalized_query_region = query.region;
+            let current_result = match deadline {
+                Some(deadline) => tokio::time::timeout_at(
+                    deadline,
+                    self.runtime.current_scene(identity, &refresh),
+                )
+                .await
+                .map_err(|_| AutomationError::OutcomeUnknown {
+                    backend: BackendKind::OcrMedium,
+                    message: "视觉后置条件观察达到总截止时间".to_owned(),
+                })
+                .and_then(|result| {
+                    result.map_err(|error| map_vision_error(BackendKind::OcrMedium, error))
+                }),
+                None => self
+                    .runtime
+                    .current_scene(identity, &refresh)
+                    .await
+                    .map_err(|error| map_vision_error(BackendKind::OcrMedium, error)),
+            };
+            let current = match current_result {
+                Ok(current) => current,
+                Err(error) if deadline.is_some() => {
+                    last_reason = error.to_string();
+                    let Some(deadline) = deadline else {
+                        return Err(error);
+                    };
+                    let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+                    if remaining.is_zero() {
+                        return Ok(VisualVerificationResult::Uncertain {
+                            reason: format!("视觉后置条件观察超时：{last_reason}"),
+                        });
+                    }
+                    tokio::time::sleep(
+                        Duration::from_millis(wait.poll_interval_ms.max(1)).min(remaining),
+                    )
+                    .await;
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
+            let condition = VisualCondition::NewTextExistsSince {
+                query: query.clone(),
+                since_scene_id: previous.scene_id,
+                region: None,
+            };
+            let verification =
+                match evaluate_visual_condition(Some(&current), Some(&previous), &condition) {
+                    VerificationOutcome::Confirmed { .. } => VisualVerificationResult::Confirmed,
+                    VerificationOutcome::Rejected { reason } => {
+                        last_reason = reason.clone();
+                        VisualVerificationResult::Rejected { reason }
+                    }
+                    VerificationOutcome::Uncertain { reason } => {
+                        last_reason = reason.clone();
+                        VisualVerificationResult::Uncertain { reason }
+                    }
+                };
+            if matches!(verification, VisualVerificationResult::Confirmed) || deadline.is_none() {
+                return Ok(verification);
+            }
+            let Some(deadline) = deadline else {
+                return Ok(verification);
+            };
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            if remaining.is_zero() {
+                return Ok(VisualVerificationResult::Uncertain {
+                    reason: format!("视觉后置条件观察超时：{last_reason}"),
+                });
+            }
+            tokio::time::sleep(Duration::from_millis(wait.poll_interval_ms.max(1)).min(remaining))
+                .await;
+        }
+    }
+}
+
+#[async_trait]
+impl MaterializedTargetValidator for WindowsVisualTargetMaterializer {
+    async fn validate_before_input(
+        &self,
+        target: &MaterializedTarget,
+    ) -> Result<(), AutomationError> {
+        let identity = WindowIdentity {
+            handle: target.window.handle,
+            process_id: target.window.process_id,
         };
-        Ok(
-            match evaluate_visual_condition(Some(&current), Some(&previous), &condition) {
-                VerificationOutcome::Confirmed { .. } => VisualVerificationResult::Confirmed,
-                VerificationOutcome::Rejected { reason } => {
-                    VisualVerificationResult::Rejected { reason }
-                }
-                VerificationOutcome::Uncertain { reason } => {
-                    VisualVerificationResult::Uncertain { reason }
-                }
-            },
-        )
+        self.runtime
+            .validate_materialized_target(
+                identity,
+                target.scene_id,
+                target.frame_id,
+                target.topology_generation,
+            )
+            .await
+            .map_err(|error| match error {
+                VisionError::SceneStale
+                | VisionError::WindowIdentityChanged { .. }
+                | VisionError::OcrCancelled { .. }
+                | VisionError::FrameTimeout { .. } => AutomationError::VisualTargetStale {
+                    message: error.to_string(),
+                },
+                other => map_vision_error(BackendKind::SendInput, other),
+            })
     }
 }
 
 /// 将物化阶段转换为事实来源，供输入证据和错误定位使用。
 const fn stage_backend(stage: VisualMaterializationStage) -> BackendKind {
-    match stage {
-        VisualMaterializationStage::Cache => BackendKind::VisualCache,
-        VisualMaterializationStage::OcrTiny => BackendKind::OcrTiny,
-        VisualMaterializationStage::OcrMedium => BackendKind::OcrMedium,
-        VisualMaterializationStage::GuiGrounding => BackendKind::GuiGrounding,
+    stage.backend_kind()
+}
+
+/// 视觉点击只接受区域内唯一且达到置信度门槛的节点；低置信度结果留给后续 medium 阶段。
+fn select_click_node<'scene>(
+    scene: &'scene argusflow_vision::VisualScene,
+    query: &VisualQuery,
+) -> Result<&'scene VisualNode, AutomationError> {
+    let candidates = matching_nodes(scene, query);
+    match candidates.as_slice() {
+        [] => Err(AutomationError::TargetNotFound {
+            query: query.text.clone(),
+        }),
+        [node] if node.confidence >= MIN_CLICK_CONFIDENCE => Ok(node),
+        candidates
+            if candidates
+                .iter()
+                .any(|node| node.confidence < MIN_CLICK_CONFIDENCE) =>
+        {
+            Err(AutomationError::TargetNotFound {
+                query: query.text.clone(),
+            })
+        }
+        candidates => Err(AutomationError::AmbiguousTarget {
+            query: query.text.clone(),
+            matches: candidates.len(),
+        }),
     }
 }
 

@@ -28,6 +28,7 @@ pub(super) fn validate_ui_node(
     validate_input_operation(operation, context, &mut issues);
     validate_extract(operation, context, &mut issues);
     validate_wait_policy(target, execution, context, &mut issues);
+    validate_postcondition_wait(execution, context, &mut issues);
     validate_postcondition(operation, execution, context, &mut issues);
     validate_locator(operation, context, &mut issues);
     issues
@@ -252,6 +253,28 @@ fn validate_postcondition(
             ValidationIssueCode::InvalidAqlQuery,
             "视觉后置条件文字不能为空",
         ));
+    }
+}
+
+/// 校验发送后观察预算，确保后置条件不会退化成无界等待或无等待。
+fn validate_postcondition_wait(
+    execution: &UiExecutionPolicy,
+    context: &NodeValidationContext<'_>,
+    issues: &mut Vec<ValidationIssue>,
+) {
+    if execution.postcondition.is_none() {
+        return;
+    }
+    match execution.postcondition_wait {
+        TargetWaitPolicy {
+            mode: TargetWaitMode::Bounded,
+            timeout_ms,
+            poll_interval_ms,
+        } if (1..=600_000).contains(&timeout_ms) && (1..=60_000).contains(&poll_interval_ms) => {}
+        _ => issues.push(context.issue(
+            ValidationIssueCode::InvalidTargetWaitPolicy,
+            "视觉后置条件必须配置 1 到 600000 毫秒的观察超时和 1 到 60000 毫秒的轮询间隔",
+        )),
     }
 }
 

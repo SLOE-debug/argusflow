@@ -140,21 +140,13 @@ async fn read_output_is_resolved_for_debug_and_the_following_set_value() {
     ));
     drop(actions);
     let options = dispatcher.options.lock().await;
-    assert_eq!(
-        options.as_slice(),
-        &[
-            ActionExecutionOptions {
-                target_wait: TargetWaitPolicy::bounded(5_000, 100),
-                prepared_target: None,
-                postcondition: None,
-            },
-            ActionExecutionOptions {
-                target_wait: TargetWaitPolicy::bounded(5_000, 100),
-                prepared_target: None,
-                postcondition: None,
-            },
-        ]
-    );
+    assert_eq!(options.len(), 2);
+    assert!(options.iter().all(|option| {
+        option.target_wait == TargetWaitPolicy::bounded(5_000, 100)
+            && option.postcondition_wait == TargetWaitPolicy::default()
+            && option.prepared_target.is_some()
+            && option.postcondition.is_none()
+    }));
     assert!(events.iter().any(|event| {
         event.kind == ExecutionEventKind::NodeOutputProduced
             && event.payload

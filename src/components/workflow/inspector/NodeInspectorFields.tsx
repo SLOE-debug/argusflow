@@ -342,7 +342,7 @@ export function EdgeInspectorFields({
           <ArrowRight className="size-4 shrink-0 text-blue-600" aria-hidden="true" />
           <span className="min-w-0 flex-1 truncate text-right">{edge.target.nodeId}</span>
         </div>
-        {edge.data.branch ? (
+        {isConditionBranch(edge.data.branch) ? (
           <InspectorField label="条件分支">
             <Select<'true' | 'false'>
               value={edge.data.branch}
@@ -361,6 +361,13 @@ export function EdgeInspectorFields({
       </InspectorSection>
     </>
   );
+}
+
+/** 仅把当前 Inspector 支持的两个条件分支交给基础 Select。 */
+function isConditionBranch(
+  branch: WorkflowCanvasEdge['data']['branch'],
+): branch is 'true' | 'false' {
+  return branch === 'true' || branch === 'false';
 }
 
 /** 展示多节点选择时可执行的操作提示。 */

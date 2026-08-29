@@ -45,9 +45,10 @@ type NodePaletteProps = Readonly<{
 }>;
 
 /** 目录中已接入运行时、可以直接创建的节点定义。 */
-type AvailablePaletteItem = PaletteItemDefinition & Readonly<{
-  kind: Exclude<PaletteItemDefinition['kind'], null>;
-}>;
+type AvailablePaletteItem = Exclude<
+  (typeof PALETTE_ITEMS)[number],
+  Readonly<{ kind: null }>
+>;
 
 /** 可搜索的高密度分组节点库。 */
 export function NodePalette({

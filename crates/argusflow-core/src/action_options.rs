@@ -56,6 +56,8 @@ impl Default for TargetWaitPolicy {
 pub struct UiExecutionPolicy {
     /// 等待当前 operation 自身目标满足动作要求的策略。
     pub target_wait: TargetWaitPolicy,
+    /// 动作完成后观察视觉后置条件的独立截止策略。
+    pub postcondition_wait: TargetWaitPolicy,
     /// 高风险输入动作完成后必须满足的视觉新事实。
     #[serde(default)]
     pub postcondition: Option<UiPostcondition>,
@@ -65,9 +67,15 @@ impl Default for UiExecutionPolicy {
     fn default() -> Self {
         Self {
             target_wait: TargetWaitPolicy::none(),
+            postcondition_wait: default_postcondition_wait(),
             postcondition: None,
         }
     }
+}
+
+/// 为需要视觉确认的输入动作提供一个有限且独立的观察预算。
+fn default_postcondition_wait() -> TargetWaitPolicy {
+    TargetWaitPolicy::bounded(5_000, 150)
 }
 
 /// UI 输入动作的可验证后置条件；它描述动作后的新事实而非旧文本存在性。
@@ -77,7 +85,7 @@ pub enum UiPostcondition {
     /// 要求发送前不存在、发送后新增的视觉文字事实。
     NewText {
         /// 需要在动作前后做 scene delta 比较的视觉查询。
-        pub query: VisualQueryExpr,
+        query: VisualQueryExpr,
     },
 }
 
@@ -86,6 +94,8 @@ pub enum UiPostcondition {
 pub struct ActionExecutionOptions {
     /// 只对 `TargetNotFound` 生效的统一目标等待策略。
     pub target_wait: TargetWaitPolicy,
+    /// 视觉后置条件自己的观察等待策略，不占用目标物化预算。
+    pub postcondition_wait: TargetWaitPolicy,
     /// Runtime 已冻结的目标；后端不得重新解析原始表达式或自行物化视觉目标。
     pub prepared_target: Option<PreparedAutomationTarget>,
     /// 由 Runtime 解析的不可持久化动作后置条件。

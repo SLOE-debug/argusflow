@@ -8,8 +8,10 @@ mod context;
 mod evidence;
 mod evidence_sink;
 mod plan;
+mod prepared_plan;
 mod router;
 mod visual;
+mod visual_materialization;
 
 pub use backend::ActionBackend;
 pub use context::{
@@ -27,12 +29,13 @@ pub use evidence_sink::{
     FileSystemEvidenceSink, InMemoryEvidenceSink,
 };
 pub use plan::{
-    PlanExplain, PlanRejection, PlanStepExplain, PlanStepKind, PlanningReport, PreparedCandidate,
-    PreparedExecution, PreparedPlan, RuntimeAvailability,
+    PlanExplain, PlanRejection, PlanStepExplain, PlanStepKind, PlanningReport, RuntimeAvailability,
 };
+pub use prepared_plan::{PreparedCandidate, PreparedExecution, PreparedPlan};
 pub use router::{ActionRouter, ROUTE_TIE_BREAK_ORDER};
 pub use visual::{
-    MaterializedTarget, PreparedTargetMaterializer, SharedTargetMaterializer, VisualBaseline,
-    VisualMaterializationPlan, VisualMaterializationStage, VisualTargetBounds,
-    VisualVerificationProvider, VisualVerificationResult,
+    MaterializedTarget, MaterializedTargetValidator, PreparedTargetMaterializer,
+    SharedTargetMaterializer, VisualBaseline, VisualMaterializationPlan,
+    VisualMaterializationStage, VisualTargetBounds, VisualVerificationProvider,
+    VisualVerificationResult,
 };

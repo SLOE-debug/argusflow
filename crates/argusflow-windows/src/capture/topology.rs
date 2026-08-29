@@ -32,8 +32,8 @@ pub enum WindowRole {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CaptureSurfaceMode {
-    /// 只捕获 AppSession 的 primary HWND；其它条目只用于拓扑失效检测。
-    PrimaryOnly,
+    /// 捕获 AppSession 的 primary HWND 以及它拥有的可见 popup HWND。
+    PrimaryAndOwnedPopups,
 }
 
 /// 拓扑中的一个窗口条目。
@@ -56,24 +56,30 @@ pub struct WindowTopology {
     pub surface_mode: CaptureSurfaceMode,
     /// 当前拓扑代数。
     pub generation: TopologyGeneration,
-    /// 同进程可见顶层窗口及 owned popup；这些条目不会自动加入 capture surface set。
+    /// 同进程可见顶层窗口及 owned popup；capture surface set 会加入 primary 和 owned popup。
     pub windows: Vec<WindowTopologyEntry>,
 }
 
 /// 通过枚举同进程顶层窗口追踪拓扑变化。
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct WindowTopologyTracker {
-    /// 最近一次观察到的窗口身份集合。
-    last_identities: Option<Vec<WindowIdentity>>,
-    /// 身份集合变化次数。
+    /// 最近一次观察到的窗口身份、角色和屏幕矩形快照。
+    last_entries: Option<Vec<WindowTopologyEntry>>,
+    /// 拓扑快照变化次数；窗口移动或 resize 同样会使旧 scene 失效。
     generation: u64,
+}
+
+impl Default for WindowTopologyTracker {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl WindowTopologyTracker {
     /// 创建空拓扑追踪器。
     pub const fn new() -> Self {
         Self {
-            last_identities: None,
+            last_entries: None,
             generation: 1,
         }
     }
@@ -113,21 +119,28 @@ impl WindowTopologyTracker {
         unsafe { EnumWindows(Some(enum_window), parameter) }
             .map_err(|error| capture_error("failed to enumerate visual window topology", error))?;
 
-        search.entries.sort_by_key(|entry| entry.identity.handle);
-        let identities = search
+        if search
             .entries
             .iter()
-            .map(|entry| entry.identity)
-            .collect::<Vec<_>>();
-        if self.last_identities.as_ref() != Some(&identities) {
-            if self.last_identities.is_some() {
+            .find(|entry| entry.identity == primary && entry.role == WindowRole::Primary)
+            .and_then(|entry| entry.bounds)
+            .is_none()
+        {
+            return Err(VisionError::CaptureUnavailable {
+                message: "primary window bounds are unavailable".to_owned(),
+            });
+        }
+
+        search.entries.sort_by_key(|entry| entry.identity.handle);
+        if self.last_entries.as_ref() != Some(&search.entries) {
+            if self.last_entries.is_some() {
                 self.generation = self.generation.saturating_add(1);
             }
-            self.last_identities = Some(identities);
+            self.last_entries = Some(search.entries.clone());
         }
         Ok(WindowTopology {
             primary,
-            surface_mode: CaptureSurfaceMode::PrimaryOnly,
+            surface_mode: CaptureSurfaceMode::PrimaryAndOwnedPopups,
             generation: TopologyGeneration::new(self.generation),
             windows: search.entries,
         })

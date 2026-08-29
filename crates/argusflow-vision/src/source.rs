@@ -6,6 +6,7 @@ use argusflow_core::WindowIdentity;
 use async_trait::async_trait;
 use tokio::sync::Mutex;
 
+use crate::frame::TopologyGeneration;
 use crate::{error::VisionError, image::CapturedFrame};
 
 /// HWND 捕获流的策略；像素和窗口作用域不在此处隐式扩大。
@@ -34,6 +35,9 @@ impl Default for CapturePolicy {
 pub trait FrameSubscription: fmt::Debug + Send + Sync {
     /// 在明确的超时时间内取得下一张帧。
     async fn next(&self, timeout: Duration) -> Result<Arc<CapturedFrame>, VisionError>;
+
+    /// 读取当前窗口拓扑代数，不消费捕获帧。
+    async fn current_topology_generation(&self) -> Result<TopologyGeneration, VisionError>;
 
     /// 返回订阅建立时冻结的窗口身份。
     fn window(&self) -> WindowIdentity;
@@ -87,6 +91,8 @@ struct MemoryFrameSubscription {
     window: WindowIdentity,
     /// 该订阅独占的帧队列。
     frames: Mutex<VecDeque<Arc<CapturedFrame>>>,
+    /// 最近一次已交付帧的拓扑代数，供输入前复验读取。
+    topology_generation: Mutex<TopologyGeneration>,
 }
 
 #[async_trait]
@@ -107,9 +113,14 @@ impl WindowFrameSource for MemoryFrameSource {
             .ok_or_else(|| VisionError::CaptureUnavailable {
                 message: "memory frame stream is not registered".to_owned(),
             })?;
+        let topology_generation = frames
+            .front()
+            .map(|frame| frame.topology_generation)
+            .unwrap_or_else(|| TopologyGeneration::new(0));
         Ok(Arc::new(MemoryFrameSubscription {
             window,
             frames: Mutex::new(frames),
+            topology_generation: Mutex::new(topology_generation),
         }))
     }
 }
@@ -117,10 +128,18 @@ impl WindowFrameSource for MemoryFrameSource {
 #[async_trait]
 impl FrameSubscription for MemoryFrameSubscription {
     async fn next(&self, timeout: Duration) -> Result<Arc<CapturedFrame>, VisionError> {
-        let mut frames = self.frames.lock().await;
-        frames.pop_front().ok_or(VisionError::FrameTimeout {
-            timeout_ms: timeout.as_millis() as u64,
-        })
+        let frame = {
+            let mut frames = self.frames.lock().await;
+            frames.pop_front().ok_or(VisionError::FrameTimeout {
+                timeout_ms: timeout.as_millis() as u64,
+            })?
+        };
+        *self.topology_generation.lock().await = frame.topology_generation;
+        Ok(frame)
+    }
+
+    async fn current_topology_generation(&self) -> Result<TopologyGeneration, VisionError> {
+        Ok(*self.topology_generation.lock().await)
     }
 
     fn window(&self) -> WindowIdentity {

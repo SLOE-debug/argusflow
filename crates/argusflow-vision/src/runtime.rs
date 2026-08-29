@@ -18,7 +18,7 @@ use crate::{
     frame::{PhysicalRect, TopologyGeneration},
     image::CapturedFrame,
     metrics::VisionMetrics,
-    ocr::{OcrProfile, OcrRequest},
+    ocr::{OcrEngine, OcrProfile, OcrRequest},
     projection::ProjectionOptions,
     refresh::{RefreshPlan, choose_refresh_plan},
     region::normalized_region_to_physical,
@@ -43,6 +43,8 @@ pub struct SceneRefreshPolicy {
     pub diff: DiffConfig,
     /// OCR 模型 profile。
     pub ocr: OcrProfile,
+    /// 单次 OCR 请求自己的截止时间；不与 stable gate 的观察预算混用。
+    pub ocr_timeout: Duration,
     /// 只刷新与该 ROI 相交的内容；为空表示当前 viewport。
     pub query_region: Option<PhysicalRect>,
     /// 以当前视觉 viewport 百分比表达的查询区域；由 runtime 映射为物理 ROI。
@@ -63,6 +65,7 @@ impl SceneRefreshPolicy {
             stability: StabilityConfig::default(),
             diff: DiffConfig::default(),
             ocr: OcrProfile::tiny(),
+            ocr_timeout: Duration::from_secs(3),
             query_region: None,
             normalized_query_region: None,
             topology_generation: TopologyGeneration::new(0),
@@ -76,6 +79,7 @@ impl SceneRefreshPolicy {
             force_refresh: true,
             max_age: Duration::from_millis(250),
             ocr: OcrProfile::medium(),
+            ocr_timeout: Duration::from_secs(10),
             ..Self::tiny()
         }
     }
@@ -192,10 +196,11 @@ impl VisionRuntime {
             return CacheLookup::Miss(crate::scene::CacheMissReason::Empty);
         };
         let query_region = policy.query_region.or_else(|| {
-            policy
-                .normalized_query_region
-                .and_then(|region| cache.current())
-                .and_then(|scene| normalized_region_to_physical(region, scene.viewport))
+            policy.normalized_query_region.and_then(|region| {
+                cache
+                    .current()
+                    .and_then(|scene| normalized_region_to_physical(region, scene.viewport))
+            })
         });
         cache.lookup(
             window,
@@ -203,6 +208,81 @@ impl VisionRuntime {
             policy.max_age,
             query_region,
         )
+    }
+
+    /// 消费一张新捕获帧并更新 cache dirty 状态，不执行 OCR。
+    pub async fn revalidate_cache(
+        &self,
+        window: WindowIdentity,
+        timeout: Duration,
+    ) -> Result<TopologyGeneration, VisionError> {
+        let capture = CapturePolicy::default();
+        let scope = self.scopes.get_or_create(window, capture);
+        let subscription = self.subscription(&scope, window, capture).await?;
+        if subscription.window() != window {
+            return Err(VisionError::WindowIdentityChanged {
+                expected: window,
+                actual: Some(subscription.window()),
+            });
+        }
+        let frame = subscription.next(timeout).await?;
+        if frame.window != window {
+            return Err(VisionError::WindowIdentityChanged {
+                expected: window,
+                actual: Some(frame.window),
+            });
+        }
+        self.update_cache_invalidation(&scope, window, &frame, DiffConfig::default())
+            .await?;
+        Ok(frame.topology_generation)
+    }
+
+    /// 在输入提交点复验物化目标绑定的 scene、frame 和 topology 仍然可用。
+    pub async fn validate_materialized_target(
+        &self,
+        window: WindowIdentity,
+        scene_id: u64,
+        frame_id: u64,
+        topology_generation: u64,
+    ) -> Result<(), VisionError> {
+        // 在物理输入 commit 前消费一张廉价新帧；若内容已变化，update_cache_invalidation
+        // 会把目标所在 ROI 标成 dirty，阻止旧 bbox 继续进入 SendInput。
+        let current_topology = self
+            .revalidate_cache(window, Duration::from_millis(75))
+            .await?;
+        let expected_topology = TopologyGeneration::new(topology_generation);
+        if !expected_topology.is_unknown() && current_topology != expected_topology {
+            return Err(VisionError::SceneStale);
+        }
+        let capture = CapturePolicy::default();
+        let scope = self.scopes.get_or_create(window, capture);
+        let (last_frame, cache) = {
+            let state = scope.lock().await;
+            (state.last_stable_frame.clone(), state.cache.clone())
+        };
+        let Some(last_frame) = last_frame else {
+            return Err(VisionError::SceneStale);
+        };
+        if last_frame.window != window
+            || (!expected_topology.is_unknown()
+                && last_frame.topology_generation != expected_topology)
+            || last_frame.frame_id.get() < frame_id
+            || cache.has_dirty_regions()
+        {
+            return Err(VisionError::SceneStale);
+        }
+        let Some(scene) = cache.current() else {
+            return Err(VisionError::SceneStale);
+        };
+        if scene.window != window
+            || scene.scene_id.get() != scene_id
+            || scene.frame_id.get() != frame_id
+            || (!expected_topology.is_unknown() && scene.topology_generation != expected_topology)
+            || scene.frame_id.get() > last_frame.frame_id.get()
+        {
+            return Err(VisionError::SceneStale);
+        }
+        Ok(())
     }
 
     /// 获取一份 cache-first 或 force-refresh 的稳定场景。
@@ -333,7 +413,7 @@ impl VisionRuntime {
                 &frame,
                 *roi,
                 policy.ocr.clone(),
-                policy.stability.timeout,
+                policy.ocr_timeout,
             )?;
             let request_frame_id = request.frame_id;
             let request_generation = request.topology_generation;

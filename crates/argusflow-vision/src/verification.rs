@@ -1,5 +1,7 @@
 //! 视觉验证条件与高风险动作的三态结果。
 
+use std::collections::HashMap;
+
 use argusflow_core::VisualQuery;
 use serde::{Deserialize, Serialize};
 
@@ -112,13 +114,24 @@ pub fn evaluate_visual_condition(
                     reason: "验证前后的 scene 属于不同窗口拓扑".to_owned(),
                 };
             }
+            let previous_counts = matching_nodes(previous, query, *region).into_iter().fold(
+                HashMap::<u64, usize>::new(),
+                |mut counts, node| {
+                    *counts.entry(node.identity_hash).or_default() += 1;
+                    counts
+                },
+            );
+            let mut current_counts = HashMap::<u64, usize>::new();
             let matches = matching_nodes(current, query, *region)
                 .into_iter()
                 .filter(|candidate| {
-                    !previous.nodes.iter().any(|old| {
-                        old.stable_hash == candidate.stable_hash
-                            && old.normalized_text == candidate.normalized_text
-                    })
+                    let seen = current_counts.entry(candidate.identity_hash).or_default();
+                    *seen += 1;
+                    *seen
+                        > previous_counts
+                            .get(&candidate.identity_hash)
+                            .copied()
+                            .unwrap_or_default()
                 })
                 .collect::<Vec<_>>();
             if matches.is_empty() {
@@ -188,6 +201,15 @@ mod tests {
     }
 
     fn scenes_with_texts(first_text: &str, second_text: &str) -> (VisualScene, VisualScene) {
+        scenes_with_texts_at(first_text, second_text, 10.0, 10.0)
+    }
+
+    fn scenes_with_texts_at(
+        first_text: &str,
+        second_text: &str,
+        first_x: f32,
+        second_x: f32,
+    ) -> (VisualScene, VisualScene) {
         let window = WindowIdentity {
             handle: 1,
             process_id: 2,
@@ -236,7 +258,7 @@ mod tests {
             .build(
                 window,
                 &first_frame,
-                &[response(&first_frame, first_text, 10.0)],
+                &[response(&first_frame, first_text, first_x)],
                 &SceneBuildOptions::default(),
             )
             .expect("first scene is valid");
@@ -245,7 +267,7 @@ mod tests {
             .build(
                 window,
                 &second_frame,
-                &[response(&second_frame, second_text, 10.0)],
+                &[response(&second_frame, second_text, second_x)],
                 &SceneBuildOptions::default(),
             )
             .expect("second scene is valid");
@@ -300,6 +322,26 @@ mod tests {
     #[test]
     fn historical_same_text_is_not_a_new_send_result() {
         let (first, second) = scenes_with_texts("重复消息", "重复消息");
+        let outcome = evaluate_visual_condition(
+            Some(&second),
+            Some(&first),
+            &VisualCondition::NewTextExistsSince {
+                query: VisualQuery {
+                    text: "重复消息".to_owned(),
+                    exact: true,
+                    region: None,
+                },
+                since_scene_id: first.scene_id,
+                region: None,
+            },
+        );
+
+        assert!(matches!(outcome, VerificationOutcome::Rejected { .. }));
+    }
+
+    #[test]
+    fn historical_same_text_moving_in_the_viewport_is_not_new() {
+        let (first, second) = scenes_with_texts_at("重复消息", "重复消息", 10.0, 60.0);
         let outcome = evaluate_visual_condition(
             Some(&second),
             Some(&first),
