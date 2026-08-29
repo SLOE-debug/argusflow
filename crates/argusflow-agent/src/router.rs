@@ -20,10 +20,11 @@ use crate::{
 };
 
 /// 能力、可用性、上下文和成本相同时使用的稳定兜底顺序。
-pub const ROUTE_TIE_BREAK_ORDER: [BackendKind; 7] = [
+pub const ROUTE_TIE_BREAK_ORDER: [BackendKind; 8] = [
     BackendKind::WindowsUia,
     BackendKind::BrowserCdp,
     BackendKind::VisualCache,
+    BackendKind::OcrSmall,
     BackendKind::OcrTiny,
     BackendKind::OcrMedium,
     BackendKind::GuiGrounding,

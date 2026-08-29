@@ -68,12 +68,3 @@ pub(super) fn create_graphics_device() -> Result<GraphicsDevice, VisionError> {
         capture_device,
     })
 }
-
-// SAFETY: D3D11 devices are free-threaded. The immediate context is accessed only by
-// readback operations guarded by WindowFrameSubscription::readback; the WinRT device is
-// used for the same subscription lifecycle and is never exposed outside this module.
-unsafe impl Send for GraphicsDevice {}
-
-// SAFETY: See the Send invariant above; shared access to the immediate context is serialized
-// by WindowFrameSubscription::readback before any D3D11 call is made through this value.
-unsafe impl Sync for GraphicsDevice {}

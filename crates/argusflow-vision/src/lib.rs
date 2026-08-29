@@ -4,6 +4,7 @@
 compile_error!("ArgusFlow only supports Windows targets.");
 
 mod backend;
+mod diagnostics;
 mod diff;
 mod error;
 mod evidence;
@@ -18,6 +19,7 @@ mod refresh;
 mod region;
 mod runtime;
 mod scene;
+mod scene_execution;
 mod scope;
 mod scroll;
 mod source;
@@ -27,7 +29,7 @@ mod worker;
 
 pub use backend::VisionBackend;
 pub use diff::{DiffConfig, DirtyMap, DirtyRegion, DirtyRegionReason, compute_dirty_map};
-pub use error::VisionError;
+pub use error::{SceneExecutionPhase, VisionError};
 pub use evidence::VisionPreparedDiagnostics;
 pub use frame::{
     CoordinateSpace, FrameId, PhysicalRect, PixelFormat, QpcTimestamp, TopologyGeneration,
@@ -38,19 +40,21 @@ pub use layout::{
 };
 pub use metrics::{VisionMetrics, VisionMetricsSnapshot};
 pub use ocr::{
-    OcrEngine, OcrItem, OcrModel, OcrOptions, OcrProfile, OcrRequest, OcrRequestId, OcrResponse,
-    OcrSource, PolygonPoint, normalize_text,
+    OcrEngine, OcrImagePreprocessing, OcrItem, OcrModel, OcrOptions, OcrPreprocessingSummary,
+    OcrProfile, OcrRequest, OcrRequestId, OcrResponse, OcrSource, PolygonPoint, normalize_text,
 };
 pub use projection::{ProjectionOptions, compact_text, spatial_text};
 pub use query::{
-    VisualCandidate, VisualMatch, evaluate_visual_query, fuzzy_candidates, matching_nodes,
+    VisualCandidate, VisualMatch, VisualQueryCandidateSummary, VisualQueryReport,
+    evaluate_visual_query, fuzzy_candidates, matching_nodes,
 };
 pub use refresh::{RefreshPlan, RefreshReason, choose_refresh_plan};
+pub use region::normalized_region_to_physical;
 pub use runtime::{SceneRefreshPolicy, VisionHealth, VisionRuntime, VisualSceneService};
 pub use scene::{
-    CacheLookup, CacheMissReason, RoleHint, SceneBuildOptions, SceneId, VisualNode,
-    VisualNodeChange, VisualNodeId, VisualNodeSource, VisualRegion, VisualRegionId,
-    VisualRegionKind, VisualScene, VisualSceneDelta, diff_scenes,
+    CacheLookup, CacheMissReason, RoleHint, SceneBuildOptions, SceneId, SceneOcrSummary,
+    VisualNode, VisualNodeChange, VisualNodeId, VisualNodeSource, VisualRegion, VisualRegionId,
+    VisualRegionKind, VisualScene, VisualSceneBuilder, VisualSceneDelta, diff_scenes,
 };
 // Windows 输入层仍以该强类型值表达滚轮批次；其余滚动编排保持 crate 内部实现。
 pub use scroll::WheelSteps;

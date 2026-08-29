@@ -80,19 +80,22 @@ pub fn choose_refresh_plan(
         };
     }
     if !has_base_scene {
-        return RefreshPlan::Full {
-            reason: RefreshReason::NoBaseScene,
+        return match query_region {
+            Some(region) if region != viewport => RefreshPlan::Partial {
+                regions: vec![region],
+                coverage_ratio: coverage_ratio(&[region], viewport),
+                reason: RefreshReason::NoBaseScene,
+            },
+            Some(_) | None => RefreshPlan::Full {
+                reason: RefreshReason::NoBaseScene,
+            },
         };
     }
     let Some(dirty) = dirty else {
-        return RefreshPlan::Full {
-            reason: RefreshReason::MajorTransition,
-        };
+        return transition_plan(viewport, query_region);
     };
     if dirty.major_transition {
-        return RefreshPlan::Full {
-            reason: RefreshReason::MajorTransition,
-        };
+        return transition_plan(viewport, query_region);
     }
 
     let regions = dirty
@@ -125,6 +128,20 @@ pub fn choose_refresh_plan(
             coverage_ratio: coverage,
             reason: RefreshReason::DirtyRegion,
         }
+    }
+}
+
+/// 大范围画面变化仍只扫描调用方声明的查询区域；没有 ROI 时才升级整窗。
+fn transition_plan(viewport: PhysicalRect, query_region: Option<PhysicalRect>) -> RefreshPlan {
+    match query_region {
+        Some(region) if region != viewport => RefreshPlan::Partial {
+            regions: vec![region],
+            coverage_ratio: coverage_ratio(&[region], viewport),
+            reason: RefreshReason::MajorTransition,
+        },
+        Some(_) | None => RefreshPlan::Full {
+            reason: RefreshReason::MajorTransition,
+        },
     }
 }
 
@@ -219,5 +236,71 @@ mod tests {
             0.35,
         );
         assert!(matches!(plan, RefreshPlan::Full { .. }));
+    }
+
+    #[test]
+    fn first_query_with_region_only_scans_that_region() {
+        let query_region = PhysicalRect::new(10, 20, 30, 15).unwrap();
+        let plan = choose_refresh_plan(
+            None,
+            viewport(),
+            Some(query_region),
+            false,
+            true,
+            false,
+            0.35,
+        );
+
+        assert!(matches!(
+            plan,
+            RefreshPlan::Partial {
+                regions,
+                reason: RefreshReason::NoBaseScene,
+                ..
+            } if regions == vec![query_region]
+        ));
+    }
+
+    #[test]
+    fn explicit_full_still_overrides_query_region() {
+        let plan = choose_refresh_plan(
+            None,
+            viewport(),
+            Some(PhysicalRect::new(10, 20, 30, 15).unwrap()),
+            false,
+            true,
+            true,
+            0.35,
+        );
+
+        assert!(matches!(
+            plan,
+            RefreshPlan::Full {
+                reason: RefreshReason::ExplicitFull
+            }
+        ));
+    }
+
+    #[test]
+    fn major_transition_with_query_region_stays_local() {
+        let query_region = PhysicalRect::new(20, 30, 40, 20).unwrap();
+        let plan = choose_refresh_plan(
+            Some(&dirty(viewport(), true)),
+            viewport(),
+            Some(query_region),
+            true,
+            true,
+            false,
+            0.35,
+        );
+
+        assert!(matches!(
+            plan,
+            RefreshPlan::Partial {
+                regions,
+                reason: RefreshReason::MajorTransition,
+                ..
+            } if regions == vec![query_region]
+        ));
     }
 }

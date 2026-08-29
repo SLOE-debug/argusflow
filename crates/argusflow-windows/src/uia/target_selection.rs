@@ -169,10 +169,12 @@ pub(super) fn resolution_error(failure: TargetResolutionFailure, query: &str) ->
     match failure {
         TargetResolutionFailure::NotFound => AutomationError::TargetNotFound {
             query: query.to_owned(),
+            details: String::new(),
         },
         TargetResolutionFailure::Ambiguous { matches } => AutomationError::AmbiguousTarget {
             query: query.to_owned(),
             matches,
+            details: String::new(),
         },
         TargetResolutionFailure::ActionUnsupported {
             semantic_matches,

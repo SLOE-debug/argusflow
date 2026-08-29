@@ -6,13 +6,13 @@ use std::{
 
 use argusflow_agent::{
     MaterializedTarget, MaterializedTargetValidator, PreparedTargetMaterializer, VisualBaseline,
-    VisualMaterializationPlan, VisualMaterializationStage, VisualVerificationProvider,
-    VisualVerificationResult, WindowContext,
+    VisualMaterializationPlan, VisualMaterializationStage, VisualTargetBounds,
+    VisualVerificationProvider, VisualVerificationResult, WindowContext,
 };
 use argusflow_core::{AutomationError, BackendKind, VisualQuery, WindowIdentity};
 use argusflow_vision::{
-    SceneRefreshPolicy, VerificationOutcome, VisionError, VisionRuntime, VisualCondition,
-    VisualNode, evaluate_visual_condition, matching_nodes,
+    PhysicalRect, SceneRefreshPolicy, VerificationOutcome, VisionError, VisionRuntime,
+    VisualCondition, VisualNode, VisualQueryReport, evaluate_visual_condition, matching_nodes,
 };
 use async_trait::async_trait;
 use windows::Win32::{
@@ -58,6 +58,7 @@ impl PreparedTargetMaterializer for WindowsVisualTargetMaterializer {
         if health.worker_ready {
             stages.extend([
                 VisualMaterializationStage::OcrTiny,
+                VisualMaterializationStage::OcrSmall,
                 VisualMaterializationStage::OcrMedium,
             ]);
         }
@@ -75,7 +76,7 @@ impl PreparedTargetMaterializer for WindowsVisualTargetMaterializer {
             process_id: window.process_id,
         };
         let mut last_error = None;
-        for stage in &plan.stages {
+        for (stage_index, stage) in plan.stages.iter().enumerate() {
             let result = match stage {
                 VisualMaterializationStage::Cache => {
                     let mut refresh = SceneRefreshPolicy::tiny();
@@ -112,6 +113,14 @@ impl PreparedTargetMaterializer for WindowsVisualTargetMaterializer {
                         .await
                         .map_err(|error| map_vision_error(BackendKind::OcrTiny, error))
                 }
+                VisualMaterializationStage::OcrSmall => {
+                    let mut refresh = SceneRefreshPolicy::small();
+                    refresh.normalized_query_region = query.region;
+                    self.runtime
+                        .current_scene(identity, &refresh)
+                        .await
+                        .map_err(|error| map_vision_error(BackendKind::OcrSmall, error))
+                }
                 VisualMaterializationStage::OcrMedium => {
                     let mut refresh = SceneRefreshPolicy::medium();
                     refresh.normalized_query_region = query.region;
@@ -141,6 +150,12 @@ impl PreparedTargetMaterializer for WindowsVisualTargetMaterializer {
                             last_error = Some(error);
                             continue;
                         }
+                        Err(error @ AutomationError::AmbiguousTarget { .. })
+                            if has_later_ocr_stage(&plan.stages[stage_index + 1..]) =>
+                        {
+                            last_error = Some(error);
+                            continue;
+                        }
                         Ok(node) => node,
                         Err(error) => return Err(error),
                     };
@@ -156,6 +171,12 @@ impl PreparedTargetMaterializer for WindowsVisualTargetMaterializer {
                         frame_id: scene.frame_id.get(),
                         topology_generation: scene.topology_generation.get(),
                         bounds: mapped.bounds,
+                        frame_bounds: VisualTargetBounds {
+                            x: node.bbox.x,
+                            y: node.bbox.y,
+                            width: node.bbox.width,
+                            height: node.bbox.height,
+                        },
                         surface_bounds: mapped.surface_bounds,
                         confidence: node.confidence,
                         safe_point: mapped.safe_point,
@@ -185,7 +206,7 @@ impl VisualVerificationProvider for WindowsVisualTargetMaterializer {
             handle: window.handle,
             process_id: window.process_id,
         };
-        let mut refresh = SceneRefreshPolicy::tiny();
+        let mut refresh = SceneRefreshPolicy::small();
         refresh.force_refresh = true;
         refresh.max_age = Duration::ZERO;
         refresh.normalized_query_region = query.region;
@@ -337,6 +358,15 @@ impl MaterializedTargetValidator for WindowsVisualTargetMaterializer {
                 target.scene_id,
                 target.frame_id,
                 target.topology_generation,
+                PhysicalRect::new(
+                    target.frame_bounds.x,
+                    target.frame_bounds.y,
+                    target.frame_bounds.width,
+                    target.frame_bounds.height,
+                )
+                .ok_or_else(|| AutomationError::VisualTargetStale {
+                    message: "visual target has empty frame-local bounds".to_owned(),
+                })?,
             )
             .await
             .map_err(|error| match error {
@@ -356,15 +386,27 @@ const fn stage_backend(stage: VisualMaterializationStage) -> BackendKind {
     stage.backend_kind()
 }
 
-/// 视觉点击只接受区域内唯一且达到置信度门槛的节点；低置信度结果留给后续 medium 阶段。
+/// 判断剩余物化计划是否还能用更高精度 OCR 消解当前歧义。
+fn has_later_ocr_stage(stages: &[VisualMaterializationStage]) -> bool {
+    stages.iter().any(|stage| {
+        matches!(
+            stage,
+            VisualMaterializationStage::OcrSmall | VisualMaterializationStage::OcrMedium
+        )
+    })
+}
+
+/// 视觉点击只接受区域内唯一且达到置信度门槛的节点；其余结果留给后续升级阶段。
 fn select_click_node<'scene>(
     scene: &'scene argusflow_vision::VisualScene,
     query: &VisualQuery,
 ) -> Result<&'scene VisualNode, AutomationError> {
     let candidates = matching_nodes(scene, query);
+    let report = VisualQueryReport::from_matches(scene, query, &candidates);
     match candidates.as_slice() {
         [] => Err(AutomationError::TargetNotFound {
             query: query.text.clone(),
+            details: format!("；{}", report.summary()),
         }),
         [node] if node.confidence >= MIN_CLICK_CONFIDENCE => Ok(node),
         candidates
@@ -374,11 +416,13 @@ fn select_click_node<'scene>(
         {
             Err(AutomationError::TargetNotFound {
                 query: query.text.clone(),
+                details: format!("；{}", report.summary()),
             })
         }
         candidates => Err(AutomationError::AmbiguousTarget {
             query: query.text.clone(),
             matches: candidates.len(),
+            details: format!("；{}", report.summary()),
         }),
     }
 }

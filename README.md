@@ -14,7 +14,8 @@ ArgusFlow 是一个严格面向 Windows 的 Rust Agent Runtime 与可视化工�
 
 完整功能状态和后续路线统一维护在 [TODO.md](TODO.md)。任何功能实现、删除或优先级调整都应同步更新该清单。
 
-UIA、CDP、屏幕捕获和 OCR 暂未接入，相关调用会返回明确的 `BackendUnavailable` 错误。
+UIA、CDP、按窗口捕获和本地 PaddleOCR worker 已接入；视觉动作只处理当前 AppSession
+窗口的短期像素，不会默认捕获整个桌面或把截图发送到云端。
 
 ## 目录
 
@@ -36,7 +37,9 @@ argusflow/
 
 ## 本地验证
 
-项目要求 64 位 Windows 10/11、Rust 1.91+、Node.js、pnpm、Microsoft C++ Build Tools 和 WebView2。
+项目要求 64 位 Windows 10/11、Rust 1.91+、Node.js、pnpm、Miniconda/Anaconda、
+Microsoft C++ Build Tools 和 WebView2。启动前需保证 `conda` 命令可用；Vision worker
+使用的 Python 3.11 由启动脚本在仓库专属环境中创建，不读取 Conda base 环境的包。
 
 AQL Editor 使用项目自研的 Rust/WASM 语言服务。首次启动或修改 `argusflow-query` 后，先安装 WASM target 与版本匹配的 `wasm-bindgen-cli`，再生成 Vite 静态资源：
 
@@ -60,7 +63,11 @@ pnpm start
 .\scripts\dev.ps1 -Proxy http://127.0.0.1:7897
 ```
 
-脚本会在 `node_modules` 不存在时执行冻结锁文件安装，然后由 Tauri 自动拉起 Vite 开发服务器。
+脚本会按需安装冻结的前端依赖，并在 `workers/argusflow-vision-worker/.conda` 中创建
+仓库独享的 Conda Python 3.11 prefix 环境。PaddleOCR 依赖和模型首次安装、预热完成后，
+脚本才会启动 Tauri 与 Vite；退出桌面端时，本次启动的 worker 会一并结束。已经由外部部署层设置
+`ARGUSFLOW_VISION_PIPE_NAME` 与 `ARGUSFLOW_VISION_SESSION_TOKEN` 时，脚本会沿用外部 worker。
+需要执行视觉工作流时不要绕过该脚本直接运行 `pnpm tauri dev`，除非外部 worker 已配置完成。
 
 完整验证命令：
 
@@ -68,7 +75,7 @@ pnpm start
 pnpm install
 cargo test --workspace
 pnpm test
-pnpm tauri dev
+pnpm start
 ```
 
 这些编译和测试命令由项目维护者自行执行。

@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import importlib.metadata
+import json
 import os
 import time
+from pathlib import Path
 from typing import Any
 
 import numpy
 import pywintypes
 
+from .image_preprocessing import ImagePreprocessingMode, PreparedOcrImage, prepare_ocr_image
 from .protocol import (
     PROTOCOL_VERSION,
     ProtocolError,
@@ -33,8 +36,6 @@ def _prediction_json(prediction: Any) -> dict[str, Any]:
     value = getattr(prediction, "json", None)
     value = value() if callable(value) else value
     if isinstance(value, str):
-        import json
-
         value = json.loads(value)
     if not isinstance(value, dict):
         raise RuntimeError("PaddleOCR result did not expose a JSON object")
@@ -49,6 +50,8 @@ def _model_name(model: str) -> tuple[str, str]:
 
     if model == "pp_ocr_v6_tiny":
         return "PP-OCRv6_tiny_det", "PP-OCRv6_tiny_rec"
+    if model == "pp_ocr_v6_small":
+        return "PP-OCRv6_small_det", "PP-OCRv6_small_rec"
     if model == "pp_ocr_v6_medium":
         return "PP-OCRv6_medium_det", "PP-OCRv6_medium_rec"
     raise ProtocolError("invalid_model", f"unsupported OCR model: {model}")
@@ -59,7 +62,7 @@ class PaddleModelPool:
 
     def __init__(self) -> None:
         self.device = os.environ.get("ARGUSFLOW_PADDLE_DEVICE", "cpu")
-        self._pipelines: dict[tuple[str, str, bool, bool, bool], Any] = {}
+        self._pipelines: dict[tuple[str, bool, bool, bool], Any] = {}
         self.current_model: str | None = None
         try:
             self.paddleocr_version = importlib.metadata.version("paddleocr")
@@ -69,11 +72,12 @@ class PaddleModelPool:
     def pipeline(self, model: str, options: dict[str, Any]) -> Any:
         """Load a profile once, keeping document-only preprocessing disabled by default."""
 
-        language = str(options.get("language", "ch"))
         orientation = bool(options.get("use_doc_orientation_classify", False))
         unwarping = bool(options.get("use_doc_unwarping", False))
         textline_orientation = bool(options.get("use_textline_orientation", False))
-        key = (model, language, orientation, unwarping, textline_orientation)
+        # Explicit PP-OCRv6 model names define the recognition dictionary; PaddleOCR ignores
+        # `lang` in this mode, so it must not create duplicate pipelines for the same models.
+        key = (model, orientation, unwarping, textline_orientation)
         if key not in self._pipelines:
             from paddleocr import PaddleOCR
 
@@ -81,12 +85,14 @@ class PaddleModelPool:
             self._pipelines[key] = PaddleOCR(
                 text_detection_model_name=detection_model,
                 text_recognition_model_name=recognition_model,
-                lang=language,
                 device=self.device,
                 engine="paddle",
                 use_doc_orientation_classify=orientation,
                 use_doc_unwarping=unwarping,
                 use_textline_orientation=textline_orientation,
+                text_recognition_batch_size=8,
+                enable_mkldnn=self.device == "cpu",
+                cpu_threads=max(1, min(8, os.cpu_count() or 4)),
             )
         self.current_model = model
         return self._pipelines[key]
@@ -121,14 +127,14 @@ class VisionWorker:
         }
 
     def prewarm(self) -> None:
-        """Load and exercise both OCR tiers before accepting requests."""
+        """Load the default desktop tier; exceptional Tiny/Medium tiers stay lazy."""
 
         self.lifecycle = "loading_models"
         warmup = numpy.zeros((64, 256, 3), dtype=numpy.uint8)
-        for model in ("pp_ocr_v6_tiny", "pp_ocr_v6_medium"):
-            for language in ("ch", "en"):
-                pipeline = self.models.pipeline(model, {"language": language})
-                next(iter(pipeline.predict(warmup)), None)
+        warmup_options = {"image_preprocessing": "none"}
+        model = "pp_ocr_v6_small"
+        pipeline = self.models.pipeline(model, warmup_options)
+        next(iter(pipeline.predict(warmup, text_rec_score_thresh=_minimum_score(model))), None)
         self.lifecycle = "ready"
 
     def recognize(self, request: dict[str, Any], body: bytes) -> dict[str, Any]:
@@ -161,13 +167,35 @@ class VisionWorker:
         options = profile.get("options")
         if not isinstance(options, dict):
             raise ProtocolError("invalid_profile", "OCR options are missing")
+        try:
+            preprocessing_mode = ImagePreprocessingMode(str(options["image_preprocessing"]))
+        except (KeyError, ValueError) as error:
+            raise ProtocolError(
+                "invalid_profile",
+                "OCR image_preprocessing is missing or unsupported",
+            ) from error
+        prepared = prepare_ocr_image(rgb, preprocessing_mode)
         pipeline = self.models.pipeline(model, options)
-        prediction: Any = next(iter(pipeline.predict(rgb)), None)
+        minimum_score = _minimum_score(model)
+        prediction: Any = next(
+            iter(
+                pipeline.predict(
+                    prepared.pixels,
+                    text_rec_score_thresh=minimum_score,
+                )
+            ),
+            None,
+        )
         if prediction is None:
             items: list[dict[str, Any]] = []
         else:
             result = _prediction_json(prediction)
-            items = _items_from_result(result, request.get("roi"))
+            items = _items_from_result(
+                result,
+                request.get("roi"),
+                prepared,
+                minimum_score,
+            )
         deadline_ms = int(request.get("deadline_ms", 0))
         elapsed_ms = int((time.perf_counter() - started) * 1000)
         if deadline_ms > 0 and elapsed_ms > deadline_ms:
@@ -178,11 +206,29 @@ class VisionWorker:
             "topology_generation": int(request["topology_generation"]),
             "model": model,
             "elapsed_ms": elapsed_ms,
+            "preprocessing": prepared.summary(),
             "items": items,
         }
 
 
-def _items_from_result(result: dict[str, Any], roi: Any) -> list[dict[str, Any]]:
+def _minimum_score(model: str) -> float:
+    """Return the tier-specific junk-text filter used by Paddle and the response adapter."""
+
+    if model == "pp_ocr_v6_tiny":
+        return 0.45
+    if model == "pp_ocr_v6_small":
+        return 0.35
+    if model == "pp_ocr_v6_medium":
+        return 0.30
+    raise ProtocolError("invalid_model", f"unsupported OCR model: {model}")
+
+
+def _items_from_result(
+    result: dict[str, Any],
+    roi: Any,
+    prepared: PreparedOcrImage,
+    minimum_score: float,
+) -> list[dict[str, Any]]:
     """Align rec_texts, rec_scores and rec_polys while preserving raw text."""
 
     if not isinstance(roi, dict):
@@ -203,13 +249,18 @@ def _items_from_result(result: dict[str, Any], roi: Any) -> list[dict[str, Any]]
     for index, text in enumerate(texts):
         polygon = polygons[index] if index < len(polygons) else []
         points = [
-            [float(point[0]) + offset_x, float(point[1]) + offset_y]
+            [
+                prepared.map_x_to_input(float(point[0])) + offset_x,
+                prepared.map_y_to_input(float(point[1])) + offset_y,
+            ]
             for point in polygon
             if len(point) >= 2
         ]
         if not points:
             continue
         score = float(scores[index]) if index < len(scores) else 0.0
+        if score < minimum_score:
+            continue
         items.append(
             {
                 "raw_text": str(text),
@@ -244,20 +295,44 @@ def _error_response(envelope: dict[str, Any], code: str, message: str) -> dict[s
     )
 
 
-def serve(pipe_name: str, session_token: str) -> None:
+def _publish_startup_status(
+    status_file: str | None,
+    lifecycle: str,
+    message: str | None = None,
+) -> None:
+    """Atomically publish model readiness without exposing captured content."""
+
+    if status_file is None:
+        return
+    status_path = Path(status_file)
+    status_path.parent.mkdir(parents=True, exist_ok=True)
+    status = {"lifecycle": lifecycle}
+    if message is not None:
+        status["message"] = message
+    temporary_path = status_path.with_name(f"{status_path.name}.{os.getpid()}.tmp")
+    temporary_path.write_text(json.dumps(status), encoding="utf-8")
+    os.replace(temporary_path, status_path)
+
+
+def serve(pipe_name: str, session_token: str, status_file: str | None = None) -> None:
     """Supervise worker state and recreate the model pool after a bad inference."""
 
     while True:
         worker = VisionWorker()
+        _publish_startup_status(status_file, "loading_models")
         try:
             worker.prewarm()
         except Exception as error:
             worker.lifecycle = "failed"
             startup_error = str(error)
+            _publish_startup_status(status_file, "failed", startup_error)
         else:
             startup_error = None
 
         handle = create_server(pipe_name)
+        if startup_error is None:
+            # Named Pipe 已经存在后再发布 ready，避免桌面端首次 health handshake 抢跑。
+            _publish_startup_status(status_file, "ready")
         restart_worker = False
         try:
             connect_server(handle)

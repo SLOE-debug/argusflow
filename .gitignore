@@ -10,6 +10,11 @@
 /src-tauri/gen/schemas/
 /public/aql-wasm/
 /src/features/aql-editor/generated/
+/workers/argusflow-vision-worker/.venv/
+/workers/argusflow-vision-worker/.conda/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
 
 # 本地配置与环境变量
 *.local

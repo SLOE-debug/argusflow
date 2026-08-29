@@ -128,8 +128,8 @@ describe('workflow model', () => {
       { key: 'message', value_type: 'text' },
     ]);
     expect(DEFAULT_RUN_INPUT_VALUES).toEqual({
-      group_name: 'ArgusFlow 测试群',
-      message: 'ArgusFlow 自动化测试消息',
+      group_name: '崽崽',
+      message: '今日天气',
     });
     expect(workflow.nodes.some((node) => node.type_id === 'argus.condition')).toBe(false);
     expect(workflow.nodes.filter((node) => node.type_id === 'argus.delay')).toHaveLength(0);
@@ -185,6 +185,30 @@ describe('workflow model', () => {
       },
     }));
     expect(workflow.nodes).toContainEqual(expect.objectContaining({
+      id: 'wechat_verify_search_1',
+      type_id: 'argus.ui',
+      payload: expect.objectContaining({
+        operation: expect.objectContaining({
+          type: 'get_text',
+          target: expect.objectContaining({
+            locator: {
+              type: 'visual',
+              query: {
+                text: { type: 'literal', value: '网络结果' },
+                exact: false,
+                region: {
+                  x: 0.08,
+                  y: 0.1,
+                  width: 0.38,
+                  height: 0.12,
+                },
+              },
+            },
+          }),
+        }),
+      }),
+    }));
+    expect(workflow.nodes).toContainEqual(expect.objectContaining({
       id: 'wechat_type_group_name_1',
       type_id: 'argus.ui',
       payload: {
@@ -222,6 +246,28 @@ describe('workflow model', () => {
                   height: 0.72,
                 },
               },
+            },
+          }),
+        }),
+      }),
+    }));
+    expect(workflow.nodes).toContainEqual(expect.objectContaining({
+      id: 'wechat_verify_header_1',
+      payload: expect.objectContaining({
+        operation: expect.objectContaining({
+          type: 'get_text',
+          target: expect.objectContaining({
+            locator: {
+              type: 'visual',
+              query: expect.objectContaining({
+                exact: true,
+                region: {
+                  x: 0.34,
+                  y: 0,
+                  width: 0.4,
+                  height: 0.18,
+                },
+              }),
             },
           }),
         }),
@@ -383,6 +429,35 @@ describe('workflow model', () => {
     );
 
     expect(completed.map((item) => item.data.runState)).toEqual([
+      'skipped',
+      'success',
+      'error',
+    ]);
+    vi.unstubAllGlobals();
+  });
+
+  it('marks an unfinished running node as failed when the workflow fails', () => {
+    vi.stubGlobal('crypto', { randomUUID: () => 'node-id' });
+    const node = createNode('log');
+    const states: ReadonlyArray<NodeRunState> = [
+      'running',
+      'pending',
+      'success',
+      'error',
+    ];
+    const nodes = states.map((runState, index) => ({
+      ...node,
+      id: `node-${index}`,
+      data: { ...node.data, runState },
+    }));
+
+    const failed = applyExecutionEventToNodes(
+      nodes,
+      createExecutionEvent('workflow_failed'),
+    );
+
+    expect(failed.map((item) => item.data.runState)).toEqual([
+      'error',
       'skipped',
       'success',
       'error',

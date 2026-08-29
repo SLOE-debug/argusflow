@@ -10,7 +10,7 @@ import pywintypes
 import win32file
 import win32pipe
 
-PROTOCOL_VERSION = "argusflow.vision.v2"
+PROTOCOL_VERSION = "argusflow.vision.v3"
 MAX_CONTROL_FRAME_BYTES = 4 * 1024 * 1024
 MAX_PIXEL_BODY_BYTES = 64 * 1024 * 1024
 FRAME_MAGIC = b"AFV2"

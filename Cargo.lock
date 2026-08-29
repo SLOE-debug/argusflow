@@ -151,6 +151,7 @@ dependencies = [
  "argusflow-core",
  "argusflow-query",
  "async-trait",
+ "futures-util",
  "rhai",
  "serde",
  "serde_json",

@@ -10,7 +10,7 @@ use crate::{
 };
 
 /// 当前 Rust/Python worker 协议版本。
-pub const VISION_PROTOCOL_VERSION: &str = "argusflow.vision.v2";
+pub const VISION_PROTOCOL_VERSION: &str = "argusflow.vision.v3";
 
 /// 单次 Named Pipe 消息允许携带的最大原始像素体大小。
 pub const MAX_PIXEL_BODY_BYTES: usize = 64 * 1024 * 1024;
@@ -21,7 +21,7 @@ pub const MAX_PIXEL_BODY_BYTES: usize = 64 * 1024 * 1024;
 pub enum WorkerLifecycle {
     /// 进程已启动但尚未加载模型。
     Starting,
-    /// 正在加载 tiny 或 medium 模型。
+    /// 正在加载默认 small 模型或 medium 回退模型。
     LoadingModels,
     /// 可接受请求。
     Ready,

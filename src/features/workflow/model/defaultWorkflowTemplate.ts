@@ -19,6 +19,7 @@ import {
 import {
   WECHAT_HEADER_REGION,
   WECHAT_MESSAGE_REGION,
+  WECHAT_SEARCH_OVERLAY_REGION,
   WECHAT_SEARCH_RESULTS_REGION,
 } from './wechatTemplateParts';
 import { createWechatMessageDefinition } from '../components/builtin/wechatMessage';
@@ -264,10 +265,12 @@ function unreachableCanonicalNode(typeId: string): never {
 
 /** 保留模板测试和输入面板需要的区域常量导出引用。 */
 export const DEFAULT_WECHAT_REGIONS: Readonly<{
+  searchOverlay: NormalizedRect;
   searchResults: NormalizedRect;
   header: NormalizedRect;
   message: NormalizedRect;
 }> = {
+  searchOverlay: WECHAT_SEARCH_OVERLAY_REGION,
   searchResults: WECHAT_SEARCH_RESULTS_REGION,
   header: WECHAT_HEADER_REGION,
   message: WECHAT_MESSAGE_REGION,

@@ -3,6 +3,6 @@
 mod result;
 
 pub use result::{
-    OcrEngine, OcrItem, OcrModel, OcrOptions, OcrProfile, OcrRequest, OcrRequestId, OcrResponse,
-    OcrSource, PolygonPoint, normalize_text,
+    OcrEngine, OcrImagePreprocessing, OcrItem, OcrModel, OcrOptions, OcrPreprocessingSummary,
+    OcrProfile, OcrRequest, OcrRequestId, OcrResponse, OcrSource, PolygonPoint, normalize_text,
 };

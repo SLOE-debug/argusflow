@@ -56,7 +56,8 @@ export const BACKEND_LABELS = {
   browser_cdp: '浏览器自动化',
   visual_cache: '视觉缓存',
   ocr_tiny: '快速文字识别',
-  ocr_medium: '文字识别',
+  ocr_small: '桌面文字识别',
+  ocr_medium: '高精度文字识别',
   gui_grounding: '视觉定位',
   send_input: '模拟输入',
 } as const satisfies Readonly<Record<BackendKind, string>>;
@@ -96,8 +97,13 @@ export function formatExecutionLogEntry(entry: ExecutionLogEntry): string {
 /** 系统事件使用结构化载荷，用户 Log/Debug 文本则保持后端 message 原样。 */
 function resolveExecutionDetail(event: ExecutionEvent): string {
   switch (event.payload?.type) {
-    case 'backend_selected':
-      return BACKEND_LABELS[event.payload.backend];
+    case 'backend_selected': {
+      const backend = BACKEND_LABELS[event.payload.backend];
+      const outcome = event.message?.trim();
+      return outcome && outcome !== event.payload.backend
+        ? `${backend} · ${outcome}`
+        : backend;
+    }
     case 'command_exited':
       return `退出代码 ${event.payload.exit_code}`;
     case 'node_outputs_produced':

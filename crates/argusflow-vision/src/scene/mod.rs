@@ -8,6 +8,6 @@ mod region;
 
 pub use cache::{CacheLookup, CacheMissReason, VisualSceneCache};
 pub use delta::{VisualNodeChange, VisualSceneDelta, diff_scenes};
-pub use model::{SceneBuildOptions, SceneId, VisualScene, VisualSceneBuilder};
+pub use model::{SceneBuildOptions, SceneId, SceneOcrSummary, VisualScene, VisualSceneBuilder};
 pub use node::{RoleHint, VisualNode, VisualNodeId, VisualNodeSource};
 pub use region::{VisualRegion, VisualRegionId, VisualRegionKind};

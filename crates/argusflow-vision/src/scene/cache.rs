@@ -215,6 +215,16 @@ impl VisualSceneCache {
             .is_empty()
     }
 
+    /// 判断目标 ROI 是否与尚未重新识别的区域相交。
+    pub fn is_region_dirty(&self, region: PhysicalRect) -> bool {
+        self.state
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .dirty_regions
+            .iter()
+            .any(|dirty| dirty.intersects(region))
+    }
+
     /// 清除窗口关闭或拓扑重建后的所有短期事实。
     pub fn clear(&self) {
         let mut state = self

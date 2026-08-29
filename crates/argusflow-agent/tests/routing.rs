@@ -166,6 +166,7 @@ impl PreparedExecution for TestExecution {
             }),
             ExecutionResult::TargetNotFound => Err(AutomationError::TargetNotFound {
                 query: "button()".to_owned(),
+                details: String::new(),
             }),
         }
     }

@@ -1,16 +1,24 @@
 //! D3D11 staging texture 的订阅级复用与 GPU readback。
 
-use std::{ffi::c_void, sync::Arc};
+use std::{
+    ffi::c_void,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use argusflow_core::WindowIdentity;
 use argusflow_vision::{CapturedFrame, FrameId, QpcTimestamp, TopologyGeneration, VisionError};
 use windows::Graphics::{Capture::Direct3D11CaptureFrame, DirectX::Direct3D11::IDirect3DSurface};
 use windows::Win32::Graphics::{
     Direct3D11::{
-        D3D11_CPU_ACCESS_READ, D3D11_MAP_READ, D3D11_MAPPED_SUBRESOURCE, D3D11_TEXTURE2D_DESC,
-        D3D11_USAGE_STAGING, ID3D11Resource, ID3D11Texture2D,
+        D3D11_CPU_ACCESS_READ, D3D11_MAP_FLAG_DO_NOT_WAIT, D3D11_MAP_READ,
+        D3D11_MAPPED_SUBRESOURCE, D3D11_TEXTURE2D_DESC, D3D11_USAGE_STAGING, ID3D11Resource,
+        ID3D11Texture2D,
     },
-    Dxgi::Common::{DXGI_FORMAT, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC},
+    Dxgi::{
+        Common::{DXGI_FORMAT, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC},
+        DXGI_ERROR_WAS_STILL_DRAWING,
+    },
 };
 use windows::Win32::System::WinRT::Direct3D11::IDirect3DDxgiInterfaceAccess;
 use windows::core::Interface;
@@ -42,6 +50,8 @@ pub(super) fn readback_frame(
     window: WindowIdentity,
     frame_id: FrameId,
     topology_generation: TopologyGeneration,
+    deadline: Instant,
+    timeout: Duration,
 ) -> Result<Arc<CapturedFrame>, VisionError> {
     let surface: IDirect3DSurface = frame
         .Surface()
@@ -83,14 +93,34 @@ pub(super) fn readback_frame(
             .context
             .CopyResource(&staging_resource, &source_resource)
     };
+    // CopyResource 只排队 GPU 工作；Flush 后使用 DO_NOT_WAIT 轮询，避免 Map 无限阻塞 Tokio worker。
+    unsafe { graphics.context.Flush() };
     let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
-    // SAFETY: staging texture 使用 CPU_READ，且 immediate context 由 readback mutex 独占。
-    unsafe {
-        graphics
-            .context
-            .Map(&staging_resource, 0, D3D11_MAP_READ, 0, Some(&mut mapped))
+    loop {
+        if Instant::now() >= deadline {
+            return Err(readback_timeout(timeout));
+        }
+        // SAFETY: staging texture 使用 CPU_READ，且 immediate context 由 readback mutex 独占。
+        let mapped_result = unsafe {
+            graphics.context.Map(
+                &staging_resource,
+                0,
+                D3D11_MAP_READ,
+                D3D11_MAP_FLAG_DO_NOT_WAIT.0 as u32,
+                Some(&mut mapped),
+            )
+        };
+        match mapped_result {
+            Ok(()) => break,
+            Err(error) if error.code() == DXGI_ERROR_WAS_STILL_DRAWING => {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                std::thread::sleep(remaining.min(Duration::from_millis(1)));
+            }
+            Err(error) => {
+                return Err(capture_error("failed to map D3D11 staging texture", error));
+            }
+        }
     }
-    .map_err(|error| capture_error("failed to map D3D11 staging texture", error))?;
     let result = if mapped.pData.is_null() || (mapped.RowPitch as usize) < row_bytes {
         Err(invalid_capture("D3D11 map returned an invalid row pitch"))
     } else {
@@ -127,6 +157,13 @@ pub(super) fn readback_frame(
     // SAFETY: Map 已成功返回，且 staging_resource 仍由当前函数持有。
     unsafe { graphics.context.Unmap(&staging_resource, 0) };
     result
+}
+
+/// 把 GPU readback 超过当前捕获预算映射为统一的帧超时。
+fn readback_timeout(timeout: Duration) -> VisionError {
+    VisionError::FrameTimeout {
+        timeout_ms: timeout.as_millis().min(u128::from(u64::MAX)) as u64,
+    }
 }
 
 /// 记录 staging texture 的创建参数，窗口 resize 后强制替换。

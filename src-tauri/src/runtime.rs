@@ -9,11 +9,11 @@ use argusflow_browser::{CdpBackend, CdpRuntime};
 use argusflow_core::BackendKind;
 use argusflow_runtime::WorkflowEngine;
 use argusflow_vision::{
-    NamedPipeOcrEngine, OcrEngine, UnavailableOcrEngine, VisionBackend, VisionRuntime,
+    NamedPipeOcrEngine, OcrEngine, UnavailableOcrEngine, VisionBackend, VisionError, VisionRuntime,
     VisionWorkerClient,
 };
 use argusflow_windows::{
-    capture::WindowsGraphicsCapture,
+    capture::WindowsCaptureHost,
     context::WindowsExecutionContextProvider,
     input::{SendInputBackend, WindowsVisualTargetMaterializer},
     uia::{UiaBackend, UiaRuntime},
@@ -26,19 +26,23 @@ pub struct AppState {
     pub engine: Arc<WorkflowEngine>,
     /// 供 AQL Explain 与 WorkflowEngine 共享的唯一 Planner 实例。
     pub router: Arc<ActionRouter>,
+    /// 应用生命周期内唯一的 WGC MTA 线程与共享 D3D11 设备所有者。
+    capture_host: WindowsCaptureHost,
 }
 
 impl AppState {
-    /// 创建应用状态并注册由 capability planner 排序的自动化后端。
-    pub fn new() -> Self {
+    /// 创建应用状态、启动捕获主机，并注册由 capability planner 排序的自动化后端。
+    pub fn new() -> Result<Self, VisionError> {
         // UIA runtime 初始化失败不会阻止应用启动；候选会以 Unavailable 进入 Explain。
         let uia_runtime = Arc::new(UiaRuntime::start());
         // Browser 节点与 CdpBackend 共享唯一 runtime，确保资源 scope 精确绑定同一页面会话。
         let cdp_runtime = Arc::new(CdpRuntime::new());
-        // 视觉 capture/OCR/cache 只装配一次，VisualCache/OcrTiny/OcrMedium 共享同一 runtime。
+        // WGC host 在应用启动阶段创建；session、frame pool 和 D3D11 readback 都固定在其 MTA 线程。
+        let capture_host = WindowsCaptureHost::start()?;
+        // 视觉 capture/OCR/cache 只装配一次，全部 OCR 档位共享同一 runtime。
         // Python worker 由部署层启动并通过环境变量注入；未配置时 health 会明确降级。
         let vision_runtime = Arc::new(VisionRuntime::new(
-            Arc::new(WindowsGraphicsCapture::new()),
+            Arc::new(capture_host.frame_source()),
             build_vision_worker(),
         ));
         let visual_materializer =
@@ -54,6 +58,10 @@ impl AppState {
             Arc::new(VisionBackend::new(
                 vision_runtime.clone(),
                 BackendKind::OcrTiny,
+            )),
+            Arc::new(VisionBackend::new(
+                vision_runtime.clone(),
+                BackendKind::OcrSmall,
             )),
             Arc::new(VisionBackend::new(
                 vision_runtime.clone(),
@@ -77,14 +85,20 @@ impl AppState {
                 }),
         );
 
-        Self {
+        Ok(Self {
             engine: Arc::new(WorkflowEngine::with_resource_providers(
                 router.clone(),
                 Arc::new(WindowsApplicationSessionProvider),
                 cdp_runtime,
             )),
             router,
-        }
+            capture_host,
+        })
+    }
+
+    /// 在 Tauri 最终退出事件中确定性销毁全部 WGC 资源并等待主机线程结束。
+    pub fn shutdown(&self) -> Result<(), VisionError> {
+        self.capture_host.shutdown()
     }
 }
 

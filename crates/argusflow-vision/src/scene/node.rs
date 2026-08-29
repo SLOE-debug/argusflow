@@ -50,6 +50,8 @@ pub enum RoleHint {
 pub enum VisualNodeSource {
     /// PP-OCRv6 tiny。
     OcrTiny,
+    /// PP-OCRv6 small。
+    OcrSmall,
     /// PP-OCRv6 medium。
     OcrMedium,
     /// 几何布局启发式。
@@ -64,6 +66,7 @@ impl From<OcrSource> for VisualNodeSource {
     fn from(source: OcrSource) -> Self {
         match source {
             OcrSource::OcrTiny => Self::OcrTiny,
+            OcrSource::OcrSmall => Self::OcrSmall,
             OcrSource::OcrMedium => Self::OcrMedium,
             OcrSource::LayoutHeuristic => Self::LayoutHeuristic,
             OcrSource::UiaProjection => Self::UiaProjection,

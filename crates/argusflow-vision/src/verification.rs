@@ -235,6 +235,14 @@ mod tests {
             topology_generation: frame.topology_generation,
             model: OcrModel::PpOcrV6Medium,
             elapsed_ms: 1,
+            preprocessing: crate::ocr::OcrPreprocessingSummary {
+                input_width: 100,
+                input_height: 100,
+                output_width: 100,
+                output_height: 100,
+                contrast_enhanced: false,
+                sharpened: false,
+            },
             items: vec![OcrItem {
                 raw_text: text.to_owned(),
                 confidence: 0.99,

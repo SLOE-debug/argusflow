@@ -172,7 +172,7 @@ impl PreparedPlan {
             match self.execute_once(false).await {
                 PreparedAttempt::Success(outcome) => return Ok(outcome),
                 PreparedAttempt::Failure {
-                    error: AutomationError::TargetNotFound { query },
+                    error: AutomationError::TargetNotFound { query, details },
                     candidate_failures,
                 } => {
                     if tokio::time::Instant::now() >= deadline {
@@ -180,6 +180,7 @@ impl PreparedPlan {
                         return Err(AutomationError::TargetWaitTimeout {
                             query,
                             timeout_ms: policy.timeout_ms,
+                            details,
                         });
                     }
                     let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());

@@ -6,6 +6,7 @@ import type {
 } from '../../model/contracts';
 import {
   WECHAT_HEADER_REGION,
+  WECHAT_SEARCH_OVERLAY_REGION,
   WECHAT_SEARCH_RESULTS_REGION,
   createWechatInputExecutionPolicy,
   createWechatSendMessageExecutionPolicy,
@@ -26,7 +27,7 @@ export function createWechatMessageDefinition(): FlowComponentDefinition {
   return {
     schema_version: 1,
     id: WECHAT_MESSAGE_COMPONENT_ID,
-    version: '1.1.0',
+    version: '1.2.0',
     name: '发送微信群消息',
     inputs: [
       { key: 'group_name', value_type: 'text' },
@@ -56,9 +57,9 @@ export function createWechatMessageDefinition(): FlowComponentDefinition {
       componentNode('verify_search', 620, 'argus.ui', 3, {
         operation: createWechatVisualGetTextOperation(
           applicationNodeId,
-          literalText('搜索'),
+          literalText('网络结果'),
           false,
-          WECHAT_SEARCH_RESULTS_REGION,
+          WECHAT_SEARCH_OVERLAY_REGION,
         ),
         execution: visualExecution,
       }),

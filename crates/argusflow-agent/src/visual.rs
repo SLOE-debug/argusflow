@@ -13,6 +13,8 @@ pub enum VisualMaterializationStage {
     Cache,
     /// 请求低延迟 OCR 刷新。
     OcrTiny,
+    /// 请求桌面 GUI 默认的平衡型 OCR 刷新。
+    OcrSmall,
     /// 请求高精度 OCR 刷新。
     OcrMedium,
     /// 请求 GUI grounding 刷新；当前由具体宿主决定是否装配。
@@ -40,15 +42,26 @@ impl VisualMaterializationPlan {
         policy: &BackendPolicy,
         available_stages: &[VisualMaterializationStage],
     ) -> Option<Self> {
-        let mut stages = [
+        let mut candidates = vec![
             VisualMaterializationStage::Cache,
-            VisualMaterializationStage::OcrTiny,
+            VisualMaterializationStage::OcrSmall,
             VisualMaterializationStage::OcrMedium,
             VisualMaterializationStage::GuiGrounding,
-        ]
-        .into_iter()
-        .filter(|stage| available_stages.contains(stage) && policy.allows(stage.backend_kind()))
-        .collect::<Vec<_>>();
+        ];
+        // Tiny 是显式低延迟档；默认桌面链从 Small 开始，避免为同一目标先做一次
+        // 精度明显较低的 OCR。用户强制/偏好 Tiny，或排除其它 OCR 档时仍完整支持。
+        let tiny_requested = policy.allow.contains(&BackendKind::OcrTiny)
+            || policy.prefer.contains(&BackendKind::OcrTiny)
+            || (policy.allows(BackendKind::OcrTiny)
+                && !policy.allows(BackendKind::OcrSmall)
+                && !policy.allows(BackendKind::OcrMedium));
+        if tiny_requested {
+            candidates.push(VisualMaterializationStage::OcrTiny);
+        }
+        let mut stages = candidates
+            .into_iter()
+            .filter(|stage| available_stages.contains(stage) && policy.allows(stage.backend_kind()))
+            .collect::<Vec<_>>();
         stages.sort_by_key(|stage| {
             (
                 policy.preference_rank(stage.backend_kind()),
@@ -65,6 +78,7 @@ impl VisualMaterializationStage {
         match self {
             Self::Cache => BackendKind::VisualCache,
             Self::OcrTiny => BackendKind::OcrTiny,
+            Self::OcrSmall => BackendKind::OcrSmall,
             Self::OcrMedium => BackendKind::OcrMedium,
             Self::GuiGrounding => BackendKind::GuiGrounding,
         }
@@ -74,10 +88,55 @@ impl VisualMaterializationStage {
     const fn stable_rank(self) -> u8 {
         match self {
             Self::Cache => 0,
-            Self::OcrTiny => 1,
-            Self::OcrMedium => 2,
-            Self::GuiGrounding => 3,
+            Self::OcrSmall => 1,
+            Self::OcrTiny => 2,
+            Self::OcrMedium => 3,
+            Self::GuiGrounding => 4,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 返回包含全部视觉能力的宿主阶段集合。
+    fn available_stages() -> Vec<VisualMaterializationStage> {
+        vec![
+            VisualMaterializationStage::Cache,
+            VisualMaterializationStage::OcrTiny,
+            VisualMaterializationStage::OcrSmall,
+            VisualMaterializationStage::OcrMedium,
+            VisualMaterializationStage::GuiGrounding,
+        ]
+    }
+
+    #[test]
+    fn automatic_desktop_plan_starts_with_small_instead_of_repeating_tiny_work() {
+        let plan =
+            VisualMaterializationPlan::from_policy(&BackendPolicy::default(), &available_stages())
+                .expect("default visual plan should be non-empty");
+
+        assert_eq!(
+            plan.stages,
+            vec![
+                VisualMaterializationStage::Cache,
+                VisualMaterializationStage::OcrSmall,
+                VisualMaterializationStage::OcrMedium,
+                VisualMaterializationStage::GuiGrounding,
+            ]
+        );
+    }
+
+    #[test]
+    fn explicit_tiny_policy_keeps_the_low_latency_tier() {
+        let plan = VisualMaterializationPlan::from_policy(
+            &BackendPolicy::only(BackendKind::OcrTiny),
+            &available_stages(),
+        )
+        .expect("explicit tiny plan should be non-empty");
+
+        assert_eq!(plan.stages, vec![VisualMaterializationStage::OcrTiny]);
     }
 }
 
@@ -94,6 +153,8 @@ pub struct MaterializedTarget {
     pub topology_generation: u64,
     /// 目标在虚拟屏幕物理坐标中的 bbox。
     pub bounds: VisualTargetBounds,
+    /// 目标在捕获帧中的物理像素 bbox，用于输入提交前做 ROI 级失效检查。
+    pub frame_bounds: VisualTargetBounds,
     /// 该目标所属 capture surface 在虚拟屏幕中的输入范围。
     pub surface_bounds: VisualTargetBounds,
     /// OCR 或视觉节点提供的置信度。

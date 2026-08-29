@@ -6,16 +6,30 @@ compile_error!("ArgusFlow only supports Windows targets.");
 mod commands;
 mod runtime;
 
+use tauri::Manager;
+
 /// 构建并启动 ArgusFlow 的 Tauri 应用。
 ///
 /// 返回 Tauri 启动过程中的错误；工作流运行时状态由应用启动时统一注入。
 pub fn run() -> tauri::Result<()> {
-    tauri::Builder::default()
-        .manage(runtime::AppState::new())
+    let app_state = runtime::AppState::new().map_err(|error| {
+        let setup_error: Box<dyn std::error::Error> = Box::new(error);
+        tauri::Error::Setup(setup_error.into())
+    })?;
+    let app = tauri::Builder::default()
+        .manage(app_state)
         .invoke_handler(tauri::generate_handler![
             commands::query::inspect_aql,
             commands::workflow::validate_workflow,
             commands::workflow::run_workflow,
         ])
-        .run(tauri::generate_context!())
+        .build(tauri::generate_context!())?;
+    app.run(|app_handle, event| {
+        if matches!(event, tauri::RunEvent::Exit) {
+            if let Err(error) = app_handle.state::<runtime::AppState>().shutdown() {
+                eprintln!("ArgusFlow capture host shutdown failed: {error}");
+            }
+        }
+    });
+    Ok(())
 }

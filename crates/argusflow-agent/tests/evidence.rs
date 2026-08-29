@@ -97,6 +97,7 @@ impl PreparedExecution for EvidenceExecution {
             }),
             EvidenceExecutionResult::TargetNotFound => Err(AutomationError::TargetNotFound {
                 query: "button()".to_owned(),
+                details: String::new(),
             }),
         }
     }

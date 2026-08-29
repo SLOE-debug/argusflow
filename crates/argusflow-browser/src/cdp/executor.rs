@@ -25,10 +25,12 @@ pub(crate) async fn execute_cdp_action(
     match result.status.as_str() {
         "not_found" => Err(AutomationError::TargetNotFound {
             query: query.to_owned(),
+            details: String::new(),
         }),
         "ambiguous" => Err(AutomationError::AmbiguousTarget {
             query: query.to_owned(),
             matches: result.matches,
+            details: String::new(),
         }),
         "ok" => {
             action

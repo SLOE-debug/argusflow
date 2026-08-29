@@ -169,6 +169,7 @@
 - [ ] `VISION-009` `P1` 建立 persistent visual tree 和 dirty rect 增量更新。
 - [ ] `VISION-010` `P1` 实现视觉文本选择器匹配和坐标动作输出。
 - [ ] `VISION-011` `P2` 接入 GUI grounding/VLM，并限制为最终慢路径。
+- [x] `VISION-012` `P0` 在本地开发启动流程中配置、等待并回收隔离的 PaddleOCR worker。
 
 ## M4 Agent 编排与恢复
 

@@ -137,6 +137,7 @@ fn scene_artifact(scene: &VisualScene, persist_text: bool) -> EvidenceArtifact {
             "scene_id": scene.scene_id.get(),
             "frame_id": scene.frame_id.get(),
             "topology_generation": scene.topology_generation.get(),
+            "ocr": scene.ocr,
             "node_count": scene.nodes.len(),
             "regions": scene.regions,
             "nodes": scene.nodes.iter().map(|node| json!({

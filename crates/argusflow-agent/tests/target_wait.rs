@@ -108,11 +108,13 @@ impl PreparedExecution for ProbeExecution {
             ProbeResult::SuccessAfter(_) | ProbeResult::TargetNotFound => {
                 Err(AutomationError::TargetNotFound {
                     query: "button()".to_owned(),
+                    details: "；last probe".to_owned(),
                 })
             }
             ProbeResult::Ambiguous => Err(AutomationError::AmbiguousTarget {
                 query: "button()".to_owned(),
                 matches: 2,
+                details: String::new(),
             }),
             ProbeResult::ActionUnsupported => Err(AutomationError::ActionUnsupported {
                 backend: BackendKind::WindowsUia,
@@ -167,7 +169,8 @@ async fn permanent_miss_returns_the_formal_shared_deadline_error() {
         AutomationError::TargetWaitTimeout {
             ref query,
             timeout_ms: 35,
-        } if query == "button()"
+            ref details,
+        } if query == "button()" && details == "；last probe"
     ));
     assert!(executions.load(Ordering::SeqCst) >= 2);
 }

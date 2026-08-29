@@ -1,5 +1,9 @@
 //! VisualScene 上的 deterministic exact/fuzzy 查询。
 
+mod diagnostics;
+
+pub use diagnostics::{VisualQueryCandidateSummary, VisualQueryReport};
+
 use argusflow_core::{AutomationError, VisualQuery};
 
 use crate::{
@@ -34,14 +38,17 @@ pub fn evaluate_visual_query<'scene>(
     query: &VisualQuery,
 ) -> Result<VisualMatch<'scene>, AutomationError> {
     let candidates = matching_nodes(scene, query);
+    let report = VisualQueryReport::from_matches(scene, query, &candidates);
     match candidates.as_slice() {
         [] => Err(AutomationError::TargetNotFound {
             query: query.text.clone(),
+            details: format!("；{}", report.summary()),
         }),
         [node] => Ok(VisualMatch::Unique(node)),
         _ => Err(AutomationError::AmbiguousTarget {
             query: query.text.clone(),
             matches: candidates.len(),
+            details: format!("；{}", report.summary()),
         }),
     }
 }
@@ -140,7 +147,9 @@ mod tests {
     use crate::{
         frame::{FrameId, QpcTimestamp, TopologyGeneration},
         image::CapturedFrame,
-        ocr::{OcrItem, OcrModel, OcrRequestId, OcrResponse, PolygonPoint},
+        ocr::{
+            OcrItem, OcrModel, OcrPreprocessingSummary, OcrRequestId, OcrResponse, PolygonPoint,
+        },
         scene::{SceneBuildOptions, VisualSceneBuilder},
     };
 
@@ -168,6 +177,14 @@ mod tests {
             topology_generation: frame.topology_generation,
             model: OcrModel::PpOcrV6Tiny,
             elapsed_ms: 1,
+            preprocessing: OcrPreprocessingSummary {
+                input_width: 100,
+                input_height: 100,
+                output_width: 100,
+                output_height: 100,
+                contrast_enhanced: false,
+                sharpened: false,
+            },
             items: vec![
                 OcrItem {
                     raw_text: "确定".to_owned(),
@@ -214,8 +231,11 @@ mod tests {
         )
         .expect_err("two exact nodes must be ambiguous");
         assert!(matches!(
-            error,
-            AutomationError::AmbiguousTarget { matches: 2, .. }
+            &error,
+            AutomationError::AmbiguousTarget { matches: 2, details, .. }
+                if details.contains("PP-OCRv6 Tiny")
+                    && details.contains("“确定” [10,10,10×10] 99%")
+                    && details.contains("“确定” [50,10,10×10] 98%")
         ));
     }
 
@@ -231,6 +251,26 @@ mod tests {
             },
         );
         assert_eq!(candidates.len(), 2);
+    }
+
+    #[test]
+    fn missing_query_reports_the_last_ocr_result_summary() {
+        let scene = scene();
+        let error = evaluate_visual_query(
+            &scene,
+            &VisualQuery {
+                text: "取消".to_owned(),
+                exact: true,
+                region: None,
+            },
+        )
+        .expect_err("the missing query should keep OCR diagnostics");
+
+        assert!(matches!(
+            &error,
+            AutomationError::TargetNotFound { details, .. }
+                if details.contains("命中 0/2 段") && details.contains("耗时 1 ms")
+        ));
     }
 
     #[test]

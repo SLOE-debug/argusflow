@@ -314,6 +314,8 @@ pub enum BackendKind {
     VisualCache,
     /// 轻量 OCR 后端。
     OcrTiny,
+    /// 桌面 GUI 默认使用的平衡型 OCR 后端。
+    OcrSmall,
     /// 中等精度 OCR 后端。
     OcrMedium,
     /// 基于 GUI grounding 的后端。

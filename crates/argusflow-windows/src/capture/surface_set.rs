@@ -1,6 +1,9 @@
 //! WGC primary/popup surface set、逐 surface readback 与合成。
 
-use std::sync::Arc;
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use argusflow_core::{ScreenPoint, WindowIdentity};
 use argusflow_vision::{CapturedFrame, FrameId, PhysicalRect, TopologyGeneration, VisionError};
@@ -15,7 +18,6 @@ use windows::{
     Win32::{
         Foundation::HWND,
         System::WinRT::{Graphics::Capture::IGraphicsCaptureItemInterop, RoGetActivationFactory},
-        UI::WindowsAndMessaging::{GetWindowThreadProcessId, IsWindow},
     },
     core::{HSTRING, IInspectable},
 };
@@ -25,6 +27,7 @@ use super::{
     error::{capture_error, invalid_capture},
     readback::{ReadbackState, readback_frame},
     topology::{WindowRole, WindowTopology, WindowTopologyEntry},
+    window_identity::{native_window, validate_window},
 };
 
 /// primary 和 owned popup 共同组成的实际 WGC surface set。
@@ -55,6 +58,8 @@ struct CaptureSurface {
     pool: Direct3D11CaptureFramePool,
     /// 保持捕获生命周期的 WGC session。
     session: GraphicsCaptureSession,
+    /// FrameArrived 注册令牌；关闭 pool 前必须在创建线程上注销。
+    frame_arrived_token: i64,
     /// 当前 frame pool 的尺寸。
     size: SizeInt32,
     /// 用于 resize 后重建 frame pool 的 buffer 数量。
@@ -125,6 +130,8 @@ impl CaptureSurfaceSet {
         window: WindowIdentity,
         frame_id: FrameId,
         topology_generation: TopologyGeneration,
+        deadline: Instant,
+        timeout: Duration,
     ) -> Result<bool, VisionError> {
         let mut updated = false;
         for surface in &mut self.surfaces {
@@ -139,6 +146,8 @@ impl CaptureSurfaceSet {
                 window,
                 frame_id,
                 topology_generation,
+                deadline,
+                timeout,
             );
             let close_result = frame.Close();
             let captured = captured?;
@@ -262,24 +271,32 @@ impl CaptureSurface {
         let session = pool
             .CreateCaptureSession(&item)
             .map_err(|error| capture_error("failed to create WGC capture session", error))?;
-        session
-            .SetIsCursorCaptureEnabled(include_cursor)
-            .map_err(|error| capture_error("failed to configure cursor capture", error))?;
+        if let Err(error) = session.SetIsCursorCaptureEnabled(include_cursor) {
+            close_capture_resources(&pool, &session, None);
+            return Err(capture_error("failed to configure cursor capture", error));
+        }
         let event_notify = notify.clone();
         let handler =
             TypedEventHandler::<Direct3D11CaptureFramePool, IInspectable>::new(move |_, _| {
                 event_notify.notify_one();
                 Ok(())
             });
-        pool.FrameArrived(&handler)
-            .map_err(|error| capture_error("failed to subscribe to WGC frames", error))?;
-        session
-            .StartCapture()
-            .map_err(|error| capture_error("failed to start WGC capture", error))?;
+        let frame_arrived_token = match pool.FrameArrived(&handler) {
+            Ok(token) => token,
+            Err(error) => {
+                close_capture_resources(&pool, &session, None);
+                return Err(capture_error("failed to subscribe to WGC frames", error));
+            }
+        };
+        if let Err(error) = session.StartCapture() {
+            close_capture_resources(&pool, &session, Some(frame_arrived_token));
+            return Err(capture_error("failed to start WGC capture", error));
+        }
         Ok(Self {
             entry,
             pool,
             session,
+            frame_arrived_token,
             size,
             frame_pool_size,
             latest: None,
@@ -321,9 +338,21 @@ impl CaptureSurface {
 
 impl Drop for CaptureSurface {
     fn drop(&mut self) {
-        let _ = self.session.Close();
-        let _ = self.pool.Close();
+        close_capture_resources(&self.pool, &self.session, Some(self.frame_arrived_token));
     }
+}
+
+/// 在创建 WGC 对象的主机线程上按事件、session、pool 的顺序释放资源。
+fn close_capture_resources(
+    pool: &Direct3D11CaptureFramePool,
+    session: &GraphicsCaptureSession,
+    frame_arrived_token: Option<i64>,
+) {
+    if let Some(frame_arrived_token) = frame_arrived_token {
+        let _ = pool.RemoveFrameArrived(frame_arrived_token);
+    }
+    let _ = session.Close();
+    let _ = pool.Close();
 }
 
 /// 过滤为实际捕获的 primary + owned popup，并要求每个窗口都有可映射矩形。
@@ -418,29 +447,6 @@ fn create_capture_item(hwnd: HWND) -> Result<GraphicsCaptureItem, VisionError> {
         .map_err(|error| capture_error("failed to create GraphicsCaptureItem for HWND", error))
 }
 
-/// 只接受仍指向原 PID 的 HWND，防止 popup 句柄复用到其它应用。
-fn validate_window(hwnd: HWND, expected: WindowIdentity) -> Result<(), VisionError> {
-    if !unsafe { IsWindow(Some(hwnd)) }.as_bool() {
-        return Err(VisionError::WindowIdentityChanged {
-            expected,
-            actual: None,
-        });
-    }
-    let mut process_id = 0_u32;
-    // SAFETY: process_id 是同步调用期间的独占输出，hwnd 已由 IsWindow 校验。
-    unsafe { GetWindowThreadProcessId(hwnd, Some(&mut process_id)) };
-    if process_id != expected.process_id {
-        return Err(VisionError::WindowIdentityChanged {
-            expected,
-            actual: Some(WindowIdentity {
-                handle: expected.handle,
-                process_id,
-            }),
-        });
-    }
-    Ok(())
-}
-
 /// 校验 WGC 传入的尺寸能安全转换为领域层的无符号尺寸。
 fn valid_size(size: SizeInt32) -> Result<(u32, u32), VisionError> {
     let width =
@@ -450,9 +456,4 @@ fn valid_size(size: SizeInt32) -> Result<(u32, u32), VisionError> {
     (width > 0 && height > 0)
         .then_some((width, height))
         .ok_or_else(|| invalid_capture("capture item has an empty size"))
-}
-
-/// 把领域层不透明 HWND 表示恢复为 Windows 类型。
-fn native_window(handle: u64) -> HWND {
-    HWND(handle as usize as *mut std::ffi::c_void)
 }

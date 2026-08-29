@@ -45,6 +45,7 @@ fn validate_backend_policy(
         let visual_backend_allowed = [
             BackendKind::VisualCache,
             BackendKind::OcrTiny,
+            BackendKind::OcrSmall,
             BackendKind::OcrMedium,
         ]
         .into_iter()
@@ -52,7 +53,7 @@ fn validate_backend_policy(
         if !visual_backend_allowed {
             issues.push(context.issue(
                 ValidationIssueCode::InvalidBackendPolicy,
-                "视觉目标的后端策略必须允许 visual_cache、ocr_tiny 或 ocr_medium",
+                "视觉目标的后端策略必须允许 visual_cache、ocr_tiny、ocr_small 或 ocr_medium",
             ));
         }
         if matches!(operation, UiOperation::Click { .. })

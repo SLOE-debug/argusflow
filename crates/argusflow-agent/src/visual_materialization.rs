@@ -70,6 +70,7 @@ pub(crate) async fn materialize(
                 Err(AutomationError::TargetWaitTimeout {
                     query: query.text.clone(),
                     timeout_ms: wait.timeout_ms,
+                    details: String::new(),
                 })
             }
             Some(deadline) => {
@@ -78,6 +79,7 @@ pub(crate) async fn materialize(
                     .map_err(|_| AutomationError::TargetWaitTimeout {
                         query: query.text.clone(),
                         timeout_ms: wait.timeout_ms,
+                        details: String::new(),
                     })
                     .and_then(|result| result)
             }
@@ -85,23 +87,24 @@ pub(crate) async fn materialize(
         };
         match result {
             Ok(target) => return Ok(Some(target)),
-            Err(AutomationError::TargetNotFound { query })
+            Err(AutomationError::TargetNotFound { query, details })
                 if wait.mode == TargetWaitMode::Bounded
                     && deadline.is_some_and(|deadline| tokio::time::Instant::now() < deadline) =>
             {
                 let poll_interval = Duration::from_millis(wait.poll_interval_ms.max(1));
                 let Some(deadline) = deadline else {
-                    return Err(AutomationError::TargetNotFound { query });
+                    return Err(AutomationError::TargetNotFound { query, details });
                 };
                 let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
                 tokio::time::sleep(poll_interval.min(remaining)).await;
             }
-            Err(AutomationError::TargetNotFound { query })
+            Err(AutomationError::TargetNotFound { query, details })
                 if wait.mode == TargetWaitMode::Bounded =>
             {
                 return Err(AutomationError::TargetWaitTimeout {
                     query,
                     timeout_ms: wait.timeout_ms,
+                    details,
                 });
             }
             Err(error) => return Err(error),

@@ -8,7 +8,7 @@ use crate::frame::PhysicalRect;
 ///
 /// 归一化区域只描述查询范围，不携带屏幕坐标；所有调用方都必须以当次 scene/frame
 /// 的 viewport 进行换算，避免窗口缩放或 DPI 变化后复用固定坐标。
-pub(crate) fn normalized_region_to_physical(
+pub fn normalized_region_to_physical(
     region: NormalizedRect,
     viewport: PhysicalRect,
 ) -> Option<PhysicalRect> {

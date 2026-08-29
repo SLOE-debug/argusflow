@@ -93,13 +93,16 @@ impl ScopeRegistry {
     ) -> Arc<Mutex<ScopeState>> {
         self.prune_idle();
         let key = ScopeKey { window, capture };
-        if let Some(state) = self
-            .entries
-            .read()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .get(&key)
-            .map(|entry| entry.state.clone())
-        {
+        // 先结束读锁作用域，再由 touch 申请写锁；if-let 的临时值会存活到分支结束，
+        // 若直接把 read() 表达式放进条件中，同线程会在持有读锁时永久等待写锁。
+        let existing_state = {
+            let entries = self
+                .entries
+                .read()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            entries.get(&key).map(|entry| entry.state.clone())
+        };
+        if let Some(state) = existing_state {
             self.touch(key);
             return state;
         }
@@ -209,5 +212,39 @@ impl ScopeRegistry {
         {
             entry.last_access = Instant::now();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        sync::{Arc, mpsc},
+        time::Duration,
+    };
+
+    use super::*;
+
+    /// 已存在作用域的命中路径必须先释放读锁，才能刷新其 LRU 写状态。
+    #[test]
+    fn existing_scope_is_reused_without_lock_upgrade_deadlock() {
+        let registry = Arc::new(ScopeRegistry::new(None));
+        let window = WindowIdentity {
+            handle: 41,
+            process_id: 42,
+        };
+        let capture = CapturePolicy::default();
+        let expected = registry.get_or_create(window, capture);
+        let worker_registry = registry.clone();
+        let (sender, receiver) = mpsc::sync_channel(1);
+
+        std::thread::spawn(move || {
+            let actual = worker_registry.get_or_create(window, capture);
+            let _ = sender.send(actual);
+        });
+
+        let actual = receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("existing scope lookup must not block while refreshing LRU state");
+        assert!(Arc::ptr_eq(&expected, &actual));
     }
 }

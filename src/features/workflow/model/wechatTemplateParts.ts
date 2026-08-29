@@ -7,6 +7,14 @@ import type {
 import type { KeyboardKey, KeyboardModifier } from './inputContracts';
 import type { NormalizedRect } from './visual';
 
+/** 搜索弹层标题区域；只验证 Ctrl+F 弹层，排除输入框和下方历史搜索项。 */
+export const WECHAT_SEARCH_OVERLAY_REGION = {
+  x: 0.08,
+  y: 0.1,
+  width: 0.38,
+  height: 0.12,
+} as const satisfies NormalizedRect;
+
 /** 搜索结果区域；按微信窗口比例限制 OCR，减少侧栏和标题重复命中。 */
 export const WECHAT_SEARCH_RESULTS_REGION = {
   x: 0,
@@ -15,12 +23,12 @@ export const WECHAT_SEARCH_RESULTS_REGION = {
   height: 0.72,
 } as const satisfies NormalizedRect;
 
-/** 群聊标题区域；只在窗口上半部寻找群名称。 */
+/** 群聊标题区域；覆盖正文栏左上角，并排除右侧窗口与通话控制区。 */
 export const WECHAT_HEADER_REGION = {
-  x: 0.38,
+  x: 0.34,
   y: 0,
-  width: 0.62,
-  height: 0.22,
+  width: 0.4,
+  height: 0.18,
 } as const satisfies NormalizedRect;
 
 /** 消息区域；验证文字只在聊天内容和输入区附近寻找。 */

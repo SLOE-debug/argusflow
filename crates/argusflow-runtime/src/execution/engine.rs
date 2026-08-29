@@ -14,6 +14,7 @@ use uuid::Uuid;
 use super::{
     dispatcher::ActionDispatcher,
     execution_events::{build_event, emit_event},
+    node_execution::catch_node_unwind,
     run_context::RunContext,
     run_inputs::validate_run_inputs,
     scheduler::ResourceScheduler,
@@ -293,10 +294,17 @@ impl WorkflowEngine {
             )?;
             let access = prepared.access_set(&node.id, context)?;
             let access_guard = self.scheduler.acquire(access).await;
-            let execution = match prepared
-                .execute(&node.id, &workflow.definition.permissions, context)
-                .await
-            {
+            let execution_result = catch_node_unwind(prepared.execute(
+                &node.id,
+                &workflow.definition.permissions,
+                context,
+            ))
+            .await
+            .map_err(|message| RuntimeError::NodeExecution {
+                message: format!("节点 '{}' 执行异常：{message}", node.id),
+            })
+            .and_then(|result| result);
+            let execution = match execution_result {
                 Ok(execution) => execution,
                 Err(error) => {
                     emit_event(

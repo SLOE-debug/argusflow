@@ -9,6 +9,7 @@ license.workspace = true
 argusflow-core.workspace = true
 argusflow-query.workspace = true
 async-trait.workspace = true
+futures-util.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 rhai.workspace = true

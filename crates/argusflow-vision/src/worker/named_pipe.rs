@@ -95,7 +95,12 @@ impl NamedPipeOcrEngine {
         body: &[u8],
         timeout: Duration,
     ) -> Result<(WorkerProtocolEnvelope<WorkerResponse>, Vec<u8>), VisionError> {
-        let mut connection = self.connection.lock().await;
+        let deadline = tokio::time::Instant::now() + timeout;
+        let mut connection = tokio::time::timeout_at(deadline, self.connection.lock())
+            .await
+            .map_err(|_| VisionError::FrameTimeout {
+                timeout_ms: timeout.as_millis().min(u128::from(u64::MAX)) as u64,
+            })?;
         if connection.is_none() {
             let client = ClientOptions::new()
                 .open(&self.pipe_name)
@@ -123,7 +128,7 @@ impl NamedPipeOcrEngine {
             read_framed_message(client).await
         };
         let (response, response_body): (WorkerProtocolEnvelope<WorkerResponse>, Vec<u8>) =
-            match tokio::time::timeout(timeout, exchange).await {
+            match tokio::time::timeout_at(deadline, exchange).await {
                 Ok(Ok(response)) => response,
                 Ok(Err(error)) => {
                     lease.fail(error.to_string());
@@ -287,5 +292,35 @@ impl OcrEngine for NamedPipeOcrEngine {
                 message: "worker returned empty OCR response and no error".to_owned(),
             }),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::NamedPipeOcrEngine;
+    use crate::{VisionError, worker::WorkerCommand};
+
+    #[tokio::test]
+    async fn request_deadline_includes_waiting_for_the_connection_lease() {
+        let engine = NamedPipeOcrEngine::new(r"\\.\pipe\unused-test-pipe", "test-token");
+        let _connection_guard = engine.connection.lock().await;
+        let envelope = crate::worker::WorkerProtocolEnvelope {
+            protocol_version: crate::worker::VISION_PROTOCOL_VERSION.to_owned(),
+            request_id: "request-1".to_owned(),
+            session_token: "test-token".to_owned(),
+            payload: WorkerCommand::Health,
+        };
+
+        let error = engine
+            .round_trip(envelope, &[], Duration::from_millis(10))
+            .await
+            .expect_err("connection lease wait must honor the request deadline");
+
+        assert!(matches!(
+            error,
+            VisionError::FrameTimeout { timeout_ms: 10 }
+        ));
     }
 }

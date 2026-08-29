@@ -256,13 +256,16 @@ export function applyExecutionEventToNodes(nodes: ReadonlyArray<WorkflowCanvasNo
     event.kind === 'workflow_completed'
     || event.kind === 'workflow_failed'
   ) {
+    const terminalRunState = event.kind === 'workflow_failed' ? 'error' : 'success';
     return nodes.map((node) => ({
       ...node,
       data: {
         ...node.data,
-        runState: node.data.runState === 'pending'
-          ? 'skipped'
-          : node.data.runState,
+        runState: node.data.runState === 'running'
+          ? terminalRunState
+          : node.data.runState === 'pending'
+            ? 'skipped'
+            : node.data.runState,
       },
     }));
   }

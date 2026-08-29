@@ -240,6 +240,7 @@ export type BackendKind =
   | 'browser_cdp'
   | 'visual_cache'
   | 'ocr_tiny'
+  | 'ocr_small'
   | 'ocr_medium'
   | 'gui_grounding'
   | 'send_input';

@@ -24,18 +24,22 @@ pub enum ActionCapability {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AutomationError {
     /// 目标查询执行完成但没有任何元素满足条件。
-    #[error("target was not found for query: {query}")]
+    #[error("target was not found for query: {query}{details}")]
     TargetNotFound {
         /// 规范化后的查询，便于执行日志与 Inspector 复现。
         query: String,
+        /// 后端提供的最后一次查询诊断；不需要额外诊断时为空字符串。
+        details: String,
     },
     /// 节点允许的整体目标等待预算耗尽，最后一次完整计划仍未命中目标。
-    #[error("在 {timeout_ms}ms 内未等到目标：{query}")]
+    #[error("在 {timeout_ms}ms 内未等到目标：{query}{details}")]
     TargetWaitTimeout {
         /// 最后一次单次 materialize 使用的规范化查询。
         query: String,
         /// UI 节点配置的共享总等待预算。
         timeout_ms: u64,
+        /// 最后一轮目标查询诊断；截止时间发生在查询内部时可能为空字符串。
+        details: String,
     },
     /// 视觉目标在物理输入提交前已经不再对应最初观察到的画面。
     #[error("visual target became stale before input commit: {message}")]
@@ -44,12 +48,14 @@ pub enum AutomationError {
         message: String,
     },
     /// 查询返回多个元素且没有使用 first/nth 明确选择。
-    #[error("query matched {matches} targets and requires an explicit selection: {query}")]
+    #[error("query matched {matches} targets and requires an explicit selection: {query}{details}")]
     AmbiguousTarget {
         /// 规范化后的查询。
         query: String,
         /// 后端解析到的候选数量。
         matches: usize,
+        /// 后端提供的可展示候选诊断；不需要额外诊断时为空字符串。
+        details: String,
     },
     /// 查询存在语义候选，但没有候选具备当前动作要求的能力。
     #[error(

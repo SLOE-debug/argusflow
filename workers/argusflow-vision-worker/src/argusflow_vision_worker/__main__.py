@@ -13,8 +13,9 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--pipe-name", required=True)
     parser.add_argument("--session-token", required=True)
+    parser.add_argument("--status-file")
     arguments = parser.parse_args()
-    serve(arguments.pipe_name, arguments.session_token)
+    serve(arguments.pipe_name, arguments.session_token, arguments.status_file)
 
 
 if __name__ == "__main__":

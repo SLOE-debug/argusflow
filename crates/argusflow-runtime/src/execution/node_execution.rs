@@ -1,4 +1,7 @@
+use std::{any::Any, future::Future, panic::AssertUnwindSafe};
+
 use argusflow_core::{ExecutionEventKind, ExecutionEventPayload};
+use futures_util::FutureExt;
 
 use super::run_context::NodeOutcome;
 
@@ -20,4 +23,35 @@ pub struct NodeExecution {
     pub outcome: NodeOutcome,
     /// 在 NodeSucceeded 前按顺序发出的节点内事件。
     pub events: Vec<NodeEvent>,
+}
+
+/// 等待节点 future，同时把 unwind panic 转换为可进入执行事件流的错误摘要。
+pub(crate) async fn catch_node_unwind<T>(future: impl Future<Output = T>) -> Result<T, String> {
+    AssertUnwindSafe(future)
+        .catch_unwind()
+        .await
+        .map_err(panic_message)
+}
+
+/// 提取常见 panic payload；未知载荷不泄漏内部类型或地址。
+fn panic_message(payload: Box<dyn Any + Send>) -> String {
+    if let Some(message) = payload.downcast_ref::<String>() {
+        return message.clone();
+    }
+    if let Some(message) = payload.downcast_ref::<&'static str>() {
+        return (*message).to_owned();
+    }
+    "节点执行发生了未分类 panic".to_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::catch_node_unwind;
+
+    #[tokio::test]
+    async fn panic_is_converted_to_an_error_message() {
+        let result = catch_node_unwind(async { panic!("probe panic") }).await;
+
+        assert_eq!(result.expect_err("panic must not escape"), "probe panic");
+    }
 }

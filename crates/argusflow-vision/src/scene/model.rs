@@ -13,7 +13,7 @@ use crate::{
     frame::{FrameId, PhysicalRect, TopologyGeneration},
     image::CapturedFrame,
     layout::{RowConfig, VisualLine, VisualRow, cluster_lines, cluster_rows},
-    ocr::{OcrResponse, OcrSource},
+    ocr::{OcrModel, OcrResponse, OcrSource},
     projection::{ProjectionOptions, compact_text, spatial_text},
 };
 
@@ -62,6 +62,53 @@ impl Default for SceneBuildOptions {
     }
 }
 
+/// 构建当前场景所使用的 OCR 请求摘要，不包含识别文字本身。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SceneOcrSummary {
+    /// 实际参与构建的模型，按首次出现顺序去重。
+    pub models: Vec<OcrModel>,
+    /// 合并进场景的 OCR 响应数量。
+    pub request_count: usize,
+    /// OCR worker 返回的原始文字段数量。
+    pub item_count: usize,
+    /// 所有 OCR 响应报告的处理耗时总和，单位为毫秒。
+    pub elapsed_ms: u64,
+    /// 实际改变 OCR 输入像素的请求数量。
+    pub enhanced_request_count: usize,
+    /// 所有响应中的最大图像放大比例，按千分值存储。
+    pub max_scale_milli: u32,
+}
+
+impl SceneOcrSummary {
+    /// 从同一场景的响应集合生成不含敏感文字的执行摘要。
+    fn from_responses(responses: &[OcrResponse]) -> Self {
+        let mut models = Vec::new();
+        let mut item_count = 0_usize;
+        let mut elapsed_ms = 0_u64;
+        let mut enhanced_request_count = 0_usize;
+        let mut max_scale_milli = 1_000_u32;
+        for response in responses {
+            if !models.contains(&response.model) {
+                models.push(response.model);
+            }
+            item_count = item_count.saturating_add(response.items.len());
+            elapsed_ms = elapsed_ms.saturating_add(response.elapsed_ms);
+            if response.preprocessing.was_applied() {
+                enhanced_request_count = enhanced_request_count.saturating_add(1);
+            }
+            max_scale_milli = max_scale_milli.max(response.preprocessing.scale_milli());
+        }
+        Self {
+            models,
+            request_count: responses.len(),
+            item_count,
+            elapsed_ms,
+            enhanced_request_count,
+            max_scale_milli,
+        }
+    }
+}
+
 /// 当前窗口可见内容的完整视觉事实快照。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VisualScene {
@@ -81,6 +128,8 @@ pub struct VisualScene {
     pub regions: Vec<VisualRegion>,
     /// 场景内全部视觉节点。
     pub nodes: Vec<VisualNode>,
+    /// 产生当前视觉事实的 OCR 模型、响应数和耗时摘要。
+    pub ocr: SceneOcrSummary,
     /// 视觉行聚类。
     pub lines: Vec<VisualLine>,
     /// 联系人/消息 row 聚类。
@@ -195,6 +244,7 @@ impl VisualSceneBuilder {
             viewport_origin: frame.screen_origin(),
             regions: vec![region],
             nodes,
+            ocr: SceneOcrSummary::from_responses(responses),
             lines,
             rows,
             compact_text: String::new(),
@@ -207,20 +257,33 @@ impl VisualSceneBuilder {
     }
 }
 
-/// 合并同一 ROI overlap 造成的重复文本；medium 结果优先覆盖 tiny。
+/// 合并同一 ROI overlap 造成的重复文本；更高档模型或更高置信度结果优先。
 fn merge_node(nodes: &mut Vec<VisualNode>, candidate: VisualNode) {
     let duplicate = nodes.iter().position(|existing| {
         existing.normalized_text == candidate.normalized_text
             && existing.bbox.intersects(candidate.bbox)
     });
     if let Some(index) = duplicate {
-        if candidate.confidence > nodes[index].confidence
-            || matches!(candidate.source, super::node::VisualNodeSource::OcrMedium)
+        if source_quality(candidate.source) > source_quality(nodes[index].source)
+            || (source_quality(candidate.source) == source_quality(nodes[index].source)
+                && candidate.confidence > nodes[index].confidence)
         {
             nodes[index] = candidate;
         }
     } else {
         nodes.push(candidate);
+    }
+}
+
+/// 返回 OCR provenance 的稳定质量等级；布局和外部投影不抢占 OCR 原始事实。
+const fn source_quality(source: super::node::VisualNodeSource) -> u8 {
+    match source {
+        super::node::VisualNodeSource::OcrTiny => 1,
+        super::node::VisualNodeSource::OcrSmall => 2,
+        super::node::VisualNodeSource::OcrMedium => 3,
+        super::node::VisualNodeSource::LayoutHeuristic
+        | super::node::VisualNodeSource::UiaProjection
+        | super::node::VisualNodeSource::GuiGrounding => 0,
     }
 }
 

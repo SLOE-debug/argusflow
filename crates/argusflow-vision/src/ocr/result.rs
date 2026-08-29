@@ -20,6 +20,8 @@ use crate::{
 pub enum OcrModel {
     /// PP-OCRv6 tiny，高频增量 ROI 识别。
     PpOcrV6Tiny,
+    /// PP-OCRv6 small，桌面 GUI 的默认精度/延迟平衡档。
+    PpOcrV6Small,
     /// PP-OCRv6 medium，低置信度升级和关键验证。
     PpOcrV6Medium,
 }
@@ -29,7 +31,17 @@ impl OcrModel {
     pub const fn profile_name(self) -> &'static str {
         match self {
             Self::PpOcrV6Tiny => "pp_ocr_v6_tiny",
+            Self::PpOcrV6Small => "pp_ocr_v6_small",
             Self::PpOcrV6Medium => "pp_ocr_v6_medium",
+        }
+    }
+
+    /// 返回运行日志和诊断界面使用的模型名称。
+    pub const fn display_name(self) -> &'static str {
+        match self {
+            Self::PpOcrV6Tiny => "PP-OCRv6 Tiny",
+            Self::PpOcrV6Small => "PP-OCRv6 Small",
+            Self::PpOcrV6Medium => "PP-OCRv6 Medium",
         }
     }
 }
@@ -40,6 +52,8 @@ impl OcrModel {
 pub enum OcrSource {
     /// PP-OCRv6 tiny 识别结果。
     OcrTiny,
+    /// PP-OCRv6 small 识别结果。
+    OcrSmall,
     /// PP-OCRv6 medium 识别结果。
     OcrMedium,
     /// 根据几何或重复节奏推断的布局信息。
@@ -54,6 +68,7 @@ impl From<OcrModel> for OcrSource {
     fn from(model: OcrModel) -> Self {
         match model {
             OcrModel::PpOcrV6Tiny => Self::OcrTiny,
+            OcrModel::PpOcrV6Small => Self::OcrSmall,
             OcrModel::PpOcrV6Medium => Self::OcrMedium,
         }
     }
@@ -95,6 +110,16 @@ pub struct PolygonPoint {
     pub y: f32,
 }
 
+/// 截图 ROI 进入 OCR 前可选的图像预处理策略。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OcrImagePreprocessing {
+    /// 保持截图像素不变，适合调用方已经完成图像优化的输入。
+    None,
+    /// 对小型桌面文字 ROI 做有像素上限的放大、局部对比度增强和轻量锐化。
+    AdaptiveDesktopText,
+}
+
 /// 一次识别请求的模型和预处理选项。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OcrOptions {
@@ -106,6 +131,8 @@ pub struct OcrOptions {
     pub use_doc_unwarping: bool,
     /// GUI 文本默认关闭 textline orientation。
     pub use_textline_orientation: bool,
+    /// 截图完成后、PaddleOCR 检测前使用的图像预处理策略。
+    pub image_preprocessing: OcrImagePreprocessing,
 }
 
 impl Default for OcrOptions {
@@ -115,6 +142,7 @@ impl Default for OcrOptions {
             use_doc_orientation_classify: false,
             use_doc_unwarping: false,
             use_textline_orientation: false,
+            image_preprocessing: OcrImagePreprocessing::AdaptiveDesktopText,
         }
     }
 }
@@ -137,12 +165,57 @@ impl OcrProfile {
         }
     }
 
+    /// 创建桌面 GUI 默认使用的 small profile。
+    pub fn small() -> Self {
+        Self {
+            model: OcrModel::PpOcrV6Small,
+            options: OcrOptions::default(),
+        }
+    }
+
     /// 创建默认 medium profile。
     pub fn medium() -> Self {
         Self {
             model: OcrModel::PpOcrV6Medium,
             options: OcrOptions::default(),
         }
+    }
+}
+
+/// Worker 对单个 OCR ROI 实际执行的图像预处理摘要。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OcrPreprocessingSummary {
+    /// 原始 ROI 宽度。
+    pub input_width: u32,
+    /// 原始 ROI 高度。
+    pub input_height: u32,
+    /// 送入 PaddleOCR 的图像宽度。
+    pub output_width: u32,
+    /// 送入 PaddleOCR 的图像高度。
+    pub output_height: u32,
+    /// 是否执行了局部对比度增强。
+    pub contrast_enhanced: bool,
+    /// 是否执行了轻量锐化。
+    pub sharpened: bool,
+}
+
+impl OcrPreprocessingSummary {
+    /// 返回几何放大比例的千分值，避免指标和摘要依赖浮点相等判断。
+    pub fn scale_milli(self) -> u32 {
+        if self.input_width == 0 || self.input_height == 0 {
+            return 1_000;
+        }
+        let width_scale = u64::from(self.output_width) * 1_000 / u64::from(self.input_width);
+        let height_scale = u64::from(self.output_height) * 1_000 / u64::from(self.input_height);
+        u32::try_from(width_scale.min(height_scale)).unwrap_or(u32::MAX)
+    }
+
+    /// 判断本次请求是否改变了 OCR 输入像素。
+    pub const fn was_applied(self) -> bool {
+        self.input_width != self.output_width
+            || self.input_height != self.output_height
+            || self.contrast_enhanced
+            || self.sharpened
     }
 }
 
@@ -247,6 +320,8 @@ pub struct OcrResponse {
     pub model: OcrModel,
     /// worker 处理耗时。
     pub elapsed_ms: u64,
+    /// Worker 实际执行的几何与图像增强摘要。
+    pub preprocessing: OcrPreprocessingSummary,
     /// 识别结果。
     pub items: Vec<OcrItem>,
 }

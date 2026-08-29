@@ -5,11 +5,15 @@ use argusflow_core::{AutomationError, BackendKind};
 mod device;
 mod dpi;
 mod error;
+mod host;
+mod host_thread;
 mod readback;
 mod surface_set;
 mod topology;
 mod wgc;
+mod window_identity;
 
+pub use host::WindowsCaptureHost;
 pub use topology::{
     CaptureSurfaceMode, WindowRole, WindowTopology, WindowTopologyEntry, WindowTopologyTracker,
 };

@@ -1,4 +1,4 @@
-//! VisualCache/OcrTiny/OcrMedium backend 与 PreparedPlan 的接入。
+//! VisualCache/OcrTiny/OcrSmall/OcrMedium backend 与 PreparedPlan 的接入。
 
 use std::{collections::BTreeMap, sync::Arc, time::Instant};
 
@@ -17,7 +17,7 @@ use serde_json::{Value, json};
 
 use crate::{
     evidence::VisionPreparedDiagnostics,
-    query::{VisualMatch, evaluate_visual_query, matching_nodes},
+    query::{VisualMatch, VisualQueryReport, evaluate_visual_query, matching_nodes},
     runtime::{SceneRefreshPolicy, VisionRuntime},
 };
 
@@ -85,13 +85,26 @@ impl ActionBackend for VisionBackend {
         let health = self.runtime.health();
         let availability = match self.kind {
             BackendKind::VisualCache => {
-                if health.capture_ready {
-                    RuntimeAvailability::Ready
-                } else {
+                if !health.capture_ready {
                     RuntimeAvailability::Unavailable
+                } else {
+                    // Cache backend 只有在本次窗口和查询区域确实命中时才可参与执行；
+                    // 首次视觉动作必须让 OCR backend 生成 scene，不能由空 cache 抢占候选。
+                    let mut cache_policy = SceneRefreshPolicy::tiny();
+                    cache_policy.normalized_query_region = query.region;
+                    match self.runtime.lookup_cache(
+                        argusflow_core::WindowIdentity {
+                            handle: window_ref.handle,
+                            process_id: window_ref.process_id,
+                        },
+                        &cache_policy,
+                    ) {
+                        crate::scene::CacheLookup::Hit(_) => RuntimeAvailability::Ready,
+                        crate::scene::CacheLookup::Miss(_) => RuntimeAvailability::Unavailable,
+                    }
                 }
             }
-            BackendKind::OcrTiny | BackendKind::OcrMedium => {
+            BackendKind::OcrTiny | BackendKind::OcrSmall | BackendKind::OcrMedium => {
                 if health.capture_ready && health.worker_ready {
                     RuntimeAvailability::Ready
                 } else if !health.capture_ready {
@@ -123,6 +136,7 @@ impl VisionBackend {
         let cost = match self.kind {
             BackendKind::VisualCache => QueryCost::Low,
             BackendKind::OcrTiny => QueryCost::Medium,
+            BackendKind::OcrSmall => QueryCost::Medium,
             BackendKind::OcrMedium => QueryCost::High,
             _ => QueryCost::High,
         };
@@ -194,6 +208,7 @@ impl VisionBackend {
         match self.kind {
             BackendKind::VisualCache => "visual-cache",
             BackendKind::OcrTiny => "ocr-tiny",
+            BackendKind::OcrSmall => "ocr-small",
             BackendKind::OcrMedium => "ocr-medium",
             _ => "unsupported-visual",
         }
@@ -228,6 +243,7 @@ impl PreparedExecution for VisionPreparedExecution {
         let mut refresh_policy = match self.backend {
             BackendKind::VisualCache => SceneRefreshPolicy::tiny(),
             BackendKind::OcrTiny => SceneRefreshPolicy::tiny(),
+            BackendKind::OcrSmall => SceneRefreshPolicy::small(),
             BackendKind::OcrMedium => SceneRefreshPolicy::medium(),
             _ => {
                 return Err(AutomationError::BackendUnavailable {
@@ -253,17 +269,18 @@ impl PreparedExecution for VisionPreparedExecution {
                     });
                 }
             },
-            BackendKind::OcrTiny | BackendKind::OcrMedium => self
-                .runtime
-                .current_scene(
+            BackendKind::OcrTiny | BackendKind::OcrSmall | BackendKind::OcrMedium => {
+                crate::scene_execution::current_scene_with_deadline(
+                    self.runtime.clone(),
                     argusflow_core::WindowIdentity {
                         handle: window.handle,
                         process_id: window.process_id,
                     },
-                    &refresh_policy,
+                    refresh_policy,
                 )
                 .await
-                .map_err(|error| vision_error_to_automation(self.backend, error))?,
+                .map_err(|error| vision_error_to_automation(self.backend, error))?
+            }
             _ => {
                 return Err(AutomationError::BackendUnavailable {
                     backend: self.backend,
@@ -312,17 +329,13 @@ fn execute_observation(
     match action {
         AutomationAction::GetText { .. } => {
             let VisualMatch::Unique(node) = evaluate_visual_query(scene, query)?;
+            let report = VisualQueryReport::from_matches(scene, query, &[node]);
             let mut outputs = BTreeMap::new();
             outputs.insert(
                 ActionOutputKey::Text.as_str().to_owned(),
                 Value::String(node.raw_text.clone()),
             );
-            outcome_with_contract(
-                action,
-                backend,
-                "已从视觉场景读取目标文本".to_owned(),
-                outputs,
-            )
+            outcome_with_contract(action, backend, report.summary(), outputs)
         }
         AutomationAction::Extract {
             cardinality,
@@ -336,6 +349,7 @@ fn execute_observation(
                 }
                 ExtractCardinality::Many => matching_nodes(scene, query),
             };
+            let report = VisualQueryReport::from_matches(scene, query, &nodes);
             let values = nodes
                 .iter()
                 .map(|node| project_fields(node, fields, backend))
@@ -353,12 +367,7 @@ fn execute_observation(
                     Value::Array(values)
                 },
             );
-            outcome_with_contract(
-                action,
-                backend,
-                "已从视觉场景提取结构化文本".to_owned(),
-                outputs,
-            )
+            outcome_with_contract(action, backend, report.summary(), outputs)
         }
         AutomationAction::GetValue { .. } => Err(AutomationError::ActionUnsupported {
             backend,
