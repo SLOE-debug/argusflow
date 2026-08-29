@@ -7,7 +7,7 @@ use argusflow_agent::{
 };
 use argusflow_browser::{CdpBackend, CdpRuntime};
 use argusflow_core::BackendKind;
-use argusflow_runtime::WorkflowEngine;
+use argusflow_runtime::{FileRunTraceStore, RunTraceLevel, WorkflowEngine};
 use argusflow_vision::{
     NamedPipeOcrEngine, OcrEngine, UnavailableOcrEngine, VisionBackend, VisionError, VisionRuntime,
     VisionWorkerClient,
@@ -26,6 +26,8 @@ pub struct AppState {
     pub engine: Arc<WorkflowEngine>,
     /// 供 AQL Explain 与 WorkflowEngine 共享的唯一 Planner 实例。
     pub router: Arc<ActionRouter>,
+    /// 历史运行的本地只读查询入口，与 Engine 使用同一 Store 实例。
+    pub run_store: Arc<FileRunTraceStore>,
     /// 应用生命周期内唯一的 WGC MTA 线程与共享 D3D11 设备所有者。
     capture_host: WindowsCaptureHost,
 }
@@ -33,6 +35,11 @@ pub struct AppState {
 impl AppState {
     /// 创建应用状态、启动捕获主机，并注册由 capability planner 排序的自动化后端。
     pub fn new() -> Result<Self, VisionError> {
+        // WorkflowEngine 与 Vision Runtime 共享唯一 Run Store，保证 artifact 归属同一 run_id。
+        let run_store = Arc::new(FileRunTraceStore::new(
+            ".argusflow/runs",
+            RunTraceLevel::Diagnostics,
+        ));
         // UIA runtime 初始化失败不会阻止应用启动；候选会以 Unavailable 进入 Explain。
         let uia_runtime = Arc::new(UiaRuntime::start());
         // Browser 节点与 CdpBackend 共享唯一 runtime，确保资源 scope 精确绑定同一页面会话。
@@ -41,10 +48,12 @@ impl AppState {
         let capture_host = WindowsCaptureHost::start()?;
         // 视觉 capture/OCR/cache 只装配一次，全部 OCR 档位共享同一 runtime。
         // Python worker 由部署层启动并通过环境变量注入；未配置时 health 会明确降级。
-        let vision_runtime = Arc::new(VisionRuntime::new(
-            Arc::new(capture_host.frame_source()),
-            build_vision_worker(),
-        ));
+        let vision_runtime = Arc::new(
+            VisionRuntime::new(Arc::new(capture_host.frame_source()), build_vision_worker())
+                .with_trace_sink(Arc::new(crate::run_trace_sink::RunVisionTraceSink::new(
+                    run_store.clone(),
+                ))),
+        );
         let visual_materializer =
             Arc::new(WindowsVisualTargetMaterializer::new(vision_runtime.clone()));
         // 注册顺序不决定执行优先级；ActionRouter 会比较支持等级、成本与用户偏好。
@@ -85,13 +94,16 @@ impl AppState {
                 }),
         );
 
+        let engine = WorkflowEngine::with_resource_providers(
+            router.clone(),
+            Arc::new(WindowsApplicationSessionProvider),
+            cdp_runtime,
+        )
+        .with_trace_store(run_store.clone());
         Ok(Self {
-            engine: Arc::new(WorkflowEngine::with_resource_providers(
-                router.clone(),
-                Arc::new(WindowsApplicationSessionProvider),
-                cdp_runtime,
-            )),
+            engine: Arc::new(engine),
             router,
+            run_store,
             capture_host,
         })
     }
@@ -117,7 +129,9 @@ fn build_vision_worker() -> Arc<VisionWorkerClient> {
         )));
     };
 
-    let engine = Arc::new(NamedPipeOcrEngine::new(pipe_name, session_token));
+    let engine = Arc::new(
+        NamedPipeOcrEngine::new(pipe_name, session_token).with_model_input_diagnostics(true),
+    );
     let health_probe = engine.clone();
     tauri::async_runtime::spawn(async move {
         loop {

@@ -6,11 +6,11 @@ use serde::{Deserialize, Serialize};
 use crate::{
     error::VisionError,
     frame::{FrameId, PhysicalRect, TopologyGeneration},
-    ocr::{OcrModel, OcrProfile, OcrResponse},
+    ocr::{OcrDiagnosticImageEncoding, OcrModel, OcrProfile, OcrResponse},
 };
 
 /// 当前 Rust/Python worker 协议版本。
-pub const VISION_PROTOCOL_VERSION: &str = "argusflow.vision.v3";
+pub const VISION_PROTOCOL_VERSION: &str = "argusflow.vision.v4";
 
 /// 单次 Named Pipe 消息允许携带的最大原始像素体大小。
 pub const MAX_PIXEL_BODY_BYTES: usize = 64 * 1024 * 1024;
@@ -166,6 +166,42 @@ pub struct WorkerOcrRequest {
     pub pixel_transport: PixelTransport,
     /// 请求截止时间，单位为毫秒。
     pub deadline_ms: u64,
+    /// 只控制旁路诊断产物，不改变 OCR 预处理或推理参数。
+    pub diagnostics: WorkerDiagnosticsRequest,
+}
+
+/// Host 对单次 OCR 请求声明的诊断产物策略。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkerDiagnosticsRequest {
+    /// 是否返回真正传给模型的最终像素。
+    pub capture_model_input: bool,
+    /// 开启时使用的无损编码。
+    pub encoding: OcrDiagnosticImageEncoding,
+}
+
+/// Recognize 响应 binary body 的类型化元数据。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkerBinaryArtifact {
+    /// 当前 v4 只允许 model_input。
+    pub kind: WorkerBinaryArtifactKind,
+    /// binary body 的无损编码。
+    pub encoding: OcrDiagnosticImageEncoding,
+    /// 解码后的像素宽度。
+    pub width: u32,
+    /// 解码后的像素高度。
+    pub height: u32,
+    /// 与 framed body header 一致的字节数。
+    pub body_length: u64,
+    /// 小写十六进制 SHA-256。
+    pub sha256: String,
+}
+
+/// Worker 响应允许携带的二进制 artifact 类别。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkerBinaryArtifactKind {
+    /// `pipeline.predict` 接收的 exact model input。
+    ModelInput,
 }
 
 /// Named Pipe 控制面响应类型。
@@ -181,6 +217,8 @@ pub enum WorkerResponse {
     Recognize {
         /// 成功时的完整 OCR 响应。
         response: Option<OcrResponse>,
+        /// Diagnostics 请求成功时对响应 binary body 的描述。
+        artifact: Option<WorkerBinaryArtifact>,
         /// 失败时的 worker 错误。
         error: Option<WorkerError>,
     },
@@ -197,7 +235,10 @@ pub struct WorkerError {
 
 impl WorkerOcrRequest {
     /// 从内部 OCR 请求创建控制面 DTO 与 binary body。
-    pub fn from_request(request: &crate::ocr::OcrRequest) -> Result<(Self, Vec<u8>), VisionError> {
+    pub fn from_request(
+        request: &crate::ocr::OcrRequest,
+        capture_model_input: bool,
+    ) -> Result<(Self, Vec<u8>), VisionError> {
         if request.deadline.is_zero() {
             return Err(VisionError::Protocol {
                 message: "OCR request deadline must be non-zero".to_owned(),
@@ -259,6 +300,10 @@ impl WorkerOcrRequest {
                     body_length: expected_bytes,
                 },
                 deadline_ms,
+                diagnostics: WorkerDiagnosticsRequest {
+                    capture_model_input,
+                    encoding: OcrDiagnosticImageEncoding::Png,
+                },
             },
             pixels.to_vec(),
         ))
@@ -294,7 +339,7 @@ mod tests {
     #[test]
     fn binary_body_preserves_large_roi_without_json_pixel_array() {
         let wire_request = request(1_200, 800, 1_200 * 4, vec![17; 1_200 * 800 * 4]);
-        let (wire, body) = WorkerOcrRequest::from_request(&wire_request)
+        let (wire, body) = WorkerOcrRequest::from_request(&wire_request, false)
             .expect("large ROI should fit the binary transport");
 
         assert_eq!(body.len(), 1_200 * 800 * 4);
@@ -314,7 +359,7 @@ mod tests {
     #[test]
     fn stride_padding_is_kept_in_the_binary_body() {
         let request = request(4, 2, 20, vec![0; 40]);
-        let (wire, body) = WorkerOcrRequest::from_request(&request)
+        let (wire, body) = WorkerOcrRequest::from_request(&request, false)
             .expect("row padding should be a valid transport detail");
 
         assert_eq!(body.len(), 40);
@@ -332,7 +377,7 @@ mod tests {
     fn extra_pixel_storage_is_rejected_instead_of_silently_truncated() {
         let request = request(4, 2, 16, vec![0; 40]);
 
-        let error = WorkerOcrRequest::from_request(&request)
+        let error = WorkerOcrRequest::from_request(&request, false)
             .expect_err("body length must match stride*height exactly");
         assert!(matches!(error, VisionError::Protocol { .. }));
     }

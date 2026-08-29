@@ -4,6 +4,7 @@
 compile_error!("ArgusFlow only supports Windows targets.");
 
 mod commands;
+mod run_trace_sink;
 mod runtime;
 
 use tauri::Manager;
@@ -20,6 +21,10 @@ pub fn run() -> tauri::Result<()> {
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
             commands::query::inspect_aql,
+            commands::run_trace::list_runs,
+            commands::run_trace::get_run,
+            commands::run_trace::read_run_events,
+            commands::run_trace::read_run_artifact,
             commands::workflow::validate_workflow,
             commands::workflow::run_workflow,
         ])

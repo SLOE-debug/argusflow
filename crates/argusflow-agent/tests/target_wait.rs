@@ -260,6 +260,7 @@ async fn execute_with_wait(
                 postcondition_wait: TargetWaitPolicy::default(),
                 prepared_target: None,
                 postcondition: None,
+                trace_context: None,
             },
         )
         .await

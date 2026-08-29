@@ -3,6 +3,7 @@
 use std::{sync::RwLock, time::Duration};
 
 use async_trait::async_trait;
+use sha2::{Digest, Sha256};
 use tokio::{
     net::windows::named_pipe::{ClientOptions, NamedPipeClient},
     sync::Mutex,
@@ -10,14 +11,14 @@ use tokio::{
 
 use crate::{
     error::VisionError,
-    ocr::{OcrEngine, OcrRequest, OcrResponse},
+    ocr::{OcrEngine, OcrModelInputArtifact, OcrRequest, OcrResponse},
 };
 
 use super::{
     client::{read_framed_message, write_framed_message},
     protocol::{
-        VISION_PROTOCOL_VERSION, WorkerCommand, WorkerHealth, WorkerOcrRequest,
-        WorkerProtocolEnvelope, WorkerResponse,
+        VISION_PROTOCOL_VERSION, WorkerBinaryArtifactKind, WorkerCommand, WorkerHealth,
+        WorkerOcrRequest, WorkerProtocolEnvelope, WorkerResponse,
     },
 };
 
@@ -32,6 +33,8 @@ pub struct NamedPipeOcrEngine {
     connection: Mutex<Option<NamedPipeClient>>,
     /// 最近一次 handshake 或请求得到的 health。
     health: RwLock<WorkerHealth>,
+    /// Diagnostics/Forensics 模式才请求 exact model input PNG。
+    capture_model_input: bool,
 }
 
 impl NamedPipeOcrEngine {
@@ -42,7 +45,14 @@ impl NamedPipeOcrEngine {
             session_token: session_token.into(),
             connection: Mutex::new(None),
             health: RwLock::new(WorkerHealth::starting()),
+            capture_model_input: false,
         }
+    }
+
+    /// 开启或关闭 exact model input 旁路回传；不影响模型推理参数。
+    pub fn with_model_input_diagnostics(mut self, enabled: bool) -> Self {
+        self.capture_model_input = enabled;
+        self
     }
 
     /// 返回不含像素内容的 worker 管道名称。
@@ -158,13 +168,6 @@ impl NamedPipeOcrEngine {
             lease.fail(error.to_string());
             return Err(error);
         }
-        if !response_body.is_empty() {
-            let error = VisionError::Protocol {
-                message: "worker response must not contain a binary body".to_owned(),
-            };
-            lease.fail(error.to_string());
-            return Err(error);
-        }
         if let WorkerResponse::Recognize {
             error: Some(worker_error),
             ..
@@ -236,7 +239,8 @@ impl OcrEngine for NamedPipeOcrEngine {
     }
 
     async fn recognize(&self, request: OcrRequest) -> Result<OcrResponse, VisionError> {
-        let (wire_request, body) = WorkerOcrRequest::from_request(&request)?;
+        let (wire_request, body) =
+            WorkerOcrRequest::from_request(&request, self.capture_model_input)?;
         let envelope = WorkerProtocolEnvelope {
             protocol_version: VISION_PROTOCOL_VERSION.to_owned(),
             request_id: wire_request.request_id.clone(),
@@ -246,14 +250,10 @@ impl OcrEngine for NamedPipeOcrEngine {
             },
         };
         let (response, response_body) = self.round_trip(envelope, &body, request.deadline).await?;
-        if !response_body.is_empty() {
-            return Err(VisionError::Protocol {
-                message: "worker OCR response unexpectedly contained a binary body".to_owned(),
-            });
-        }
         match response.payload {
             WorkerResponse::Recognize {
-                response: Some(response),
+                response: Some(mut response),
+                artifact,
                 error: None,
             } => {
                 if response.request_id != request.request_id {
@@ -262,10 +262,40 @@ impl OcrEngine for NamedPipeOcrEngine {
                             .to_owned(),
                     });
                 }
+                response.model_input = match artifact {
+                    Some(artifact) => {
+                        if artifact.kind != WorkerBinaryArtifactKind::ModelInput
+                            || artifact.body_length != response_body.len() as u64
+                            || artifact.width != response.preprocessing.output_width
+                            || artifact.height != response.preprocessing.output_height
+                            || format!("{:x}", Sha256::digest(&response_body)) != artifact.sha256
+                        {
+                            return Err(VisionError::Protocol {
+                                message:
+                                    "worker model-input artifact metadata did not match binary body"
+                                        .to_owned(),
+                            });
+                        }
+                        Some(OcrModelInputArtifact {
+                            encoding: artifact.encoding,
+                            width: artifact.width,
+                            height: artifact.height,
+                            sha256: artifact.sha256,
+                            bytes: response_body,
+                        })
+                    }
+                    None if response_body.is_empty() => None,
+                    None => {
+                        return Err(VisionError::Protocol {
+                            message: "worker returned an untyped OCR response body".to_owned(),
+                        });
+                    }
+                };
                 Ok(response)
             }
             WorkerResponse::Recognize {
                 response: _,
+                artifact: _,
                 error: Some(error),
             } => {
                 if error.code == "cancelled" {
@@ -287,6 +317,7 @@ impl OcrEngine for NamedPipeOcrEngine {
             }),
             WorkerResponse::Recognize {
                 response: None,
+                artifact: _,
                 error: None,
             } => Err(VisionError::Protocol {
                 message: "worker returned empty OCR response and no error".to_owned(),

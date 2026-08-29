@@ -2,7 +2,7 @@
 
 use std::{sync::Arc, time::Instant};
 
-use argusflow_core::WindowIdentity;
+use argusflow_core::{RunTraceContext, WindowIdentity};
 
 use super::{SceneRefreshPolicy, VisionRuntime};
 use crate::{
@@ -22,7 +22,7 @@ impl VisionRuntime {
         window: WindowIdentity,
         policy: &SceneRefreshPolicy,
     ) -> Result<Arc<VisualScene>, VisionError> {
-        self.current_scene_inner(window, policy, None).await
+        self.current_scene_inner(window, policy, None, None).await
     }
 
     /// 获取稳定场景，并把端到端执行阶段提供给独立的截止时间任务。
@@ -32,15 +32,17 @@ impl VisionRuntime {
         policy: &SceneRefreshPolicy,
         trace: &SceneExecutionTrace,
     ) -> Result<Arc<VisualScene>, VisionError> {
-        self.current_scene_inner(window, policy, Some(trace)).await
+        self.current_scene_inner(window, policy, Some(trace), None)
+            .await
     }
 
     /// 执行场景刷新；轨迹为空时保持普通服务调用不产生诊断状态。
-    async fn current_scene_inner(
+    pub(crate) async fn current_scene_inner(
         &self,
         window: WindowIdentity,
         policy: &SceneRefreshPolicy,
         trace: Option<&SceneExecutionTrace>,
+        run_trace: Option<&RunTraceContext>,
     ) -> Result<Arc<VisualScene>, VisionError> {
         enter_phase(trace, SceneExecutionPhase::CacheLookup);
         let cache_lookup = self.lookup_cache(window, policy);
@@ -199,6 +201,9 @@ impl VisionRuntime {
                 return Err(VisionError::OcrCancelled {
                     reason: "worker response belongs to an older or different request".to_owned(),
                 });
+            }
+            if let (Some(trace_sink), Some(run_trace)) = (&self.trace_sink, run_trace) {
+                trace_sink.record_ocr(run_trace, &frame, &request, &response);
             }
             responses.push(response);
         }

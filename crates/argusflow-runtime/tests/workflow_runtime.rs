@@ -9,7 +9,8 @@ use argusflow_core::{
     ValueExpr, ValueSource, WorkflowInputDefinition, WorkflowInputType,
 };
 use argusflow_runtime::{
-    ExecutionEventSink, RuntimeError, UnavailableActionDispatcher, WorkflowEngine,
+    ExecutionEventSink, FileRunTraceStore, RunStatus, RunTraceLevel, RuntimeError,
+    UnavailableActionDispatcher, WorkflowEngine,
 };
 use serde_json::json;
 use tokio::sync::mpsc;
@@ -82,6 +83,77 @@ async fn runtime_requires_and_resolves_separate_run_inputs() {
         }
     }
     assert!(observed);
+}
+
+#[tokio::test]
+async fn runtime_persists_a_completed_run_without_plaintext_inputs() {
+    let run_root =
+        std::env::temp_dir().join(format!("argusflow-run-trace-{}", uuid::Uuid::new_v4()));
+    let trace_store = Arc::new(FileRunTraceStore::new(
+        &run_root,
+        RunTraceLevel::Diagnostics,
+    ));
+    let engine = Arc::new(
+        WorkflowEngine::new(Arc::new(UnavailableActionDispatcher))
+            .with_trace_store(trace_store.clone()),
+    );
+    let mut workflow = demo_workflow(1);
+    workflow.inputs = vec![WorkflowInputDefinition {
+        key: "secret".to_owned(),
+        value_type: WorkflowInputType::Text,
+    }];
+    workflow.nodes[1].definition = WorkflowNodeKind::Debug {
+        value: ValueExpr::Ref {
+            source: ValueSource::WorkflowInput {
+                key: "secret".to_owned(),
+            },
+            pointer: String::new(),
+        },
+    }
+    .into();
+    let values = json!({ "secret": "must-not-be-persisted" })
+        .as_object()
+        .expect("fixture input should be an object")
+        .clone();
+    let (sender, mut receiver) = mpsc::unbounded_channel();
+
+    let started = engine
+        .start(
+            workflow,
+            RunInputs { values },
+            Arc::new(ChannelSink(sender)),
+        )
+        .await
+        .expect("trace-enabled run should start");
+    while let Some(event) = receiver.recv().await {
+        if event.kind == ExecutionEventKind::WorkflowCompleted {
+            break;
+        }
+    }
+    // Engine 在发出终态事件后立即 finalize Manifest；等待活动集合完成移除以避免竞态断言。
+    while engine.active_runs().await.contains(&started.run_id) {
+        tokio::task::yield_now().await;
+    }
+
+    let details = trace_store
+        .get_run(started.run_id)
+        .expect("completed run should be readable");
+    assert_eq!(details.manifest.status, RunStatus::Completed);
+    let events = trace_store
+        .read_events(started.run_id)
+        .expect("trace JSONL should be readable");
+    assert!(
+        events
+            .iter()
+            .all(|event| { event.event.message.as_deref() != Some("must-not-be-persisted") })
+    );
+    let run_inputs = std::fs::read_to_string(
+        run_root
+            .join(started.run_id.to_string())
+            .join("workflow/run-inputs.json"),
+    )
+    .expect("redacted run inputs should exist");
+    assert!(!run_inputs.contains("must-not-be-persisted"));
 }
 
 #[tokio::test]

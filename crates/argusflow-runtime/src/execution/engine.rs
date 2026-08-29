@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use super::{
     dispatcher::ActionDispatcher,
-    execution_events::{build_event, emit_event},
+    execution_events::{build_event, restore_component_source},
     node_execution::catch_node_unwind,
     run_context::RunContext,
     run_inputs::validate_run_inputs,
@@ -44,6 +44,8 @@ pub struct WorkflowEngine {
     node_types: NodeTypeRegistry,
     /// 跨 RunWorld 按资源 read/exclusive 语义仲裁副作用。
     scheduler: ResourceScheduler,
+    /// 可选的 Run Trace 持久化工厂；缺省构造保持纯 Runtime 行为。
+    trace_store: Option<Arc<dyn crate::RunTraceStore>>,
 }
 
 impl WorkflowEngine {
@@ -78,6 +80,7 @@ impl WorkflowEngine {
             active_runs: Mutex::new(HashSet::new()),
             node_types: builtin_nodes::registry(dispatcher, applications, browsers),
             scheduler: ResourceScheduler::default(),
+            trace_store: None,
         }
     }
 
@@ -96,7 +99,14 @@ impl WorkflowEngine {
             active_runs: Mutex::new(HashSet::new()),
             node_types,
             scheduler: ResourceScheduler::default(),
+            trace_store: None,
         })
+    }
+
+    /// 为后续运行装配持久化 Trace Store，不改变节点或自动化执行语义。
+    pub fn with_trace_store(mut self, trace_store: Arc<dyn crate::RunTraceStore>) -> Self {
+        self.trace_store = Some(trace_store);
+        self
     }
 
     /// 返回稳定排序的全部活动 RunWorld ID。
@@ -131,6 +141,8 @@ impl WorkflowEngine {
         inputs: RunInputs,
         sink: Arc<dyn ExecutionEventSink>,
     ) -> Result<RunStarted, RuntimeError> {
+        let original_workflow = workflow.clone();
+        let component_snapshot = components.clone();
         let component_registry =
             ComponentRegistry::from_definitions(components).map_err(|error| {
                 RuntimeError::ValidationFailed {
@@ -146,10 +158,22 @@ impl WorkflowEngine {
             .map_err(|report| RuntimeError::ValidationFailed { report })?;
         validate_run_inputs(&workflow.definition, &inputs)?;
         let run_id = Uuid::new_v4();
+        // Trace 创建失败不能阻止本来可以执行的自动化；没有目录时仅本次观测降级。
+        let trace = self.trace_store.as_ref().and_then(|store| {
+            store
+                .start_run(
+                    run_id,
+                    &original_workflow,
+                    &workflow.definition,
+                    &component_snapshot,
+                    &inputs,
+                )
+                .ok()
+        });
         self.active_runs.lock().await.insert(run_id);
         let engine = Arc::clone(self);
         tokio::spawn(async move {
-            let _ = engine.execute(run_id, workflow, inputs, sink).await;
+            let _ = engine.execute(run_id, workflow, inputs, sink, trace).await;
             engine.active_runs.lock().await.remove(&run_id);
         });
         Ok(RunStarted { run_id })
@@ -162,6 +186,7 @@ impl WorkflowEngine {
         workflow: PreparedWorkflow,
         inputs: RunInputs,
         sink: Arc<dyn ExecutionEventSink>,
+        trace: Option<Arc<dyn crate::RunTraceSession>>,
     ) -> Result<(), RuntimeError> {
         // Validator 已保证 variables 是对象；这里保留结构约束错误以防未来绕过入口。
         let variables = workflow
@@ -179,8 +204,9 @@ impl WorkflowEngine {
             Arc::clone(&workflow.value_plan),
         );
         let mut sequence = 0;
-        emit_event(
+        emit_traced_event(
             &sink,
+            trace.as_ref(),
             build_event(
                 run_id,
                 workflow.definition.id,
@@ -195,30 +221,44 @@ impl WorkflowEngine {
         )?;
 
         let execution = self
-            .execute_path(&workflow, &sink, &mut context, &mut sequence)
+            .execute_path(
+                &workflow,
+                &sink,
+                trace.as_ref(),
+                &mut context,
+                &mut sequence,
+            )
             .await;
         let cleanup_access = context.resources().cleanup_access_set();
         let _cleanup_guard = self.scheduler.acquire(cleanup_access).await;
         let cleanup = context.resources().cleanup_all().await;
         let result = execution.and(cleanup);
         match result {
-            Ok(()) => emit_event(
-                &sink,
-                build_event(
-                    run_id,
-                    workflow.definition.id,
-                    &mut sequence,
-                    None,
-                    None,
-                    ExecutionEventKind::WorkflowCompleted,
-                    Some("工作流执行完成".to_owned()),
-                    None,
-                ),
-                &workflow.source_map,
-            ),
-            Err(error) => {
-                emit_event(
+            Ok(()) => {
+                let delivery = emit_traced_event(
                     &sink,
+                    trace.as_ref(),
+                    build_event(
+                        run_id,
+                        workflow.definition.id,
+                        &mut sequence,
+                        None,
+                        None,
+                        ExecutionEventKind::WorkflowCompleted,
+                        Some("工作流执行完成".to_owned()),
+                        None,
+                    ),
+                    &workflow.source_map,
+                );
+                if let Some(trace) = &trace {
+                    trace.finish(crate::RunStatus::Completed, None, None);
+                }
+                delivery
+            }
+            Err(error) => {
+                emit_traced_event(
+                    &sink,
+                    trace.as_ref(),
                     build_event(
                         run_id,
                         workflow.definition.id,
@@ -231,6 +271,9 @@ impl WorkflowEngine {
                     ),
                     &workflow.source_map,
                 )?;
+                if let Some(trace) = &trace {
+                    trace.finish(crate::RunStatus::Failed, None, Some(&error.to_string()));
+                }
                 Err(error)
             }
         }
@@ -241,6 +284,7 @@ impl WorkflowEngine {
         &self,
         workflow: &PreparedWorkflow,
         sink: &Arc<dyn ExecutionEventSink>,
+        trace: Option<&Arc<dyn crate::RunTraceSession>>,
         context: &mut RunContext,
         sequence: &mut u64,
     ) -> Result<(), RuntimeError> {
@@ -278,8 +322,12 @@ impl WorkflowEngine {
                     "node '{node_id}' has no prepared execution after validation"
                 ))
             })?;
-            emit_event(
+            if let Some(trace) = trace {
+                trace.record_resolved_inputs(*sequence, &node.id, prepared.as_ref(), context);
+            }
+            emit_traced_event(
                 sink,
+                trace,
                 build_event(
                     context.run_id,
                     workflow.definition.id,
@@ -307,8 +355,9 @@ impl WorkflowEngine {
             let execution = match execution_result {
                 Ok(execution) => execution,
                 Err(error) => {
-                    emit_event(
+                    emit_traced_event(
                         sink,
+                        trace,
                         build_event(
                             context.run_id,
                             workflow.definition.id,
@@ -321,6 +370,13 @@ impl WorkflowEngine {
                         ),
                         &workflow.source_map,
                     )?;
+                    if let Some(trace) = trace {
+                        trace.finish(
+                            crate::RunStatus::Failed,
+                            Some(&node.id),
+                            Some(&error.to_string()),
+                        );
+                    }
                     return Err(error);
                 }
             };
@@ -333,8 +389,9 @@ impl WorkflowEngine {
             ) {
                 Ok(outcome) => outcome,
                 Err(error) => {
-                    emit_event(
+                    emit_traced_event(
                         sink,
+                        trace,
                         build_event(
                             context.run_id,
                             workflow.definition.id,
@@ -347,6 +404,13 @@ impl WorkflowEngine {
                         ),
                         &workflow.source_map,
                     )?;
+                    if let Some(trace) = trace {
+                        trace.finish(
+                            crate::RunStatus::Failed,
+                            Some(&node.id),
+                            Some(&error.to_string()),
+                        );
+                    }
                     return Err(error);
                 }
             };
@@ -355,10 +419,14 @@ impl WorkflowEngine {
                 .keys()
                 .cloned()
                 .collect::<Vec<_>>();
+            if let Some(trace) = trace {
+                trace.record_outputs(*sequence, &node.id, &published_outcome);
+            }
             context.record_outcome(node.id.clone(), published_outcome);
             for node_event in execution.events {
-                emit_event(
+                emit_traced_event(
                     sink,
+                    trace,
                     build_event(
                         context.run_id,
                         workflow.definition.id,
@@ -373,8 +441,9 @@ impl WorkflowEngine {
                 )?;
             }
             if !published_output_names.is_empty() {
-                emit_event(
+                emit_traced_event(
                     sink,
+                    trace,
                     build_event(
                         context.run_id,
                         workflow.definition.id,
@@ -393,8 +462,9 @@ impl WorkflowEngine {
                     &workflow.source_map,
                 )?;
             }
-            emit_event(
+            emit_traced_event(
                 sink,
+                trace,
                 build_event(
                     context.run_id,
                     workflow.definition.id,
@@ -410,8 +480,9 @@ impl WorkflowEngine {
 
             let next_edge = select_next_edge(prepared.as_ref(), node_id, &outgoing, context)?;
             if let Some(edge) = next_edge {
-                emit_event(
+                emit_traced_event(
                     sink,
+                    trace,
                     build_event(
                         context.run_id,
                         workflow.definition.id,
@@ -431,6 +502,20 @@ impl WorkflowEngine {
         }
         Ok(())
     }
+}
+
+/// 先恢复组件来源，再将同一事件写入 best-effort Trace 和实时产品事件流。
+fn emit_traced_event(
+    sink: &Arc<dyn ExecutionEventSink>,
+    trace: Option<&Arc<dyn crate::RunTraceSession>>,
+    mut event: ExecutionEvent,
+    source_map: &crate::ComponentSourceMap,
+) -> Result<(), RuntimeError> {
+    restore_component_source(&mut event, source_map);
+    if let Some(trace) = trace {
+        trace.record_event(&event);
+    }
+    sink.emit(event).map_err(RuntimeError::EventSink)
 }
 
 /// 根据 PreparedNode 声明的控制流与可选分支选择唯一后继边。

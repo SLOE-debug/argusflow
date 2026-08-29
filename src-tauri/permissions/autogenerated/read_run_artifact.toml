@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-read-run-artifact"
+description = "Enables the read_run_artifact command without any pre-configured scope."
+commands.allow = ["read_run_artifact"]
+
+[[permission]]
+identifier = "deny-read-run-artifact"
+description = "Denies the read_run_artifact command without any pre-configured scope."
+commands.deny = ["read_run_artifact"]

@@ -132,6 +132,11 @@ fn fixture_snapshot(width: u32, height: u32, items: &[(&str, f32, f32)]) -> Visu
             contrast_enhanced: false,
             sharpened: false,
         },
+        timings: argusflow_vision::OcrTimingSummary {
+            preprocess_elapsed_ms: 0,
+            inference_elapsed_ms: 1,
+        },
+        model_input: None,
         items: items
             .iter()
             .map(|(text, x, y)| OcrItem {

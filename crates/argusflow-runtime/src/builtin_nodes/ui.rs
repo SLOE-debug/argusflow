@@ -237,7 +237,7 @@ impl PreparedNode for UiNode {
 
     async fn execute(
         &self,
-        _node_id: &str,
+        node_id: &str,
         _permissions: &WorkflowPermissions,
         context: &mut RunContext,
     ) -> Result<NodeExecution, RuntimeError> {
@@ -281,6 +281,10 @@ impl PreparedNode for UiNode {
                     postcondition_wait: self.execution.postcondition_wait,
                     prepared_target: Some(prepared_target),
                     postcondition,
+                    trace_context: Some(argusflow_core::RunTraceContext {
+                        run_id: context.run_id,
+                        node_id: node_id.to_owned(),
+                    }),
                 },
             )
             .await?;

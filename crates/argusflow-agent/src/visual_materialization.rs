@@ -28,6 +28,7 @@ pub(crate) async fn materialize(
     prepared_target: Option<&PreparedAutomationTarget>,
     wait: TargetWaitPolicy,
     deadline: Option<tokio::time::Instant>,
+    trace_context: Option<&argusflow_core::RunTraceContext>,
 ) -> Result<Option<MaterializedTarget>, AutomationError> {
     let AutomationAction::Click { target } = action else {
         return Ok(None);
@@ -68,7 +69,7 @@ pub(crate) async fn materialize(
             }
             Some(deadline) => tokio::time::timeout_at(
                 deadline,
-                materializer.materialize(window, prepared_target.locator(), &plan),
+                materializer.materialize(window, prepared_target.locator(), &plan, trace_context),
             )
             .await
             .map_err(|_| AutomationError::TargetWaitTimeout {
@@ -79,7 +80,7 @@ pub(crate) async fn materialize(
             .and_then(|result| result),
             None => {
                 materializer
-                    .materialize(window, prepared_target.locator(), &plan)
+                    .materialize(window, prepared_target.locator(), &plan, trace_context)
                     .await
             }
         };

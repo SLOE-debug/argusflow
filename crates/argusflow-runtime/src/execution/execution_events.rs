@@ -1,19 +1,15 @@
-use std::sync::Arc;
-
 use argusflow_core::{
     ExecutionComponentFrame, ExecutionEvent, ExecutionEventKind, ExecutionEventPayload,
 };
 use uuid::Uuid;
 
-use super::engine::ExecutionEventSink;
-use crate::{component::ComponentSourceMap, error::RuntimeError};
+use crate::component::ComponentSourceMap;
 
-/// 将事件交付错误统一映射到 RuntimeError，并恢复组件实例来源。
-pub(crate) fn emit_event(
-    sink: &Arc<dyn ExecutionEventSink>,
-    mut event: ExecutionEvent,
+/// 把扁平执行节点映射回产品节点，同时保留完整组件路径。
+pub(crate) fn restore_component_source(
+    event: &mut ExecutionEvent,
     source_map: &ComponentSourceMap,
-) -> Result<(), RuntimeError> {
+) {
     if let Some(expanded_node_id) = event.node_id.clone()
         && let Some(path) = source_map.get(&expanded_node_id)
         && let Some(root) = path.first()
@@ -30,7 +26,6 @@ pub(crate) fn emit_event(
             })
             .collect();
     }
-    sink.emit(event).map_err(RuntimeError::EventSink)
 }
 
 /// 构造严格递增序号的执行事件。

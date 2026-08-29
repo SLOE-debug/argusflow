@@ -1,6 +1,7 @@
 //! 视觉查询的结构化 OCR 诊断与单行运行日志摘要。
 
 use argusflow_core::VisualQuery;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     frame::PhysicalRect,
@@ -8,7 +9,7 @@ use crate::{
 };
 
 /// 单个匹配候选的可解释 OCR 事实。
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VisualQueryCandidateSummary {
     /// OCR 返回的原始文字。
     pub raw_text: String,
@@ -21,7 +22,7 @@ pub struct VisualQueryCandidateSummary {
 }
 
 /// 一次视觉查询对应的模型、耗时和匹配候选摘要。
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VisualQueryReport {
     /// 查询的原始文字。
     pub query: String,

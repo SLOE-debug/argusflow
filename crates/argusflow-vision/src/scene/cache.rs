@@ -444,6 +444,11 @@ mod tests {
                 contrast_enhanced: false,
                 sharpened: false,
             },
+            timings: crate::ocr::OcrTimingSummary {
+                preprocess_elapsed_ms: 0,
+                inference_elapsed_ms: 1,
+            },
+            model_input: None,
             items: Vec::new(),
         };
         VisualSceneBuilder::new()

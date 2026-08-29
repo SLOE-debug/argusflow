@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use crate::{PreparedAutomationTarget, VisualQueryExpr};
 
@@ -100,4 +101,15 @@ pub struct ActionExecutionOptions {
     pub prepared_target: Option<PreparedAutomationTarget>,
     /// 由 Runtime 解析的不可持久化动作后置条件。
     pub postcondition: Option<crate::PreparedVisualPostcondition>,
+    /// 仅用于关联诊断 artifact 的 Run/Node 身份，不改变动作执行语义。
+    pub trace_context: Option<RunTraceContext>,
+}
+
+/// 跨 Runtime、Agent、Vision 传递的最小 Run Trace 关联身份。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunTraceContext {
+    /// 与 WorkflowEngine 本次运行完全一致的 UUID。
+    pub run_id: Uuid,
+    /// 当前扁平执行节点 ID。
+    pub node_id: String,
 }

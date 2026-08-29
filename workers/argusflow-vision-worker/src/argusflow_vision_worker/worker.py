@@ -13,6 +13,7 @@ import numpy
 import pywintypes
 
 from .image_preprocessing import ImagePreprocessingMode, PreparedOcrImage, prepare_ocr_image
+from .diagnostic_artifact import encode_exact_model_input
 from .protocol import (
     PROTOCOL_VERSION,
     ProtocolError,
@@ -137,7 +138,11 @@ class VisionWorker:
         next(iter(pipeline.predict(warmup, text_rec_score_thresh=_minimum_score(model))), None)
         self.lifecycle = "ready"
 
-    def recognize(self, request: dict[str, Any], body: bytes) -> dict[str, Any]:
+    def recognize(
+        self,
+        request: dict[str, Any],
+        body: bytes,
+    ) -> tuple[dict[str, Any], dict[str, str | int] | None, bytes]:
         """Decode a Rust ROI binary body, run PaddleOCR, and return frame-local polygons."""
 
         started = time.perf_counter()
@@ -175,8 +180,10 @@ class VisionWorker:
                 "OCR image_preprocessing is missing or unsupported",
             ) from error
         prepared = prepare_ocr_image(rgb, preprocessing_mode)
+        preprocess_elapsed_ms = int((time.perf_counter() - started) * 1000)
         pipeline = self.models.pipeline(model, options)
         minimum_score = _minimum_score(model)
+        inference_started = time.perf_counter()
         prediction: Any = next(
             iter(
                 pipeline.predict(
@@ -186,6 +193,7 @@ class VisionWorker:
             ),
             None,
         )
+        inference_elapsed_ms = int((time.perf_counter() - inference_started) * 1000)
         if prediction is None:
             items: list[dict[str, Any]] = []
         else:
@@ -200,15 +208,28 @@ class VisionWorker:
         elapsed_ms = int((time.perf_counter() - started) * 1000)
         if deadline_ms > 0 and elapsed_ms > deadline_ms:
             raise ProtocolError("deadline_exceeded", "OCR request exceeded its deadline")
-        return {
+        diagnostics = request.get("diagnostics")
+        if not isinstance(diagnostics, dict):
+            raise ProtocolError("invalid_diagnostics", "OCR diagnostics options are missing")
+        capture_model_input = bool(diagnostics.get("capture_model_input", False))
+        encoding = str(diagnostics.get("encoding", ""))
+        if capture_model_input and encoding != "png":
+            raise ProtocolError("invalid_diagnostics", "model-input diagnostics require PNG")
+        artifact = encode_exact_model_input(prepared.pixels) if capture_model_input else None
+        response = {
             "request_id": str(request["request_id"]),
             "frame_id": int(request["frame_id"]),
             "topology_generation": int(request["topology_generation"]),
             "model": model,
             "elapsed_ms": elapsed_ms,
             "preprocessing": prepared.summary(),
+            "timings": {
+                "preprocess_elapsed_ms": preprocess_elapsed_ms,
+                "inference_elapsed_ms": inference_elapsed_ms,
+            },
             "items": items,
         }
+        return response, artifact.metadata() if artifact else None, artifact.body if artifact else b""
 
 
 def _minimum_score(model: str) -> float:
@@ -290,6 +311,7 @@ def _error_response(envelope: dict[str, Any], code: str, message: str) -> dict[s
         {
             "kind": "recognize",
             "response": None,
+            "artifact": None,
             "error": {"code": code, "message": message},
         },
     )
@@ -381,7 +403,7 @@ def serve(pipe_name: str, session_token: str, status_file: str | None = None) ->
                             raise ProtocolError("invalid_request", "recognize request is missing")
                         worker.queue_depth = 1
                         try:
-                            result = worker.recognize(request, body)
+                            result, artifact, artifact_body = worker.recognize(request, body)
                         except ProtocolError as error:
                             write_frame(handle, _error_response(envelope, error.code, error.message))
                             if error.code == "deadline_exceeded":
@@ -401,9 +423,11 @@ def serve(pipe_name: str, session_token: str, status_file: str | None = None) ->
                                     {
                                         "kind": "recognize",
                                         "response": result,
+                                        "artifact": artifact,
                                         "error": None,
                                     },
                                 ),
+                                artifact_body,
                             )
                         finally:
                             worker.queue_depth = 0

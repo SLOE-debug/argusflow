@@ -8,7 +8,7 @@ use std::{
     time::Duration,
 };
 
-use argusflow_core::{NormalizedRect, WindowIdentity};
+use argusflow_core::{NormalizedRect, RunTraceContext, WindowIdentity};
 use async_trait::async_trait;
 use tokio::sync::Mutex;
 
@@ -142,6 +142,8 @@ pub struct VisionRuntime {
     metrics: Arc<VisionMetrics>,
     /// 捕获源健康状态。
     capture_ready: AtomicBool,
+    /// 可选宿主 artifact sink；失败语义由 sink 自己 best-effort 吞吐。
+    trace_sink: Option<Arc<dyn crate::VisionTraceSink>>,
 }
 
 impl VisionRuntime {
@@ -155,6 +157,7 @@ impl VisionRuntime {
             metrics: Arc::new(VisionMetrics::default()),
             // capture source 已由宿主装配；首次 execute 仍会执行真实 HWND/PID 校验。
             capture_ready: AtomicBool::new(true),
+            trace_sink: None,
         }
     }
 
@@ -173,6 +176,31 @@ impl VisionRuntime {
             metrics,
             // capture source 已由宿主装配；首次 execute 仍会执行真实 HWND/PID 校验。
             capture_ready: AtomicBool::new(true),
+            trace_sink: None,
+        }
+    }
+
+    /// 装配与 Run Store 绑定的视觉诊断 sink。
+    pub fn with_trace_sink(mut self, trace_sink: Arc<dyn crate::VisionTraceSink>) -> Self {
+        self.trace_sink = Some(trace_sink);
+        self
+    }
+
+    /// 在不改变普通 VisualSceneService 契约的前提下绑定一次 Run/Node 身份。
+    pub async fn current_scene_for_run(
+        &self,
+        window: WindowIdentity,
+        policy: &SceneRefreshPolicy,
+        context: &RunTraceContext,
+    ) -> Result<Arc<VisualScene>, VisionError> {
+        self.current_scene_inner(window, policy, None, Some(context))
+            .await
+    }
+
+    /// 将输入层已经完成的 0/1/N 选择事实转发给同一个 Run Artifact sink。
+    pub fn record_query_trace(&self, context: &RunTraceContext, trace: &crate::VisualQueryTrace) {
+        if let Some(trace_sink) = &self.trace_sink {
+            trace_sink.record_query(context, trace);
         }
     }
 

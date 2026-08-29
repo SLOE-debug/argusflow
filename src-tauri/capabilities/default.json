@@ -11,6 +11,10 @@
     "core:window:allow-toggle-maximize",
     "core:window:allow-close",
     "allow-inspect-aql",
+    "allow-list-runs",
+    "allow-get-run",
+    "allow-read-run-events",
+    "allow-read-run-artifact",
     "allow-validate-workflow",
     "allow-run-workflow"
   ]

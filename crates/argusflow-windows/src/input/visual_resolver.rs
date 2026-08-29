@@ -23,7 +23,7 @@ use windows::Win32::{
 };
 
 use super::surface_transform::SurfaceTransform;
-use super::visual_query_target::{prepare_query, select_click_node};
+use super::visual_query_target::{build_query_trace, prepare_query, select_click_node};
 
 /// 基于共享 VisionRuntime 的 Windows 视觉目标物化器。
 #[derive(Debug, Clone)]
@@ -70,6 +70,7 @@ impl PreparedTargetMaterializer for WindowsVisualTargetMaterializer {
         window: &WindowContext,
         locator: &PreparedTargetLocator,
         plan: &VisualMaterializationPlan,
+        trace_context: Option<&argusflow_core::RunTraceContext>,
     ) -> Result<MaterializedTarget, AutomationError> {
         let identity = WindowIdentity {
             handle: window.handle,
@@ -113,24 +114,21 @@ impl PreparedTargetMaterializer for WindowsVisualTargetMaterializer {
                 VisualMaterializationStage::OcrTiny => {
                     let mut refresh = SceneRefreshPolicy::tiny();
                     refresh.normalized_query_region = legacy_region;
-                    self.runtime
-                        .current_scene(identity, &refresh)
+                    current_scene(&self.runtime, identity, &refresh, trace_context)
                         .await
                         .map_err(|error| map_vision_error(BackendKind::OcrTiny, error))
                 }
                 VisualMaterializationStage::OcrSmall => {
                     let mut refresh = SceneRefreshPolicy::small();
                     refresh.normalized_query_region = legacy_region;
-                    self.runtime
-                        .current_scene(identity, &refresh)
+                    current_scene(&self.runtime, identity, &refresh, trace_context)
                         .await
                         .map_err(|error| map_vision_error(BackendKind::OcrSmall, error))
                 }
                 VisualMaterializationStage::OcrMedium => {
                     let mut refresh = SceneRefreshPolicy::medium();
                     refresh.normalized_query_region = legacy_region;
-                    self.runtime
-                        .current_scene(identity, &refresh)
+                    current_scene(&self.runtime, identity, &refresh, trace_context)
                         .await
                         .map_err(|error| map_vision_error(BackendKind::OcrMedium, error))
                 }
@@ -150,7 +148,14 @@ impl PreparedTargetMaterializer for WindowsVisualTargetMaterializer {
                                 .to_owned(),
                         });
                     }
-                    let node = match select_click_node(&scene, &query) {
+                    let selection = select_click_node(&scene, &query);
+                    if let Some(trace_context) = trace_context {
+                        self.runtime.record_query_trace(
+                            trace_context,
+                            &build_query_trace(&scene, &query, &selection),
+                        );
+                    }
+                    let node = match selection {
                         Err(error @ AutomationError::TargetNotFound { .. }) => {
                             last_error = Some(error);
                             continue;
@@ -197,6 +202,23 @@ impl PreparedTargetMaterializer for WindowsVisualTargetMaterializer {
                 message: "visual materialization plan has no usable stage".to_owned(),
             }),
         )
+    }
+}
+
+/// 只有 Workflow 动作携带显式 context；验证等独立视觉调用继续使用普通场景服务。
+async fn current_scene(
+    runtime: &VisionRuntime,
+    identity: WindowIdentity,
+    refresh: &SceneRefreshPolicy,
+    trace_context: Option<&argusflow_core::RunTraceContext>,
+) -> Result<Arc<argusflow_vision::VisualScene>, VisionError> {
+    match trace_context {
+        Some(context) => {
+            runtime
+                .current_scene_for_run(identity, refresh, context)
+                .await
+        }
+        None => runtime.current_scene(identity, refresh).await,
     }
 }
 

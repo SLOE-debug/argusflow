@@ -2,7 +2,6 @@ import {
   BellRing,
   ChevronDown,
   ChevronUp,
-  History,
   type LucideIcon,
 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
@@ -14,6 +13,7 @@ import type {
 import type { WorkflowCanvasNode } from '../../../../features/workflow';
 import { IconButton } from '../../../ui';
 import { ExecutionLog } from '../../execution/ExecutionLog';
+import { RunHistoryPanel } from '../../execution/RunHistoryPanel';
 import type {
   StructuredEditorTarget,
   WorkspaceEditorMode,
@@ -204,13 +204,7 @@ function resolveDockContent(
     case 'logs':
       return <ExecutionLog events={events} nodes={nodes} report={report} />;
     case 'runs':
-      return (
-        <DockPlaceholder
-          icon={History}
-          title="暂无运行记录"
-          description="运行一次流程后，记录会显示在这里。"
-        />
-      );
+      return <RunHistoryPanel liveEvents={events} />;
     case 'alerts':
       return report?.issues.length ? (
         <div className="min-h-0 flex-1 overflow-y-auto p-3">

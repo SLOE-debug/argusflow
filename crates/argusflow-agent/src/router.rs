@@ -234,6 +234,7 @@ impl ActionDispatcher for ActionRouter {
             options.prepared_target.as_ref(),
             options.target_wait,
             target_wait_deadline,
+            options.trace_context.as_ref(),
         )
         .await?;
         let postcondition = options.postcondition;
@@ -292,6 +293,7 @@ impl ActionDispatcher for ActionRouter {
                         options.prepared_target.as_ref(),
                         options.target_wait,
                         target_wait_deadline,
+                        options.trace_context.as_ref(),
                     )
                     .await;
                     match refreshed {

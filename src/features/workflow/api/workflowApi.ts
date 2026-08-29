@@ -7,7 +7,10 @@ import type {
   CommandError,
   FlowComponentDefinition,
   RunInputs,
+  RunDetails,
+  RunManifest,
   RunStarted,
+  RunTraceEvent,
   ValidationReport,
   WorkflowDefinition,
 } from '../model/contracts';
@@ -44,6 +47,29 @@ export function runWorkflow(
   inputs: RunInputs,
 ): Promise<RunStarted> {
   return invoke<RunStarted>('run_workflow', { workflow, components, inputs });
+}
+
+/** 按开始时间倒序读取本地运行索引。 */
+export function listRuns(): Promise<RunManifest[]> {
+  return invoke<RunManifest[]>('list_runs');
+}
+
+/** 读取一次运行及其执行时工作流快照。 */
+export function getRun(runId: string): Promise<RunDetails> {
+  return invoke<RunDetails>('get_run', { runId });
+}
+
+/** 读取一次运行的持久化事件流。 */
+export function readRunEvents(runId: string): Promise<RunTraceEvent[]> {
+  return invoke<RunTraceEvent[]>('read_run_events', { runId });
+}
+
+/** 通过 run_id/artifact_id 读取原始媒体 bytes，前端永远不接收磁盘路径。 */
+export function readRunArtifact(
+  runId: string,
+  artifactId: string,
+): Promise<ArrayBuffer> {
+  return invoke<ArrayBuffer>('read_run_artifact', { runId, artifactId });
 }
 
 /** 将 Tauri 抛出的未知值归一化为界面可安全展示的命令错误。 */

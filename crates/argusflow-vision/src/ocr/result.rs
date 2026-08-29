@@ -199,6 +199,38 @@ pub struct OcrPreprocessingSummary {
     pub sharpened: bool,
 }
 
+/// Worker 诊断 artifact 的无损图像编码。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OcrDiagnosticImageEncoding {
+    /// 标准无损 PNG。
+    Png,
+}
+
+/// 真正传给 `pipeline.predict` 的 RGB 像素诊断图。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OcrModelInputArtifact {
+    /// 二进制体编码。
+    pub encoding: OcrDiagnosticImageEncoding,
+    /// 模型输入宽度。
+    pub width: u32,
+    /// 模型输入高度。
+    pub height: u32,
+    /// Worker 生成并经 Host 校验的 SHA-256。
+    pub sha256: String,
+    /// PNG bytes；不进入 JSON 事件或普通响应序列化。
+    pub bytes: Vec<u8>,
+}
+
+/// Worker 内预处理与推理阶段的独立耗时。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OcrTimingSummary {
+    /// BGRA 解码、RGB 转换和图像增强耗时。
+    pub preprocess_elapsed_ms: u64,
+    /// `pipeline.predict` 同步推理耗时。
+    pub inference_elapsed_ms: u64,
+}
+
 impl OcrPreprocessingSummary {
     /// 返回几何放大比例的千分值，避免指标和摘要依赖浮点相等判断。
     pub fn scale_milli(self) -> u32 {
@@ -322,6 +354,11 @@ pub struct OcrResponse {
     pub elapsed_ms: u64,
     /// Worker 实际执行的几何与图像增强摘要。
     pub preprocessing: OcrPreprocessingSummary,
+    /// 可区分输入准备和模型推理的阶段耗时。
+    pub timings: OcrTimingSummary,
+    /// Diagnostics 模式才存在的 exact model input；不会序列化为 JSON byte array。
+    #[serde(skip)]
+    pub model_input: Option<OcrModelInputArtifact>,
     /// 识别结果。
     pub items: Vec<OcrItem>,
 }

@@ -1,9 +1,13 @@
 export { useWorkflowStudio } from './studio/useWorkflowStudio';
 export {
   inspectAql,
+  getRun,
   isDesktopRuntime,
+  listRuns,
   normalizeCommandError,
   runWorkflow,
+  readRunEvents,
+  readRunArtifact,
   validateWorkflow,
 } from './api/workflowApi';
 export {
@@ -76,6 +80,14 @@ export {
   type ExecutionLogSeverity,
 } from './execution/executionEventPresentation';
 export { useAqlInspection, type AqlInspectionState } from './execution/useAqlInspection';
+export { useRunHistory, type RunHistoryState } from './execution/useRunHistory';
+export {
+  deriveFocusSelection,
+  type FocusCandidate,
+  type FocusPoint,
+  type FocusRect,
+  type FocusSelection,
+} from './execution/focusSelection';
 export {
   configureRuntimeExpressionLanguage,
   RUNTIME_EXPRESSION_LANGUAGE_ID,
@@ -141,7 +153,20 @@ export type {
   QuerySupportLevel,
   ResourceRef,
   RunInputs,
+  RunDetails,
+  RunManifest,
+  RunArtifactKind,
+  RunArtifactSummary,
+  VisualQueryTrace,
+  VisualSelectionOutcome,
+  RunNodeTrace,
+  RunStatus,
   RunStarted,
+  RunTraceEvent,
+  RunTraceLevel,
+  ResolvedInputField,
+  ResolvedInputSource,
+  ResolvedNodeInputs,
   RuntimeAvailability,
   TargetLocator,
   TargetLocatorKind,

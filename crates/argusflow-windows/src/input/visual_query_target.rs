@@ -3,13 +3,61 @@
 use argusflow_core::{AutomationError, BackendKind, PreparedTargetLocator};
 use argusflow_vision::{
     ObservationCoverage, ObservationState, PreparedVisionQuery, VisionQueryExecutionError,
-    VisualNode, VisualQueryReport, VisualScene, VisualSceneSnapshot, execute_unique_vision_query,
-    matching_nodes,
+    VisualNode, VisualQueryCandidateSummary, VisualQueryReport, VisualQueryTrace, VisualScene,
+    VisualSceneSnapshot, VisualSelectionOutcome, execute_unique_vision_query, matching_nodes,
 };
 use std::sync::Arc;
 
 /// 视觉点击必须先通过置信度门槛，低置信度候选只能触发后续升级阶段。
 const MIN_CLICK_CONFIDENCE: f32 = 0.80;
+
+/// 从选择结果构造不改变执行语义的 Focus Mask/Root Cause 事实。
+pub(super) fn build_query_trace(
+    scene: &Arc<VisualScene>,
+    query: &PreparedVisionQuery,
+    result: &Result<&VisualNode, AutomationError>,
+) -> VisualQueryTrace {
+    let candidates = match query {
+        PreparedVisionQuery::Legacy(query) => matching_nodes(scene, query)
+            .into_iter()
+            .map(candidate_summary)
+            .collect(),
+        PreparedVisionQuery::Aql { .. } => result
+            .as_ref()
+            .ok()
+            .map(|node| vec![candidate_summary(node)])
+            .unwrap_or_default(),
+    };
+    let outcome = match result {
+        Ok(_) => VisualSelectionOutcome::Unique,
+        Err(AutomationError::AmbiguousTarget { .. }) => VisualSelectionOutcome::Ambiguous,
+        Err(AutomationError::TargetNotFound { details, .. })
+            if details.contains("below click threshold") =>
+        {
+            VisualSelectionOutcome::RejectedConfidence
+        }
+        Err(_) => VisualSelectionOutcome::NotFound,
+    };
+    VisualQueryTrace {
+        scene_id: scene.scene_id.get(),
+        frame_id: scene.frame_id.get(),
+        query: query.source().to_owned(),
+        outcome,
+        candidates,
+        minimum_click_confidence: MIN_CLICK_CONFIDENCE,
+        selected_candidate_index: (outcome == VisualSelectionOutcome::Unique).then_some(0),
+        send_input_blocked: outcome != VisualSelectionOutcome::Unique,
+    }
+}
+
+fn candidate_summary(node: &VisualNode) -> VisualQueryCandidateSummary {
+    VisualQueryCandidateSummary {
+        raw_text: node.raw_text.clone(),
+        bbox: node.bbox,
+        confidence: node.confidence,
+        source: node.source,
+    }
+}
 
 /// 将 Runtime 冻结定位器编译为 Vision 可执行查询。
 pub(super) fn prepare_query(

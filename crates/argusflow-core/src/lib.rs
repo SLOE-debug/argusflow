@@ -23,7 +23,8 @@ mod visual;
 mod workflow;
 
 pub use action_options::{
-    ActionExecutionOptions, TargetWaitMode, TargetWaitPolicy, UiExecutionPolicy, UiPostcondition,
+    ActionExecutionOptions, RunTraceContext, TargetWaitMode, TargetWaitPolicy, UiExecutionPolicy,
+    UiPostcondition,
 };
 pub use application::{AcquirePolicy, ActivationPolicy, ApplicationSpec, CleanupPolicy};
 pub use automation::{

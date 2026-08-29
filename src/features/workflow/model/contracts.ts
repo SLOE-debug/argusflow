@@ -427,6 +427,102 @@ export type ValidationReport = {
 };
 export type RunStarted = { run_id: string };
 
+/** 本地 Run Trace 的稳定生命周期状态。 */
+export type RunStatus = 'starting' | 'running' | 'completed' | 'failed' | 'crashed';
+/** 单次运行保存的诊断详细程度。 */
+export type RunTraceLevel = 'off' | 'basic' | 'diagnostics' | 'forensics';
+
+/** Run List 无需扫描 JSONL 即可展示的轻量索引。 */
+export type RunManifest = {
+  schema_version: 1;
+  run_id: string;
+  workflow_id: string;
+  workflow_name: string;
+  started_at_unix_ms: number;
+  finished_at_unix_ms: number | null;
+  status: RunStatus;
+  trace_level: RunTraceLevel;
+  event_count: number;
+  trace_degraded: boolean;
+  failed_node_id: string | null;
+  failure_message: string | null;
+};
+
+/** 一次历史运行与其执行时工作流快照。 */
+export type RunDetails = {
+  manifest: RunManifest;
+  workflow: WorkflowDefinition;
+  nodes: RunNodeTrace[];
+  artifacts: RunArtifactSummary[];
+  query_traces: VisualQueryTrace[];
+};
+
+export type RunArtifactKind = 'captured_frame' | 'ocr_source_roi' | 'ocr_model_input';
+export type RunArtifactSummary = {
+  artifact_id: string;
+  kind: RunArtifactKind;
+  mime_type: string;
+  width: number | null;
+  height: number | null;
+  request_id: string | null;
+  frame_id: number;
+};
+
+export type VisualSelectionOutcome =
+  | 'not_found' | 'unique' | 'ambiguous' | 'rejected_confidence';
+export type VisualQueryTrace = {
+  run_id: string;
+  node_id: string;
+  scene_id: number;
+  frame_id: number;
+  query: string;
+  outcome: VisualSelectionOutcome;
+  candidates: Array<{
+    raw_text: string;
+    bbox: { x: number; y: number; width: number; height: number };
+    confidence: number;
+    source: string;
+  }>;
+  minimum_click_confidence: number;
+  selected_candidate_index: number | null;
+  send_input_blocked: boolean;
+};
+
+/** 节点输入在 Runtime 中的事实来源。 */
+export type ResolvedInputSource =
+  | { type: 'literal' }
+  | { type: 'workflow_input'; key: string }
+  | { type: 'variable'; name: string }
+  | { type: 'node'; node_id: string }
+  | { type: 'expression'; expression: string }
+  | { type: 'resource'; producer_node_id: string; output_name: string };
+
+export type ResolvedInputField = {
+  name: string;
+  expected_type: string;
+  source: ResolvedInputSource;
+  value: JsonValue | null;
+  redacted: boolean;
+};
+
+export type ResolvedNodeInputs = {
+  schema_version: 1;
+  node_id: string;
+  node_sequence: number;
+  fields: ResolvedInputField[];
+};
+
+export type RunNodeTrace = {
+  node_id: string;
+  node_sequence: number;
+  resolved_inputs: ResolvedNodeInputs;
+  outputs: {
+    schema_version: 1;
+    output_names: string[];
+    resource_names: string[];
+  } | null;
+};
+
 export type ExecutionEventKind =
   | 'workflow_started' | 'node_started' | 'log' | 'node_output_produced'
   | 'resource_acquired' | 'backend_selected' | 'command_exited'
@@ -454,6 +550,14 @@ export type ExecutionEvent = {
   message: string | null;
   /** 不包含业务输出或 OS handle 的结构化载荷。 */
   payload: ExecutionEventPayload | null;
+};
+
+/** JSONL 中包裹产品执行事件的诊断 envelope。 */
+export type RunTraceEvent = {
+  schema_version: 1;
+  trace_sequence: number;
+  timestamp_unix_ms: number;
+  event: ExecutionEvent;
 };
 
 export type ExecutionEventPayload =

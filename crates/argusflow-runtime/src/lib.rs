@@ -15,6 +15,7 @@ mod error;
 mod execution;
 mod node_registry;
 mod resource;
+mod trace;
 mod validation;
 mod value_runtime;
 
@@ -37,6 +38,11 @@ pub use node_registry::{
     NodeValidationContext, PreparedNode, ResourceInput, ValueInput, ValueTypeId,
 };
 pub use resource::{ResourceCleanup, ResourceEntry, ResourceTable};
+pub use trace::{
+    FileRunTraceStore, ResolvedInputField, ResolvedInputSource, ResolvedNodeInputs,
+    RunArtifactKind, RunArtifactSummary, RunDetails, RunManifest, RunNodeOutputs, RunNodeTrace,
+    RunStatus, RunTraceEvent, RunTraceLevel, RunTraceSession, RunTraceStore,
+};
 pub use validation::{
     ValidationIssue, ValidationIssueCode, ValidationReport, validate_workflow,
     validate_workflow_with_components, validate_workflow_with_registry,

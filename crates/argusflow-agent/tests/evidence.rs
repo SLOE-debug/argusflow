@@ -291,6 +291,7 @@ async fn target_wait_captures_timeout_evidence_only_after_the_deadline() {
                 postcondition_wait: TargetWaitPolicy::default(),
                 prepared_target: None,
                 postcondition: None,
+                trace_context: None,
             },
         )
         .await;

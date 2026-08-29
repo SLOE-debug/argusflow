@@ -196,6 +196,11 @@ mod tests {
                 contrast_enhanced: false,
                 sharpened: false,
             },
+            timings: crate::ocr::OcrTimingSummary {
+                preprocess_elapsed_ms: 0,
+                inference_elapsed_ms: 1,
+            },
+            model_input: None,
             items: vec![
                 OcrItem {
                     raw_text: "确定".to_owned(),

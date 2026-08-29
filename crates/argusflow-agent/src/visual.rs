@@ -192,6 +192,7 @@ pub trait PreparedTargetMaterializer: Send + Sync {
         window: &WindowContext,
         locator: &PreparedTargetLocator,
         plan: &VisualMaterializationPlan,
+        trace_context: Option<&argusflow_core::RunTraceContext>,
     ) -> Result<MaterializedTarget, argusflow_core::AutomationError>;
 }
 

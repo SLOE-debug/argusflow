@@ -130,7 +130,7 @@ fn input_state_summary(request: Option<&OcrRequest>, detail: &str) -> String {
 }
 
 /// 把 OCR 使用的 BGRA 图片原样编码为常见查看器可直接打开的 32 位 top-down BMP。
-fn encode_bgra_as_bmp(image: &PixelImage) -> Result<Vec<u8>, String> {
+pub fn encode_bgra_as_bmp(image: &PixelImage) -> Result<Vec<u8>, String> {
     if image.format != PixelFormat::Bgra8Unorm {
         return Err(format!(
             "unsupported diagnostic pixel format: {:?}",

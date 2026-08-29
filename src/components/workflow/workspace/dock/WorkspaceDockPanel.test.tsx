@@ -58,7 +58,9 @@ describe('WorkspaceDockPanel', () => {
     expect(onEditorModeChange).toHaveBeenCalledWith('maximized');
 
     fireEvent.click(screen.getByRole('button', { name: '运行记录' }));
-    expect(screen.getByRole('heading', { name: '暂无运行记录' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: '运行记录' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: '时间线' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: '详情' })).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: '运行日志' }));
     expect(screen.getByRole('heading', { name: '运行日志' })).toBeVisible();
   });

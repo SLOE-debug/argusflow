@@ -25,10 +25,12 @@ mod scope;
 mod scroll;
 mod source;
 mod stability;
+mod trace;
 mod verification;
 mod worker;
 
 pub use backend::VisionBackend;
+pub use diagnostics::encode_bgra_as_bmp;
 pub use diff::{DiffConfig, DirtyMap, DirtyRegion, DirtyRegionReason, compute_dirty_map};
 pub use error::{SceneExecutionPhase, VisionError};
 pub use evidence::VisionPreparedDiagnostics;
@@ -45,8 +47,9 @@ pub use layout::{
 };
 pub use metrics::{VisionMetrics, VisionMetricsSnapshot};
 pub use ocr::{
-    OcrEngine, OcrImagePreprocessing, OcrItem, OcrModel, OcrOptions, OcrPreprocessingSummary,
-    OcrProfile, OcrRequest, OcrRequestId, OcrResponse, OcrSource, PolygonPoint, normalize_text,
+    OcrDiagnosticImageEncoding, OcrEngine, OcrImagePreprocessing, OcrItem, OcrModel,
+    OcrModelInputArtifact, OcrOptions, OcrPreprocessingSummary, OcrProfile, OcrRequest,
+    OcrRequestId, OcrResponse, OcrSource, OcrTimingSummary, PolygonPoint, normalize_text,
 };
 pub use projection::{ProjectionOptions, compact_text, spatial_text};
 pub use query::{
@@ -70,11 +73,13 @@ pub use source::{CapturePolicy, FrameSubscription, MemoryFrameSource, WindowFram
 pub use stability::{
     StabilityConfig, StabilityState, StableFrameGate, TemporalNoiseConfig, TemporalNoiseMask,
 };
+pub use trace::{VisionTraceSink, VisualQueryTrace, VisualSelectionOutcome};
 pub use verification::{VerificationOutcome, VisualCondition, evaluate_visual_condition};
 #[cfg(target_os = "windows")]
 pub use worker::NamedPipeOcrEngine;
 pub use worker::{
     MAX_PIXEL_BODY_BYTES, PixelTransport, StaticOcrEngine, UnavailableOcrEngine,
-    VISION_PROTOCOL_VERSION, VisionWorkerClient, WorkerCommand, WorkerError, WorkerHealth,
-    WorkerLifecycle, WorkerModelInfo, WorkerOcrRequest, WorkerProtocolEnvelope, WorkerResponse,
+    VISION_PROTOCOL_VERSION, VisionWorkerClient, WorkerBinaryArtifact, WorkerBinaryArtifactKind,
+    WorkerCommand, WorkerDiagnosticsRequest, WorkerError, WorkerHealth, WorkerLifecycle,
+    WorkerModelInfo, WorkerOcrRequest, WorkerProtocolEnvelope, WorkerResponse,
 };
