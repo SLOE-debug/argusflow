@@ -26,10 +26,12 @@ describe('StartupScreen', () => {
       <StartupScreen status={INITIAL_STARTUP_SNAPSHOT} />,
     );
 
-    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0');
+    const progress = screen.getByRole('progressbar');
+    expect(progress).toHaveAttribute('aria-valuenow', '0');
+    expect(screen.getByText('三项能力并行准备中')).toBeInTheDocument();
     expect(container.querySelector('.animate-ping')).toBeInTheDocument();
     expect(container.querySelector('.animate-spin')).toBeInTheDocument();
-    expect(container.querySelectorAll('.animate-pulse')).toHaveLength(3);
+    expect(progress.querySelectorAll('.animate-pulse')).toHaveLength(3);
   });
 
   it('explains blocked startup and exposes both recovery choices', () => {

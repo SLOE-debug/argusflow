@@ -9,6 +9,7 @@ import type {
 } from '../../../features/workflow';
 import {
   findFlowComponent,
+  isJsonObject,
   type FlowComponentCatalogItem,
 } from '../../../features/workflow';
 
@@ -159,7 +160,7 @@ export function ComponentDrillDown({
 
 /** 从开放 JSON payload 读取版本锁定组件引用。 */
 function readComponentReference(payload: JsonValue) {
-  if (!payload || Array.isArray(payload) || typeof payload !== 'object') return null;
+  if (!isJsonObject(payload)) return null;
   const componentId = payload.component_id;
   const componentVersion = payload.component_version;
   return typeof componentId === 'string' && typeof componentVersion === 'string'

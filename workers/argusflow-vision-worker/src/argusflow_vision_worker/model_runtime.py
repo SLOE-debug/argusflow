@@ -14,6 +14,7 @@ from .protocol import PROTOCOL_VERSION, ProtocolError
 SMALL_MODEL = "pp_ocr_v6_small"
 MEDIUM_MODEL = "pp_ocr_v6_medium"
 MODEL_TIERS = (SMALL_MODEL, MEDIUM_MODEL)
+PipelineKey = tuple[str, bool, bool, bool]
 
 
 def model_names(model: str) -> tuple[str, str]:
@@ -41,8 +42,9 @@ class PaddleModelPool:
 
     def __init__(self, device: InferenceDevice) -> None:
         self.device = device
-        self._pipelines: dict[tuple[str, bool, bool, bool], Any] = {}
-        self._construction_lock = threading.Lock()
+        self._pipelines: dict[PipelineKey, Any] = {}
+        self._cache_lock = threading.Lock()
+        self._construction_locks: dict[PipelineKey, threading.Lock] = {}
         try:
             self.paddleocr_version = importlib.metadata.version("paddleocr")
         except importlib.metadata.PackageNotFoundError:
@@ -54,32 +56,46 @@ class PaddleModelPool:
         orientation = bool(options.get("use_doc_orientation_classify", False))
         unwarping = bool(options.get("use_doc_unwarping", False))
         textline_orientation = bool(options.get("use_textline_orientation", False))
-        key = (model, orientation, unwarping, textline_orientation)
-        with self._construction_lock:
-            if key not in self._pipelines:
-                from paddleocr import PaddleOCR
+        key: PipelineKey = (model, orientation, unwarping, textline_orientation)
+        with self._cache_lock:
+            cached = self._pipelines.get(key)
+            construction_lock = self._construction_locks.setdefault(key, threading.Lock())
+        if cached is not None:
+            return cached
 
-                detection_model, recognition_model = model_names(model)
-                self._pipelines[key] = PaddleOCR(
-                    text_detection_model_name=detection_model,
-                    text_recognition_model_name=recognition_model,
-                    device=self.device.paddle_name,
-                    engine="paddle",
-                    use_doc_orientation_classify=orientation,
-                    use_doc_unwarping=unwarping,
-                    use_textline_orientation=textline_orientation,
-                    text_recognition_batch_size=32 if self.device.kind is DeviceKind.CUDA else 8,
-                    enable_mkldnn=self.device.kind is DeviceKind.CPU,
-                    cpu_threads=max(1, min(8, os.cpu_count() or 4)),
-                )
-            return self._pipelines[key]
+        # 每个精确配置只构造一次，但不同模型不共享锁，因此 Small 与 Medium 可真正并行加载。
+        with construction_lock:
+            with self._cache_lock:
+                cached = self._pipelines.get(key)
+            if cached is not None:
+                return cached
+
+            from paddleocr import PaddleOCR
+
+            detection_model, recognition_model = model_names(model)
+            pipeline = PaddleOCR(
+                text_detection_model_name=detection_model,
+                text_recognition_model_name=recognition_model,
+                device=self.device.paddle_name,
+                engine="paddle",
+                use_doc_orientation_classify=orientation,
+                use_doc_unwarping=unwarping,
+                use_textline_orientation=textline_orientation,
+                text_recognition_batch_size=32 if self.device.kind is DeviceKind.CUDA else 8,
+                enable_mkldnn=self.device.kind is DeviceKind.CPU,
+                cpu_threads=max(1, min(8, os.cpu_count() or 4)),
+            )
+            with self._cache_lock:
+                self._pipelines[key] = pipeline
+            return pipeline
 
 
 class OcrModelRuntime:
-    """Select a device, gate on Small, then continue warming Medium in the background."""
+    """Select one inference device, then load and warm both OCR tiers in parallel."""
 
     def __init__(self, status_changed: Callable[[dict[str, Any]], None] | None = None) -> None:
         self._lock = threading.RLock()
+        self._publish_lock = threading.Lock()
         self._initialization: threading.Thread | None = None
         self._status_changed = status_changed
         self._pool: PaddleModelPool | None = None
@@ -131,42 +147,86 @@ class OcrModelRuntime:
         return pool.pipeline(model, options)
 
     def _initialize(self) -> None:
-        """Perform device validation and two tier warmups on the initializer thread."""
+        """Select the device and coordinate parallel model warmups off the pipe thread."""
 
         try:
             selection = select_inference_device()
             self._install_pool(selection.device, selection.degradation_reason)
-            try:
-                self._warm_tier(SMALL_MODEL)
-            except Exception as error:
-                if selection.device.kind is not DeviceKind.CUDA:
-                    self._set_model_state(SMALL_MODEL, "failed", str(error))
-                    raise
-                # Predictor construction can fail after the tensor probe. Rebuild every model on
-                # CPU so no partially initialized CUDA predictor remains visible to requests.
+            failures = self._warm_tiers_in_parallel()
+            if failures and selection.device.kind is DeviceKind.CUDA:
+                # Predictor construction can fail after the tensor probe. Wait for both CUDA jobs,
+                # then rebuild the complete model set on CPU so requests never mix devices.
                 cpu = InferenceDevice(DeviceKind.CPU)
                 import paddle
 
                 paddle.set_device("cpu")
-                self._install_pool(cpu, f"GPU model initialization failed; switched to CPU: {error}")
-                self._warm_tier(SMALL_MODEL)
-            self._set_available_lifecycle()
-            try:
-                self._warm_tier(MEDIUM_MODEL)
-            except Exception as error:
-                self._set_model_state(MEDIUM_MODEL, "failed", str(error))
-                with self._lock:
-                    self._degradation_reason = f"Medium OCR model is unavailable: {error}"
-                    self._lifecycle = "degraded"
-                self._publish()
-            else:
-                self._set_available_lifecycle()
+                first_failure = next(failures[model] for model in MODEL_TIERS if model in failures)
+                self._install_pool(
+                    cpu,
+                    f"GPU model initialization failed; switched to CPU: {first_failure}",
+                )
+                failures = self._warm_tiers_in_parallel()
+            self._finish_initialization(failures)
         except Exception as error:
             with self._lock:
                 self._lifecycle = "failed"
                 if not self._models:
                     self._degradation_reason = str(error)
             self._publish()
+
+    def _warm_tiers_in_parallel(self) -> dict[str, Exception]:
+        """Run both blocking Paddle constructors and warmups concurrently, then join them."""
+
+        # 每个任务只写入自己的模型状态；共享失败集合由独立锁保护。
+        failures: dict[str, Exception] = {}
+        failures_lock = threading.Lock()
+
+        def warm(model: str) -> None:
+            try:
+                self._warm_tier(model)
+            except Exception as error:
+                with failures_lock:
+                    failures[model] = error
+
+        threads = [
+            threading.Thread(
+                target=warm,
+                args=(model,),
+                name=f"argusflow-ocr-{model}-warmer",
+                daemon=True,
+            )
+            for model in MODEL_TIERS
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        return failures
+
+    def _finish_initialization(self, failures: dict[str, Exception]) -> None:
+        """Publish final model failures or mark the complete parallel batch available."""
+
+        for model in MODEL_TIERS:
+            if model in failures:
+                self._set_model_state(model, "failed", str(failures[model]))
+
+        small_failure = failures.get(SMALL_MODEL)
+        medium_failure = failures.get(MEDIUM_MODEL)
+        with self._lock:
+            if small_failure is not None:
+                self._lifecycle = "failed"
+                self._degradation_reason = f"Small OCR model is unavailable: {small_failure}"
+            elif medium_failure is not None:
+                self._lifecycle = "degraded"
+                medium_reason = f"Medium OCR model is unavailable: {medium_failure}"
+                self._degradation_reason = (
+                    f"{self._degradation_reason}; {medium_reason}"
+                    if self._degradation_reason
+                    else medium_reason
+                )
+            else:
+                self._lifecycle = "degraded" if self._degradation_reason else "ready"
+        self._publish()
 
     def _install_pool(self, device: InferenceDevice, degradation_reason: str | None) -> None:
         """Replace the complete pool and reset both tier state records."""
@@ -223,15 +283,10 @@ class OcrModelRuntime:
             self._models[model]["message"] = message
         self._publish()
 
-    def _set_available_lifecycle(self) -> None:
-        """Publish readiness once Small is ready, retaining any device degradation."""
-
-        with self._lock:
-            self._lifecycle = "degraded" if self._degradation_reason else "ready"
-        self._publish()
-
     def _publish(self) -> None:
         """Notify the deployment status-file adapter after a lifecycle transition."""
 
         if self._status_changed is not None:
-            self._status_changed(self.health(0))
+            # 并行模型任务可能同时切换状态；发布锁保证原子文件适配器不会复用同一临时文件。
+            with self._publish_lock:
+                self._status_changed(self.health(0))

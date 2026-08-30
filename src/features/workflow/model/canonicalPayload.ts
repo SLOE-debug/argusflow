@@ -21,10 +21,11 @@ import type {
 } from './contracts';
 import type { KeyboardKey, KeyboardModifier, KeyChord } from './inputContracts';
 import type { NormalizedRect } from './visual';
+import { isJsonObject } from './contracts';
 
 /** 从 canonical JSON payload 建立对象边界；缺失或错误类型立即终止模板初始化。 */
 export function asObject(value: JsonValue | undefined, label = 'payload'): JsonObject {
-  if (value !== null && typeof value === 'object' && !Array.isArray(value)) return value;
+  if (isJsonObject(value)) return value;
   throw new Error(`canonical payload field '${label}' must be an object`);
 }
 
@@ -313,8 +314,18 @@ function asPostcondition(value: JsonValue | undefined): UiPostcondition | null {
   if (value === null) return null;
   const object = asObject(value, 'execution.postcondition');
   const type = asString(object.type, 'execution.postcondition.type');
-  if (type !== 'new_text') throw new Error(`canonical postcondition '${type}' is unsupported`);
-  return { type, query: asVisualQuery(object.query) };
+  if (type === 'new_text') {
+    return {
+      type,
+      query: asVisualQuery(object.query),
+      stable_context: asArray(
+        object.stable_context,
+        'execution.postcondition.stable_context',
+      ).map(asVisualQuery),
+    };
+  }
+  if (type === 'text_present') return { type, query: asVisualQuery(object.query) };
+  throw new Error(`canonical postcondition '${type}' is unsupported`);
 }
 
 /** 读取完整 UI 执行策略。 */

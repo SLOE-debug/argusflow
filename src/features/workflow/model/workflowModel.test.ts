@@ -133,8 +133,8 @@ describe('workflow model', () => {
     });
     expect(workflow.nodes.some((node) => node.type_id === 'argus.condition')).toBe(false);
     expect(workflow.nodes.filter((node) => node.type_id === 'argus.delay')).toHaveLength(0);
-    expect(workflow.nodes.filter((node) => node.type_id === 'argus.ui')).toHaveLength(8);
-    expect(workflow.edges).toHaveLength(10);
+    expect(workflow.nodes.filter((node) => node.type_id === 'argus.ui')).toHaveLength(7);
+    expect(workflow.edges).toHaveLength(9);
     expect(workflow.edges.every((edge) => edge.branch === null)).toBe(true);
     expect(workflow.nodes).toContainEqual(expect.objectContaining({
       id: 'wechat_application_1',
@@ -241,29 +241,19 @@ describe('workflow model', () => {
             },
           }),
         }),
-      }),
-    }));
-    expect(workflow.nodes).toContainEqual(expect.objectContaining({
-      id: 'wechat_verify_header_1',
-      payload: expect.objectContaining({
-        operation: expect.objectContaining({
-          type: 'get_text',
-          target: expect.objectContaining({
-            locator: {
-              type: 'query',
-              query: {
-                language_version: 2,
-                source: 'nearest(anchor = text(name = "X"), target = text(name = $contact_name), direction = left, index = 1)',
-                bindings: {
-                  contact_name: {
-                    type: 'ref',
-                    source: { type: 'workflow_input', key: 'contact_name' },
-                    pointer: '',
-                  },
-                },
+        execution: expect.objectContaining({
+          postcondition: {
+            type: 'text_present',
+            query: {
+              text: {
+                type: 'ref',
+                source: { type: 'workflow_input', key: 'contact_name' },
+                pointer: '',
               },
+              exact: true,
+              region: { x: 0.34, y: 0, width: 0.66, height: 0.13 },
             },
-          }),
+          },
         }),
       }),
     }));
@@ -308,8 +298,12 @@ describe('workflow model', () => {
           postcondition: expect.objectContaining({
             type: 'new_text',
             query: expect.objectContaining({
-              region: { x: 0.34, y: 0.1, width: 0.66, height: 0.68 },
+              region: { x: 0.34, y: 0.13, width: 0.66, height: 0.64 },
             }),
+            stable_context: [expect.objectContaining({
+              exact: true,
+              region: { x: 0.34, y: 0, width: 0.66, height: 0.13 },
+            })],
           }),
         }),
       }),

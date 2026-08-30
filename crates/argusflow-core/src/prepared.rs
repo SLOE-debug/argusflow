@@ -3,8 +3,15 @@ use crate::{BackendPolicy, ScreenPoint, TargetScope, UiQuery, VisualQuery};
 /// 一次执行中已经解析完成的视觉后置条件。
 #[derive(Debug, Clone, PartialEq)]
 pub enum PreparedVisualPostcondition {
-    /// 要求动作后出现相对于 baseline 的新增文本。
+    /// 要求动作前后视觉上下文连续，且目标文本实例数量增加。
     NewText {
+        /// 已冻结的视觉查询。
+        query: VisualQuery,
+        /// 已冻结的上下文连续性查询。
+        stable_context: Vec<VisualQuery>,
+    },
+    /// 要求动作后的新鲜画面中唯一存在目标文本。
+    TextPresent {
         /// 已冻结的视觉查询。
         query: VisualQuery,
     },

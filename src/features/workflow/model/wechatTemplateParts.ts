@@ -7,6 +7,22 @@ import type {
 } from './contracts';
 import type { KeyboardKey, KeyboardModifier } from './inputContracts';
 
+/** 微信主窗口右侧会话标题栏，排除左侧联系人列表中的同名文字。 */
+const WECHAT_CONVERSATION_HEADER_REGION = {
+  x: 0.34,
+  y: 0,
+  width: 0.66,
+  height: 0.13,
+} as const;
+
+/** 微信主窗口右侧消息区，排除标题栏、联系人列表和底部输入框。 */
+const WECHAT_CONVERSATION_MESSAGES_REGION = {
+  x: 0.34,
+  y: 0.13,
+  width: 0.66,
+  height: 0.64,
+} as const;
+
 /** 创建绑定微信 Application 节点的当前焦点输入目标。 */
 export function createWechatInputTarget(applicationNodeId: string): AutomationTarget {
   return {
@@ -70,8 +86,28 @@ export function createWechatInputExecutionPolicy(): UiExecutionPolicy {
   };
 }
 
-/** 发送消息使用视觉 scene delta 验证新增事实，拒绝重复历史文本误报。 */
-export function createWechatSendMessageExecutionPolicy(): UiExecutionPolicy {
+/** 点击联系人后只接受新鲜画面中右侧标题栏的唯一联系人名称。 */
+export function createWechatOpenConversationExecutionPolicy(
+  contactName: ValueExpr,
+): UiExecutionPolicy {
+  return {
+    target_wait: { mode: 'bounded', timeout_ms: 5_000, poll_interval_ms: 300 },
+    postcondition_wait: { mode: 'bounded', timeout_ms: 5_000, poll_interval_ms: 150 },
+    postcondition: {
+      type: 'text_present',
+      query: {
+        text: contactName,
+        exact: true,
+        region: WECHAT_CONVERSATION_HEADER_REGION,
+      },
+    },
+  };
+}
+
+/** 发送消息要求同一会话保持不变，且消息区中的同文案实例数量增加。 */
+export function createWechatSendMessageExecutionPolicy(
+  contactName: ValueExpr,
+): UiExecutionPolicy {
   return {
     target_wait: { mode: 'none', timeout_ms: 0, poll_interval_ms: 0 },
     postcondition_wait: { mode: 'bounded', timeout_ms: 5_000, poll_interval_ms: 150 },
@@ -84,9 +120,13 @@ export function createWechatSendMessageExecutionPolicy(): UiExecutionPolicy {
           pointer: '',
         },
         exact: true,
-        // 只观察会话消息区，排除发送前仍位于底部输入框中的同文案。
-        region: { x: 0.34, y: 0.1, width: 0.66, height: 0.68 },
+        region: WECHAT_CONVERSATION_MESSAGES_REGION,
       },
+      stable_context: [{
+        text: contactName,
+        exact: true,
+        region: WECHAT_CONVERSATION_HEADER_REGION,
+      }],
     },
   };
 }

@@ -13,8 +13,15 @@ export type TargetWaitPolicy = Readonly<{
 /** UI 节点与动作语义分离的执行策略。 */
 export type UiPostcondition =
   | {
-      /** 要求动作之后出现相对于 baseline 的新增文字事实。 */
+      /** 要求动作后同一区域内的目标文字实例数量严格增加。 */
       type: 'new_text';
+      query: VisualQueryExpr;
+      /** 动作前后都必须唯一命中且保持在原位置的上下文。 */
+      stable_context: ReadonlyArray<VisualQueryExpr>;
+    }
+  | {
+      /** 要求动作后的新鲜画面中唯一存在目标文字。 */
+      type: 'text_present';
       query: VisualQueryExpr;
     };
 

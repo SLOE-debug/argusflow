@@ -178,7 +178,6 @@ function canvasPosition(nodeId: string): { x: number; y: number } {
     select_search: { x: 820, y: 104 },
     type_contact: { x: 1024, y: 104 },
     click_contact: { x: 820, y: 220 },
-    verify_header: { x: 616, y: 220 },
     type_message: { x: 402, y: 220 },
     send_message: { x: 188, y: 220 },
     exit: { x: 240, y: 336 },
@@ -194,7 +193,6 @@ function canvasNodeLabel(nodeId: string): string {
     select_search: '选中搜索文字',
     type_contact: '输入联系人名称',
     click_contact: '打开联系人会话',
-    verify_header: '确认联系人标题',
     type_message: '输入测试消息',
     send_message: '发送消息',
   };
@@ -220,8 +218,7 @@ function defaultPortFor(
     'verify_search:select_search': { id: 'edge_ready_select', sourceSide: 'right', targetSide: 'left' },
     'select_search:type_contact': { id: 'edge_select_contact_name', sourceSide: 'right', targetSide: 'left' },
     'type_contact:click_contact': { id: 'edge_contact_name_click', sourceSide: 'bottom', targetSide: 'right' },
-    'click_contact:verify_header': { id: 'edge_click_header', sourceSide: 'left', targetSide: 'right' },
-    'verify_header:type_message': { id: 'edge_header_message', sourceSide: 'left', targetSide: 'right' },
+    'click_contact:type_message': { id: 'edge_click_message', sourceSide: 'left', targetSide: 'right' },
     'type_message:send_message': { id: 'edge_message_send', sourceSide: 'left', targetSide: 'right' },
     'send_message:exit': { id: 'edge_send_end', sourceSide: 'bottom', targetSide: 'top' },
   };

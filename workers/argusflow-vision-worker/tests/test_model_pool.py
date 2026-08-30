@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import threading
 import time
 import types
 import unittest
@@ -23,8 +24,11 @@ class FakePaddleOcr:
     """Record constructor arguments and return an empty deterministic prediction."""
 
     created: list[FakePaddleOcr] = []
+    construction_barrier: threading.Barrier | None = None
 
     def __init__(self, **options: object) -> None:
+        if self.construction_barrier is not None:
+            self.construction_barrier.wait(timeout=0.5)
         self.options = options
         self.created.append(self)
 
@@ -37,6 +41,7 @@ class PaddleModelPoolTests(unittest.TestCase):
 
     def setUp(self) -> None:
         FakePaddleOcr.created.clear()
+        FakePaddleOcr.construction_barrier = None
         paddleocr = types.ModuleType("paddleocr")
         paddleocr.PaddleOCR = FakePaddleOcr  # type: ignore[attr-defined]
         self.paddleocr_patch = patch.dict(sys.modules, {"paddleocr": paddleocr})
@@ -64,7 +69,71 @@ class PaddleModelPoolTests(unittest.TestCase):
         self.assertEqual(len(FakePaddleOcr.created), 1)
         self.assertNotIn("lang", FakePaddleOcr.created[0].options)
 
-    def test_small_becomes_ready_and_medium_is_warmed_in_the_background(self) -> None:
+    def test_distinct_model_constructors_do_not_share_a_serial_lock(self) -> None:
+        pool = PaddleModelPool(InferenceDevice(DeviceKind.CPU))
+        FakePaddleOcr.construction_barrier = threading.Barrier(2)
+        failures: list[Exception] = []
+        failures_lock = threading.Lock()
+
+        def load(model: str) -> None:
+            try:
+                pool.pipeline(model, {})
+            except Exception as error:
+                with failures_lock:
+                    failures.append(error)
+
+        threads = [
+            threading.Thread(target=load, args=(model,))
+            for model in ("pp_ocr_v6_small", "pp_ocr_v6_medium")
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=1)
+
+        self.assertFalse(any(thread.is_alive() for thread in threads))
+        self.assertEqual(failures, [])
+        self.assertEqual(len(FakePaddleOcr.created), 2)
+
+    def test_both_model_tiers_are_warmed_in_parallel(self) -> None:
+        runtime = OcrModelRuntime()
+        selection = DeviceSelection(InferenceDevice(DeviceKind.CPU), None)
+        both_started = threading.Event()
+        release_warmups = threading.Event()
+        started_models: list[str] = []
+        started_models_lock = threading.Lock()
+
+        def blocking_warmup(model: str) -> None:
+            with started_models_lock:
+                started_models.append(model)
+                if len(started_models) == 2:
+                    both_started.set()
+            if not release_warmups.wait(timeout=1):
+                raise TimeoutError("parallel model warmups were not released")
+            runtime._set_model_state(model, "ready")  # noqa: SLF001 - verifies orchestration
+
+        with patch(
+            "argusflow_vision_worker.model_runtime.select_inference_device",
+            return_value=selection,
+        ), patch.object(runtime, "_warm_tier", side_effect=blocking_warmup):
+            runtime.start()
+            try:
+                self.assertTrue(both_started.wait(timeout=0.5))
+                self.assertCountEqual(
+                    started_models,
+                    ["pp_ocr_v6_small", "pp_ocr_v6_medium"],
+                )
+            finally:
+                release_warmups.set()
+
+            deadline = time.monotonic() + 1
+            while not _medium_is_ready(runtime.health(0)):
+                self.assertLess(time.monotonic(), deadline)
+                time.sleep(0.01)
+
+        self.assertEqual(runtime.health(0)["lifecycle"], "ready")
+
+    def test_parallel_warmup_builds_both_explicit_model_pairs(self) -> None:
         runtime = OcrModelRuntime()
         selection = DeviceSelection(InferenceDevice(DeviceKind.CPU), None)
 
@@ -78,7 +147,6 @@ class PaddleModelPoolTests(unittest.TestCase):
                 self.assertLess(time.monotonic(), deadline)
                 time.sleep(0.01)
 
-        self.assertEqual(runtime.health(0)["lifecycle"], "ready")
         self.assertEqual(len(FakePaddleOcr.created), 2)
         model_pairs = {
             (

@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use argusflow_core::{
     ActionExecutionOptions, ActionOutcome, AutomationAction, AutomationError,
-    AutomationExecutionScope, BackendKind, CapabilityId, PreparedAutomationTarget,
-    PreparedVisualPostcondition, TargetScope, TargetWaitPolicy,
+    AutomationExecutionScope, BackendKind, CapabilityId, PreparedAutomationTarget, TargetScope,
+    TargetWaitPolicy,
 };
 use argusflow_query::{
     Diagnostic, DiagnosticCode, DiagnosticSeverity, QueryCost, QueryPortability, SupportLevel,
@@ -11,12 +11,15 @@ use argusflow_query::{
 use argusflow_runtime::ActionDispatcher;
 use async_trait::async_trait;
 
+#[path = "router/visual_postcondition.rs"]
+mod visual_postcondition;
+
 use crate::visual_materialization;
 use crate::{
     ActionBackend, ContextFitness, EvidenceSettings, ExecutionContext, ExecutionContextProvider,
     MaterializedTarget, PlanExplain, PlanRejection, PlanningReport, PreparedCandidate,
     PreparedPlan, PreparedTargetMaterializer, RuntimeAvailability, StaticExecutionContext,
-    VisualVerificationProvider, VisualVerificationResult, WindowContext,
+    VisualVerificationProvider, WindowContext,
 };
 
 /// 能力、可用性、上下文和成本相同时使用的稳定兜底顺序。
@@ -238,24 +241,13 @@ impl ActionDispatcher for ActionRouter {
         )
         .await?;
         let postcondition = options.postcondition;
-        let mut baseline = match (&postcondition, &self.visual_verification) {
-            (Some(PreparedVisualPostcondition::NewText { query }), Some(provider)) => {
-                let window = context.foreground_window.as_ref().ok_or_else(|| {
-                    AutomationError::BackendUnavailable {
-                        backend: BackendKind::SendInput,
-                        message: "visual postcondition requires a frozen window context".to_owned(),
-                    }
-                })?;
-                Some(provider.capture_baseline(window, query).await?)
-            }
-            (Some(PreparedVisualPostcondition::NewText { .. }), None) => {
-                return Err(AutomationError::BackendUnavailable {
-                    backend: BackendKind::SendInput,
-                    message: "visual postcondition provider is not configured".to_owned(),
-                });
-            }
-            (None, _) => None,
-        };
+        let mut baseline = visual_postcondition::capture_baseline(
+            self.visual_verification.as_deref(),
+            postcondition.as_ref(),
+            context.foreground_window.as_ref(),
+            options.trace_context.clone(),
+        )
+        .await?;
         let is_visual_click = materialized_target.is_some();
         let mut outcome = loop {
             let prepared = match self.prepare_candidates(
@@ -266,11 +258,11 @@ impl ActionDispatcher for ActionRouter {
             ) {
                 Ok(prepared) => prepared,
                 Err(error) => {
-                    if let (Some(provider), Some(baseline)) =
-                        (self.visual_verification.as_ref(), baseline.take())
-                    {
-                        provider.discard_baseline(baseline).await;
-                    }
+                    visual_postcondition::discard_baseline(
+                        self.visual_verification.as_deref(),
+                        &mut baseline,
+                    )
+                    .await;
                     return Err(error);
                 }
             };
@@ -299,58 +291,34 @@ impl ActionDispatcher for ActionRouter {
                             materialized_target = target;
                         }
                         Err(error) => {
-                            if let (Some(provider), Some(baseline)) =
-                                (self.visual_verification.as_ref(), baseline.take())
-                            {
-                                provider.discard_baseline(baseline).await;
-                            }
+                            visual_postcondition::discard_baseline(
+                                self.visual_verification.as_deref(),
+                                &mut baseline,
+                            )
+                            .await;
                             return Err(error);
                         }
                     }
                     let _ = message;
                 }
                 Err(error) => {
-                    if let (Some(provider), Some(baseline)) =
-                        (self.visual_verification.as_ref(), baseline.take())
-                    {
-                        provider.discard_baseline(baseline).await;
-                    }
+                    visual_postcondition::discard_baseline(
+                        self.visual_verification.as_deref(),
+                        &mut baseline,
+                    )
+                    .await;
                     return Err(error);
                 }
             }
         };
-        if let (
-            Some(PreparedVisualPostcondition::NewText { query }),
-            Some(baseline),
-            Some(provider),
-        ) = (
+        visual_postcondition::verify(
+            self.visual_verification.as_deref(),
             postcondition.as_ref(),
-            baseline.take(),
-            self.visual_verification.as_ref(),
-        ) {
-            let verification = provider
-                .verify_new_text(baseline, &query, options.postcondition_wait)
-                .await
-                .map_err(|error| match error {
-                    AutomationError::OutcomeUnknown { .. } => error,
-                    other => AutomationError::OutcomeUnknown {
-                        backend: BackendKind::SendInput,
-                        message: format!("visual postcondition verification failed: {other}"),
-                    },
-                })?;
-            match verification {
-                VisualVerificationResult::Confirmed => {
-                    outcome.outputs.insert("confirmed".to_owned(), true.into());
-                }
-                VisualVerificationResult::Rejected { reason }
-                | VisualVerificationResult::Uncertain { reason } => {
-                    return Err(AutomationError::OutcomeUnknown {
-                        backend: outcome.backend,
-                        message: reason,
-                    });
-                }
-            }
-        }
+            &mut baseline,
+            options.postcondition_wait,
+            &mut outcome,
+        )
+        .await?;
         Ok(outcome)
     }
 }

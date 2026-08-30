@@ -230,15 +230,49 @@ fn validate_postcondition(
     context: &NodeValidationContext<'_>,
     issues: &mut Vec<ValidationIssue>,
 ) {
-    let Some(UiPostcondition::NewText { query }) = &execution.postcondition else {
+    let Some(postcondition) = &execution.postcondition else {
         return;
     };
-    if !is_input_operation(operation) {
-        issues.push(context.issue(
-            ValidationIssueCode::InvalidNodeDefinition,
-            "视觉新事实后置条件只能用于按键或物理文本输入动作",
-        ));
+    match postcondition {
+        UiPostcondition::NewText {
+            query,
+            stable_context,
+        } => {
+            if !is_input_operation(operation) {
+                issues.push(context.issue(
+                    ValidationIssueCode::InvalidNodeDefinition,
+                    "视觉新增文字后置条件只能用于按键或物理文本输入动作",
+                ));
+            }
+            validate_visual_text(query, context, issues);
+            if stable_context.is_empty() {
+                issues.push(context.issue(
+                    ValidationIssueCode::InvalidNodeDefinition,
+                    "视觉新增文字后置条件必须至少绑定一条稳定上下文查询",
+                ));
+            }
+            for query in stable_context {
+                validate_visual_text(query, context, issues);
+            }
+        }
+        UiPostcondition::TextPresent { query } => {
+            if !matches!(operation, UiOperation::Click { .. }) && !is_input_operation(operation) {
+                issues.push(context.issue(
+                    ValidationIssueCode::InvalidNodeDefinition,
+                    "视觉文字存在后置条件只能用于点击、按键或物理文本输入动作",
+                ));
+            }
+            validate_visual_text(query, context, issues);
+        }
     }
+}
+
+/// 校验一条视觉查询的静态文字值；动态值留到 Runtime 冻结时解析。
+fn validate_visual_text(
+    query: &argusflow_core::VisualQueryExpr,
+    context: &NodeValidationContext<'_>,
+    issues: &mut Vec<ValidationIssue>,
+) {
     if visual_text_is_empty(&query.text) {
         issues.push(context.issue(
             ValidationIssueCode::InvalidAqlQuery,

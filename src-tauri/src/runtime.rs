@@ -70,10 +70,8 @@ impl AppState {
             vision_runtime.clone(),
             window_registry.clone(),
         ));
-        let visual_verification = Arc::new(VisionPostconditionVerifier::new(
-            vision_runtime.clone(),
-            window_registry.clone(),
-        ));
+        let visual_verification =
+            Arc::new(VisionPostconditionVerifier::new(vision_runtime.clone()));
         // 注册顺序不决定执行优先级；ActionRouter 会比较支持等级、成本与用户偏好。
         let backends: Vec<Arc<dyn ActionBackend>> = vec![
             Arc::new(UiaBackend::new(uia_runtime.clone())),

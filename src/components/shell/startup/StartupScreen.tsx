@@ -16,6 +16,7 @@ import {
   type StartupComponentStatus,
   type StartupSnapshot,
 } from '../../../features/startup';
+import { StartupActivity } from './StartupActivity';
 
 type StartupScreenProps = Readonly<{
   /** 后端当前能力启动快照。 */
@@ -49,37 +50,76 @@ export function StartupScreen({
   return (
     <main
       data-theme="daylight"
-      className="grid h-full w-full grid-rows-[40px_minmax(0,1fr)] bg-slate-50 text-slate-800"
+      className="relative isolate grid h-full w-full grid-rows-[40px_minmax(0,1fr)] overflow-hidden bg-[radial-gradient(circle_at_50%_28%,#eff6ff_0%,#f8fafc_42%,#eef2f7_100%)] text-slate-800"
     >
+      <div
+        className="pointer-events-none absolute -left-24 top-24 size-80 rounded-full bg-blue-200/25 blur-3xl animate-pulse [animation-duration:5s] motion-reduce:animate-none"
+        aria-hidden="true"
+      />
+      <div
+        className="pointer-events-none absolute -right-20 bottom-[-8rem] size-96 rounded-full bg-cyan-200/20 blur-3xl animate-pulse [animation-delay:-2s] [animation-duration:6s] motion-reduce:animate-none"
+        aria-hidden="true"
+      />
       <header
         data-tauri-drag-region
-        className="flex items-center border-b border-slate-200 bg-white px-4 text-xs font-semibold text-slate-700"
+        className="relative z-10 flex items-center border-b border-white/80 bg-white/75 px-4 text-xs font-semibold text-slate-700 shadow-[0_1px_0_rgba(148,163,184,0.14)] backdrop-blur-xl"
       >
-        ArgusFlow
+        <span
+          className="relative mr-2 flex size-2 items-center justify-center"
+          aria-hidden="true"
+        >
+          <span className="absolute size-2 rounded-full bg-blue-500 animate-ping motion-reduce:animate-none" />
+          <span className="relative size-1.5 rounded-full bg-blue-600" />
+        </span>
+        ArgusFlow Studio
+        <span className="mx-2 h-3 w-px bg-slate-200" aria-hidden="true" />
+        <span className="font-normal text-slate-400">本地运行环境</span>
       </header>
-      <section className="flex min-h-0 items-center justify-center overflow-auto px-6 py-10">
-        <div className="w-full max-w-xl rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
-          <div className="mb-7 flex items-start gap-4">
-            <div className="relative flex size-11 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
-              <span
-                className="absolute inset-1 animate-ping rounded-lg bg-blue-200/70 motion-reduce:animate-none"
-                aria-hidden="true"
-              />
-              <LoaderCircle
-                className="relative size-5 animate-spin motion-reduce:animate-none"
-                aria-hidden="true"
-              />
-            </div>
-            <div className="min-w-0">
-              <h1 className="text-lg font-semibold tracking-tight text-slate-900">
+      <section className="relative z-10 flex min-h-0 items-center justify-center overflow-auto px-6 py-10">
+        <div className="w-full max-w-2xl rounded-[28px] border border-white/90 bg-white/75 p-7 shadow-[0_28px_80px_rgba(51,65,85,0.14),0_4px_18px_rgba(37,99,235,0.06)] backdrop-blur-xl sm:p-9">
+          <div className="grid items-center gap-7 sm:grid-cols-[176px_minmax(0,1fr)]">
+            <StartupActivity
+              capture={status.capture}
+              smallOcr={status.smallOcr}
+              mediumOcr={status.mediumOcr}
+            />
+            <div
+              className="min-w-0 text-center sm:text-left"
+              role="status"
+              aria-live="polite"
+            >
+              <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50/80 px-3 py-1 text-[11px] font-medium text-blue-700">
+                {status.readiness === 'loading' ? (
+                  <LoaderCircle
+                    className="size-3.5 animate-spin motion-reduce:animate-none"
+                    aria-hidden="true"
+                  />
+                ) : startupFailed ? (
+                  <CircleX
+                    className="size-3.5 text-rose-500"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <CircleCheck
+                    className="size-3.5 text-emerald-500"
+                    aria-hidden="true"
+                  />
+                )}
+                {status.readiness === 'loading'
+                  ? '三项能力并行准备中'
+                  : startupFailed
+                    ? '启动需要处理'
+                    : '本地能力已就绪'}
+              </div>
+              <h1 className="text-xl font-semibold tracking-[-0.025em] text-slate-950 sm:text-2xl">
                 {copy.title}
               </h1>
-              <p className="mt-1 text-sm leading-6 text-slate-500">{copy.detail}</p>
+              <p className="mt-2 text-sm leading-6 text-slate-500">{copy.detail}</p>
             </div>
           </div>
 
           <div
-            className="mb-6 grid grid-cols-3 gap-2"
+            className="my-7 grid grid-cols-3 gap-2"
             role="progressbar"
             aria-label="本地运行环境启动进度"
             aria-valuemin={0}
@@ -89,12 +129,12 @@ export function StartupScreen({
             {[status.capture, status.smallOcr, status.mediumOcr].map((component, index) => (
               <span
                 key={index}
-                className={`h-1.5 rounded-full ${progressTone(component)}`}
+                className={`h-1.5 overflow-hidden rounded-full shadow-inner ${progressTone(component)}`}
               />
             ))}
           </div>
 
-          <div className="divide-y divide-slate-100 rounded-xl border border-slate-200">
+          <div className="divide-y divide-slate-100/90 overflow-hidden rounded-2xl border border-slate-200/80 bg-white/75 shadow-[0_1px_0_rgba(255,255,255,0.8)]">
             <StartupCapability
               icon={MonitorUp}
               label="屏幕捕获"
@@ -109,7 +149,7 @@ export function StartupScreen({
             <StartupCapability
               icon={Cpu}
               label="精确 OCR"
-              detail="完成后进入 Home"
+              detail="复杂页面识别"
               status={status.mediumOcr}
             />
           </div>
@@ -188,20 +228,26 @@ function StartupCapability({
     : 'animate-spin text-blue-500 motion-reduce:animate-none';
 
   return (
-    <div className="flex min-h-14 items-center gap-3 px-4 py-3">
-      <Icon
-        className="size-4 shrink-0 text-slate-400"
-        aria-hidden="true"
-      />
+    <div className="flex min-h-[62px] items-center gap-3 px-4 py-3 transition-colors">
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-slate-50 text-slate-400 ring-1 ring-slate-100">
+        <Icon
+          className="size-4"
+          aria-hidden="true"
+        />
+      </span>
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium text-slate-700">{label}</p>
         {detail ? <p className="mt-0.5 text-xs text-slate-400">{detail}</p> : null}
       </div>
-      <StatusIcon
-        className={`size-4 shrink-0 ${iconTone}`}
-        aria-hidden="true"
-      />
-      <span className="w-14 text-right text-xs text-slate-500">
+      <span
+        className={`flex size-7 shrink-0 items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-slate-100 ${iconTone}`}
+      >
+        <StatusIcon
+          className="size-4"
+          aria-hidden="true"
+        />
+      </span>
+      <span className="w-14 text-right text-xs font-medium text-slate-500">
         {COMPONENT_STATUS_LABELS[status.lifecycle]}
       </span>
     </div>
@@ -210,12 +256,12 @@ function StartupCapability({
 
 /** 用固定 Tailwind 色段表达三项离散启动进度。 */
 function progressTone(status: StartupComponentStatus): string {
-  if (status.lifecycle === 'ready') return 'bg-emerald-500';
-  if (status.lifecycle === 'failed') return 'bg-rose-400';
+  if (status.lifecycle === 'ready') return 'bg-emerald-500 shadow-emerald-200';
+  if (status.lifecycle === 'failed') return 'bg-rose-400 shadow-rose-200';
   if (status.lifecycle === 'pending') {
-    return 'animate-pulse bg-blue-200 motion-reduce:animate-none';
+    return 'animate-pulse bg-slate-200 motion-reduce:animate-none';
   }
-  return 'animate-pulse bg-blue-500 motion-reduce:animate-none';
+  return 'animate-pulse bg-gradient-to-r from-blue-400 via-cyan-400 to-blue-500 shadow-blue-200 motion-reduce:animate-none';
 }
 
 /** 显示已实测通过的推理设备。 */

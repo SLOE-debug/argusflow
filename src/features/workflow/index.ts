@@ -1,4 +1,5 @@
 export { useWorkflowStudio } from './studio/useWorkflowStudio';
+export { isJsonObject } from './model/contracts';
 export {
   inspectAql,
   getRun,

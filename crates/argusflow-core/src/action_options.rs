@@ -83,9 +83,16 @@ fn default_postcondition_wait() -> TargetWaitPolicy {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum UiPostcondition {
-    /// 要求发送前不存在、发送后新增的视觉文字事实。
+    /// 要求动作前后保持同一视觉上下文，且目标文字实例数量严格增加。
     NewText {
         /// 需要在动作前后做 scene delta 比较的视觉查询。
+        query: VisualQueryExpr,
+        /// 动作前后都必须唯一命中且保持在原位置的上下文查询。
+        stable_context: Vec<VisualQueryExpr>,
+    },
+    /// 要求动作完成后的新鲜画面中唯一存在目标文字。
+    TextPresent {
+        /// 只在动作完成后求值的视觉查询。
         query: VisualQueryExpr,
     },
 }

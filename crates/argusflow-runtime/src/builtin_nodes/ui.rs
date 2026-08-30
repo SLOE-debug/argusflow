@@ -1,12 +1,10 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use argusflow_core::{
-    ActionExecutionOptions, ActionOutputContract, ActionOutputKey, AppSession, AutomationAction,
-    AutomationError, AutomationExecutionScope, BrowserSession, ExecutionEventKind,
-    ExecutionEventPayload, NodeEnvelope, NodeTypeId, OutputContractError, PreparedAutomationTarget,
-    PreparedTargetLocator, PreparedVisualPostcondition, ResourceTypeId, TargetLocator, TargetScope,
-    TargetWaitPolicy, UiExecutionPolicy, UiOperation, UiPostcondition, VisualQuery,
-    WorkflowPermissions,
+    ActionExecutionOptions, ActionOutputContract, ActionOutputKey, AutomationAction,
+    AutomationError, ExecutionEventKind, ExecutionEventPayload, NodeEnvelope, NodeTypeId,
+    OutputContractError, ResourceTypeId, TargetLocator, TargetScope, TargetWaitPolicy,
+    UiExecutionPolicy, UiOperation, UiPostcondition, WorkflowPermissions,
 };
 use async_trait::async_trait;
 use serde::Deserialize;
@@ -17,8 +15,12 @@ use crate::{
     RunContext, RuntimeError, ValidationIssue, ValueInput, ValueTypeId,
 };
 
+#[path = "ui/resolution.rs"]
+mod resolution;
 #[path = "ui/validation.rs"]
 mod validation;
+
+use resolution::{resolve_execution_scope, resolve_postcondition, resolve_target};
 
 /// UI 节点的强类型 payload。
 #[derive(Deserialize)]
@@ -164,8 +166,23 @@ impl PreparedNode for UiNode {
         if let TargetLocator::Query { query } = &self.operation.target().locator {
             inputs.extend(query.bindings.values().map(ValueInput::text));
         }
-        if let Some(UiPostcondition::NewText { query }) = &self.execution.postcondition {
-            inputs.push(ValueInput::text(&query.text));
+        if let Some(postcondition) = &self.execution.postcondition {
+            match postcondition {
+                UiPostcondition::NewText {
+                    query,
+                    stable_context,
+                } => {
+                    inputs.push(ValueInput::text(&query.text));
+                    inputs.extend(
+                        stable_context
+                            .iter()
+                            .map(|query| ValueInput::text(&query.text)),
+                    );
+                }
+                UiPostcondition::TextPresent { query } => {
+                    inputs.push(ValueInput::text(&query.text));
+                }
+            }
         }
         inputs
     }
@@ -366,103 +383,4 @@ fn validate_action_outputs(
         return Ok(());
     }
     Err(OutputContractError { expected, actual })
-}
-
-/// 解析一次 UI 动作的视觉文字表达式，并把结果冻结为运行时定位契约。
-fn resolve_target(
-    target: &argusflow_core::AutomationTarget,
-    context: &RunContext,
-) -> Result<(argusflow_core::AutomationTarget, PreparedAutomationTarget), RuntimeError> {
-    let prepared_locator = match &target.locator {
-        TargetLocator::Query { query } => {
-            let parameters = query
-                .bindings
-                .iter()
-                .map(|(name, expression)| {
-                    context
-                        .resolve_text(expression)
-                        .map(|value| (name.clone(), value))
-                })
-                .collect::<Result<_, _>>()?;
-            let parsed = argusflow_query::parse_stored_query(query).map_err(|error| {
-                RuntimeError::Automation(AutomationError::BackendFailed {
-                    backend: argusflow_core::BackendKind::OcrSmall,
-                    message: format!("AQL query could not be prepared: {error}"),
-                })
-            })?;
-            let resolved = argusflow_query::resolve_query_parameters(&parsed, &parameters)
-                .map_err(|error| {
-                    RuntimeError::Automation(AutomationError::BackendFailed {
-                        backend: argusflow_core::BackendKind::OcrSmall,
-                        message: format!("AQL parameters could not be prepared: {error}"),
-                    })
-                })?;
-            PreparedTargetLocator::Query {
-                query: resolved,
-                source: query.source.clone(),
-            }
-        }
-        TargetLocator::Coordinate { point } => PreparedTargetLocator::Coordinate { point: *point },
-        TargetLocator::Focused => PreparedTargetLocator::Focused,
-    };
-    Ok((
-        target.clone(),
-        PreparedAutomationTarget::new(
-            target.scope.clone(),
-            prepared_locator,
-            target.backend_policy.clone(),
-        ),
-    ))
-}
-
-/// 解析发送后视觉新事实所需的动态文字表达式。
-fn resolve_postcondition(
-    postcondition: &Option<UiPostcondition>,
-    context: &RunContext,
-) -> Result<Option<PreparedVisualPostcondition>, RuntimeError> {
-    let Some(UiPostcondition::NewText { query }) = postcondition else {
-        return Ok(None);
-    };
-    Ok(Some(PreparedVisualPostcondition::NewText {
-        query: VisualQuery {
-            text: context.resolve_text(&query.text)?,
-            exact: query.exact,
-            region: query.region,
-        },
-    }))
-}
-
-/// 把资源引用解析成不进入持久化定义的瞬时后端作用域。
-fn resolve_execution_scope(
-    scope: &TargetScope,
-    context: &RunContext,
-) -> Result<AutomationExecutionScope, RuntimeError> {
-    match scope {
-        TargetScope::Current => Ok(AutomationExecutionScope::Current),
-        TargetScope::Application { resource } => {
-            let session = context
-                .resources()
-                .get::<AppSession>(resource, &ResourceTypeId::application())?;
-            let [window] = session.windows.as_slice() else {
-                return Err(RuntimeError::ExecutionInvariant(format!(
-                    "application resource '{}.{}' does not contain exactly one window",
-                    resource.producer_node_id, resource.output_name,
-                )));
-            };
-            Ok(AutomationExecutionScope::Window {
-                handle: window.handle,
-                process_id: window.process_id,
-                capabilities: session.capabilities.clone(),
-            })
-        }
-        TargetScope::Browser { resource } => {
-            let session = context
-                .resources()
-                .get::<BrowserSession>(resource, &ResourceTypeId::browser())?;
-            Ok(AutomationExecutionScope::Browser {
-                session_id: session.id,
-                target_id: session.target_id.clone(),
-            })
-        }
-    }
 }
