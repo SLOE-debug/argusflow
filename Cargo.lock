@@ -171,6 +171,7 @@ dependencies = [
  "argusflow-core",
  "argusflow-query",
  "async-trait",
+ "regex",
  "serde",
  "serde_json",
  "sha2",

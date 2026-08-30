@@ -37,11 +37,11 @@ export const FLOW_COMPONENT_CATALOG = [
     ],
   },
   {
-    title: '发送微信群消息',
-    description: '视觉确认搜索、群聊标题和发送结果',
+    title: '发送微信联系人消息',
+    description: '视觉确认联系人搜索、会话标题和发送结果',
     definition: createWechatMessageDefinition(),
     defaultInputs: {
-      group_name: { type: 'literal', value: 'ArgusFlow 测试群' },
+      contact_name: { type: 'literal', value: '崽崽' },
       message: { type: 'literal', value: 'ArgusFlow 自动化测试消息' },
     },
     valueOutputs: [

@@ -6,6 +6,7 @@ use argusflow_core::{RunTraceContext, WindowIdentity};
 
 use super::{SceneRefreshPolicy, VisionRuntime};
 use crate::{
+    diff::{DirtyMap, DirtyRegion, DirtyRegionReason},
     error::VisionError,
     ocr::{OcrEngine, OcrRequest},
     refresh::{RefreshPlan, choose_refresh_plan},
@@ -60,6 +61,12 @@ impl VisionRuntime {
 
         let stable_started_at = Instant::now();
         let mut gate = StableFrameGate::new(policy.stability, policy.diff)?;
+        let previous_frame = scope.lock().await.last_stable_frame.clone();
+        if let Some(previous_frame) = previous_frame
+            && previous_frame.window == window
+        {
+            gate.seed(previous_frame);
+        }
         let frame = gate.wait_for_stable(subscription.as_ref()).await?;
         self.metrics
             .record_stable_frame_latency(stable_started_at.elapsed());
@@ -97,8 +104,30 @@ impl VisionRuntime {
             })?;
         self.metrics.record_query_pixels(frame.bounds().area());
         let base_scene = cache.current();
+        let pending_regions = cache.pending_dirty_regions();
+        let pending_area = pending_regions
+            .iter()
+            .map(|region| region.area())
+            .sum::<u64>();
+        let pending_ratio = pending_area as f32 / frame.bounds().area().max(1) as f32;
+        let effective_dirty = (!pending_regions.is_empty()).then(|| DirtyMap {
+            frame_id: frame.frame_id,
+            changed_area_ratio: pending_ratio.min(1.0),
+            compared_samples: dirty.as_ref().map_or(0, |map| map.compared_samples),
+            changed_samples: dirty.as_ref().map_or(0, |map| map.changed_samples),
+            major_transition: dirty.as_ref().is_some_and(|map| map.major_transition)
+                || pending_ratio >= policy.diff.full_refresh_dirty_ratio,
+            regions: pending_regions
+                .into_iter()
+                .map(|rect| DirtyRegion {
+                    rect,
+                    changed_ratio: 1.0,
+                    reason: DirtyRegionReason::PixelDifference,
+                })
+                .collect(),
+        });
         let refresh_plan = choose_refresh_plan(
-            dirty.as_ref(),
+            effective_dirty.as_ref(),
             frame.bounds(),
             base_scene.is_some(),
             policy.force_full_ocr,

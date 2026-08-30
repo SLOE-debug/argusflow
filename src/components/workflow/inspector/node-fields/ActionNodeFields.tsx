@@ -27,7 +27,6 @@ import { AqlFieldSummary } from '../common/AqlFieldSummary';
 import { ValueExprFields } from './ValueExprFields';
 import { ExtractNodeFields } from './ExtractNodeFields';
 import { KeyboardChordFields } from './KeyboardChordFields';
-import { VisualTargetFields } from './VisualTargetFields';
 import type { StructuredEditorTarget } from '../../workspace/dock/structuredEditorTarget';
 
 type ActionNodeFieldsProps = Readonly<{
@@ -56,8 +55,7 @@ const OPERATION_KIND_OPTIONS = [
 ] as const;
 
 const LOCATOR_KIND_OPTIONS = [
-  { value: 'query', label: '界面结构' },
-  { value: 'visual', label: '画面文字' },
+  { value: 'query', label: 'AQL 查询' },
   { value: 'coordinate', label: '屏幕坐标' },
   { value: 'focused', label: '当前焦点' },
 ] as const;
@@ -72,6 +70,7 @@ const BACKEND_OPTIONS = [
   { value: 'auto', label: '自动选择（推荐）' },
   { value: 'windows_uia', label: 'Windows UI 自动化' },
   { value: 'browser_cdp', label: '浏览器自动化' },
+  { value: 'ocr_small', label: '画面文字（OCR）' },
   { value: 'send_input', label: '键盘输入' },
 ] as const;
 
@@ -215,13 +214,6 @@ export function ActionNodeFields({
           onOpenEditor={onOpenEditor}
         />
       ) : null}
-      {operation.target.locator.type === 'visual' ? (
-        <VisualTargetFields
-          operation={operation}
-          locator={operation.target.locator}
-          onChange={onChange}
-        />
-      ) : null}
       {operation.target.locator.type === 'coordinate' ? (
         <CoordinateTargetFields
           operation={operation}
@@ -229,8 +221,7 @@ export function ActionNodeFields({
           onChange={onChange}
         />
       ) : null}
-      {operation.target.locator.type === 'query'
-        || operation.target.locator.type === 'visual' ? (
+      {operation.target.locator.type === 'query' ? (
         <TargetWaitFields
           execution={execution}
           locatorKind={operation.target.locator.type}
@@ -406,6 +397,14 @@ function QueryTargetFields({
   onChange: (operation: UiOperation) => void;
   onOpenEditor: (target: StructuredEditorTarget) => void;
 }>) {
+  /** OCR 只暴露文字事实；其它操作不展示无法执行的后端选项。 */
+  const acceptsOcr = operation.type === 'click'
+    || operation.type === 'get_text'
+    || operation.type === 'extract' && operation.fields.every((field) => (
+      field.source.type === 'text' || field.source.type === 'name'
+    ));
+  /** 当前后端预设只计算一次，保证选择器与帮助文案使用同一状态。 */
+  const backendPreset = resolveBackendPolicyPreset(operation.target.backend_policy);
   return (
     <>
       <AqlFieldSummary
@@ -420,14 +419,21 @@ function QueryTargetFields({
         <div className="mt-2">
           <InspectorField label="执行方式">
             <Select<BackendPolicyPreset>
-              value={resolveBackendPolicyPreset(operation.target.backend_policy)}
-              options={BACKEND_OPTIONS}
+              value={backendPreset}
+              options={acceptsOcr
+                ? BACKEND_OPTIONS
+                : BACKEND_OPTIONS.filter(({ value }) => value !== 'ocr_small')}
               containerClassName="border-slate-300 bg-white"
               onValueChange={(preference) => (
                 onChange(changeBackendPolicy(operation, preference))
               )}
             />
           </InspectorField>
+          {backendPreset === 'ocr_small' ? (
+            <p className={`${INSPECTOR_HELP_CLASS_NAME} mt-1`}>
+              OCR 仅查询 text(...) 文字节点；点击会使用命中边界内的安全点。
+            </p>
+          ) : null}
         </div>
       </details>
     </>

@@ -174,36 +174,6 @@ fn focused_keyboard_operation_round_trips_through_json() {
 }
 
 #[test]
-fn legacy_visual_text_is_migrated_to_a_literal_value_expression() {
-    let operation: UiOperation = serde_json::from_value(json!({
-        "type": "click",
-        "target": {
-            "scope": { "type": "current" },
-            "locator": {
-                "type": "visual",
-                "query": { "text": "确定", "exact": true }
-            },
-            "backend_policy": { "allow": [], "deny": [], "prefer": [] }
-        }
-    }))
-    .expect("legacy visual query should deserialize");
-
-    let UiOperation::Click { target } = &operation else {
-        panic!("fixture should decode as click");
-    };
-    let TargetLocator::Visual { query } = &target.locator else {
-        panic!("fixture should retain persisted visual locator");
-    };
-    assert_eq!(query.text, ValueExpr::text("确定"));
-    assert!(query.region.is_none());
-    assert!(
-        serde_json::to_string(&operation)
-            .expect("migrated visual query should serialize")
-            .contains("\"type\":\"literal\"")
-    );
-}
-
-#[test]
 fn normalized_visual_regions_reject_out_of_bounds_values() {
     assert!(
         serde_json::from_value::<NormalizedRect>(json!({

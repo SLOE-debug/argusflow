@@ -13,8 +13,9 @@ use argusflow_query::{BranchPath, QueryCost, QueryPortability, SupportLevel};
 use async_trait::async_trait;
 
 use super::{
-    keyboard::{ensure_foreground_window, inject_chord, inject_text},
+    keyboard::{inject_chord, inject_text},
     mouse::{inject_click, inject_click_with_surface},
+    window_activation::activate_visual_target,
 };
 
 /// 使用 Windows `SendInput` 向已验证前台窗口注入键盘事件的后端。
@@ -143,7 +144,7 @@ impl ActionBackend for SendInputBackend {
         let AutomationAction::Click { target } = action else {
             return self.prepare(action, context);
         };
-        if !matches!(&target.locator, TargetLocator::Visual { .. }) {
+        if !matches!(&target.locator, TargetLocator::Query { .. }) {
             return self.prepare(action, context);
         }
         let Some(prepared_target) = prepared_target else {
@@ -151,7 +152,7 @@ impl ActionBackend for SendInputBackend {
                 backend: BackendKind::SendInput,
             });
         };
-        let PreparedTargetLocator::Visual { query } = prepared_target.locator() else {
+        let PreparedTargetLocator::Query { source, .. } = prepared_target.locator() else {
             return Err(PlanRejection::Unsupported {
                 backend: BackendKind::SendInput,
             });
@@ -194,11 +195,12 @@ impl ActionBackend for SendInputBackend {
                 },
                 PlanStepExplain {
                     kind: PlanStepKind::CandidateSource,
-                    summary: format!("visual target query: {:?}", query.text),
+                    summary: format!("OCR AQL target: {source:?}"),
                 },
                 PlanStepExplain {
                     kind: PlanStepKind::Action,
-                    summary: "foreground mouse click via SendInput".to_owned(),
+                    summary: "foreground mouse click with owned-popup activation fallback"
+                        .to_owned(),
                 },
             ],
             diagnostics: Vec::new(),
@@ -277,6 +279,8 @@ impl PreparedExecution for SendInputPreparedExecution {
                 backend: BackendKind::SendInput,
                 message: "prepared keyboard input has no window context".to_owned(),
             })?;
+        // 仅用于把 owned-popup 降级事实写入成功日志，不参与输入决策。
+        let mut used_visual_owner_fallback = false;
         let result: Result<(), AutomationError> = match &self.plan {
             SendInputPlan::PressKey { chord } => {
                 inject_chord(window, chord).map_err(|error| AutomationError::BackendFailed {
@@ -311,14 +315,14 @@ impl PreparedExecution for SendInputPreparedExecution {
                             .to_owned(),
                     });
                 }
-                // 同一进程新建的 dialog/tool window 拥有独立 HWND；输入必须绑定实际命中
-                // 的窗口实例，而不是 prepare 时仅用于冻结进程身份的前台 HWND。
-                ensure_foreground_window(&materialized_target.window).map_err(|error| {
+                // 优先激活命中的视觉表面；owned popup 拒绝激活时只降级到显式 owner。
+                let activated = activate_visual_target(materialized_target).map_err(|error| {
                     AutomationError::BackendFailed {
                         backend: BackendKind::SendInput,
                         message: error.to_string(),
                     }
                 })?;
+                used_visual_owner_fallback = activated.used_owner_fallback();
                 if !contains_point(materialized_target.bounds, materialized_target.safe_point) {
                     return Err(AutomationError::BackendFailed {
                         backend: BackendKind::SendInput,
@@ -334,7 +338,7 @@ impl PreparedExecution for SendInputPreparedExecution {
                 })?;
                 validator.validate_before_input(materialized_target).await?;
                 inject_click_with_surface(
-                    &materialized_target.window,
+                    activated.window(),
                     materialized_target.safe_point,
                     Some(materialized_target.surface_bounds),
                 )
@@ -351,6 +355,9 @@ impl PreparedExecution for SendInputPreparedExecution {
                 SendInputPlan::PressKey { .. } => "已向目标窗口发送组合键",
                 SendInputPlan::TypeText { .. } => "已向目标窗口输入文本",
                 SendInputPlan::Click { .. } => "已向目标窗口执行坐标点击",
+                SendInputPlan::VisualClick { .. } if used_visual_owner_fallback => {
+                    "已激活视觉弹窗的 owner 窗口，重新复验目标后执行鼠标点击"
+                }
                 SendInputPlan::VisualClick { .. } => "已通过统一视觉物化并执行鼠标点击",
             }
             .to_owned(),

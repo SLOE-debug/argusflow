@@ -19,25 +19,21 @@ describe('workflow UI operation transformations', () => {
     });
   });
 
-  it('returns non-semantic locators to automatic backend planning', () => {
+  it('routes AQL clicks through OCR scene materialization and SendInput', () => {
     const click = createDefaultUiOperation();
-    const forcedUia = changeBackendPolicy(click, 'windows_uia');
-    const visual = changeTargetLocatorKind(forcedUia, 'visual');
+    const visual = changeBackendPolicy(click, 'ocr_small');
 
-    expect(visual.target.locator).toEqual({
-      type: 'visual',
-      query: {
-        text: { type: 'literal', value: '确定' },
-        exact: true,
-        region: null,
-      },
+    expect(visual.target.locator.type).toBe('query');
+    expect(visual.target.backend_policy).toEqual({
+      allow: ['ocr_small', 'send_input'],
+      deny: [],
+      prefer: ['ocr_small', 'send_input'],
     });
-    expect(visual.target.backend_policy).toEqual({ allow: [], deny: [], prefer: [] });
   });
 
   it('forces collect links onto a semantic CDP query', () => {
     const click = createDefaultUiOperation();
-    const visual = changeTargetLocatorKind(click, 'visual');
+    const visual = changeTargetLocatorKind(click, 'coordinate');
 
     const collectLinks = changeUiOperationKind(visual, 'collect_links');
 

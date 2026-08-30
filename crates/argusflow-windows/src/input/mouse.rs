@@ -69,18 +69,18 @@ pub(super) fn inject_click(
     inject_click_with_surface(window, point, None)
 }
 
-/// 对已独立捕获的目标 HWND surface 执行一次经过边界复验的左键点击。
+/// 在已验证前台窗口下，对独立 capture surface 执行一次边界复验后的左键点击。
 pub(super) fn inject_click_with_surface(
-    window: &WindowContext,
+    foreground_window: &WindowContext,
     point: ScreenPoint,
     surface_bounds: Option<VisualTargetBounds>,
 ) -> Result<(), MouseInputError> {
-    ensure_foreground_window(window)
+    ensure_foreground_window(foreground_window)
         .map_err(|error| MouseInputError::WindowValidation(error.to_string()))?;
     if let Some(surface_bounds) = surface_bounds {
         ensure_point_in_surface(surface_bounds, point)?;
     } else {
-        ensure_point_in_window(window, point)?;
+        ensure_point_in_window(foreground_window, point)?;
     }
     let move_input = absolute_move(point)?;
     let inputs = [

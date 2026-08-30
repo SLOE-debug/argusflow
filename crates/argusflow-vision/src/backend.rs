@@ -9,13 +9,16 @@ use argusflow_agent::{
 use argusflow_core::{
     ActionCapability, ActionOutcome, ActionOutputKey, AutomationAction, AutomationError,
     BackendKind, ExtractCardinality, FieldProjection, FieldProjectionSource,
-    PreparedAutomationTarget, PreparedTargetLocator, TargetLocator, VisualQuery,
+    PreparedAutomationTarget, PreparedTargetLocator, TargetLocator,
 };
 use argusflow_query::{BranchPath, QueryCost, QueryPortability, SupportLevel};
 use async_trait::async_trait;
 use serde_json::Value;
 
-use crate::{OcrProfile, SceneRefreshPolicy, VisionRuntime, WindowInventory, matching_app_nodes};
+use crate::{
+    OcrProfile, SceneRefreshPolicy, VisionQueryPlan, VisionRuntime, WindowInventory,
+    compile_vision_query, evaluate_vision_query,
+};
 
 /// 对外只暴露一个候选，OCR 档位升级完全封装在 VisionRuntime 内部。
 #[derive(Debug, Clone)]
@@ -60,19 +63,22 @@ impl ActionBackend for VisionBackend {
         prepared_target: Option<&PreparedAutomationTarget>,
     ) -> Result<Vec<PreparedCandidate>, PlanRejection> {
         if !supports_action(action)
-            || !matches!(action.target().locator, TargetLocator::Visual { .. })
+            || !matches!(action.target().locator, TargetLocator::Query { .. })
         {
             return Err(PlanRejection::Unsupported {
                 backend: BackendKind::OcrSmall,
             });
         }
-        let Some(PreparedTargetLocator::Visual { query }) =
+        let Some(PreparedTargetLocator::Query { query, source }) =
             prepared_target.map(PreparedAutomationTarget::locator)
         else {
             return Err(PlanRejection::Unsupported {
                 backend: BackendKind::OcrSmall,
             });
         };
+        let plan = compile_vision_query(query).map_err(|_| PlanRejection::Unsupported {
+            backend: BackendKind::OcrSmall,
+        })?;
         let window = context.foreground_window.clone();
         let health = self.runtime.health();
         let availability = if window.is_none() {
@@ -118,8 +124,10 @@ impl ActionBackend for VisionBackend {
                 runtime: self.runtime.clone(),
                 inventory: self.inventory.clone(),
                 window,
-                query: query.clone(),
+                plan: Arc::new(plan),
+                query_source: source.clone(),
                 action: action.clone(),
+                trace_context: context.trace_context.clone(),
             }),
         )])
     }
@@ -134,10 +142,14 @@ struct VisionExecution {
     inventory: Arc<dyn WindowInventory>,
     /// 冻结的进程/前台窗口上下文。
     window: Option<argusflow_agent::WindowContext>,
-    /// 文本与可选区域查询。
-    query: VisualQuery,
+    /// 已验证并预编译正则的 OCR AQL 计划。
+    plan: Arc<VisionQueryPlan>,
+    /// 错误与查询追踪使用的原始 AQL。
+    query_source: String,
     /// 输出契约所属动作。
     action: AutomationAction,
+    /// Run Inspector 关联身份；没有诊断上下文时查询不生成投影。
+    trace_context: Option<argusflow_core::RunTraceContext>,
 }
 
 #[async_trait]
@@ -154,12 +166,13 @@ impl PreparedExecution for VisionExecution {
             AutomationAction::GetText { .. } => {
                 let target = self
                     .runtime
-                    .resolve_text(
+                    .resolve_query(
                         self.inventory.as_ref(),
                         window.process_id,
-                        &self.query,
+                        &self.plan,
+                        &self.query_source,
                         0.35,
-                        None,
+                        self.trace_context.as_ref(),
                     )
                     .await?;
                 let outputs = BTreeMap::from([(
@@ -175,7 +188,7 @@ impl PreparedExecution for VisionExecution {
             } => self.extract(window.process_id, *cardinality, fields).await,
             _ => Err(AutomationError::ActionUnsupported {
                 backend: BackendKind::OcrSmall,
-                query: self.query.text.clone(),
+                query: self.query_source.clone(),
                 semantic_matches: 0,
                 required: ActionCapability::ReadText,
             }),
@@ -194,7 +207,14 @@ impl VisionExecution {
         if cardinality == ExtractCardinality::One {
             let target = self
                 .runtime
-                .resolve_text(self.inventory.as_ref(), process_id, &self.query, 0.35, None)
+                .resolve_query(
+                    self.inventory.as_ref(),
+                    process_id,
+                    &self.plan,
+                    &self.query_source,
+                    0.35,
+                    self.trace_context.as_ref(),
+                )
                 .await?;
             let outputs = BTreeMap::from([(
                 ActionOutputKey::Item.as_str().to_owned(),
@@ -209,24 +229,40 @@ impl VisionExecution {
                 self.inventory.as_ref(),
                 process_id,
                 &SceneRefreshPolicy::small(),
-                None,
+                self.trace_context.as_ref(),
             )
             .await
             .map_err(map_runtime_error)?;
-        let selected_scene = if matching_app_nodes(&small, &self.query).is_empty() {
+        let selected_scene = if evaluate_vision_query(&small, &self.plan, &self.query_source)?
+            .matches
+            .is_empty()
+        {
             let mut policy = SceneRefreshPolicy::medium();
             policy.force_full_ocr = true;
             let medium = self
                 .runtime
-                .current_app_scene(self.inventory.as_ref(), process_id, &policy, None)
+                .current_app_scene(
+                    self.inventory.as_ref(),
+                    process_id,
+                    &policy,
+                    self.trace_context.as_ref(),
+                )
                 .await
                 .map_err(map_runtime_error)?;
-            if matching_app_nodes(&medium, &self.query).is_empty() {
+            if evaluate_vision_query(&medium, &self.plan, &self.query_source)?
+                .matches
+                .is_empty()
+            {
                 let mut binary_policy = SceneRefreshPolicy::medium();
                 binary_policy.force_full_ocr = true;
                 binary_policy.ocr = OcrProfile::medium_binary();
                 self.runtime
-                    .current_app_scene(self.inventory.as_ref(), process_id, &binary_policy, None)
+                    .current_app_scene(
+                        self.inventory.as_ref(),
+                        process_id,
+                        &binary_policy,
+                        self.trace_context.as_ref(),
+                    )
                     .await
                     .map_err(map_runtime_error)?
             } else {
@@ -235,8 +271,22 @@ impl VisionExecution {
         } else {
             small
         };
-        let matches = matching_app_nodes(&selected_scene, &self.query);
-        let values = matches
+        let query_result = evaluate_vision_query(&selected_scene, &self.plan, &self.query_source)?;
+        self.runtime.record_query_trace(
+            self.trace_context.as_ref(),
+            &selected_scene,
+            &self.query_source,
+            &query_result.matches,
+            None,
+            if query_result.matches.is_empty() {
+                crate::VisionSelectionOutcome::NotFound
+            } else {
+                crate::VisionSelectionOutcome::Multiple
+            },
+            query_result.metrics,
+        );
+        let values = query_result
+            .matches
             .iter()
             .map(|candidate| project_fields(candidate.node, fields))
             .collect::<Result<Vec<_>, _>>()?;

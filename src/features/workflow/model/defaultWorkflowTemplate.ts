@@ -29,11 +29,11 @@ export const WECHAT_VERIFY_SEARCH_NODE_ID = 'wechat_verify_search_1';
 /** 搜索框内选中已有文字的组合键节点。 */
 export const WECHAT_SELECT_SEARCH_TEXT_NODE_ID = 'wechat_select_search_text_1';
 
-/** 输入目标群名称的节点。 */
-export const WECHAT_TYPE_GROUP_NAME_NODE_ID = 'wechat_type_group_name_1';
+/** 输入目标联系人名称的节点。 */
+export const WECHAT_TYPE_CONTACT_NAME_NODE_ID = 'wechat_type_contact_name_1';
 
 /** 视觉点击搜索结果的节点。 */
-export const WECHAT_CLICK_GROUP_NODE_ID = 'wechat_click_group_1';
+export const WECHAT_CLICK_CONTACT_NODE_ID = 'wechat_click_contact_1';
 
 /** 输入测试消息的节点。 */
 export const WECHAT_TYPE_MESSAGE_NODE_ID = 'wechat_type_message_1';
@@ -42,20 +42,20 @@ export const WECHAT_TYPE_MESSAGE_NODE_ID = 'wechat_type_message_1';
 export const WECHAT_SEND_MESSAGE_NODE_ID = 'wechat_send_message_1';
 
 /** 默认模板的工作流名称。 */
-export const DEFAULT_WORKFLOW_NAME = '搜索微信群并发送测试消息';
+export const DEFAULT_WORKFLOW_NAME = '搜索微信联系人并发送测试消息';
 
 /** 微信流程不依赖持久化变量。 */
 export const DEFAULT_WORKFLOW_VARIABLES = {} as const satisfies JsonObject;
 
-/** 群名称和消息内容作为每次运行输入，避免写死在节点实现里。 */
+/** 联系人名称和消息内容作为每次运行输入，避免写死在节点实现里。 */
 export const DEFAULT_WORKFLOW_INPUTS = [
-  { key: 'group_name', value_type: 'text' },
+  { key: 'contact_name', value_type: 'text' },
   { key: 'message', value_type: 'text' },
 ] as const satisfies ReadonlyArray<WorkflowInputDefinition>;
 
 /** 当前验证场景的中性预填运行输入；用户可在运行前修改。 */
 export const DEFAULT_RUN_INPUT_VALUES = {
-  group_name: '崽崽',
+  contact_name: '崽崽',
   message: '今日天气',
 } as const satisfies JsonObject;
 
@@ -157,8 +157,8 @@ function canvasNodeId(nodeId: string): string {
     open_search: WECHAT_OPEN_SEARCH_NODE_ID,
     verify_search: WECHAT_VERIFY_SEARCH_NODE_ID,
     select_search: WECHAT_SELECT_SEARCH_TEXT_NODE_ID,
-    type_group: WECHAT_TYPE_GROUP_NAME_NODE_ID,
-    click_group: WECHAT_CLICK_GROUP_NODE_ID,
+    type_contact: WECHAT_TYPE_CONTACT_NAME_NODE_ID,
+    click_contact: WECHAT_CLICK_CONTACT_NODE_ID,
     type_message: WECHAT_TYPE_MESSAGE_NODE_ID,
     send_message: WECHAT_SEND_MESSAGE_NODE_ID,
     exit: 'end_1',
@@ -176,9 +176,9 @@ function canvasPosition(nodeId: string): { x: number; y: number } {
     open_search: { x: 402, y: 104 },
     verify_search: { x: 610, y: 104 },
     select_search: { x: 820, y: 104 },
-    type_group: { x: 1024, y: 104 },
-    find_group: { x: 1024, y: 220 },
-    click_group: { x: 820, y: 220 },
+    type_contact: { x: 1024, y: 104 },
+    find_contact: { x: 1024, y: 220 },
+    click_contact: { x: 820, y: 220 },
     verify_header: { x: 616, y: 220 },
     type_message: { x: 402, y: 220 },
     send_message: { x: 188, y: 220 },
@@ -193,10 +193,10 @@ function canvasNodeLabel(nodeId: string): string {
     open_search: '打开搜索',
     verify_search: '确认搜索界面',
     select_search: '选中搜索文字',
-    type_group: '输入群名称',
-    find_group: '确认群搜索结果',
-    click_group: '打开群聊',
-    verify_header: '确认群聊标题',
+    type_contact: '输入联系人名称',
+    find_contact: '确认联系人搜索结果',
+    click_contact: '打开联系人会话',
+    verify_header: '确认联系人标题',
     type_message: '输入测试消息',
     send_message: '发送消息',
   };
@@ -220,10 +220,10 @@ function defaultPortFor(
     'wechat_application:open_search': { id: 'edge_application_search', sourceSide: 'right', targetSide: 'left' },
     'open_search:verify_search': { id: 'edge_search_ready', sourceSide: 'right', targetSide: 'left' },
     'verify_search:select_search': { id: 'edge_ready_select', sourceSide: 'right', targetSide: 'left' },
-    'select_search:type_group': { id: 'edge_select_group_name', sourceSide: 'right', targetSide: 'left' },
-    'type_group:find_group': { id: 'edge_group_name_find', sourceSide: 'bottom', targetSide: 'top' },
-    'find_group:click_group': { id: 'edge_find_click', sourceSide: 'left', targetSide: 'right' },
-    'click_group:verify_header': { id: 'edge_click_header', sourceSide: 'left', targetSide: 'right' },
+    'select_search:type_contact': { id: 'edge_select_contact_name', sourceSide: 'right', targetSide: 'left' },
+    'type_contact:find_contact': { id: 'edge_contact_name_find', sourceSide: 'bottom', targetSide: 'top' },
+    'find_contact:click_contact': { id: 'edge_find_click', sourceSide: 'left', targetSide: 'right' },
+    'click_contact:verify_header': { id: 'edge_click_header', sourceSide: 'left', targetSide: 'right' },
     'verify_header:type_message': { id: 'edge_header_message', sourceSide: 'left', targetSide: 'right' },
     'type_message:send_message': { id: 'edge_message_send', sourceSide: 'left', targetSide: 'right' },
     'send_message:exit': { id: 'edge_send_end', sourceSide: 'bottom', targetSide: 'top' },
@@ -257,7 +257,7 @@ function unreachableCanonicalNode(typeId: string): never {
 }
 
 /** 创建从流程输入读取字符串的表达式，供外部模板扩展复用。 */
-export function workflowInputText(key: 'group_name' | 'message'): ValueExpr {
+export function workflowInputText(key: 'contact_name' | 'message'): ValueExpr {
   return {
     type: 'ref',
     source: { type: 'workflow_input', key },

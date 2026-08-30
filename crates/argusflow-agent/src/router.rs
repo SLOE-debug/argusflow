@@ -192,6 +192,7 @@ impl ActionDispatcher for ActionRouter {
         options: ActionExecutionOptions,
     ) -> Result<ActionOutcome, AutomationError> {
         let mut context = self.context_provider.snapshot();
+        context.trace_context = options.trace_context.clone();
         if let AutomationExecutionScope::Window {
             handle,
             process_id,
@@ -223,11 +224,14 @@ impl ActionDispatcher for ActionRouter {
             context.visual_cache.ready = false;
         }
         let target_wait_deadline = visual_materialization::deadline(action, options.target_wait);
-        let mut materialized_target = visual_materialization::materialize(
+        let prepared_materialization = visual_materialization::prepare(
             self.target_materializer.as_deref(),
             action,
-            &context,
             options.prepared_target.as_ref(),
+        )?;
+        let mut materialized_target = visual_materialization::materialize(
+            prepared_materialization.as_ref(),
+            &context,
             options.target_wait,
             target_wait_deadline,
             options.trace_context.as_ref(),
@@ -283,10 +287,8 @@ impl ActionDispatcher for ActionRouter {
                             .is_some_and(|deadline| tokio::time::Instant::now() < deadline) =>
                 {
                     let refreshed = visual_materialization::materialize(
-                        self.target_materializer.as_deref(),
-                        action,
+                        prepared_materialization.as_ref(),
                         &context,
-                        options.prepared_target.as_ref(),
                         options.target_wait,
                         target_wait_deadline,
                         options.trace_context.as_ref(),

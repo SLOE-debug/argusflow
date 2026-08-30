@@ -30,8 +30,7 @@ struct UiPayloadV1 {
 
 /// 当前 UI payload，把动作语义与节点执行预算明确分离。
 ///
-/// v2 的旧视觉字符串和 v3 的 `ValueExpr` 都由 `VisualQueryExpr` 的反序列化边界
-/// 统一转换为当前内存契约；v3 是 Studio 当前写出的规范版本。
+/// v3 是 Studio 当前写出的规范版本。
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CurrentUiPayload {
@@ -161,9 +160,6 @@ impl PreparedNode for UiNode {
                 inputs.push(ValueInput::text(value));
             }
             _ => {}
-        }
-        if let TargetLocator::Visual { query } = &self.operation.target().locator {
-            inputs.push(ValueInput::text(&query.text));
         }
         if let TargetLocator::Query { query } = &self.operation.target().locator {
             inputs.extend(query.bindings.values().map(ValueInput::text));
@@ -336,7 +332,6 @@ fn legacy_execution_policy(locator: TargetLocator) -> UiExecutionPolicy {
         TargetLocator::Coordinate { .. } => TargetWaitPolicy::none(),
         TargetLocator::Focused => TargetWaitPolicy::none(),
         TargetLocator::Query { .. } => TargetWaitPolicy::bounded(5_000, 100),
-        TargetLocator::Visual { .. } => TargetWaitPolicy::bounded(5_000, 300),
     };
     UiExecutionPolicy {
         target_wait,
@@ -379,9 +374,8 @@ fn resolve_target(
     context: &RunContext,
 ) -> Result<(argusflow_core::AutomationTarget, PreparedAutomationTarget), RuntimeError> {
     let prepared_locator = match &target.locator {
-        TargetLocator::Query { query } => PreparedTargetLocator::Query {
-            query: query.clone(),
-            parameters: query
+        TargetLocator::Query { query } => {
+            let parameters = query
                 .bindings
                 .iter()
                 .map(|(name, expression)| {
@@ -389,15 +383,25 @@ fn resolve_target(
                         .resolve_text(expression)
                         .map(|value| (name.clone(), value))
                 })
-                .collect::<Result<_, _>>()?,
-        },
-        TargetLocator::Visual { query } => PreparedTargetLocator::Visual {
-            query: VisualQuery {
-                text: context.resolve_text(&query.text)?,
-                exact: query.exact,
-                region: query.region,
-            },
-        },
+                .collect::<Result<_, _>>()?;
+            let parsed = argusflow_query::parse_stored_query(query).map_err(|error| {
+                RuntimeError::Automation(AutomationError::BackendFailed {
+                    backend: argusflow_core::BackendKind::OcrSmall,
+                    message: format!("AQL query could not be prepared: {error}"),
+                })
+            })?;
+            let resolved = argusflow_query::resolve_query_parameters(&parsed, &parameters)
+                .map_err(|error| {
+                    RuntimeError::Automation(AutomationError::BackendFailed {
+                        backend: argusflow_core::BackendKind::OcrSmall,
+                        message: format!("AQL parameters could not be prepared: {error}"),
+                    })
+                })?;
+            PreparedTargetLocator::Query {
+                query: resolved,
+                source: query.source.clone(),
+            }
+        }
         TargetLocator::Coordinate { point } => PreparedTargetLocator::Coordinate { point: *point },
         TargetLocator::Focused => PreparedTargetLocator::Focused,
     };

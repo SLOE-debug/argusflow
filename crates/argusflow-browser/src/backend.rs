@@ -7,7 +7,8 @@ use argusflow_agent::{
     PreparedExecution, RuntimeAvailability,
 };
 use argusflow_core::{
-    ActionOutcome, AutomationAction, AutomationError, BackendKind, TargetLocator,
+    ActionOutcome, AutomationAction, AutomationError, BackendKind, PreparedAutomationTarget,
+    PreparedTargetLocator, TargetLocator, UiQuery,
 };
 use argusflow_query::{
     Diagnostic, DiagnosticCode, DiagnosticSeverity, QueryBackend, analyze_query,
@@ -62,8 +63,35 @@ impl ActionBackend for CdpBackend {
         let parsed = parse_stored_query(query).map_err(|_| PlanRejection::InvalidAction {
             backend: BackendKind::BrowserCdp,
         })?;
-        let portability = analyze_query(&parsed).portability().clone();
-        let query_plans = compile_cdp_query(&parsed).map_err(|_| PlanRejection::Unsupported {
+        self.prepare_query(action, context, &parsed, canonicalize_query(&parsed))
+    }
+
+    fn prepare_with_target(
+        &self,
+        action: &AutomationAction,
+        context: &ExecutionContext,
+        prepared_target: Option<&PreparedAutomationTarget>,
+    ) -> Result<Vec<PreparedCandidate>, PlanRejection> {
+        let Some(PreparedTargetLocator::Query { query, source }) =
+            prepared_target.map(PreparedAutomationTarget::locator)
+        else {
+            return self.prepare(action, context);
+        };
+        self.prepare_query(action, context, query, source.clone())
+    }
+}
+
+impl CdpBackend {
+    /// 从 Runtime 已绑定参数的查询构建 CDP 候选，避免后端重新解析持久化源码。
+    fn prepare_query(
+        &self,
+        action: &AutomationAction,
+        context: &ExecutionContext,
+        parsed: &UiQuery,
+        query: String,
+    ) -> Result<Vec<PreparedCandidate>, PlanRejection> {
+        let portability = analyze_query(parsed).portability().clone();
+        let query_plans = compile_cdp_query(parsed).map_err(|_| PlanRejection::Unsupported {
             backend: BackendKind::BrowserCdp,
         })?;
         let page_session = context
@@ -79,7 +107,6 @@ impl ActionBackend for CdpBackend {
         } else {
             RuntimeAvailability::MissingContext
         };
-        let query = canonicalize_query(&parsed);
         let candidates = query_plans
             .into_iter()
             .map(|plan| {

@@ -1,6 +1,12 @@
 //! VisualScene 上的 deterministic exact/fuzzy 查询。
 
+mod aql;
 mod diagnostics;
+
+pub use aql::{
+    VisionQueryCompileError, VisionQueryMetrics, VisionQueryPlan, VisionQueryResult,
+    compile_vision_query, evaluate_vision_query, require_unique,
+};
 pub use diagnostics::{VisualQueryCandidateSummary, VisualQueryReport};
 
 use argusflow_core::{AutomationError, VisualQuery};

@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::{AqlQuery, CapabilitySet, KeyChord, ResourceRef, ValueExpr, VisualQueryExpr};
+use crate::{AqlQuery, CapabilitySet, KeyChord, ResourceRef, ValueExpr};
 
 /// Extract 操作返回单个目标还是目标集合。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -253,11 +253,6 @@ pub enum TargetLocator {
     Query {
         /// 持久化的 AQL 源码与独立语言版本。
         query: AqlQuery,
-    },
-    /// 通过 OCR 或视觉模型描述目标。
-    Visual {
-        /// 视觉后端使用的查询条件。
-        query: VisualQueryExpr,
     },
     /// 直接使用屏幕物理像素坐标定位目标。
     Coordinate {

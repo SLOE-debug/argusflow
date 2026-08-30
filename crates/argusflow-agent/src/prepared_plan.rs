@@ -172,7 +172,9 @@ impl PreparedPlan {
             match self.execute_once(false).await {
                 PreparedAttempt::Success(outcome) => return Ok(outcome),
                 PreparedAttempt::Failure {
-                    error: AutomationError::TargetNotFound { query, details },
+                    error:
+                        AutomationError::TargetNotFound { query, details }
+                        | AutomationError::ObservationIncomplete { query, details },
                     candidate_failures,
                 } => {
                     if tokio::time::Instant::now() >= deadline {
@@ -245,6 +247,15 @@ impl PreparedPlan {
                     candidate_failures.push((candidate_index, error.clone()));
                     fallback_error = Some(error);
                 }
+                Err(error @ AutomationError::ObservationIncomplete { .. }) => {
+                    exhausted_branch = Some(branch_path);
+                    if capture_evidence {
+                        self.capture_if_configured(candidate, &error, &mut captured)
+                            .await;
+                    }
+                    candidate_failures.push((candidate_index, error.clone()));
+                    fallback_error = Some(error);
+                }
                 Err(error) => {
                     if capture_evidence {
                         self.capture_if_configured(candidate, &error, &mut captured)
@@ -287,8 +298,11 @@ impl PreparedPlan {
                 continue;
             };
             let trigger = if target_wait_timed_out
-                && matches!(error, AutomationError::TargetNotFound { .. })
-            {
+                && matches!(
+                    error,
+                    AutomationError::TargetNotFound { .. }
+                        | AutomationError::ObservationIncomplete { .. }
+                ) {
                 Some(EvidenceTrigger::Timeout)
             } else {
                 evidence_trigger(&error)
@@ -376,6 +390,7 @@ fn evidence_trigger(error: &AutomationError) -> Option<EvidenceTrigger> {
         AutomationError::AmbiguousTarget { .. } => Some(EvidenceTrigger::AmbiguousTarget),
         AutomationError::ActionUnsupported { .. } => Some(EvidenceTrigger::ActionUnsupported),
         AutomationError::BackendUnavailable { .. } => Some(EvidenceTrigger::BackendUnavailable),
+        AutomationError::ObservationIncomplete { .. } => Some(EvidenceTrigger::BackendUnavailable),
         AutomationError::VisualTargetStale { .. } => None,
         AutomationError::NoBackendAvailable
         | AutomationError::BackendFailed { .. }

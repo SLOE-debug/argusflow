@@ -51,7 +51,23 @@ impl VisionRuntime {
                 actual: Some(subscription.window()),
             });
         }
-        let frame = subscription.next(timeout).await?;
+        let frame = match subscription.next(timeout).await {
+            Ok(frame) => frame,
+            Err(VisionError::FrameTimeout { .. }) => {
+                let current_topology = subscription.current_topology_generation().await?;
+                let last_frame = scope.lock().await.last_stable_frame.clone();
+                return match last_frame {
+                    Some(last_frame)
+                        if last_frame.window == window
+                            && last_frame.topology_generation == current_topology =>
+                    {
+                        Ok(current_topology)
+                    }
+                    _ => Err(VisionError::SceneStale),
+                };
+            }
+            Err(error) => return Err(error),
+        };
         if frame.window != window {
             return Err(VisionError::WindowIdentityChanged {
                 expected: window,

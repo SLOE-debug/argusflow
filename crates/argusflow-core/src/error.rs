@@ -31,6 +31,14 @@ pub enum AutomationError {
         /// 后端提供的最后一次查询诊断；不需要额外诊断时为空字符串。
         details: String,
     },
+    /// 查询所需的可见窗口没有全部完成捕获，不能安全断言不存在或唯一。
+    #[error("OCR observation is incomplete for query: {query}{details}")]
+    ObservationIncomplete {
+        /// 无法完成严格判定的 AQL。
+        query: String,
+        /// 缺失窗口或捕获失败的安全摘要。
+        details: String,
+    },
     /// 节点允许的整体目标等待预算耗尽，最后一次完整计划仍未命中目标。
     #[error("在 {timeout_ms}ms 内未等到目标：{query}{details}")]
     TargetWaitTimeout {

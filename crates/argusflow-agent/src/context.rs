@@ -2,7 +2,7 @@ use std::sync::RwLock;
 
 use serde::{Deserialize, Serialize};
 
-use argusflow_core::ResourceId;
+use argusflow_core::{ResourceId, RunTraceContext};
 
 /// 当前前台窗口的稳定规划信息。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -50,6 +50,9 @@ pub struct VisualCacheContext {
 /// Planner 每次准备动作时使用的不可变运行环境快照。
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExecutionContext {
+    /// 当前动作的 Run/Node 诊断身份；不参与持久化或 Planner 排序。
+    #[serde(skip)]
+    pub trace_context: Option<RunTraceContext>,
     /// 当前前台窗口。
     pub foreground_window: Option<WindowContext>,
     /// 当前活动进程。

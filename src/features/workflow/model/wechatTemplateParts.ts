@@ -106,7 +106,7 @@ export function createWechatPressKeyOperation(
 /** 创建从流程输入向微信当前焦点注入 Unicode 文本的 UI 操作。 */
 export function createWechatTypeTextOperation(
   applicationNodeId: string,
-  inputKey: 'group_name' | 'message',
+  inputKey: 'contact_name' | 'message',
 ): Extract<UiOperation, { type: 'type_text' }> {
   return {
     type: 'type_text',

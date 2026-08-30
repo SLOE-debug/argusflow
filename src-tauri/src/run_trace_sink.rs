@@ -5,7 +5,8 @@ use std::sync::Arc;
 use argusflow_core::RunTraceContext;
 use argusflow_runtime::FileRunTraceStore;
 use argusflow_vision::{
-    CapturedFrame, OcrRequest, OcrResponse, VisionTraceSink, encode_bgra_as_bmp,
+    AppScene, CapturedFrame, OcrRequest, OcrResponse, VisionQueryMetrics, VisionSelectionOutcome,
+    VisionTraceSink, VisualNodeId, encode_bgra_as_bmp, project_app_scene,
 };
 use serde_json::json;
 
@@ -73,5 +74,57 @@ impl VisionTraceSink for RunVisionTraceSink {
             &request_metadata,
             &response_metadata,
         );
+    }
+
+    fn record_query(
+        &self,
+        context: &RunTraceContext,
+        scene: &AppScene,
+        query_source: &str,
+        candidate_ids: &[VisualNodeId],
+        selected_id: Option<VisualNodeId>,
+        outcome: VisionSelectionOutcome,
+        metrics: VisionQueryMetrics,
+    ) {
+        let projection = project_app_scene(scene);
+        let scene_id = scene
+            .windows
+            .iter()
+            .map(|window| window.scene.scene_id.get())
+            .max()
+            .unwrap_or(0);
+        let frame_id = scene
+            .windows
+            .iter()
+            .map(|window| window.scene.frame_id.get())
+            .max()
+            .unwrap_or(0);
+        let outcome = match outcome {
+            VisionSelectionOutcome::NotFound => "not_found",
+            VisionSelectionOutcome::Unique => "unique",
+            VisionSelectionOutcome::Multiple => "multiple",
+            VisionSelectionOutcome::Ambiguous => "ambiguous",
+            VisionSelectionOutcome::RejectedConfidence => "rejected_confidence",
+        };
+        let candidate_node_ids = candidate_ids
+            .iter()
+            .map(|node_id| node_id.get().to_string())
+            .collect::<Vec<_>>();
+        let selected_node_id = selected_id.map(|node_id| node_id.get().to_string());
+        let trace = json!({
+            "run_id": context.run_id,
+            "node_id": context.node_id,
+            "scene_id": scene_id,
+            "frame_id": frame_id,
+            "query": query_source,
+            "outcome": outcome,
+            "candidate_node_ids": candidate_node_ids,
+            "selected_node_id": selected_node_id,
+            "metrics": metrics,
+            "projection": projection,
+        });
+        let _ = self
+            .store
+            .persist_query_trace(context.run_id, &context.node_id, scene_id, &trace);
     }
 }

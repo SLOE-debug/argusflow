@@ -88,8 +88,10 @@ mod tests {
 /// 已由视觉场景物化、可交给输入执行器的屏幕目标事实。
 #[derive(Debug, Clone, PartialEq)]
 pub struct MaterializedTarget {
-    /// 解析期间绑定的窗口身份。
+    /// 承载 OCR 节点、frame bbox 与 capture surface 的窗口身份。
     pub window: WindowContext,
+    /// 视觉表面自身无法成为前台窗口时，允许尝试激活的同进程 owner 窗口。
+    pub activation_fallback: Option<WindowContext>,
     /// 产生该事实的 scene generation。
     pub scene_id: u64,
     /// 产生该事实的 capture frame。
@@ -129,11 +131,20 @@ pub trait PreparedTargetMaterializer: Send + Sync {
     /// 返回当前宿主真正能够执行的观察阶段。
     fn available_stages(&self) -> Vec<VisualMaterializationStage>;
 
-    /// 调用单一视觉引擎，并返回绑定实际命中窗口实例的目标事实。
+    /// 一次性编译并冻结 locator；轮询与 stale 重试只能复用此结果。
+    fn prepare(
+        &self,
+        locator: &PreparedTargetLocator,
+    ) -> Result<Arc<dyn PreparedTargetMaterialization>, argusflow_core::AutomationError>;
+}
+
+/// 已完成 AQL 编译、可在轮询期间重复物化 Scene 目标的执行对象。
+#[async_trait]
+pub trait PreparedTargetMaterialization: Send + Sync {
+    /// 调用冻结视觉计划，并返回绑定实际命中窗口实例的目标事实。
     async fn materialize(
         &self,
         window: &WindowContext,
-        locator: &PreparedTargetLocator,
         plan: &VisualMaterializationPlan,
         trace_context: Option<&argusflow_core::RunTraceContext>,
     ) -> Result<MaterializedTarget, argusflow_core::AutomationError>;

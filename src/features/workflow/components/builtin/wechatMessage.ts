@@ -14,8 +14,16 @@ import {
   createWechatVisualExecutionPolicy,
 } from '../../model/wechatTemplateParts';
 
-/** 官方发送微信群消息组件的稳定 ID。 */
+/** 官方发送微信联系人消息组件的稳定 ID。 */
 export const WECHAT_MESSAGE_COMPONENT_ID = '4d9c8f1e-3e5b-4e7a-9c4d-2a7d0b6f51c8';
+
+/** 将“最常使用”作为空间锚点，只选择其下方标题精确匹配的联系人。 */
+const WECHAT_CONTACT_RESULT_QUERY =
+  'nearest(anchor = text(name = "最常使用"), target = text(name = $contact_name), direction = below, index = 1)';
+
+/** 右上角窗口关闭标记用于排除左侧搜索框和会话列表中的同名文本。 */
+const WECHAT_CONTACT_HEADER_QUERY =
+  'nearest(anchor = text(name = "X"), target = text(name = $contact_name), direction = left, index = 1)';
 
 /** 创建微信桌面消息组件的唯一 canonical 节点图。 */
 export function createWechatMessageDefinition(): FlowComponentDefinition {
@@ -24,10 +32,10 @@ export function createWechatMessageDefinition(): FlowComponentDefinition {
   return {
     schema_version: 1,
     id: WECHAT_MESSAGE_COMPONENT_ID,
-    version: '2.0.0',
-    name: '发送微信群消息',
+    version: '3.0.0',
+    name: '发送微信联系人消息',
     inputs: [
-      { key: 'group_name', value_type: 'text' },
+      { key: 'contact_name', value_type: 'text' },
       { key: 'message', value_type: 'text' },
     ],
     outputs: [{
@@ -66,31 +74,31 @@ export function createWechatMessageDefinition(): FlowComponentDefinition {
         ),
         execution: createWechatInputExecutionPolicy(),
       }),
-      componentNode('type_group', 1_060, 'argus.ui', 3, {
-        operation: createWechatTypeTextOperation(applicationNodeId, 'group_name'),
+      componentNode('type_contact', 1_060, 'argus.ui', 3, {
+        operation: createWechatTypeTextOperation(applicationNodeId, 'contact_name'),
         execution: createWechatInputExecutionPolicy(),
       }),
-      componentNode('find_group', 1_280, 'argus.ui', 3, {
+      componentNode('find_contact', 1_280, 'argus.ui', 3, {
         operation: createWechatAqlGetTextOperation(
           applicationNodeId,
-          'nearest(anchor = text(name contains "网络结果"), target = text(name = $group_name), direction = below, index = 1)',
-          { group_name: workflowInputText('group_name') },
+          WECHAT_CONTACT_RESULT_QUERY,
+          { contact_name: workflowInputText('contact_name') },
         ),
         execution: visualExecution,
       }),
-      componentNode('click_group', 1_500, 'argus.ui', 3, {
+      componentNode('click_contact', 1_500, 'argus.ui', 3, {
         operation: createWechatAqlClickOperation(
           applicationNodeId,
-          'nearest(anchor = text(name contains "网络结果"), target = text(name = $group_name), direction = below, index = 1)',
-          { group_name: workflowInputText('group_name') },
+          WECHAT_CONTACT_RESULT_QUERY,
+          { contact_name: workflowInputText('contact_name') },
         ),
         execution: visualExecution,
       }),
       componentNode('verify_header', 1_720, 'argus.ui', 3, {
         operation: createWechatAqlGetTextOperation(
           applicationNodeId,
-          'text(name = $group_name)',
-          { group_name: workflowInputText('group_name') },
+          WECHAT_CONTACT_HEADER_QUERY,
+          { contact_name: workflowInputText('contact_name') },
         ),
         execution: visualExecution,
       }),
@@ -109,10 +117,10 @@ export function createWechatMessageDefinition(): FlowComponentDefinition {
       componentEdge(applicationNodeId, 'open_search'),
       componentEdge('open_search', 'verify_search'),
       componentEdge('verify_search', 'select_search'),
-      componentEdge('select_search', 'type_group'),
-      componentEdge('type_group', 'find_group'),
-      componentEdge('find_group', 'click_group'),
-      componentEdge('click_group', 'verify_header'),
+      componentEdge('select_search', 'type_contact'),
+      componentEdge('type_contact', 'find_contact'),
+      componentEdge('find_contact', 'click_contact'),
+      componentEdge('click_contact', 'verify_header'),
       componentEdge('verify_header', 'type_message'),
       componentEdge('type_message', 'send_message'),
       componentEdge('send_message', 'exit'),
@@ -136,7 +144,7 @@ function createWechatApplicationSpec(): ApplicationSpec {
 }
 
 /** 创建组件输入引用，展开时由 Runtime 重写为实例输入。 */
-function workflowInputText(key: 'group_name' | 'message'): ValueExpr {
+function workflowInputText(key: 'contact_name' | 'message'): ValueExpr {
   return {
     type: 'ref',
     source: { type: 'workflow_input', key },

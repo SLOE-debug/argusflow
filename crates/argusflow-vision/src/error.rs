@@ -36,6 +36,12 @@ pub enum VisionError {
         /// 等待稳定使用的毫秒预算。
         timeout_ms: u64,
     },
+    /// OCR worker 没有在该请求自己的截止时间内返回结果。
+    #[error("OCR inference timed out after {timeout_ms}ms")]
+    OcrTimeout {
+        /// 预处理、模型推理和响应传输共享的毫秒预算。
+        timeout_ms: u64,
+    },
     /// OCR worker 当前未就绪。
     #[error("visual worker is unavailable: {message}")]
     WorkerUnavailable {

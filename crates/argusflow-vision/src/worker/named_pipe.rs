@@ -255,7 +255,13 @@ impl OcrEngine for NamedPipeOcrEngine {
                 request: wire_request,
             },
         };
-        let (response, response_body) = self.round_trip(envelope, &[], request.deadline).await?;
+        let (response, response_body) = self
+            .round_trip(envelope, &[], request.deadline)
+            .await
+            .map_err(|error| match error {
+                VisionError::FrameTimeout { timeout_ms } => VisionError::OcrTimeout { timeout_ms },
+                other => other,
+            })?;
         match response.payload {
             WorkerResponse::Recognize {
                 response: Some(mut response),
@@ -309,7 +315,7 @@ impl OcrEngine for NamedPipeOcrEngine {
                         reason: error.message,
                     })
                 } else if error.code == "deadline_exceeded" {
-                    Err(VisionError::FrameTimeout {
+                    Err(VisionError::OcrTimeout {
                         timeout_ms: request.deadline.as_millis().min(u128::from(u64::MAX)) as u64,
                     })
                 } else {

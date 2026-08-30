@@ -1,6 +1,4 @@
-use std::collections::BTreeMap;
-
-use crate::{AqlQuery, AutomationTarget, BackendPolicy, ScreenPoint, TargetScope, VisualQuery};
+use crate::{BackendPolicy, ScreenPoint, TargetScope, UiQuery, VisualQuery};
 
 /// 一次执行中已经解析完成的视觉后置条件。
 #[derive(Debug, Clone, PartialEq)]
@@ -20,15 +18,10 @@ pub enum PreparedVisualPostcondition {
 pub enum PreparedTargetLocator {
     /// 已解析的 AQL 查询。
     Query {
-        /// 解析后的查询。
-        query: AqlQuery,
-        /// 已由 Runtime 冻结且通过文本类型校验的参数值。
-        parameters: BTreeMap<String, String>,
-    },
-    /// 已冻结文字、范围和精确匹配规则的视觉查询。
-    Visual {
-        /// 解析后的视觉查询。
-        query: VisualQuery,
+        /// 已解析、完成参数绑定且可被各后端直接编译的查询。
+        query: UiQuery,
+        /// 用于错误与查询追踪的原始 AQL 源码。
+        source: String,
     },
     /// 物理屏幕坐标。
     Coordinate {
@@ -77,25 +70,5 @@ impl PreparedAutomationTarget {
     /// 返回本次准备使用的后端策略。
     pub const fn backend_policy(&self) -> &BackendPolicy {
         &self.backend_policy
-    }
-
-    /// 将不需要表达式解析的持久化定位器转换为准备态定位器。
-    pub fn from_persisted(target: &AutomationTarget) -> Option<Self> {
-        let locator = match &target.locator {
-            crate::TargetLocator::Query { query } => PreparedTargetLocator::Query {
-                query: query.clone(),
-                parameters: BTreeMap::new(),
-            },
-            crate::TargetLocator::Coordinate { point } => {
-                PreparedTargetLocator::Coordinate { point: *point }
-            }
-            crate::TargetLocator::Focused => PreparedTargetLocator::Focused,
-            crate::TargetLocator::Visual { .. } => return None,
-        };
-        Some(Self::new(
-            target.scope.clone(),
-            locator,
-            target.backend_policy.clone(),
-        ))
     }
 }

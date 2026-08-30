@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{CapturedFrame, OcrModel, OcrResponse, PhysicalRect, VisionError};
 
-use super::{VisualNode, VisualNodeSource};
+use super::{VisualNode, VisualNodeSource, VisualSceneIndex};
 
 /// Runtime 单调分配的 Scene ID。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -99,10 +99,20 @@ pub struct VisualScene {
     pub viewport_origin: ScreenPoint,
     /// 按 y/x 排序的 OCR 节点。
     pub nodes: Vec<VisualNode>,
+    /// 与节点阅读顺序同步构建的精确文本索引；序列化投影只保存事实节点。
+    #[serde(skip)]
+    pub(crate) index: VisualSceneIndex,
     /// 本次 OCR 摘要。
     pub ocr: SceneOcrSummary,
     /// 构建时间，仅用于诊断 freshness。
     pub built_at_unix_ms: u64,
+}
+
+impl VisualScene {
+    /// 返回当前不可变 Scene 的只读查询索引。
+    pub const fn index(&self) -> &VisualSceneIndex {
+        &self.index
+    }
 }
 
 /// 负责单调 Scene ID 和增量节点合并。
@@ -175,6 +185,7 @@ impl VisualSceneBuilder {
             }
         }
         nodes.sort_by_key(|node| (node.bbox.y, node.bbox.x, node.id));
+        let index = VisualSceneIndex::build(&nodes);
         Ok(Arc::new(VisualScene {
             scene_id,
             frame_id: frame.frame_id,
@@ -183,6 +194,7 @@ impl VisualSceneBuilder {
             viewport: frame.bounds(),
             viewport_origin: frame.screen_origin(),
             nodes,
+            index,
             ocr: SceneOcrSummary::from_responses(responses),
             built_at_unix_ms: SystemTime::now()
                 .duration_since(UNIX_EPOCH)

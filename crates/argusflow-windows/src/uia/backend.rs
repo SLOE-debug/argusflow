@@ -8,7 +8,8 @@ use argusflow_agent::{
     PreparedExecution, RuntimeAvailability,
 };
 use argusflow_core::{
-    ActionOutcome, AutomationAction, AutomationError, BackendKind, TargetLocator,
+    ActionOutcome, AutomationAction, AutomationError, BackendKind, PreparedAutomationTarget,
+    PreparedTargetLocator, TargetLocator, UiQuery,
 };
 use argusflow_query::{
     Diagnostic, DiagnosticCode, DiagnosticSeverity, QueryBackend, analyze_query,
@@ -50,20 +51,9 @@ impl ActionBackend for UiaBackend {
         action: &AutomationAction,
         context: &ExecutionContext,
     ) -> Result<Vec<PreparedCandidate>, PlanRejection> {
-        let (query, window) = match &action.target().locator {
-            TargetLocator::Query { query } => (
-                query,
-                context
-                    .foreground_window
-                    .as_ref()
-                    .map(|window| PreparedWindowTarget {
-                        handle: window.handle,
-                        process_id: window.process_id,
-                    }),
-            ),
-            TargetLocator::Visual { .. }
-            | TargetLocator::Coordinate { .. }
-            | TargetLocator::Focused => {
+        let query = match &action.target().locator {
+            TargetLocator::Query { query } => query,
+            TargetLocator::Coordinate { .. } | TargetLocator::Focused => {
                 return Err(PlanRejection::Unsupported {
                     backend: BackendKind::WindowsUia,
                 });
@@ -72,12 +62,45 @@ impl ActionBackend for UiaBackend {
         let parsed = parse_stored_query(query).map_err(|_| PlanRejection::InvalidAction {
             backend: BackendKind::WindowsUia,
         })?;
-        let portability = analyze_query(&parsed).portability().clone();
-        let query_plans = compile_uia_query(&parsed).map_err(|_| PlanRejection::Unsupported {
+        self.prepare_query(action, context, &parsed, canonicalize_query(&parsed))
+    }
+
+    fn prepare_with_target(
+        &self,
+        action: &AutomationAction,
+        context: &ExecutionContext,
+        prepared_target: Option<&PreparedAutomationTarget>,
+    ) -> Result<Vec<PreparedCandidate>, PlanRejection> {
+        let Some(PreparedTargetLocator::Query { query, source }) =
+            prepared_target.map(PreparedAutomationTarget::locator)
+        else {
+            return self.prepare(action, context);
+        };
+        self.prepare_query(action, context, query, source.clone())
+    }
+}
+
+impl UiaBackend {
+    /// 从 Runtime 已解析的同一 `UiQuery` 编译 UIA 候选，不再读取或解析持久化源码。
+    fn prepare_query(
+        &self,
+        action: &AutomationAction,
+        context: &ExecutionContext,
+        parsed: &UiQuery,
+        query: String,
+    ) -> Result<Vec<PreparedCandidate>, PlanRejection> {
+        let window = context
+            .foreground_window
+            .as_ref()
+            .map(|window| PreparedWindowTarget {
+                handle: window.handle,
+                process_id: window.process_id,
+            });
+        let portability = analyze_query(parsed).portability().clone();
+        let query_plans = compile_uia_query(parsed).map_err(|_| PlanRejection::Unsupported {
             backend: BackendKind::WindowsUia,
         })?;
         let availability = runtime_availability(self.runtime.health().snapshot(), window);
-        let query = canonicalize_query(&parsed);
         let mut candidates = Vec::new();
         for query_plan in query_plans {
             let Ok(prepared_plan) = compile_uia_action(action, query_plan) else {

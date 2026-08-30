@@ -13,6 +13,7 @@ import {
 import { Button } from '../../ui';
 import { RunTimeline } from './RunTimeline';
 import { OcrArtifactViewer } from './OcrArtifactViewer';
+import { SceneQueryInspector } from './SceneQueryInspector';
 
 type RunHistoryPanelProps = Readonly<{
   /** 仅用于在当前 Run 结束后触发历史列表刷新，不与历史选择状态混用。 */
@@ -133,6 +134,7 @@ function RunDetail({ run, traceEvent }: RunDetailProps) {
             artifacts={artifacts}
             queryTrace={queryTrace}
           />
+          <SceneQueryInspector trace={queryTrace} />
           <div className="mb-2 grid grid-cols-[72px_minmax(0,1fr)] gap-x-2 gap-y-1 text-[11px]">
             <span className="text-slate-400">事件</span>
             <span className="font-medium text-slate-700">{traceEvent.event.kind}</span>
@@ -177,6 +179,7 @@ function RunDetail({ run, traceEvent }: RunDetailProps) {
           artifacts={artifacts}
           queryTrace={queryTrace}
         />
+        <SceneQueryInspector trace={queryTrace} />
         <div className="grid grid-cols-[76px_minmax(0,1fr)] gap-x-2 gap-y-1 text-[11px]">
           <span className="text-slate-400">状态</span>
           <span className={STATUS_TONES[manifest.status]}>{STATUS_LABELS[manifest.status]}</span>

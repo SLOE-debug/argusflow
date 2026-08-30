@@ -111,7 +111,7 @@ describe('workflow model', () => {
     vi.unstubAllGlobals();
   });
 
-  it('uses a WeChat group search and message workflow as the default template', () => {
+  it('uses a WeChat contact search and message workflow as the default template', () => {
     const workflow = toWorkflowDefinition(
       '6d7d7a91-4e19-42c9-b1d8-011d4cf94330',
       DEFAULT_WORKFLOW_NAME,
@@ -122,13 +122,13 @@ describe('workflow model', () => {
       DEFAULT_EDGES,
     );
 
-    expect(workflow.name).toBe('搜索微信群并发送测试消息');
+    expect(workflow.name).toBe('搜索微信联系人并发送测试消息');
     expect(workflow.inputs).toEqual([
-      { key: 'group_name', value_type: 'text' },
+      { key: 'contact_name', value_type: 'text' },
       { key: 'message', value_type: 'text' },
     ]);
     expect(DEFAULT_RUN_INPUT_VALUES).toEqual({
-      group_name: '崽崽',
+      contact_name: '崽崽',
       message: '今日天气',
     });
     expect(workflow.nodes.some((node) => node.type_id === 'argus.condition')).toBe(false);
@@ -204,14 +204,14 @@ describe('workflow model', () => {
       }),
     }));
     expect(workflow.nodes).toContainEqual(expect.objectContaining({
-      id: 'wechat_type_group_name_1',
+      id: 'wechat_type_contact_name_1',
       type_id: 'argus.ui',
       payload: {
         operation: expect.objectContaining({
           type: 'type_text',
           value: {
             type: 'ref',
-            source: { type: 'workflow_input', key: 'group_name' },
+            source: { type: 'workflow_input', key: 'contact_name' },
             pointer: '',
           },
         }),
@@ -219,7 +219,7 @@ describe('workflow model', () => {
       },
     }));
     expect(workflow.nodes).toContainEqual(expect.objectContaining({
-      id: 'wechat_click_group_1',
+      id: 'wechat_click_contact_1',
       type_id: 'argus.ui',
       payload: expect.objectContaining({
         operation: expect.objectContaining({
@@ -229,11 +229,11 @@ describe('workflow model', () => {
               type: 'query',
               query: {
                 language_version: 2,
-                source: 'nearest(anchor = text(name contains "网络结果"), target = text(name = $group_name), direction = below, index = 1)',
+                source: 'nearest(anchor = text(name = "最常使用"), target = text(name = $contact_name), direction = below, index = 1)',
                 bindings: {
-                  group_name: {
+                  contact_name: {
                     type: 'ref',
-                    source: { type: 'workflow_input', key: 'group_name' },
+                    source: { type: 'workflow_input', key: 'contact_name' },
                     pointer: '',
                   },
                 },
@@ -253,11 +253,11 @@ describe('workflow model', () => {
               type: 'query',
               query: {
                 language_version: 2,
-                source: 'text(name = $group_name)',
+                source: 'nearest(anchor = text(name = "X"), target = text(name = $contact_name), direction = left, index = 1)',
                 bindings: {
-                  group_name: {
+                  contact_name: {
                     type: 'ref',
-                    source: { type: 'workflow_input', key: 'group_name' },
+                    source: { type: 'workflow_input', key: 'contact_name' },
                     pointer: '',
                   },
                 },
@@ -356,8 +356,8 @@ describe('workflow model', () => {
     const previewRoutes = DEFAULT_EDGES.map((edge) => (
       previewEdgeRoute(edge, DEFAULT_NODES)?.route ?? null
     ));
-    const groupNameWaitEdgeIndex = DEFAULT_EDGES.findIndex(
-      (edge) => edge.id === 'edge_group_name_find',
+    const contactNameWaitEdgeIndex = DEFAULT_EDGES.findIndex(
+      (edge) => edge.id === 'edge_contact_name_find',
     );
     const routeGroups = [
       ['exact', exactRoutes],
@@ -381,7 +381,7 @@ describe('workflow model', () => {
     expect(exactRoutes.every((route) => route !== null)).toBe(true);
     expect(previewRoutes.every((route) => route !== null)).toBe(true);
     expect(nodeCrossings).toEqual([]);
-    expect(exactRoutes[groupNameWaitEdgeIndex]).toMatchObject({
+    expect(exactRoutes[contactNameWaitEdgeIndex]).toMatchObject({
       sourceSide: 'bottom',
       targetSide: 'top',
     });

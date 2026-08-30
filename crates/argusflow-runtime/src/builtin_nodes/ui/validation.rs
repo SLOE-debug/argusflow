@@ -16,14 +16,6 @@ pub(super) fn validate_ui_node(
 ) -> Vec<ValidationIssue> {
     let target = operation.target();
     let mut issues = Vec::new();
-    if matches!(operation, UiOperation::GetValue { .. })
-        && matches!(&target.locator, TargetLocator::Visual { .. })
-    {
-        issues.push(context.issue(
-            ValidationIssueCode::InvalidNodeDefinition,
-            "视觉后端只提供文本事实；GetValue 必须使用 UIA 或 CDP 语义目标",
-        ));
-    }
     validate_backend_policy(operation, context, &mut issues);
     validate_input_operation(operation, context, &mut issues);
     validate_extract(operation, context, &mut issues);
@@ -41,20 +33,25 @@ fn validate_backend_policy(
     issues: &mut Vec<ValidationIssue>,
 ) {
     let target = operation.target();
-    if matches!(&target.locator, TargetLocator::Visual { .. }) {
-        let visual_backend_allowed = target.backend_policy.allows(BackendKind::OcrSmall);
-        if !visual_backend_allowed {
-            issues.push(context.issue(
-                ValidationIssueCode::InvalidBackendPolicy,
-                "视觉目标的后端策略必须允许 ocr_small",
+    // 显式 OCR 查询不需要同时开放 UIA；它拥有独立的动作能力边界。
+    let explicitly_uses_ocr = matches!(target.locator, TargetLocator::Query { .. })
+        && target.backend_policy.allow.contains(&BackendKind::OcrSmall)
+        && !target.backend_policy.allows(BackendKind::WindowsUia);
+    if explicitly_uses_ocr {
+        // Vision 只提供文字事实；物理点击还必须由 SendInput 提交。
+        let supported = matches!(operation, UiOperation::GetText { .. })
+            || matches!(operation, UiOperation::Click { .. })
+                && target.backend_policy.allows(BackendKind::SendInput)
+            || matches!(operation, UiOperation::Extract { fields, .. } if fields.iter().all(
+                |field| matches!(
+                    field.source,
+                    FieldProjectionSource::Text | FieldProjectionSource::Name
+                )
             ));
-        }
-        if matches!(operation, UiOperation::Click { .. })
-            && !target.backend_policy.allows(BackendKind::SendInput)
-        {
+        if !supported {
             issues.push(context.issue(
                 ValidationIssueCode::InvalidBackendPolicy,
-                "视觉点击的后端策略必须允许 send_input 完成物理点击",
+                "OCR AQL 仅支持读取文字、文字字段提取，以及配合键鼠输入的点击",
             ));
         }
         return;
@@ -302,19 +299,13 @@ fn validate_locator(
                 }
             }
         },
-        TargetLocator::Visual { query } if visual_text_is_empty(&query.text) => {
-            issues
-                .push(context.issue(ValidationIssueCode::InvalidAqlQuery, "视觉目标文字不能为空"));
-        }
         TargetLocator::Focused if !is_input_operation(operation) => {
             issues.push(context.issue(
                 ValidationIssueCode::InvalidNodeDefinition,
                 "只有按键和物理文本输入可以使用当前焦点目标",
             ));
         }
-        TargetLocator::Visual { .. }
-        | TargetLocator::Coordinate { .. }
-        | TargetLocator::Focused => {}
+        TargetLocator::Coordinate { .. } | TargetLocator::Focused => {}
     }
 }
 

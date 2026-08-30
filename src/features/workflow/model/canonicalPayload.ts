@@ -220,8 +220,6 @@ function asTargetLocator(value: JsonValue | undefined): TargetLocator {
         },
       };
     }
-    case 'visual':
-      return { type, query: asVisualQuery(object.query) };
     case 'coordinate': {
       const point = asObject(object.point, 'target.locator.point');
       return {

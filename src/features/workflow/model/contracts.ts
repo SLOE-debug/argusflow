@@ -1,6 +1,5 @@
 import type { ExecutionComponentFrame } from '../components/reusableFlowContracts';
 import type { KeyChord } from './inputContracts';
-import type { VisualQueryExpr } from './visual';
 export type {
   TargetWaitMode,
   TargetWaitPolicy,
@@ -165,10 +164,9 @@ export type AqlQuery = {
   bindings?: Readonly<Record<string, ValueExpr>>;
 };
 
-/** AQL、视觉查询、物理坐标或当前键盘焦点组成的目标判别联合。 */
+/** AQL、物理坐标或当前键盘焦点组成的目标判别联合。 */
 export type TargetLocator =
   | { type: 'query'; query: AqlQuery }
-  | { type: 'visual'; query: VisualQueryExpr }
   | { type: 'coordinate'; point: { x: number; y: number } }
   | { type: 'focused' };
 
@@ -465,7 +463,7 @@ export type RunArtifactSummary = {
 };
 
 export type VisualSelectionOutcome =
-  | 'not_found' | 'unique' | 'ambiguous' | 'rejected_confidence';
+  | 'not_found' | 'unique' | 'multiple' | 'ambiguous' | 'rejected_confidence';
 export type VisualQueryTrace = {
   run_id: string;
   node_id: string;
@@ -473,15 +471,32 @@ export type VisualQueryTrace = {
   frame_id: number;
   query: string;
   outcome: VisualSelectionOutcome;
-  candidates: Array<{
-    raw_text: string;
-    bbox: { x: number; y: number; width: number; height: number };
-    confidence: number;
-    source: string;
-  }>;
-  minimum_click_confidence: number;
-  selected_candidate_index: number | null;
-  send_input_blocked: boolean;
+  candidate_node_ids: string[];
+  selected_node_id: string | null;
+  metrics: {
+    elapsed_us: number;
+    exact_index_hits: number;
+    scanned_nodes: number;
+    spatial_candidates: number;
+  };
+  projection: {
+    schema_version: 1;
+    spatial_text: string;
+    nodes: SceneNodeProjection[];
+  };
+};
+
+export type SceneNodeProjection = {
+  node_id: string;
+  scene_id: number;
+  frame_id: number;
+  window_handle: number;
+  text: string;
+  frame_bbox: { x: number; y: number; width: number; height: number };
+  screen_bbox: { x: number; y: number; width: number; height: number };
+  polygon: Array<{ x: number; y: number }>;
+  confidence: number;
+  source: string;
 };
 
 /** 节点输入在 Runtime 中的事实来源。 */

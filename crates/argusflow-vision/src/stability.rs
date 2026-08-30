@@ -142,6 +142,19 @@ impl StableFrameGate {
         self.state
     }
 
+    /// 使用同一窗口上一张已确认稳定的帧作为刷新基线。
+    ///
+    /// 基线不会直接结束等待；门控仍会观察完整 timeout。若期间没有新帧且 topology
+    /// 未变化，捕获流的静默证明该基线仍是当前画面。
+    pub fn seed(&mut self, frame: Arc<CapturedFrame>) {
+        self.previous = Some(frame);
+        self.consecutive_frames = 1;
+        self.state = StabilityState::Collecting {
+            consecutive_frames: 1,
+            changed_ratio: 0.0,
+        };
+    }
+
     /// 清空上一帧和计数，供窗口重建或 topology 变化后重新开始。
     pub fn reset(&mut self) {
         self.previous = None;
@@ -158,7 +171,7 @@ impl StableFrameGate {
         subscription: &dyn FrameSubscription,
     ) -> Result<Arc<CapturedFrame>, VisionError> {
         let deadline = Instant::now() + self.config.timeout;
-        let mut observed_frames = 0_u32;
+        let mut observed_frames = u32::from(self.previous.is_some());
         loop {
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
@@ -173,7 +186,23 @@ impl StableFrameGate {
                     }
                 });
             }
-            let frame = subscription.next(remaining).await?;
+            let frame = match subscription.next(remaining).await {
+                Ok(frame) => frame,
+                Err(VisionError::FrameTimeout { .. }) if observed_frames > 0 => {
+                    // 捕获源在交付最新帧后直到 deadline 都没有新 FrameArrived，等价于该帧
+                    // 在完整稳定窗口内保持静止；静态窗口不应被迫制造第二张重复帧。
+                    let latest = self.previous.clone().ok_or(VisionError::FrameTimeout {
+                        timeout_ms: self.config.timeout.as_millis() as u64,
+                    })?;
+                    let current_topology = subscription.current_topology_generation().await?;
+                    if current_topology != latest.topology_generation {
+                        return Err(VisionError::SceneStale);
+                    }
+                    self.state = StabilityState::Stable;
+                    return Ok(latest);
+                }
+                Err(error) => return Err(error),
+            };
             observed_frames = observed_frames.saturating_add(1);
             if let Some(stable) = self.observe(frame)? {
                 return Ok(stable);
@@ -189,7 +218,10 @@ mod tests {
     use argusflow_core::WindowIdentity;
 
     use super::*;
-    use crate::frame::{FrameId, QpcTimestamp, TopologyGeneration};
+    use crate::{
+        MemoryFrameSource, WindowFrameSource,
+        frame::{FrameId, QpcTimestamp, TopologyGeneration},
+    };
 
     fn frame(id: u64, fill: u8) -> Arc<CapturedFrame> {
         Arc::new(
@@ -236,5 +268,28 @@ mod tests {
                 changed_ratio: 1.0,
             }
         );
+    }
+
+    #[tokio::test]
+    async fn a_quiet_stream_accepts_its_latest_observed_frame() {
+        let source = MemoryFrameSource::new();
+        let identity = WindowIdentity {
+            handle: 2,
+            process_id: 3,
+        };
+        source.insert(identity, vec![frame(7, 0)]);
+        let subscription = source
+            .open(identity, crate::CapturePolicy::default())
+            .await
+            .expect("memory subscription should open");
+        let mut gate = StableFrameGate::default_gate();
+
+        let stable = gate
+            .wait_for_stable(subscription.as_ref())
+            .await
+            .expect("silence after one frame proves that the latest frame settled");
+
+        assert_eq!(stable.frame_id, FrameId::new(7));
+        assert_eq!(gate.state(), StabilityState::Stable);
     }
 }

@@ -34,8 +34,8 @@ pub use plan::{
 pub use prepared_plan::{PreparedCandidate, PreparedExecution, PreparedPlan};
 pub use router::{ActionRouter, ROUTE_TIE_BREAK_ORDER};
 pub use visual::{
-    MaterializedTarget, MaterializedTargetValidator, PreparedTargetMaterializer,
-    SharedTargetMaterializer, VisualBaseline, VisualMaterializationPlan,
-    VisualMaterializationStage, VisualTargetBounds, VisualVerificationProvider,
-    VisualVerificationResult,
+    MaterializedTarget, MaterializedTargetValidator, PreparedTargetMaterialization,
+    PreparedTargetMaterializer, SharedTargetMaterializer, VisualBaseline,
+    VisualMaterializationPlan, VisualMaterializationStage, VisualTargetBounds,
+    VisualVerificationProvider, VisualVerificationResult,
 };

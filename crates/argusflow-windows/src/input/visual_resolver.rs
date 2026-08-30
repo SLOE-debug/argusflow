@@ -3,12 +3,14 @@
 use std::sync::Arc;
 
 use argusflow_agent::{
-    MaterializedTarget, MaterializedTargetValidator, PreparedTargetMaterializer,
-    VisualMaterializationPlan, VisualMaterializationStage, VisualTargetBounds, WindowContext,
+    MaterializedTarget, MaterializedTargetValidator, PreparedTargetMaterialization,
+    PreparedTargetMaterializer, VisualMaterializationPlan, VisualMaterializationStage,
+    VisualTargetBounds, WindowContext,
 };
 use argusflow_core::{AutomationError, BackendKind, PreparedTargetLocator, WindowIdentity};
 use argusflow_vision::{
-    PhysicalRect, VisionError, VisionRuntime, VisualNodeSource, WindowInventory,
+    PhysicalRect, VisionError, VisionQueryPlan, VisionRuntime, VisualNodeSource, WindowInventory,
+    compile_vision_query,
 };
 use async_trait::async_trait;
 use windows::Win32::Foundation::RECT;
@@ -42,25 +44,60 @@ impl PreparedTargetMaterializer for WindowsVisualTargetMaterializer {
         }
     }
 
+    fn prepare(
+        &self,
+        locator: &PreparedTargetLocator,
+    ) -> Result<Arc<dyn PreparedTargetMaterialization>, AutomationError> {
+        let PreparedTargetLocator::Query { query, source } = locator else {
+            return Err(AutomationError::BackendUnavailable {
+                backend: BackendKind::OcrSmall,
+                message: "Vision materialization requires a prepared AQL query".to_owned(),
+            });
+        };
+        let plan =
+            compile_vision_query(query).map_err(|_error| AutomationError::ActionUnsupported {
+                backend: BackendKind::OcrSmall,
+                query: source.clone(),
+                semantic_matches: 0,
+                required: argusflow_core::ActionCapability::Activate,
+            })?;
+        Ok(Arc::new(PreparedVisionAqlMaterialization {
+            runtime: self.runtime.clone(),
+            inventory: self.inventory.clone(),
+            query: Arc::new(plan),
+            source: source.clone(),
+        }))
+    }
+}
+
+/// 已编译一次、可被等待与 stale 重试复用的 Vision AQL 点击计划。
+#[derive(Debug)]
+struct PreparedVisionAqlMaterialization {
+    /// 与读取后端共享的 Scene/OCR runtime。
+    runtime: Arc<VisionRuntime>,
+    /// 同一进程全部可见窗口注册表。
+    inventory: Arc<dyn WindowInventory>,
+    /// 已预编译正则与空间选择语义的计划。
+    query: Arc<VisionQueryPlan>,
+    /// 诊断使用的原始 AQL。
+    source: String,
+}
+
+#[async_trait]
+impl PreparedTargetMaterialization for PreparedVisionAqlMaterialization {
     async fn materialize(
         &self,
         window: &WindowContext,
-        locator: &PreparedTargetLocator,
         _plan: &VisualMaterializationPlan,
         trace_context: Option<&argusflow_core::RunTraceContext>,
     ) -> Result<MaterializedTarget, AutomationError> {
-        let PreparedTargetLocator::Visual { query } = locator else {
-            return Err(AutomationError::BackendUnavailable {
-                backend: BackendKind::OcrSmall,
-                message: "Vision MVP accepts only an explicit visual text locator".to_owned(),
-            });
-        };
         let target = self
             .runtime
-            .resolve_text(
+            .resolve_query(
                 self.inventory.as_ref(),
                 window.process_id,
-                query,
+                &self.query,
+                &self.source,
                 0.80,
                 trace_context,
             )
@@ -69,6 +106,16 @@ impl PreparedTargetMaterializer for WindowsVisualTargetMaterializer {
             handle: target.window.identity.handle,
             process_id: target.window.identity.process_id,
         };
+        // Owned popup/tool window 能提供正确的捕获表面，但经常拒绝 SetForegroundWindow；
+        // 将其 owner 保存为显式激活降级目标，避免混淆坐标表面与前台窗口。
+        let activation_fallback = target
+            .window
+            .owner_handle
+            .filter(|owner_handle| *owner_handle != selected_window.handle)
+            .map(|owner_handle| WindowContext {
+                handle: owner_handle,
+                process_id: target.window.identity.process_id,
+            });
         let transform = SurfaceTransform::new_with_origin(
             rect_from_physical(target.window.screen_bounds),
             target.scene.viewport,
@@ -77,6 +124,7 @@ impl PreparedTargetMaterializer for WindowsVisualTargetMaterializer {
         let mapped = transform.map_rect(target.node.bbox)?;
         Ok(MaterializedTarget {
             window: selected_window,
+            activation_fallback,
             scene_id: target.scene.scene_id.get(),
             frame_id: target.scene.frame_id.get(),
             topology_generation: target.scene.topology_generation.get(),
@@ -149,10 +197,13 @@ const fn source_backend(_source: VisualNodeSource) -> BackendKind {
 /// 输入提交点只把陈旧性错误映射为可重新物化目标。
 fn map_validation_error(error: VisionError) -> AutomationError {
     match error {
-        VisionError::SceneStale
+        VisionError::CaptureUnavailable { .. }
+        | VisionError::SceneStale
         | VisionError::WindowIdentityChanged { .. }
         | VisionError::OcrCancelled { .. }
-        | VisionError::FrameTimeout { .. } => AutomationError::VisualTargetStale {
+        | VisionError::FrameTimeout { .. }
+        | VisionError::FrameUnstable { .. }
+        | VisionError::InvalidRoi { .. } => AutomationError::VisualTargetStale {
             message: error.to_string(),
         },
         other => AutomationError::BackendFailed {

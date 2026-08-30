@@ -259,6 +259,15 @@ impl VisualSceneCache {
             .is_empty()
     }
 
+    /// 返回尚未被 OCR 成功覆盖的 Dirty ROI 快照，供下一次刷新继续处理。
+    pub fn pending_dirty_regions(&self) -> Vec<PhysicalRect> {
+        self.state
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .dirty_regions
+            .clone()
+    }
+
     /// 判断目标 ROI 是否与尚未重新识别的区域相交。
     pub fn is_region_dirty(&self, region: PhysicalRect) -> bool {
         self.state

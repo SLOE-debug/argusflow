@@ -79,18 +79,20 @@ export function OcrArtifactViewer({ runId, artifacts, queryTrace = null }: OcrAr
       </div>
       <div className="flex min-h-32 items-center justify-center overflow-hidden rounded bg-slate-950">
         {source && selectedArtifact.kind === 'captured_frame' && queryTrace
-          && queryTrace.candidates.length > 0
-          && ['unique', 'ambiguous'].includes(queryTrace.outcome) ? (
+          && queryTrace.candidate_node_ids.length > 0
+          && ['unique', 'multiple', 'ambiguous'].includes(queryTrace.outcome) ? (
           <FocusMask
             imageSource={source}
             imageWidth={selectedArtifact.width ?? 1}
             imageHeight={selectedArtifact.height ?? 1}
-            candidates={queryTrace.candidates.map((candidate, index) => ({
-              id: `${queryTrace.scene_id}-${index}`,
-              rawText: candidate.raw_text,
+            candidates={queryTrace.projection.nodes
+              .filter((candidate) => queryTrace.candidate_node_ids.includes(candidate.node_id))
+              .map((candidate) => ({
+              id: `${queryTrace.scene_id}-${candidate.node_id}`,
+              rawText: candidate.text,
               confidence: candidate.confidence,
-              polygon: [],
-              bbox: candidate.bbox,
+              polygon: candidate.polygon,
+              bbox: candidate.frame_bbox,
             }))}
           />
         ) : source ? (

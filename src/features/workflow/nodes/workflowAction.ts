@@ -39,8 +39,6 @@ export function createTargetWaitPolicy(
   switch (locatorKind) {
     case 'query':
       return createDefaultUiExecutionPolicy().target_wait;
-    case 'visual':
-      return { mode: 'bounded', timeout_ms: 5_000, poll_interval_ms: 300 };
     case 'coordinate':
     case 'focused':
       return { mode: 'none', timeout_ms: 0, poll_interval_ms: 0 };
@@ -188,7 +186,7 @@ export function changeTargetScope(
 /** 编辑器可直接表达的后端策略预设。 */
 export type BackendPolicyPreset = 'auto' | Extract<
   BackendKind,
-  'windows_uia' | 'browser_cdp' | 'send_input'
+  'windows_uia' | 'browser_cdp' | 'ocr_small' | 'send_input'
 >;
 
 /** 更新动作目标的后端策略预设。 */
@@ -198,7 +196,13 @@ export function changeBackendPolicy(
 ): UiOperation {
   return replaceAutomationTarget(operation, {
     ...operation.target,
-    backend_policy: createBackendPolicy(preset),
+    backend_policy: preset === 'ocr_small' && operation.type === 'click'
+      ? {
+          allow: ['ocr_small', 'send_input'],
+          deny: [],
+          prefer: ['ocr_small', 'send_input'],
+        }
+      : createBackendPolicy(preset),
   });
 }
 
@@ -218,9 +222,16 @@ export function resolveBackendPolicyPreset(policy: BackendPolicy): BackendPolicy
     && (
       policy.allow[0] === 'windows_uia'
       || policy.allow[0] === 'browser_cdp'
+      || policy.allow[0] === 'ocr_small'
       || policy.allow[0] === 'send_input'
     )) {
     return policy.allow[0];
+  }
+  if (policy.allow.length === 2
+    && policy.deny.length === 0
+    && policy.allow.includes('ocr_small')
+    && policy.allow.includes('send_input')) {
+    return 'ocr_small';
   }
   return 'auto';
 }
@@ -267,15 +278,6 @@ function createTargetLocator(kind: TargetLocatorKind): TargetLocator {
       return {
         type: 'query',
         query: { language_version: 1, source: DEFAULT_ACTION_AQL_SOURCE },
-      };
-    case 'visual':
-      return {
-        type: 'visual',
-        query: {
-          text: { type: 'literal', value: '确定' },
-          exact: true,
-          region: null,
-        },
       };
     case 'coordinate':
       return { type: 'coordinate', point: { x: 0, y: 0 } };

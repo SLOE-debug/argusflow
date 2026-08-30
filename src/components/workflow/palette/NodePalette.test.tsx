@@ -66,7 +66,7 @@ describe('NodePalette', () => {
     expect(onCollapse).toHaveBeenCalledOnce();
 
     fireEvent.click(screen.getByRole('button', { name: '预设' }));
-    expect(screen.getByRole('button', { name: '发送微信群消息' })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: '发送微信联系人消息' })).toHaveAttribute(
       'draggable',
       'true',
     );

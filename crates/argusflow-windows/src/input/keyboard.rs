@@ -26,8 +26,8 @@ pub(super) enum KeyboardInputError {
     /// HWND 已被系统复用到另一个进程。
     #[error("目标窗口所属进程已经变化")]
     ProcessMismatch,
-    /// Windows 前台锁拒绝了键盘输入所需的激活。
-    #[error("无法把目标窗口置于前台，已取消键盘输入")]
+    /// Windows 前台锁拒绝了物理输入所需的激活。
+    #[error("无法把目标窗口置于前台，已取消输入")]
     ActivationFailed,
     /// 组合键只接受不会依赖输入法布局的 ASCII 字母或数字。
     #[error("组合键字符必须是单个 ASCII 字母或数字")]

@@ -5,6 +5,7 @@ mod keyboard;
 mod mouse;
 mod surface_transform;
 mod visual_resolver;
+mod window_activation;
 
 pub use backend::SendInputBackend;
 pub use mouse::{MouseInputError, WheelSteps, inject_scroll_wheel};
