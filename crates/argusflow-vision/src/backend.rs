@@ -84,7 +84,7 @@ impl ActionBackend for VisionBackend {
         let health = self.runtime.health();
         let availability = if window.is_none() {
             RuntimeAvailability::MissingContext
-        } else if health.capture_ready && health.worker_ready {
+        } else if health.capture.is_ready() && health.worker_ready {
             RuntimeAvailability::Ready
         } else {
             RuntimeAvailability::Unavailable

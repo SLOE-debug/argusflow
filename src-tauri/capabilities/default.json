@@ -7,9 +7,13 @@
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",
+    "core:window:allow-show",
     "core:window:allow-minimize",
     "core:window:allow-toggle-maximize",
     "core:window:allow-close",
+    "allow-begin-runtime-initialization",
+    "allow-get-startup-status",
+    "allow-retry-startup",
     "allow-inspect-aql",
     "allow-list-runs",
     "allow-get-run",

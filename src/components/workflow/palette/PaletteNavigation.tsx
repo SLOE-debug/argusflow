@@ -1,10 +1,8 @@
-import {
-  Boxes,
-  Layers3,
-  Settings,
-  Sparkles,
-  type LucideIcon,
-} from 'lucide-react';
+import Boxes from 'lucide-react/dist/esm/icons/boxes.mjs';
+import Layers3 from 'lucide-react/dist/esm/icons/layers.mjs';
+import Settings from 'lucide-react/dist/esm/icons/settings.mjs';
+import Sparkles from 'lucide-react/dist/esm/icons/sparkles.mjs';
+import type { LucideIcon } from 'lucide-react';
 
 /** 左侧工作台可切换的有限模块。 */
 export type PaletteModule =

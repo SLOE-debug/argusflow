@@ -1,28 +1,26 @@
 import { useEffect, useState } from 'react';
-import {
-  AlignCenterHorizontal,
-  AlignCenterVertical,
-  AlignEndHorizontal,
-  AlignEndVertical,
-  AlignHorizontalSpaceBetween,
-  AlignStartHorizontal,
-  AlignStartVertical,
-  AlignVerticalSpaceBetween,
-  CirclePlay,
-  ClipboardPaste,
-  Clock3,
-  Copy,
-  CopyPlus,
-  GitBranch,
-  LayoutPanelLeft,
-  List,
-  Plus,
-  Redo2,
-  Square,
-  Trash2,
-  Undo2,
-  type LucideIcon,
-} from 'lucide-react';
+import AlignCenterHorizontal from 'lucide-react/dist/esm/icons/align-center-horizontal.mjs';
+import AlignCenterVertical from 'lucide-react/dist/esm/icons/align-center-vertical.mjs';
+import AlignEndHorizontal from 'lucide-react/dist/esm/icons/align-end-horizontal.mjs';
+import AlignEndVertical from 'lucide-react/dist/esm/icons/align-end-vertical.mjs';
+import AlignHorizontalSpaceBetween from 'lucide-react/dist/esm/icons/align-horizontal-space-between.mjs';
+import AlignStartHorizontal from 'lucide-react/dist/esm/icons/align-start-horizontal.mjs';
+import AlignStartVertical from 'lucide-react/dist/esm/icons/align-start-vertical.mjs';
+import AlignVerticalSpaceBetween from 'lucide-react/dist/esm/icons/align-vertical-space-between.mjs';
+import CirclePlay from 'lucide-react/dist/esm/icons/circle-play.mjs';
+import ClipboardPaste from 'lucide-react/dist/esm/icons/clipboard-paste.mjs';
+import Clock3 from 'lucide-react/dist/esm/icons/clock-3.mjs';
+import Copy from 'lucide-react/dist/esm/icons/copy.mjs';
+import CopyPlus from 'lucide-react/dist/esm/icons/copy-plus.mjs';
+import GitBranch from 'lucide-react/dist/esm/icons/git-branch.mjs';
+import LayoutPanelLeft from 'lucide-react/dist/esm/icons/layout-panel-left.mjs';
+import List from 'lucide-react/dist/esm/icons/list.mjs';
+import Plus from 'lucide-react/dist/esm/icons/plus.mjs';
+import Redo2 from 'lucide-react/dist/esm/icons/redo-2.mjs';
+import Square from 'lucide-react/dist/esm/icons/square.mjs';
+import Trash2 from 'lucide-react/dist/esm/icons/trash-2.mjs';
+import Undo2 from 'lucide-react/dist/esm/icons/undo-2.mjs';
+import type { LucideIcon } from 'lucide-react';
 
 import { FlowMenuItem, FlowMenuSeparator, FlowMenuSurface } from './FlowMenu';
 import type { AlignMode, DistributeMode } from '../selection/selection';

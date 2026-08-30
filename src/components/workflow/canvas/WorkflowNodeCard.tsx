@@ -1,24 +1,22 @@
-import {
-  AppWindow,
-  Bug,
-  Braces,
-  Boxes,
-  Globe2,
-  Navigation,
-  CircleCheck,
-  CircleX,
-  Clock3,
-  FileText,
-  GitBranch,
-  LoaderCircle,
-  MinusCircle,
-  MousePointerClick,
-  PlayCircle,
-  Square,
-  TableProperties,
-  Terminal,
-  type LucideIcon,
-} from 'lucide-react';
+import AppWindow from 'lucide-react/dist/esm/icons/app-window.mjs';
+import Bug from 'lucide-react/dist/esm/icons/bug.mjs';
+import Braces from 'lucide-react/dist/esm/icons/braces.mjs';
+import Boxes from 'lucide-react/dist/esm/icons/boxes.mjs';
+import Globe2 from 'lucide-react/dist/esm/icons/earth.mjs';
+import Navigation from 'lucide-react/dist/esm/icons/navigation.mjs';
+import CircleCheck from 'lucide-react/dist/esm/icons/circle-check.mjs';
+import CircleX from 'lucide-react/dist/esm/icons/circle-x.mjs';
+import Clock3 from 'lucide-react/dist/esm/icons/clock-3.mjs';
+import FileText from 'lucide-react/dist/esm/icons/file-text.mjs';
+import GitBranch from 'lucide-react/dist/esm/icons/git-branch.mjs';
+import LoaderCircle from 'lucide-react/dist/esm/icons/loader-circle.mjs';
+import MinusCircle from 'lucide-react/dist/esm/icons/circle-minus.mjs';
+import MousePointerClick from 'lucide-react/dist/esm/icons/mouse-pointer-click.mjs';
+import PlayCircle from 'lucide-react/dist/esm/icons/circle-play.mjs';
+import Square from 'lucide-react/dist/esm/icons/square.mjs';
+import TableProperties from 'lucide-react/dist/esm/icons/table-properties.mjs';
+import Terminal from 'lucide-react/dist/esm/icons/terminal.mjs';
+import type { LucideIcon } from 'lucide-react';
 
 import type { FlowNodeRendererProps, NodeDefinition } from '../../../flow';
 import type {

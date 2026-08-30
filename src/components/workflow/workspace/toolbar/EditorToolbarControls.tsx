@@ -1,10 +1,8 @@
-import {
-  PanelBottom,
-  PanelLeft,
-  PanelRight,
-  Redo2,
-  Undo2,
-} from 'lucide-react';
+import PanelBottom from 'lucide-react/dist/esm/icons/panel-bottom.mjs';
+import PanelLeft from 'lucide-react/dist/esm/icons/panel-left.mjs';
+import PanelRight from 'lucide-react/dist/esm/icons/panel-right.mjs';
+import Redo2 from 'lucide-react/dist/esm/icons/redo-2.mjs';
+import Undo2 from 'lucide-react/dist/esm/icons/undo-2.mjs';
 import { useStore, type StoreApi } from 'zustand';
 
 import type { FlowState } from '../../../../flow';

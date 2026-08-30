@@ -1,4 +1,7 @@
-import { Search, Sparkles, Workflow, type LucideIcon } from 'lucide-react';
+import Search from 'lucide-react/dist/esm/icons/search.mjs';
+import Sparkles from 'lucide-react/dist/esm/icons/sparkles.mjs';
+import Workflow from 'lucide-react/dist/esm/icons/workflow.mjs';
+import type { LucideIcon } from 'lucide-react';
 import {
   useMemo,
   useState,

@@ -1,4 +1,5 @@
-import { AlertTriangle, RefreshCw } from 'lucide-react';
+import AlertTriangle from 'lucide-react/dist/esm/icons/triangle-alert.mjs';
+import RefreshCw from 'lucide-react/dist/esm/icons/refresh-cw.mjs';
 import { useState } from 'react';
 
 import {

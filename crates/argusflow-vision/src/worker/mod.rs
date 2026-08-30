@@ -12,6 +12,7 @@ pub use client::{StaticOcrEngine, UnavailableOcrEngine, VisionWorkerClient};
 pub use named_pipe::NamedPipeOcrEngine;
 pub use protocol::{
     MAX_PIXEL_BODY_BYTES, SharedMemoryPixels, VISION_PROTOCOL_VERSION, WorkerBinaryArtifact,
-    WorkerBinaryArtifactKind, WorkerCommand, WorkerDiagnosticsRequest, WorkerError, WorkerHealth,
-    WorkerLifecycle, WorkerModelInfo, WorkerOcrRequest, WorkerProtocolEnvelope, WorkerResponse,
+    WorkerBinaryArtifactKind, WorkerCommand, WorkerDevice, WorkerDiagnosticsRequest, WorkerError,
+    WorkerHealth, WorkerInferenceEngine, WorkerLifecycle, WorkerModelInfo, WorkerModelLifecycle,
+    WorkerOcrRequest, WorkerProtocolEnvelope, WorkerResponse,
 };

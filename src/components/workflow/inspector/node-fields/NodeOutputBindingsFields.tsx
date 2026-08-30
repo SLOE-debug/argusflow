@@ -1,4 +1,5 @@
-import { Plus, Trash2 } from 'lucide-react';
+import Plus from 'lucide-react/dist/esm/icons/plus.mjs';
+import Trash2 from 'lucide-react/dist/esm/icons/trash-2.mjs';
 
 import type {
   WorkflowNodeData,

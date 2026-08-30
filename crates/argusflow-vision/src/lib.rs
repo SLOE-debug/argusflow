@@ -58,7 +58,10 @@ pub use scene::{
     SceneBuildOptions, SceneId, SceneOcrSummary, VisualNode, VisualNodeId, VisualNodeSource,
     VisualScene, VisualSceneBuilder, VisualSceneCache, VisualSceneIndex,
 };
-pub use source::{CapturePolicy, FrameSubscription, MemoryFrameSource, WindowFrameSource};
+pub use source::{
+    CaptureHealth, CaptureLifecycle, CapturePolicy, FrameSubscription, MemoryFrameSource,
+    WindowFrameSource,
+};
 pub use stability::{StabilityConfig, StabilityState, StableFrameGate};
 pub use trace::{VisionSelectionOutcome, VisionTraceSink};
 pub use verification::VisionPostconditionVerifier;
@@ -68,6 +71,7 @@ pub use worker::NamedPipeOcrEngine;
 pub use worker::{
     MAX_PIXEL_BODY_BYTES, SharedMemoryPixels, StaticOcrEngine, UnavailableOcrEngine,
     VISION_PROTOCOL_VERSION, VisionWorkerClient, WorkerBinaryArtifact, WorkerBinaryArtifactKind,
-    WorkerCommand, WorkerDiagnosticsRequest, WorkerError, WorkerHealth, WorkerLifecycle,
-    WorkerModelInfo, WorkerOcrRequest, WorkerProtocolEnvelope, WorkerResponse,
+    WorkerCommand, WorkerDevice, WorkerDiagnosticsRequest, WorkerError, WorkerHealth,
+    WorkerInferenceEngine, WorkerLifecycle, WorkerModelInfo, WorkerModelLifecycle,
+    WorkerOcrRequest, WorkerProtocolEnvelope, WorkerResponse,
 };

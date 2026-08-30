@@ -6,6 +6,9 @@ fn main() {
     // 将 Tauri 命令清单写入应用清单，并在失败时中止构建脚本。
     let attributes =
         tauri_build::Attributes::new().app_manifest(tauri_build::AppManifest::new().commands(&[
+            "begin_runtime_initialization",
+            "get_startup_status",
+            "retry_startup",
             "inspect_aql",
             "validate_workflow",
             "run_workflow",

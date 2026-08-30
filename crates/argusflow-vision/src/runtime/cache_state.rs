@@ -1,9 +1,6 @@
 //! WindowScene cache、脏区失效和物理输入前复验。
 
-use std::{
-    sync::{Arc, atomic::Ordering},
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 
 use argusflow_core::WindowIdentity;
 
@@ -176,14 +173,7 @@ impl VisionRuntime {
         if let Some(subscription) = scope.lock().await.subscription.clone() {
             return Ok(subscription);
         }
-        let opened = match self.capture.open(window, policy).await {
-            Ok(subscription) => subscription,
-            Err(error) => {
-                self.capture_ready.store(false, Ordering::Relaxed);
-                return Err(error);
-            }
-        };
-        self.capture_ready.store(true, Ordering::Relaxed);
+        let opened = self.capture.open(window, policy).await?;
         let mut state = scope.lock().await;
         if let Some(subscription) = state.subscription.clone() {
             Ok(subscription)

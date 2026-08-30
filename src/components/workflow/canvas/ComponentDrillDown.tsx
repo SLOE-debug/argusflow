@@ -1,4 +1,5 @@
-import { ChevronRight, X } from 'lucide-react';
+import ChevronRight from 'lucide-react/dist/esm/icons/chevron-right.mjs';
+import X from 'lucide-react/dist/esm/icons/x.mjs';
 import { useEffect, useState } from 'react';
 
 import type {

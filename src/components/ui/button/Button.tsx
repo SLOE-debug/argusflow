@@ -1,4 +1,5 @@
-import { LoaderCircle, type LucideIcon } from 'lucide-react';
+import LoaderCircle from 'lucide-react/dist/esm/icons/loader-circle.mjs';
+import type { LucideIcon } from 'lucide-react';
 import {
   forwardRef,
   type ButtonHTMLAttributes,

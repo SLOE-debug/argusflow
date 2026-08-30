@@ -65,7 +65,7 @@ try {
         Write-Host "Using the externally managed ArgusFlow Vision worker..." -ForegroundColor Cyan
     }
     else {
-        Write-Host "Preparing the local ArgusFlow Vision worker..." -ForegroundColor Cyan
+        Write-Host "Starting the local ArgusFlow Vision worker..." -ForegroundColor Cyan
         $visionWorker = & (Join-Path $PSScriptRoot "start-vision-worker.ps1") `
             -ProjectRoot $projectRoot `
             -SkipInstall:$SkipInstall

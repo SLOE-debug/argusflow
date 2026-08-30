@@ -1,10 +1,8 @@
-import {
-  Crosshair,
-  Hand,
-  Maximize2,
-  MousePointer2,
-  SlidersHorizontal,
-} from 'lucide-react';
+import Crosshair from 'lucide-react/dist/esm/icons/crosshair.mjs';
+import Hand from 'lucide-react/dist/esm/icons/hand.mjs';
+import Maximize2 from 'lucide-react/dist/esm/icons/maximize-2.mjs';
+import MousePointer2 from 'lucide-react/dist/esm/icons/mouse-pointer-2.mjs';
+import SlidersHorizontal from 'lucide-react/dist/esm/icons/sliders-horizontal.mjs';
 import type {
   PointerEvent as ReactPointerEvent,
   ReactNode,

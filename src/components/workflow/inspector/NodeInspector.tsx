@@ -1,4 +1,4 @@
-import { PanelRightClose } from 'lucide-react';
+import PanelRightClose from 'lucide-react/dist/esm/icons/panel-right-close.mjs';
 import { useStore, type StoreApi } from 'zustand';
 
 import type { FlowState } from '../../../flow';

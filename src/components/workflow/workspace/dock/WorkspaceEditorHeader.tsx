@@ -1,8 +1,6 @@
-import {
-  Maximize2,
-  Minimize2,
-  X,
-} from 'lucide-react';
+import Maximize2 from 'lucide-react/dist/esm/icons/maximize-2.mjs';
+import Minimize2 from 'lucide-react/dist/esm/icons/minimize-2.mjs';
+import X from 'lucide-react/dist/esm/icons/x.mjs';
 import type { ReactNode } from 'react';
 
 import { IconButton } from '../../../ui';

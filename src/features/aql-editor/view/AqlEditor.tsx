@@ -1,9 +1,7 @@
-import {
-  AlertTriangle,
-  CheckCircle2,
-  LoaderCircle,
-  WandSparkles,
-} from 'lucide-react';
+import AlertTriangle from 'lucide-react/dist/esm/icons/triangle-alert.mjs';
+import CheckCircle2 from 'lucide-react/dist/esm/icons/circle-check.mjs';
+import LoaderCircle from 'lucide-react/dist/esm/icons/loader-circle.mjs';
+import WandSparkles from 'lucide-react/dist/esm/icons/wand-sparkles.mjs';
 import {
   useCallback,
   useMemo,

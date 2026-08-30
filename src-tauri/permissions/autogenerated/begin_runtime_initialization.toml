@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-begin-runtime-initialization"
+description = "Enables the begin_runtime_initialization command without any pre-configured scope."
+commands.allow = ["begin_runtime_initialization"]
+
+[[permission]]
+identifier = "deny-begin-runtime-initialization"
+description = "Denies the begin_runtime_initialization command without any pre-configured scope."
+commands.deny = ["begin_runtime_initialization"]

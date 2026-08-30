@@ -1,8 +1,6 @@
-import {
-  ChevronRight,
-  PanelLeftClose,
-  Search,
-} from 'lucide-react';
+import ChevronRight from 'lucide-react/dist/esm/icons/chevron-right.mjs';
+import PanelLeftClose from 'lucide-react/dist/esm/icons/panel-left-close.mjs';
+import Search from 'lucide-react/dist/esm/icons/search.mjs';
 import {
   useMemo,
   useState,

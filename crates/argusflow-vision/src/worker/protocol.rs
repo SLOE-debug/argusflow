@@ -10,7 +10,7 @@ use crate::{
 };
 
 /// 当前 Rust/Python worker 协议版本。
-pub const VISION_PROTOCOL_VERSION: &str = "argusflow.vision.v5";
+pub const VISION_PROTOCOL_VERSION: &str = "argusflow.vision.v7";
 
 /// 单次 Named Pipe 消息允许携带的最大原始像素体大小。
 pub const MAX_PIXEL_BODY_BYTES: usize = 64 * 1024 * 1024;
@@ -21,6 +21,8 @@ pub const MAX_PIXEL_BODY_BYTES: usize = 64 * 1024 * 1024;
 pub enum WorkerLifecycle {
     /// 进程已启动但尚未加载模型。
     Starting,
+    /// 正在探测 CUDA 并选择实际推理设备。
+    SelectingDevice,
     /// 正在加载默认 small 模型或 medium 回退模型。
     LoadingModels,
     /// 可接受请求。
@@ -31,15 +33,56 @@ pub enum WorkerLifecycle {
     Failed,
 }
 
-/// 当前 worker 使用的模型和 inference engine 摘要。
+/// Paddle 实际使用的强类型推理设备。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum WorkerDevice {
+    /// 使用 CPU 与 oneDNN/MKLDNN 推理。
+    Cpu,
+    /// 使用指定索引的 CUDA 设备。
+    Cuda {
+        /// Paddle 可见设备中的零基索引。
+        index: u32,
+    },
+}
+
+/// 当前 worker 使用的推理引擎。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkerInferenceEngine {
+    /// Paddle 静态图预测器，保持 FP32 精度。
+    PaddleStatic,
+}
+
+/// 单个 OCR 档位的加载与预热生命周期。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkerModelLifecycle {
+    /// 尚未开始加载该档位。
+    Pending,
+    /// 正在构造 PaddleOCR pipeline 并加载权重。
+    Loading,
+    /// 正在用真实文本图像执行首次完整推理。
+    Warming,
+    /// 该档位可以接受 OCR 请求。
+    Ready,
+    /// 该档位加载或预热失败。
+    Failed,
+}
+
+/// 一个 OCR 档位的设备、引擎和就绪状态。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkerModelInfo {
     /// ArgusFlow profile。
     pub model: OcrModel,
-    /// 设备，例如 `cpu` 或 `gpu:0`。
-    pub device: String,
-    /// inference engine 及其版本摘要。
-    pub engine: String,
+    /// 实际推理设备。
+    pub device: WorkerDevice,
+    /// inference engine。
+    pub engine: WorkerInferenceEngine,
+    /// 当前模型生命周期。
+    pub lifecycle: WorkerModelLifecycle,
+    /// 当前档位失败时可展示的稳定说明。
+    pub message: Option<String>,
 }
 
 /// worker health，进入 Planner Explain 和 Evidence manifest。
@@ -53,10 +96,12 @@ pub struct WorkerHealth {
     pub paddleocr_version: String,
     /// 当前状态。
     pub lifecycle: WorkerLifecycle,
-    /// 当前默认模型信息；lazy load 时可以为空。
-    pub model: Option<WorkerModelInfo>,
+    /// Small 与 Medium 两个档位各自的初始化状态。
+    pub models: Vec<WorkerModelInfo>,
     /// 当前排队任务数。
     pub queue_depth: usize,
+    /// GPU 初始化失败并自动切换 CPU 等可继续工作的降级原因。
+    pub degradation_reason: Option<String>,
 }
 
 impl WorkerHealth {
@@ -67,8 +112,9 @@ impl WorkerHealth {
             worker_version: "named-pipe-not-connected".to_owned(),
             paddleocr_version: String::new(),
             lifecycle: WorkerLifecycle::Starting,
-            model: None,
+            models: Vec::new(),
             queue_depth: 0,
+            degradation_reason: None,
         }
     }
 
@@ -76,11 +122,12 @@ impl WorkerHealth {
     pub fn failed(message: impl Into<String>) -> Self {
         Self {
             protocol_version: VISION_PROTOCOL_VERSION.to_owned(),
-            worker_version: message.into(),
+            worker_version: "named-pipe-client".to_owned(),
             paddleocr_version: String::new(),
             lifecycle: WorkerLifecycle::Failed,
-            model: None,
+            models: Vec::new(),
             queue_depth: 0,
+            degradation_reason: Some(message.into()),
         }
     }
 
@@ -129,6 +176,8 @@ pub struct WorkerProtocolEnvelope<T> {
 pub enum WorkerCommand {
     /// 请求当前 worker health 和版本信息。
     Health,
+    /// 请求空闲或失败的 worker 执行设备选择、模型加载和预热。
+    Initialize,
     /// 请求对一个共享内存 ROI 执行 OCR。
     Recognize {
         /// OCR 请求及其共享内存像素描述。
@@ -171,7 +220,7 @@ pub struct WorkerDiagnosticsRequest {
 /// Recognize 响应 binary body 的类型化元数据。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkerBinaryArtifact {
-    /// 当前 v5 只允许 model_input。
+    /// 当前 v6 只允许 model_input。
     pub kind: WorkerBinaryArtifactKind,
     /// binary body 的无损编码。
     pub encoding: OcrDiagnosticImageEncoding,

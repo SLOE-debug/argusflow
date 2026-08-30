@@ -1,9 +1,7 @@
-import {
-  BellRing,
-  ChevronDown,
-  ChevronUp,
-  type LucideIcon,
-} from 'lucide-react';
+import BellRing from 'lucide-react/dist/esm/icons/bell-ring.mjs';
+import ChevronDown from 'lucide-react/dist/esm/icons/chevron-down.mjs';
+import ChevronUp from 'lucide-react/dist/esm/icons/chevron-up.mjs';
+import type { LucideIcon } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 
 import type {

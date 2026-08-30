@@ -6,11 +6,13 @@ mod error;
 mod host;
 mod host_thread;
 mod readback;
+mod service;
 mod wgc;
 mod window_identity;
 mod window_registry;
 mod window_surface;
 
 pub use host::WindowsCaptureHost;
+pub use service::WindowsCaptureService;
 pub use wgc::WindowsGraphicsCapture;
 pub use window_registry::WindowsWindowRegistry;

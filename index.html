@@ -3,12 +3,159 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#eaf0f7" />
-    <link rel="icon" type="image/png" href="/src/assets/argusflow-icon.png" />
+    <meta name="theme-color" content="#f8fafc" />
     <title>ArgusFlow</title>
+    <!-- 这段样式必须内联：主窗口显示时不能等待 Vite、React 或 Tailwind。 -->
+    <style>
+      html,
+      body,
+      #root {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+      }
+
+      #argusflow-boot-loading {
+        display: grid;
+        width: 100%;
+        height: 100%;
+        grid-template-rows: 40px minmax(0, 1fr);
+        background: #f8fafc;
+        color: #1e293b;
+        font-family: Inter, "Segoe UI", system-ui, sans-serif;
+      }
+
+      #argusflow-boot-loading header {
+        display: flex;
+        align-items: center;
+        border-bottom: 1px solid #e2e8f0;
+        background: #ffffff;
+        padding: 0 16px;
+        font-size: 12px;
+        font-weight: 600;
+        color: #334155;
+      }
+
+      #argusflow-boot-loading section {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 40px 24px;
+      }
+
+      .argusflow-boot-card {
+        width: min(100%, 512px);
+        border: 1px solid #e2e8f0;
+        border-radius: 16px;
+        background: #ffffff;
+        padding: 32px;
+        box-shadow: 0 1px 2px rgb(15 23 42 / 6%);
+      }
+
+      .argusflow-boot-heading {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+      }
+
+      .argusflow-boot-spinner {
+        width: 28px;
+        height: 28px;
+        flex: 0 0 auto;
+        border: 3px solid #dbeafe;
+        border-top-color: #2563eb;
+        border-radius: 999px;
+        animation: argusflow-boot-spin 0.8s linear infinite;
+      }
+
+      .argusflow-boot-title {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 600;
+        color: #0f172a;
+      }
+
+      .argusflow-boot-detail {
+        margin: 6px 0 0;
+        font-size: 13px;
+        line-height: 20px;
+        color: #64748b;
+      }
+
+      .argusflow-boot-progress {
+        height: 6px;
+        margin-top: 28px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: #e2e8f0;
+      }
+
+      .argusflow-boot-progress::after {
+        display: block;
+        width: 38%;
+        height: 100%;
+        border-radius: inherit;
+        background: #3b82f6;
+        content: "";
+        animation: argusflow-boot-travel 1.1s ease-in-out infinite;
+      }
+
+      @keyframes argusflow-boot-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      @keyframes argusflow-boot-travel {
+        from {
+          transform: translateX(-100%);
+        }
+
+        to {
+          transform: translateX(365%);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .argusflow-boot-spinner,
+        .argusflow-boot-progress::after {
+          animation: none;
+        }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <main
+        id="argusflow-boot-loading"
+        role="status"
+        aria-live="polite"
+        aria-label="ArgusFlow 正在启动"
+      >
+        <header data-tauri-drag-region>ArgusFlow</header>
+        <section>
+          <div class="argusflow-boot-card">
+            <div class="argusflow-boot-heading">
+              <div
+                class="argusflow-boot-spinner"
+                aria-hidden="true"
+              ></div>
+              <div>
+                <h1 class="argusflow-boot-title">正在启动 ArgusFlow</h1>
+                <p class="argusflow-boot-detail">
+                  界面就绪后将立即在后台准备屏幕捕获与 OCR 环境。
+                </p>
+              </div>
+            </div>
+            <div
+              class="argusflow-boot-progress"
+              aria-hidden="true"
+            ></div>
+          </div>
+        </section>
+      </main>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

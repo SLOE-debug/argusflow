@@ -1,14 +1,12 @@
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import {
-  Bell,
-  CircleHelp,
-  House,
-  Minus,
-  Search,
-  Square,
-  Workflow,
-  X,
-} from 'lucide-react';
+import Bell from 'lucide-react/dist/esm/icons/bell.mjs';
+import CircleHelp from 'lucide-react/dist/esm/icons/circle-question-mark.mjs';
+import House from 'lucide-react/dist/esm/icons/house.mjs';
+import Minus from 'lucide-react/dist/esm/icons/minus.mjs';
+import Search from 'lucide-react/dist/esm/icons/search.mjs';
+import Square from 'lucide-react/dist/esm/icons/square.mjs';
+import Workflow from 'lucide-react/dist/esm/icons/workflow.mjs';
+import X from 'lucide-react/dist/esm/icons/x.mjs';
 import {
   useEffect,
   useMemo,

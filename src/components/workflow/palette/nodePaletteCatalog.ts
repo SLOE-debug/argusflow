@@ -1,25 +1,23 @@
-import {
-  AppWindow,
-  Braces,
-  Bug,
-  Clock3,
-  Combine,
-  FileCode2,
-  FileText,
-  Filter,
-  GitBranch,
-  Globe2,
-  Navigation,
-  MousePointerClick,
-  PlayCircle,
-  Repeat2,
-  Shuffle,
-  Square,
-  TableProperties,
-  Terminal,
-  Workflow,
-  type LucideIcon,
-} from 'lucide-react';
+import AppWindow from 'lucide-react/dist/esm/icons/app-window.mjs';
+import Braces from 'lucide-react/dist/esm/icons/braces.mjs';
+import Bug from 'lucide-react/dist/esm/icons/bug.mjs';
+import Clock3 from 'lucide-react/dist/esm/icons/clock-3.mjs';
+import Combine from 'lucide-react/dist/esm/icons/combine.mjs';
+import FileCode2 from 'lucide-react/dist/esm/icons/file-code-corner.mjs';
+import FileText from 'lucide-react/dist/esm/icons/file-text.mjs';
+import Filter from 'lucide-react/dist/esm/icons/funnel.mjs';
+import GitBranch from 'lucide-react/dist/esm/icons/git-branch.mjs';
+import Globe2 from 'lucide-react/dist/esm/icons/earth.mjs';
+import Navigation from 'lucide-react/dist/esm/icons/navigation.mjs';
+import MousePointerClick from 'lucide-react/dist/esm/icons/mouse-pointer-click.mjs';
+import PlayCircle from 'lucide-react/dist/esm/icons/circle-play.mjs';
+import Repeat2 from 'lucide-react/dist/esm/icons/repeat-2.mjs';
+import Shuffle from 'lucide-react/dist/esm/icons/shuffle.mjs';
+import Square from 'lucide-react/dist/esm/icons/square.mjs';
+import TableProperties from 'lucide-react/dist/esm/icons/table-properties.mjs';
+import Terminal from 'lucide-react/dist/esm/icons/terminal.mjs';
+import Workflow from 'lucide-react/dist/esm/icons/workflow.mjs';
+import type { LucideIcon } from 'lucide-react';
 
 import type { WorkflowNodeCreationKey } from '../../../features/workflow';
 

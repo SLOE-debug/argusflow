@@ -1,4 +1,4 @@
-import { AlertTriangle } from 'lucide-react';
+import AlertTriangle from 'lucide-react/dist/esm/icons/triangle-alert.mjs';
 
 import type { AqlDiagnostic } from '../../workflow';
 import { diagnosticLabel } from '../language/messages';

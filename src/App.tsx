@@ -16,6 +16,7 @@ import {
 } from './components/workflow';
 import type { StructuredEditorTarget } from './components/workflow';
 import { PanelResizeHandle } from './components/ui';
+import type { StartupSnapshot } from './features/startup';
 import { useWorkflowStudio, type WorkflowCanvasNode } from './features/workflow';
 
 /** 左侧节点库的默认与可调整宽度边界。 */
@@ -35,8 +36,15 @@ const INSPECTOR_PANEL_WIDTH = {
 /** 工作台的全局主视图。 */
 type AppView = 'home' | 'editor';
 
+type AppProps = Readonly<{
+  /** WGC 与 OCR 的实时启动状态，供运行门控和状态栏展示。 */
+  startupStatus: StartupSnapshot;
+  /** 全部桌面能力是否允许提交真实工作流运行。 */
+  executionEnabled: boolean;
+}>;
+
 /** ArgusFlow 桌面 IDE 工作台入口。 */
-export default function App() {
+export default function App({ startupStatus, executionEnabled }: AppProps) {
   const studio = useWorkflowStudio();
   const workspaceEditor = useWorkspaceEditor();
   const [libraryOpen, setLibraryOpen] = useState(true);
@@ -44,7 +52,7 @@ export default function App() {
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [libraryWidth, setLibraryWidth] = useState<number>(LIBRARY_PANEL_WIDTH.default);
   const [inspectorWidth, setInspectorWidth] = useState<number>(INSPECTOR_PANEL_WIDTH.default);
-  const [appView, setAppView] = useState<AppView>('editor');
+  const [appView, setAppView] = useState<AppView>('home');
   /** 当前通过组件节点双击进入的精确版本；null 表示主流程。 */
   const [drillDownComponentId, setDrillDownComponentId] = useState<string | null>(null);
 
@@ -109,6 +117,7 @@ export default function App() {
         editorActions={appView === 'editor' ? (
           <EditorPrimaryActions
             running={studio.running}
+            executionEnabled={executionEnabled}
             onValidate={() => void studio.validate()}
             onRun={() => void studio.run()}
             onPublish={() => undefined}
@@ -126,6 +135,7 @@ export default function App() {
           <WorkspaceStatusBar
             store={studio.flowStore}
             status={workflowStatus}
+            runtimeStatus={startupStatus}
             libraryWidth={null}
             inspectorWidth={null}
           />
@@ -232,6 +242,7 @@ export default function App() {
           <WorkspaceStatusBar
             store={studio.flowStore}
             status={workflowStatus}
+            runtimeStatus={startupStatus}
             libraryWidth={libraryOpen ? libraryWidth : null}
             inspectorWidth={inspectorOpen ? inspectorWidth : null}
           />

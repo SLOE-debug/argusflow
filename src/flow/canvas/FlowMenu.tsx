@@ -1,4 +1,5 @@
-import { ChevronRight, type LucideIcon } from 'lucide-react';
+import ChevronRight from 'lucide-react/dist/esm/icons/chevron-right.mjs';
+import type { LucideIcon } from 'lucide-react';
 import type { CSSProperties, KeyboardEvent, ReactNode } from 'react';
 
 type FlowMenuSurfaceProps = Readonly<{

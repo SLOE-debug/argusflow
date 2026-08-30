@@ -37,7 +37,7 @@ impl WindowsVisualTargetMaterializer {
 impl PreparedTargetMaterializer for WindowsVisualTargetMaterializer {
     fn available_stages(&self) -> Vec<VisualMaterializationStage> {
         let health = self.runtime.health();
-        if health.capture_ready && health.worker_ready {
+        if health.capture.is_ready() && health.worker_ready {
             vec![VisualMaterializationStage::OcrSmall]
         } else {
             Vec::new()

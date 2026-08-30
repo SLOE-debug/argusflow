@@ -54,6 +54,7 @@ describe('editor title bar controls', () => {
     render(
       <EditorPrimaryActions
         running
+        executionEnabled
         onValidate={vi.fn()}
         onRun={vi.fn()}
         onPublish={vi.fn()}
@@ -69,5 +70,20 @@ describe('editor title bar controls', () => {
     );
     expect(screen.getByRole('button', { name: '发布', hidden: true }).querySelector('svg'))
       .toHaveClass('size-3.5', 'shrink-0');
+  });
+
+  it('keeps validation available while runtime execution capabilities are blocked', () => {
+    render(
+      <EditorPrimaryActions
+        running={false}
+        executionEnabled={false}
+        onValidate={vi.fn()}
+        onRun={vi.fn()}
+        onPublish={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: '检查工作流' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '运行不可用' })).toBeDisabled();
   });
 });

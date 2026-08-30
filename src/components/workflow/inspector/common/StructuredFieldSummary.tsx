@@ -1,4 +1,4 @@
-import { Pencil } from 'lucide-react';
+import Pencil from 'lucide-react/dist/esm/icons/pencil.mjs';
 import type { ReactNode } from 'react';
 
 type StructuredFieldSummaryProps = Readonly<{

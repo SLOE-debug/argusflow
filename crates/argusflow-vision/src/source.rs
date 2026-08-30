@@ -9,6 +9,51 @@ use tokio::sync::Mutex;
 use crate::frame::TopologyGeneration;
 use crate::{error::VisionError, image::CapturedFrame};
 
+/// 捕获实现的生命周期状态。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CaptureLifecycle {
+    /// 捕获资源尚未开始初始化。
+    Pending,
+    /// 捕获线程与图形设备正在初始化。
+    Initializing,
+    /// 捕获实现可接受窗口订阅。
+    Ready,
+    /// 捕获初始化或恢复失败。
+    Failed,
+}
+
+/// 不包含窗口像素的捕获健康快照。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CaptureHealth {
+    /// 当前捕获生命周期。
+    pub lifecycle: CaptureLifecycle,
+    /// 失败时可展示的稳定说明。
+    pub message: Option<String>,
+}
+
+impl CaptureHealth {
+    /// 创建指定生命周期且不携带失败说明的快照。
+    pub const fn new(lifecycle: CaptureLifecycle) -> Self {
+        Self {
+            lifecycle,
+            message: None,
+        }
+    }
+
+    /// 创建失败快照。
+    pub fn failed(message: impl Into<String>) -> Self {
+        Self {
+            lifecycle: CaptureLifecycle::Failed,
+            message: Some(message.into()),
+        }
+    }
+
+    /// 判断捕获实现是否可接受真实请求。
+    pub const fn is_ready(&self) -> bool {
+        matches!(self.lifecycle, CaptureLifecycle::Ready)
+    }
+}
+
 /// HWND 捕获流的策略；像素和窗口作用域不在此处隐式扩大。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CapturePolicy {
@@ -46,6 +91,9 @@ pub trait FrameSubscription: fmt::Debug + Send + Sync {
 /// 按 HWND 打开持续捕获流的抽象；具体 User32/WGC 代码留在 windows crate。
 #[async_trait]
 pub trait WindowFrameSource: fmt::Debug + Send + Sync {
+    /// 返回不含窗口内容的捕获健康状态。
+    fn health(&self) -> CaptureHealth;
+
     /// 为指定窗口打开一个新的共享捕获订阅。
     async fn open(
         &self,
@@ -97,6 +145,10 @@ struct MemoryFrameSubscription {
 
 #[async_trait]
 impl WindowFrameSource for MemoryFrameSource {
+    fn health(&self) -> CaptureHealth {
+        CaptureHealth::new(CaptureLifecycle::Ready)
+    }
+
     async fn open(
         &self,
         window: WindowIdentity,

@@ -1,4 +1,4 @@
-import { X } from 'lucide-react';
+import X from 'lucide-react/dist/esm/icons/x.mjs';
 import { forwardRef, useEffect, useId, useRef, type ReactNode } from 'react';
 
 import { IconButton } from '../button/IconButton';

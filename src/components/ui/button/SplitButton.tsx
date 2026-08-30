@@ -1,4 +1,5 @@
-import { ChevronDown, type LucideIcon } from 'lucide-react';
+import ChevronDown from 'lucide-react/dist/esm/icons/chevron-down.mjs';
+import type { LucideIcon } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 
 import {

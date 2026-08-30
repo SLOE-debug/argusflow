@@ -1,18 +1,13 @@
 //! 共享 VisionRuntime：捕获、稳定帧、worker、scene cache 和 metrics 只装配一次。
 
-use std::{
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 
 use argusflow_core::{RunTraceContext, WindowIdentity};
 use async_trait::async_trait;
 use tokio::sync::Mutex;
 
 use crate::{
+    CaptureHealth,
     diff::DiffConfig,
     error::VisionError,
     frame::TopologyGeneration,
@@ -91,8 +86,8 @@ impl Default for SceneRefreshPolicy {
 /// VisionRuntime 的可观察健康摘要。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VisionHealth {
-    /// 捕获源已装配且最近一次打开尝试未失败。
-    pub capture_ready: bool,
+    /// 捕获服务当前的完整生命周期状态。
+    pub capture: CaptureHealth,
     /// worker 当前是否允许 OCR。
     pub worker_ready: bool,
     /// worker health 的完整版本/模型信息。
@@ -123,8 +118,6 @@ pub struct VisionRuntime {
     scene_builder: Mutex<VisualSceneBuilder>,
     /// 运行指标。
     metrics: Arc<VisionMetrics>,
-    /// 捕获源健康状态。
-    capture_ready: AtomicBool,
     /// 可选宿主 artifact sink；失败语义由 sink 自己 best-effort 吞吐。
     trace_sink: Option<Arc<dyn crate::VisionTraceSink>>,
     /// 相邻节点之间限时、一次性交接的严格唯一视觉目标。
@@ -140,8 +133,6 @@ impl VisionRuntime {
             scopes: crate::scope::ScopeRegistry::new(None),
             scene_builder: Mutex::new(VisualSceneBuilder::new()),
             metrics: Arc::new(VisionMetrics::default()),
-            // capture source 已由宿主装配；首次 execute 仍会执行真实 HWND/PID 校验。
-            capture_ready: AtomicBool::new(true),
             trace_sink: None,
             target_handoffs: Mutex::new(target_handoff::ResolvedTargetHandoffStore::default()),
         }
@@ -160,8 +151,6 @@ impl VisionRuntime {
             scopes: crate::scope::ScopeRegistry::new(Some(cache)),
             scene_builder: Mutex::new(VisualSceneBuilder::new()),
             metrics,
-            // capture source 已由宿主装配；首次 execute 仍会执行真实 HWND/PID 校验。
-            capture_ready: AtomicBool::new(true),
             trace_sink: None,
             target_handoffs: Mutex::new(target_handoff::ResolvedTargetHandoffStore::default()),
         }
@@ -193,7 +182,7 @@ impl VisionRuntime {
     pub fn health(&self) -> VisionHealth {
         let worker = self.worker.health();
         VisionHealth {
-            capture_ready: self.capture_ready.load(Ordering::Relaxed),
+            capture: self.capture.health(),
             worker_ready: worker.is_ready(),
             worker,
         }

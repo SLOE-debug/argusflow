@@ -63,12 +63,22 @@ impl NamedPipeOcrEngine {
 
     /// 主动完成 health handshake，供宿主在 Planner 装配前调用。
     pub async fn refresh_health(&self) -> Result<WorkerHealth, VisionError> {
+        self.request_health(WorkerCommand::Health).await
+    }
+
+    /// 请求空闲或失败的 worker 选择设备并加载 Small/Medium 模型。
+    pub async fn initialize(&self) -> Result<WorkerHealth, VisionError> {
+        self.request_health(WorkerCommand::Initialize).await
+    }
+
+    /// 发送一个返回 Health payload 的生命周期命令。
+    async fn request_health(&self, command: WorkerCommand) -> Result<WorkerHealth, VisionError> {
         let request_id = uuid::Uuid::new_v4().to_string();
         let envelope = WorkerProtocolEnvelope {
             protocol_version: VISION_PROTOCOL_VERSION.to_owned(),
             request_id,
             session_token: self.session_token.clone(),
-            payload: WorkerCommand::Health,
+            payload: command,
         };
         let (response, body) = self
             .round_trip(envelope, &[], Duration::from_secs(3))
@@ -81,7 +91,7 @@ impl NamedPipeOcrEngine {
         match response.payload {
             WorkerResponse::Health { health } => Ok(health),
             WorkerResponse::Recognize { .. } => Err(VisionError::Protocol {
-                message: "worker returned OCR response for health request".to_owned(),
+                message: "worker returned OCR response for lifecycle request".to_owned(),
             }),
         }
     }

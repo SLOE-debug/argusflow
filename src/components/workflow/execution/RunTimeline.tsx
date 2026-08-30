@@ -1,4 +1,4 @@
-import { ChevronRight } from 'lucide-react';
+import ChevronRight from 'lucide-react/dist/esm/icons/chevron-right.mjs';
 
 import type { RunTraceEvent } from '../../../features/workflow';
 import { Button } from '../../ui';

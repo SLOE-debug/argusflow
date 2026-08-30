@@ -1,14 +1,12 @@
-import {
-  BarChart3,
-  Circle,
-  MoreHorizontal,
-  Pause,
-  Play,
-  Plus,
-  RotateCw,
-  Search,
-  Settings2,
-} from 'lucide-react';
+import BarChart3 from 'lucide-react/dist/esm/icons/chart-column.mjs';
+import Circle from 'lucide-react/dist/esm/icons/circle.mjs';
+import MoreHorizontal from 'lucide-react/dist/esm/icons/ellipsis.mjs';
+import Pause from 'lucide-react/dist/esm/icons/pause.mjs';
+import Play from 'lucide-react/dist/esm/icons/play.mjs';
+import Plus from 'lucide-react/dist/esm/icons/plus.mjs';
+import RotateCw from 'lucide-react/dist/esm/icons/rotate-cw.mjs';
+import Search from 'lucide-react/dist/esm/icons/search.mjs';
+import Settings2 from 'lucide-react/dist/esm/icons/settings-2.mjs';
 
 import {
   WORKFLOW_TASK_ROWS,

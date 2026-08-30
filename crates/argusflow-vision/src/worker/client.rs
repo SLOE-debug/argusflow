@@ -242,8 +242,9 @@ impl StaticOcrEngine {
                 worker_version: "static-test-worker".to_owned(),
                 paddleocr_version: "3.7.0".to_owned(),
                 lifecycle: WorkerLifecycle::Ready,
-                model: None,
+                models: Vec::new(),
                 queue_depth: 0,
+                degradation_reason: None,
             },
             responses: Arc::new(Mutex::new(
                 responses.into_iter().map(Ok).collect::<VecDeque<_>>(),

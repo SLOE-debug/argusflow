@@ -1,4 +1,5 @@
-import { CircleCheck, Copy } from 'lucide-react';
+import CircleCheck from 'lucide-react/dist/esm/icons/circle-check.mjs';
+import Copy from 'lucide-react/dist/esm/icons/copy.mjs';
 
 import type { ExecutionEvent, ValidationReport } from '../../../features/workflow';
 import {

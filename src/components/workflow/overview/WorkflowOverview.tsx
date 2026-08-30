@@ -1,10 +1,8 @@
-import {
-  ArrowRight,
-  CircleAlert,
-  ListChecks,
-  Workflow,
-  type LucideIcon,
-} from 'lucide-react';
+import ArrowRight from 'lucide-react/dist/esm/icons/arrow-right.mjs';
+import CircleAlert from 'lucide-react/dist/esm/icons/circle-alert.mjs';
+import ListChecks from 'lucide-react/dist/esm/icons/list-checks.mjs';
+import Workflow from 'lucide-react/dist/esm/icons/workflow.mjs';
+import type { LucideIcon } from 'lucide-react';
 
 import type {
   ExecutionEvent,

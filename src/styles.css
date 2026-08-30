@@ -1,5 +1,6 @@
 @import "./theme.css";
-@import "tailwindcss";
+/* Tailwind 只扫描前端源码；默认从仓库根扫描会把 Rust 与 worker 源码也纳入冷启动。 */
+@import "tailwindcss" source(".");
 
 :root {
   color: var(--color-text-primary);

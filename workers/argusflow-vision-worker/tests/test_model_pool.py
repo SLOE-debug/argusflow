@@ -3,11 +3,20 @@
 from __future__ import annotations
 
 import sys
+import time
 import types
 import unittest
 from unittest.mock import patch
 
-from argusflow_vision_worker.worker import PaddleModelPool, VisionWorker
+from argusflow_vision_worker.device import DeviceKind, DeviceSelection, InferenceDevice
+from argusflow_vision_worker.model_runtime import OcrModelRuntime, PaddleModelPool
+
+
+def _medium_is_ready(health: dict[str, object]) -> bool:
+    """Return whether the final declared model tier completed its warmup."""
+
+    models = health["models"]
+    return isinstance(models, list) and bool(models) and models[-1]["lifecycle"] == "ready"
 
 
 class FakePaddleOcr:
@@ -36,8 +45,17 @@ class PaddleModelPoolTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.paddleocr_patch.stop()
 
+    def test_runtime_stays_idle_until_frontend_requests_initialization(self) -> None:
+        runtime = OcrModelRuntime()
+
+        health = runtime.health(0)
+
+        self.assertEqual(health["lifecycle"], "starting")
+        self.assertEqual(health["models"], [])
+        self.assertEqual(FakePaddleOcr.created, [])
+
     def test_explicit_model_pair_does_not_duplicate_pipeline_by_language(self) -> None:
-        pool = PaddleModelPool()
+        pool = PaddleModelPool(InferenceDevice(DeviceKind.CPU))
 
         chinese = pool.pipeline("pp_ocr_v6_small", {"language": "ch"})
         english = pool.pipeline("pp_ocr_v6_small", {"language": "en"})
@@ -46,13 +64,22 @@ class PaddleModelPoolTests(unittest.TestCase):
         self.assertEqual(len(FakePaddleOcr.created), 1)
         self.assertNotIn("lang", FakePaddleOcr.created[0].options)
 
-    def test_prewarm_only_loads_the_default_desktop_tier(self) -> None:
-        worker = VisionWorker()
+    def test_small_becomes_ready_and_medium_is_warmed_in_the_background(self) -> None:
+        runtime = OcrModelRuntime()
+        selection = DeviceSelection(InferenceDevice(DeviceKind.CPU), None)
 
-        worker.prewarm()
+        with patch(
+            "argusflow_vision_worker.model_runtime.select_inference_device",
+            return_value=selection,
+        ):
+            runtime.start()
+            deadline = time.monotonic() + 1
+            while not _medium_is_ready(runtime.health(0)):
+                self.assertLess(time.monotonic(), deadline)
+                time.sleep(0.01)
 
-        self.assertEqual(worker.lifecycle, "ready")
-        self.assertEqual(len(FakePaddleOcr.created), 1)
+        self.assertEqual(runtime.health(0)["lifecycle"], "ready")
+        self.assertEqual(len(FakePaddleOcr.created), 2)
         model_pairs = {
             (
                 pipeline.options["text_detection_model_name"],
@@ -62,8 +89,19 @@ class PaddleModelPoolTests(unittest.TestCase):
         }
         self.assertEqual(
             model_pairs,
-            {("PP-OCRv6_small_det", "PP-OCRv6_small_rec")},
+            {
+                ("PP-OCRv6_small_det", "PP-OCRv6_small_rec"),
+                ("PP-OCRv6_medium_det", "PP-OCRv6_medium_rec"),
+            },
         )
+
+    def test_cuda_uses_a_larger_recognition_batch(self) -> None:
+        pool = PaddleModelPool(InferenceDevice(DeviceKind.CUDA, 0))
+
+        pool.pipeline("pp_ocr_v6_small", {})
+
+        self.assertEqual(FakePaddleOcr.created[0].options["text_recognition_batch_size"], 32)
+        self.assertFalse(FakePaddleOcr.created[0].options["enable_mkldnn"])
 
 
 if __name__ == "__main__":

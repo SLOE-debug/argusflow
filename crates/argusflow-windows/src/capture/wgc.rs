@@ -10,8 +10,8 @@ use std::{
 
 use argusflow_core::WindowIdentity;
 use argusflow_vision::{
-    CapturePolicy, CapturedFrame, FrameId, FrameSubscription, TopologyGeneration, VisionError,
-    WindowFrameSource,
+    CaptureHealth, CaptureLifecycle, CapturePolicy, CapturedFrame, FrameId, FrameSubscription,
+    TopologyGeneration, VisionError, WindowFrameSource,
 };
 use async_trait::async_trait;
 use tokio::sync::Notify;
@@ -34,6 +34,10 @@ impl WindowsGraphicsCapture {
 
 #[async_trait]
 impl WindowFrameSource for WindowsGraphicsCapture {
+    fn health(&self) -> CaptureHealth {
+        CaptureHealth::new(CaptureLifecycle::Ready)
+    }
+
     async fn open(
         &self,
         window: WindowIdentity,

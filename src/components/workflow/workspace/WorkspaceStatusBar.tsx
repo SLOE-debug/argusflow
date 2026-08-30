@@ -3,6 +3,7 @@ import { useStore, type StoreApi } from 'zustand';
 
 import type { FlowState } from '../../../flow';
 import type { WorkflowEdgeData, WorkflowNodeData } from '../../../features/workflow';
+import { runtimeStatusLabel, type StartupSnapshot } from '../../../features/startup';
 import type { WorkflowStatusPresentation } from '../overview/workflowStatus';
 
 type WorkspaceStatusBarProps = Readonly<{
@@ -10,6 +11,8 @@ type WorkspaceStatusBarProps = Readonly<{
   store: StoreApi<FlowState<WorkflowNodeData, WorkflowEdgeData>>;
   /** 当前运行与校验状态。 */
   status: WorkflowStatusPresentation;
+  /** 桌面捕获与 OCR 的实时运行环境状态。 */
+  runtimeStatus: StartupSnapshot;
   /** 左侧面板当前宽度；关闭时为 null。 */
   libraryWidth: number | null;
   /** 右侧面板当前宽度；关闭时为 null。 */
@@ -20,6 +23,7 @@ type WorkspaceStatusBarProps = Readonly<{
 export function WorkspaceStatusBar({
   store,
   status,
+  runtimeStatus,
   libraryWidth,
   inspectorWidth,
 }: WorkspaceStatusBarProps) {
@@ -42,7 +46,7 @@ export function WorkspaceStatusBar({
         <span className="px-4">{nodeCount} 个节点</span>
       ) : null}
       <div className="flex items-center justify-end px-4">
-        <span>本地运行环境</span>
+        <RuntimeSummary status={runtimeStatus} />
         {inspectorWidth === null ? (
           <StatusSummary status={status} />
         ) : null}
@@ -53,6 +57,21 @@ export function WorkspaceStatusBar({
         </div>
       ) : null}
     </footer>
+  );
+}
+
+/** 显示实际 CPU/GPU 设备以及关键能力是否可运行。 */
+function RuntimeSummary({ status }: Readonly<{ status: StartupSnapshot }>) {
+  const tone = status.readiness === 'ready'
+    ? status.degradationReason ? 'bg-amber-500' : 'bg-emerald-500'
+    : status.readiness === 'blocked'
+      ? 'bg-rose-500'
+      : 'bg-blue-500';
+  return (
+    <span className="flex items-center">
+      <span className={`mr-2 size-2 rounded-full ${tone}`} />
+      <span>{runtimeStatusLabel(status)}</span>
+    </span>
   );
 }
 

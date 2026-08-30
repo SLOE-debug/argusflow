@@ -1,4 +1,5 @@
-import { Check, ChevronDown } from 'lucide-react';
+import Check from 'lucide-react/dist/esm/icons/check.mjs';
+import ChevronDown from 'lucide-react/dist/esm/icons/chevron-down.mjs';
 import {
   useCallback,
   useEffect,
