@@ -22,6 +22,7 @@ mod scope;
 mod source;
 mod stability;
 mod trace;
+mod verification;
 mod window;
 mod worker;
 
@@ -49,7 +50,9 @@ pub use query::{
 };
 pub use refresh::{RefreshPlan, RefreshReason, choose_refresh_plan};
 pub use region::normalized_region_to_physical;
-pub use runtime::{SceneRefreshPolicy, VisionHealth, VisionRuntime, VisualSceneService};
+pub use runtime::{
+    ResolvedTargetHandoffKey, SceneRefreshPolicy, VisionHealth, VisionRuntime, VisualSceneService,
+};
 pub use scene::{
     CacheLookup, CacheMissReason, FreshRegion, ObservationCoverage, ObservationState,
     SceneBuildOptions, SceneId, SceneOcrSummary, VisualNode, VisualNodeId, VisualNodeSource,
@@ -58,6 +61,7 @@ pub use scene::{
 pub use source::{CapturePolicy, FrameSubscription, MemoryFrameSource, WindowFrameSource};
 pub use stability::{StabilityConfig, StabilityState, StableFrameGate};
 pub use trace::{VisionSelectionOutcome, VisionTraceSink};
+pub use verification::VisionPostconditionVerifier;
 pub use window::{WindowDescriptor, WindowInventory};
 #[cfg(target_os = "windows")]
 pub use worker::NamedPipeOcrEngine;

@@ -84,7 +84,8 @@ export function createWechatSendMessageExecutionPolicy(): UiExecutionPolicy {
           pointer: '',
         },
         exact: true,
-        region: null,
+        // 只观察会话消息区，排除发送前仍位于底部输入框中的同文案。
+        region: { x: 0.34, y: 0.1, width: 0.66, height: 0.68 },
       },
     },
   };

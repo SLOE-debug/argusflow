@@ -133,8 +133,8 @@ describe('workflow model', () => {
     });
     expect(workflow.nodes.some((node) => node.type_id === 'argus.condition')).toBe(false);
     expect(workflow.nodes.filter((node) => node.type_id === 'argus.delay')).toHaveLength(0);
-    expect(workflow.nodes.filter((node) => node.type_id === 'argus.ui')).toHaveLength(9);
-    expect(workflow.edges).toHaveLength(11);
+    expect(workflow.nodes.filter((node) => node.type_id === 'argus.ui')).toHaveLength(8);
+    expect(workflow.edges).toHaveLength(10);
     expect(workflow.edges.every((edge) => edge.branch === null)).toBe(true);
     expect(workflow.nodes).toContainEqual(expect.objectContaining({
       id: 'wechat_application_1',
@@ -307,7 +307,9 @@ describe('workflow model', () => {
           },
           postcondition: expect.objectContaining({
             type: 'new_text',
-            query: expect.objectContaining({ region: null }),
+            query: expect.objectContaining({
+              region: { x: 0.34, y: 0.1, width: 0.66, height: 0.68 },
+            }),
           }),
         }),
       }),
@@ -356,8 +358,8 @@ describe('workflow model', () => {
     const previewRoutes = DEFAULT_EDGES.map((edge) => (
       previewEdgeRoute(edge, DEFAULT_NODES)?.route ?? null
     ));
-    const contactNameWaitEdgeIndex = DEFAULT_EDGES.findIndex(
-      (edge) => edge.id === 'edge_contact_name_find',
+    const contactNameClickEdgeIndex = DEFAULT_EDGES.findIndex(
+      (edge) => edge.id === 'edge_contact_name_click',
     );
     const routeGroups = [
       ['exact', exactRoutes],
@@ -381,9 +383,9 @@ describe('workflow model', () => {
     expect(exactRoutes.every((route) => route !== null)).toBe(true);
     expect(previewRoutes.every((route) => route !== null)).toBe(true);
     expect(nodeCrossings).toEqual([]);
-    expect(exactRoutes[contactNameWaitEdgeIndex]).toMatchObject({
+    expect(exactRoutes[contactNameClickEdgeIndex]).toMatchObject({
       sourceSide: 'bottom',
-      targetSide: 'top',
+      targetSide: 'right',
     });
   });
 

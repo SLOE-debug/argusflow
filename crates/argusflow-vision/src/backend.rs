@@ -16,8 +16,8 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::{
-    OcrProfile, SceneRefreshPolicy, VisionQueryPlan, VisionRuntime, WindowInventory,
-    compile_vision_query, evaluate_vision_query,
+    OcrProfile, ResolvedTargetHandoffKey, SceneRefreshPolicy, VisionQueryPlan, VisionRuntime,
+    WindowInventory, compile_vision_query, evaluate_vision_query,
 };
 
 /// 对外只暴露一个候选，OCR 档位升级完全封装在 VisionRuntime 内部。
@@ -79,6 +79,7 @@ impl ActionBackend for VisionBackend {
         let plan = compile_vision_query(query).map_err(|_| PlanRejection::Unsupported {
             backend: BackendKind::OcrSmall,
         })?;
+        let handoff_key = ResolvedTargetHandoffKey::from_query(query);
         let window = context.foreground_window.clone();
         let health = self.runtime.health();
         let availability = if window.is_none() {
@@ -125,6 +126,7 @@ impl ActionBackend for VisionBackend {
                 inventory: self.inventory.clone(),
                 window,
                 plan: Arc::new(plan),
+                handoff_key,
                 query_source: source.clone(),
                 action: action.clone(),
                 trace_context: context.trace_context.clone(),
@@ -144,6 +146,8 @@ struct VisionExecution {
     window: Option<argusflow_agent::WindowContext>,
     /// 已验证并预编译正则的 OCR AQL 计划。
     plan: Arc<VisionQueryPlan>,
+    /// 参数绑定后的稳定查询身份，用于相邻输入动作一次性交接目标。
+    handoff_key: ResolvedTargetHandoffKey,
     /// 错误与查询追踪使用的原始 AQL。
     query_source: String,
     /// 输出契约所属动作。
@@ -175,6 +179,16 @@ impl PreparedExecution for VisionExecution {
                         self.trace_context.as_ref(),
                     )
                     .await?;
+                if let Some(context) = self.trace_context.as_ref() {
+                    self.runtime
+                        .publish_resolved_target_handoff(
+                            context,
+                            window.process_id,
+                            &self.handoff_key,
+                            &target,
+                        )
+                        .await;
+                }
                 let outputs = BTreeMap::from([(
                     ActionOutputKey::Text.as_str().to_owned(),
                     Value::String(target.node.raw_text),

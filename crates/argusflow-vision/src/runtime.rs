@@ -27,6 +27,9 @@ use crate::{
 mod app;
 mod cache_state;
 mod scene_refresh;
+mod target_handoff;
+
+pub use target_handoff::ResolvedTargetHandoffKey;
 
 /// 获取新 scene 时的刷新策略。
 #[derive(Debug, Clone, PartialEq)]
@@ -124,6 +127,8 @@ pub struct VisionRuntime {
     capture_ready: AtomicBool,
     /// 可选宿主 artifact sink；失败语义由 sink 自己 best-effort 吞吐。
     trace_sink: Option<Arc<dyn crate::VisionTraceSink>>,
+    /// 相邻节点之间限时、一次性交接的严格唯一视觉目标。
+    target_handoffs: Mutex<target_handoff::ResolvedTargetHandoffStore>,
 }
 
 impl VisionRuntime {
@@ -138,6 +143,7 @@ impl VisionRuntime {
             // capture source 已由宿主装配；首次 execute 仍会执行真实 HWND/PID 校验。
             capture_ready: AtomicBool::new(true),
             trace_sink: None,
+            target_handoffs: Mutex::new(target_handoff::ResolvedTargetHandoffStore::default()),
         }
     }
 
@@ -157,6 +163,7 @@ impl VisionRuntime {
             // capture source 已由宿主装配；首次 execute 仍会执行真实 HWND/PID 校验。
             capture_ready: AtomicBool::new(true),
             trace_sink: None,
+            target_handoffs: Mutex::new(target_handoff::ResolvedTargetHandoffStore::default()),
         }
     }
 

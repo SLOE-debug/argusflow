@@ -356,7 +356,7 @@ impl PreparedExecution for SendInputPreparedExecution {
                 SendInputPlan::TypeText { .. } => "已向目标窗口输入文本",
                 SendInputPlan::Click { .. } => "已向目标窗口执行坐标点击",
                 SendInputPlan::VisualClick { .. } if used_visual_owner_fallback => {
-                    "已激活视觉弹窗的 owner 窗口，重新复验目标后执行鼠标点击"
+                    "已保持视觉弹窗的 owner 前台状态，重新复验目标后执行鼠标点击"
                 }
                 SendInputPlan::VisualClick { .. } => "已通过统一视觉物化并执行鼠标点击",
             }

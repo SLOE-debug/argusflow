@@ -6,8 +6,8 @@ use argusflow_agent::{ActionBackend, ActionRouter};
 use argusflow_browser::{CdpBackend, CdpRuntime};
 use argusflow_runtime::{FileRunTraceStore, RunTraceLevel, WorkflowEngine};
 use argusflow_vision::{
-    NamedPipeOcrEngine, OcrEngine, UnavailableOcrEngine, VisionBackend, VisionError, VisionRuntime,
-    VisionWorkerClient,
+    NamedPipeOcrEngine, OcrEngine, UnavailableOcrEngine, VisionBackend, VisionError,
+    VisionPostconditionVerifier, VisionRuntime, VisionWorkerClient,
 };
 use argusflow_windows::{
     capture::{WindowsCaptureHost, WindowsWindowRegistry},
@@ -56,6 +56,10 @@ impl AppState {
             vision_runtime.clone(),
             window_registry.clone(),
         ));
+        let visual_verification = Arc::new(VisionPostconditionVerifier::new(
+            vision_runtime.clone(),
+            window_registry.clone(),
+        ));
         // 注册顺序不决定执行优先级；ActionRouter 会比较支持等级、成本与用户偏好。
         let backends: Vec<Arc<dyn ActionBackend>> = vec![
             Arc::new(UiaBackend::new(uia_runtime.clone())),
@@ -68,7 +72,8 @@ impl AppState {
         let context_provider = Arc::new(WindowsExecutionContextProvider::new(uia_runtime.health()));
         let router = Arc::new(
             ActionRouter::with_context_provider(backends, context_provider)
-                .with_target_materializer(visual_materializer),
+                .with_target_materializer(visual_materializer)
+                .with_visual_verification(visual_verification),
         );
 
         let engine = WorkflowEngine::with_resource_providers(

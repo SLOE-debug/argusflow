@@ -91,6 +91,13 @@ pub(super) fn ensure_foreground_window(window: &WindowContext) -> Result<(), Key
     Ok(())
 }
 
+/// 只读判断指定 HWND 是否已经是当前前台窗口；身份仍由实际输入前置校验负责。
+pub(super) fn is_foreground_window(window: &WindowContext) -> bool {
+    let target = HWND(window.handle as usize as *mut std::ffi::c_void);
+    // SAFETY: GetForegroundWindow 只返回系统当前 HWND，不读取调用方内存。
+    (unsafe { GetForegroundWindow() }) == target
+}
+
 /// 以固定修饰键顺序构造 key-down/key-up 事件，避免工作流数组顺序改变结果。
 fn chord_inputs(chord: &KeyChord) -> Result<Vec<INPUT>, KeyboardInputError> {
     let unique = chord.modifiers.iter().copied().collect::<BTreeSet<_>>();

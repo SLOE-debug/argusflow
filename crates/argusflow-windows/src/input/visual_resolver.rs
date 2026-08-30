@@ -9,8 +9,8 @@ use argusflow_agent::{
 };
 use argusflow_core::{AutomationError, BackendKind, PreparedTargetLocator, WindowIdentity};
 use argusflow_vision::{
-    PhysicalRect, VisionError, VisionQueryPlan, VisionRuntime, VisualNodeSource, WindowInventory,
-    compile_vision_query,
+    PhysicalRect, ResolvedTargetHandoffKey, VisionError, VisionQueryPlan, VisionRuntime,
+    VisualNodeSource, WindowInventory, compile_vision_query,
 };
 use async_trait::async_trait;
 use windows::Win32::Foundation::RECT;
@@ -61,10 +61,12 @@ impl PreparedTargetMaterializer for WindowsVisualTargetMaterializer {
                 semantic_matches: 0,
                 required: argusflow_core::ActionCapability::Activate,
             })?;
+        let handoff_key = ResolvedTargetHandoffKey::from_query(query);
         Ok(Arc::new(PreparedVisionAqlMaterialization {
             runtime: self.runtime.clone(),
             inventory: self.inventory.clone(),
             query: Arc::new(plan),
+            handoff_key,
             source: source.clone(),
         }))
     }
@@ -79,6 +81,8 @@ struct PreparedVisionAqlMaterialization {
     inventory: Arc<dyn WindowInventory>,
     /// 已预编译正则与空间选择语义的计划。
     query: Arc<VisionQueryPlan>,
+    /// 已绑定参数的查询身份，用于消费紧邻读取节点交接的目标。
+    handoff_key: ResolvedTargetHandoffKey,
     /// 诊断使用的原始 AQL。
     source: String,
 }
@@ -91,17 +95,34 @@ impl PreparedTargetMaterialization for PreparedVisionAqlMaterialization {
         _plan: &VisualMaterializationPlan,
         trace_context: Option<&argusflow_core::RunTraceContext>,
     ) -> Result<MaterializedTarget, AutomationError> {
-        let target = self
-            .runtime
-            .resolve_query(
-                self.inventory.as_ref(),
-                window.process_id,
-                &self.query,
-                &self.source,
-                0.80,
-                trace_context,
-            )
-            .await?;
+        let handoff_target = match trace_context {
+            Some(context) => {
+                self.runtime
+                    .take_resolved_target_handoff(
+                        context,
+                        window.process_id,
+                        &self.handoff_key,
+                        0.80,
+                    )
+                    .await
+            }
+            None => None,
+        };
+        let target = match handoff_target {
+            Some(target) => target,
+            None => {
+                self.runtime
+                    .resolve_query(
+                        self.inventory.as_ref(),
+                        window.process_id,
+                        &self.query,
+                        &self.source,
+                        0.80,
+                        trace_context,
+                    )
+                    .await?
+            }
+        };
         let selected_window = WindowContext {
             handle: target.window.identity.handle,
             process_id: target.window.identity.process_id,
