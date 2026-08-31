@@ -15,9 +15,9 @@ import type {
 /** 微信示例公开给使用者填写的两个输入。 */
 export type WechatWorkflowInputKey = '联系人' | '消息内容';
 
-/** 搜索结果以“最常使用”为锚点，减少同名文字造成的误点。 */
+/** 搜索结果使用带词边界的分区标题作锚点，避免命中带前后缀的其他文案。 */
 export const WECHAT_CONTACT_RESULT_SELECTOR =
-  'nearest(anchor = text(name = "最常使用"), target = text(name = $contact_name), direction = below, index = 1)';
+  'nearest(anchor = text(name matches /\\b(?:联系人|最常使用|最近常用|功能)\\b/), target = text(name = $contact_name), direction = below, index = 1)';
 
 /** 右侧会话标题是联系人名称相对搜索入口的第二个同名文字。 */
 const WECHAT_CONVERSATION_HEADER_SELECTOR =

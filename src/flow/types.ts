@@ -52,6 +52,17 @@ export type FlowEdge<TEdgeData = unknown> = {
   data: TEdgeData;
 };
 
+/** 业务层交给通用画布渲染的连线文字与颜色。 */
+export type FlowEdgeLabel = Readonly<{
+  /** 显示在连线旁的简短文字。 */
+  text: string;
+  /** 与分支语义对应的 SVG 颜色。 */
+  color: string;
+}>;
+
+/** 将未知业务边数据转换成可选的通用连线标签。 */
+export type FlowEdgeLabelResolver = (data: unknown) => FlowEdgeLabel | null;
+
 /** 节点渲染器从 Flow 内核接收的最小状态。 */
 export type FlowNodeRendererProps<TData = unknown> = {
   /** 当前节点完整快照。 */

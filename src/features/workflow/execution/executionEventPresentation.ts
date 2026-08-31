@@ -45,7 +45,7 @@ export const EXECUTION_EVENT_LABELS = {
   diagnostic_evidence_captured: '已保存诊断信息',
   observation_evaluated: '检查完成',
   loop_iteration: '开始下一轮',
-  loop_exhausted: '已停止重复',
+  loop_exhausted: '已达上限',
   workflow_failure_declared: '流程已停止',
   node_succeeded: '执行完成',
   edge_traversed: '进入下一步',
@@ -116,7 +116,7 @@ function resolveExecutionDetail(event: ExecutionEvent): string {
       return event.message
         ?? '已准备好运行所需资源';
     case 'observation_evaluated':
-      return event.message ?? (event.payload.known ? '已获得结果' : '暂时无法判断');
+      return event.message ?? (event.payload.known ? '已获取结果' : '暂无法判断');
     case 'loop_iteration':
       return event.message
         ?? `第 ${event.payload.iteration} / ${event.payload.max_iterations} 轮`;

@@ -11,11 +11,18 @@ import { useCanvasKeyboard } from '../interaction/useCanvasKeyboard';
 import { useCanvasPointerInteractions } from '../interaction/useCanvasPointerInteractions';
 import { useCanvasSize } from '../interaction/useCanvasSize';
 import { useFlowStoreApi } from '../store/store';
-import type { FlowAnchorSide, FlowPoint, NodeRegistry } from '../types';
+import type {
+  FlowAnchorSide,
+  FlowEdgeLabelResolver,
+  FlowPoint,
+  NodeRegistry,
+} from '../types';
 import { MAX_CANVAS_ZOOM } from '../viewport/viewport';
 
 type FlowCanvasProps = Readonly<{
   registry: Readonly<NodeRegistry>;
+  /** 由业务层提供连线语义，通用画布只负责定位和绘制。 */
+  edgeLabelResolver?: FlowEdgeLabelResolver;
   onAddNode: (kind: string, position: FlowPoint) => void;
   /** 在连线落点新建节点，并在同一业务事务内完成连线。 */
   onAddConnectedNode: (
@@ -43,6 +50,7 @@ type FlowCanvasProps = Readonly<{
 /** 自研 Flow 画布入口，仅装配交互、渲染图层与顶部浮层工具。 */
 export function FlowCanvas({
   registry,
+  edgeLabelResolver,
   onAddNode,
   onAddConnectedNode,
   onConnect,
@@ -104,6 +112,7 @@ export function FlowCanvas({
       onWheel={interactions.handleWheel}
     >
       <FlowCanvasLayers
+        edgeLabelResolver={edgeLabelResolver}
         guides={interactions.guides}
         onConnectionStart={interactions.handleConnectionStart}
         onDragStart={interactions.handleNodeDragStart}

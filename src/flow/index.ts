@@ -22,6 +22,8 @@ export type { FlowState } from './store/store';
 export type {
   FlowAnchorSide,
   FlowEdge,
+  FlowEdgeLabel,
+  FlowEdgeLabelResolver,
   FlowEndpoint,
   FlowNode,
   FlowNodeRendererProps,

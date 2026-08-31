@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { FLOW_COMPONENT_CATALOG } from '../../components/componentCatalog';
 import { toWorkflowDefinition } from '../../model/workflowModel';
 import {
+  WECHAT_CONTACT_RESULT_SELECTOR,
   WECHAT_MESSAGE_SENT_QUERY,
 } from './automation';
 import {
@@ -29,12 +30,18 @@ describe('微信联系人消息示例工作流', () => {
     const nodesById = new Map(workflow.nodes.map((node) => [node.id, node]));
 
     expect(FLOW_COMPONENT_CATALOG).toEqual([]);
+    expect(WECHAT_CONTACT_RESULT_SELECTOR).toContain(
+      'text(name matches /\\b(?:联系人|最常使用|最近常用|功能)\\b/)',
+    );
     expect(nodesById.get('select_contact')?.payload).toEqual(expect.objectContaining({
       operation: expect.objectContaining({
         type: 'click',
         target: expect.objectContaining({
           locator: expect.objectContaining({
-            query: expect.objectContaining({ language_version: 3 }),
+            query: expect.objectContaining({
+              language_version: 3,
+              source: WECHAT_CONTACT_RESULT_SELECTOR,
+            }),
           }),
         }),
       }),

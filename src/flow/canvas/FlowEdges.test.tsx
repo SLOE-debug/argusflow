@@ -66,4 +66,31 @@ describe('FlowEdges runtime pulse', () => {
     act(() => store.setState({ activeEdgeIds: {} }));
     expect(view.container.querySelector('[data-flow-edge-runtime]')).toBeNull();
   });
+
+  it('anchors a business label to the routed line segment', () => {
+    const store = createFlowStore({
+      nodes,
+      edges: [{ ...edges[0]!, data: { branch: 'false' } }],
+      metadata: {},
+    });
+    const view = render(
+      <FlowProvider store={store}>
+        <FlowEdges
+          edgeLabelResolver={() => ({ text: '条件不成立', color: '#dc2626' })}
+          height={600}
+          width={800}
+          panActive={false}
+          onReconnectStart={vi.fn()}
+        />
+      </FlowProvider>,
+    );
+
+    const marker = view.container.querySelector('[data-flow-edge-label-marker="edge-1"]');
+    const label = view.container.querySelector('[data-flow-edge-label="edge-1"]');
+    expect(marker).toHaveAttribute('cx', '140');
+    expect(marker).toHaveAttribute('cy', '25');
+    expect(label).toHaveAttribute('x', '140');
+    expect(label).toHaveAttribute('y', '16');
+    expect(label).toHaveTextContent('条件不成立');
+  });
 });

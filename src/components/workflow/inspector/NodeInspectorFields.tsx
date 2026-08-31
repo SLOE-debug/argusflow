@@ -31,6 +31,7 @@ import { FailNodeFields } from './node-fields/FailNodeFields';
 import { LoopNodeFields } from './node-fields/LoopNodeFields';
 import { ObserveNodeFields } from './node-fields/ObserveNodeFields';
 import type { StructuredEditorTarget } from '../workspace/dock/structuredEditorTarget';
+import { WORKFLOW_BRANCH_PRESENTATIONS } from '../presentation/workflowBranchPresentation';
 
 type NodeInspectorFieldsProps = Readonly<{
   /** 当前唯一选中的节点。 */
@@ -59,17 +60,17 @@ type EdgeInspectorFieldsProps = Readonly<{
 /** 内置分支节点的控制端口及其用户可读名称。 */
 const EDGE_BRANCH_OPTIONS = {
   boolean: [
-    { value: 'true', label: '符合条件' },
-    { value: 'false', label: '不符合条件' },
-    { value: 'unknown', label: '暂时无法判断' },
+    { value: 'true', label: WORKFLOW_BRANCH_PRESENTATIONS.true.text },
+    { value: 'false', label: WORKFLOW_BRANCH_PRESENTATIONS.false.text },
+    { value: 'unknown', label: WORKFLOW_BRANCH_PRESENTATIONS.unknown.text },
   ],
   observation: [
-    { value: 'known', label: '已获得结果' },
-    { value: 'unknown', label: '暂时无法判断' },
+    { value: 'known', label: WORKFLOW_BRANCH_PRESENTATIONS.known.text },
+    { value: 'unknown', label: WORKFLOW_BRANCH_PRESENTATIONS.unknown.text },
   ],
   loop: [
-    { value: 'iterate', label: '继续重复' },
-    { value: 'exhausted', label: '停止重复' },
+    { value: 'iterate', label: WORKFLOW_BRANCH_PRESENTATIONS.iterate.text },
+    { value: 'exhausted', label: WORKFLOW_BRANCH_PRESENTATIONS.exhausted.text },
   ],
 } as const;
 

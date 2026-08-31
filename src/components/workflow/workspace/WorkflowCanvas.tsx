@@ -18,6 +18,7 @@ import type { FlowComponentCatalogItem } from '../../../features/workflow';
 import { FLOW_COMPONENT_CATALOG } from '../../../features/workflow';
 import { NODE_PRESET_CATALOG } from '../../../features/workflow';
 import { workflowNodeRegistry } from '../canvas/WorkflowNodeCard';
+import { resolveWorkflowEdgeLabel } from '../presentation/workflowBranchPresentation';
 
 type WorkflowCanvasProps = {
   store: StoreApi<FlowState<WorkflowNodeData, WorkflowEdgeData>>;
@@ -81,6 +82,7 @@ export function WorkflowCanvas({
   return (
     <FlowProvider store={store}>
       <FlowCanvas
+        edgeLabelResolver={resolveWorkflowEdgeLabel}
         registry={workflowCreationRegistry}
         onAddNode={addWorkflowNode}
         onAddConnectedNode={addConnectedWorkflowNode}

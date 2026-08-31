@@ -6,6 +6,8 @@ import { useFlowStore } from '../store/store';
 import type {
   FlowAnchorSide,
   FlowEdge,
+  FlowEdgeLabel,
+  FlowEdgeLabelResolver,
   FlowNode,
   FlowPoint,
   RoutedEdge,
@@ -16,6 +18,8 @@ import { useEdgeRoutes } from '../useEdgeRoutes';
 type FlowEdgesProps = Readonly<{
   width: number;
   height: number;
+  /** 业务层可选的连线标签解析器。 */
+  edgeLabelResolver?: FlowEdgeLabelResolver;
   /** 平移手势是否覆盖边选择和重连。 */
   panActive: boolean;
   onReconnectStart: (
@@ -36,6 +40,7 @@ type VisibleRoute = Readonly<{
 export const FlowEdges = memo(function FlowEdges({
   width,
   height,
+  edgeLabelResolver,
   onReconnectStart,
   panActive,
 }: FlowEdgesProps) {
@@ -71,6 +76,7 @@ export const FlowEdges = memo(function FlowEdges({
             key={edge.id}
             active={Boolean(activeEdgeIds[edge.id])}
             edge={edge}
+            edgeLabelResolver={edgeLabelResolver}
             hovered={!panActive && edge.id === hoveredEdgeId}
             nodesById={nodesById}
             onHover={setHoveredEdge}
@@ -113,6 +119,7 @@ function EdgeMarkerDefinition() {
 type FlowEdgePathProps = Readonly<{
   active: boolean;
   edge: FlowEdge;
+  edgeLabelResolver?: FlowEdgeLabelResolver;
   hovered: boolean;
   nodesById: ReadonlyMap<string, FlowNode>;
   onHover: (edgeId: string | null) => void;
@@ -128,6 +135,7 @@ type FlowEdgePathProps = Readonly<{
 const FlowEdgePath = memo(function FlowEdgePath({
   active,
   edge,
+  edgeLabelResolver,
   hovered,
   nodesById,
   onHover,
@@ -150,7 +158,7 @@ const FlowEdgePath = memo(function FlowEdgePath({
     { ...targetNode.position, ...targetNode.size },
     route.targetSide,
   );
-  const branchLabel = readBranchLabel(edge.data);
+  const branchLabel = edgeLabelResolver?.(edge.data) ?? null;
   /** 连线使用独立于节点蓝色的紫/青交互色，避免两种对象状态混淆。 */
   const strokeColor = active
     ? '#2563eb'
@@ -206,7 +214,8 @@ const FlowEdgePath = memo(function FlowEdgePath({
       />
       {branchLabel ? (
         <EdgeBranchLabel
-          label={branchLabel}
+          edgeId={edge.id}
+          presentation={branchLabel}
           route={route}
         />
       ) : null}
@@ -228,46 +237,96 @@ const FlowEdgePath = memo(function FlowEdgePath({
   );
 });
 
-/** 从未知的业务边数据中安全读取可显示的分支文本。 */
-function readBranchLabel(data: unknown): string | null {
-  if (typeof data !== 'object' || data === null || !('branch' in data)) return null;
-  if (data.branch === 'true') return '满足条件';
-  if (data.branch === 'false') return '不满足条件';
-  if (data.branch === 'unknown') return '无法判断';
-  if (data.branch === 'known') return '已获得结果';
-  if (data.branch === 'iterate') return '继续重复';
-  if (data.branch === 'exhausted') return '停止重复';
-  return null;
-}
+type EdgeLabelPosition = Readonly<{
+  /** 标签归属点始终落在实际连线上。 */
+  marker: FlowPoint;
+  /** 文本从归属点向线段外侧留出少量间距。 */
+  text: FlowPoint;
+  textAnchor: 'middle' | 'end';
+}>;
 
-/** 将分支文本沿连线路径居中显示。 */
+/** 标签需要的最小直线长度，避免文字挤在转角或节点边缘。 */
+const MIN_EDGE_LABEL_SEGMENT_LENGTH = 72;
+
+/** 将标签放在真实线段旁，并用圆点标出它所属的连线。 */
 function EdgeBranchLabel({
-  label,
+  edgeId,
+  presentation,
   route,
-}: Readonly<{ label: string; route: RoutedEdge }>) {
-  const sourcePoint = route.points[0];
-  const isPositiveBranch = label === '满足条件';
-  /** 正分支在线上方居中，负分支在竖线左侧保持水平可读。 */
-  const position = isPositiveBranch
-    ? { x: sourcePoint.x + 76, y: sourcePoint.y - 10, anchor: 'middle' as const }
-    : { x: sourcePoint.x - 12, y: sourcePoint.y + 58, anchor: 'end' as const };
+}: Readonly<{
+  edgeId: string;
+  presentation: FlowEdgeLabel;
+  route: RoutedEdge;
+}>) {
+  const position = resolveEdgeLabelPosition(route.points);
+  if (!position) return null;
 
   return (
-    <text
-      className="pointer-events-none select-none"
-      fill={label === '满足条件' ? '#16a34a' : '#ef4444'}
-      fontSize="11"
-      fontWeight="600"
-      paintOrder="stroke"
-      stroke="#ffffff"
-      strokeWidth="4"
-      textAnchor={position.anchor}
-      x={position.x}
-      y={position.y}
-    >
-      {label}
-    </text>
+    <g className="pointer-events-none select-none">
+      <circle
+        data-flow-edge-label-marker={edgeId}
+        cx={position.marker.x}
+        cy={position.marker.y}
+        fill={presentation.color}
+        r="3"
+        stroke="#ffffff"
+        strokeWidth="2"
+        vectorEffect="non-scaling-stroke"
+      />
+      <text
+        data-flow-edge-label={edgeId}
+        fill={presentation.color}
+        fontSize="11"
+        fontWeight="600"
+        paintOrder="stroke"
+        stroke="#ffffff"
+        strokeLinejoin="round"
+        strokeWidth="4"
+        textAnchor={position.textAnchor}
+        x={position.text.x}
+        y={position.text.y}
+      >
+        {presentation.text}
+      </text>
+    </g>
   );
+}
+
+/** 优先选择靠近起点且足够容纳文字的线段，短路径则使用其中最长的一段。 */
+function resolveEdgeLabelPosition(
+  points: ReadonlyArray<FlowPoint>,
+): EdgeLabelPosition | null {
+  /** 正交路由的每一段都保留长度和方向，便于选择清晰的标注位置。 */
+  const segments = points.slice(0, -1).flatMap((start, index) => {
+    const end = points[index + 1];
+    if (!end) return [];
+    const width = Math.abs(end.x - start.x);
+    const height = Math.abs(end.y - start.y);
+    const length = width + height;
+    return length > 0 ? [{ start, end, length, horizontal: width >= height }] : [];
+  });
+  const segment = segments.find(({ length }) => (
+    length >= MIN_EDGE_LABEL_SEGMENT_LENGTH
+  )) ?? segments.reduce<(typeof segments)[number] | null>((longest, candidate) => (
+    !longest || candidate.length > longest.length ? candidate : longest
+  ), null);
+  if (!segment) return null;
+
+  const marker = {
+    x: (segment.start.x + segment.end.x) / 2,
+    y: (segment.start.y + segment.end.y) / 2,
+  };
+  return segment.horizontal
+    ? {
+        marker,
+        text: { x: marker.x, y: marker.y - 9 },
+        textAnchor: 'middle',
+      }
+    : {
+        marker,
+        text: { x: marker.x - 9, y: marker.y + 4 },
+        textAnchor: 'end',
+      };
 }
 
 /** 绘制从 source 指向 target 的连续电流脉冲。 */

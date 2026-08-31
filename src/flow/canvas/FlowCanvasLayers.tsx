@@ -9,6 +9,7 @@ import type { AlignmentGuide } from '../geometry/snapping';
 import { useFlowStore, type ConnectionDraft, type SelectionBox } from '../store/store';
 import type {
   FlowAnchorSide,
+  FlowEdgeLabelResolver,
   FlowNode,
   FlowPoint,
   NodeRegistry,
@@ -17,6 +18,7 @@ import type {
 import type { CanvasSize } from '../interaction/useCanvasSize';
 
 type FlowCanvasLayersProps = Readonly<{
+  edgeLabelResolver?: FlowEdgeLabelResolver;
   guides: ReadonlyArray<AlignmentGuide>;
   onConnectionStart: (
     nodeId: string,
@@ -60,6 +62,7 @@ const ALIGNMENT_GUIDE_CLASS_NAME = [
 
 /** 装配画布网格、连线和随世界坐标变换的节点交互图层。 */
 export function FlowCanvasLayers({
+  edgeLabelResolver,
   guides,
   onConnectionStart,
   onDragStart,
@@ -86,6 +89,7 @@ export function FlowCanvasLayers({
     <>
       <CanvasGrid viewport={viewport} />
       <FlowEdges
+        edgeLabelResolver={edgeLabelResolver}
         height={size.height}
         onReconnectStart={onReconnectStart}
         panActive={panActive}

@@ -44,7 +44,7 @@ export function LoopNodeFields({
         />
       </InspectorField>
       <p className="text-[10px] leading-4 text-slate-500">
-        达到次数或时间上限后，流程会从“停止重复”出口继续。
+        达到次数或时间上限后，流程将从“已达上限”出口继续。
       </p>
     </div>
   );
