@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{PreparedAutomationTarget, VisualQueryExpr};
+use crate::{AqlQuery, PreparedAutomationTarget};
 
 /// UI 节点为了满足当前动作前置条件而采用的目标等待模式。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -79,21 +79,21 @@ fn default_postcondition_wait() -> TargetWaitPolicy {
     TargetWaitPolicy::bounded(5_000, 150)
 }
 
-/// UI 输入动作的可验证后置条件；它描述动作后的新事实而非旧文本存在性。
+/// UI 输入动作的可验证后置条件；查询统一使用可组合的 AQL 语义。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum UiPostcondition {
-    /// 要求动作前后保持同一视觉上下文，且目标文字实例数量严格增加。
-    NewText {
-        /// 需要在动作前后做 scene delta 比较的视觉查询。
-        query: VisualQueryExpr,
+    /// 要求动作前后保持同一视觉上下文，且出现一个不与旧实例重叠的新匹配。
+    MatchAdded {
+        /// 需要在动作前后做 scene delta 比较的 AQL 查询。
+        query: AqlQuery,
         /// 动作前后都必须唯一命中且保持在原位置的上下文查询。
-        stable_context: Vec<VisualQueryExpr>,
+        stable_context: Vec<AqlQuery>,
     },
-    /// 要求动作完成后的新鲜画面中唯一存在目标文字。
-    TextPresent {
-        /// 只在动作完成后求值的视觉查询。
-        query: VisualQueryExpr,
+    /// 要求动作完成后的新鲜画面中唯一存在目标匹配。
+    MatchPresent {
+        /// 只在动作完成后求值的 AQL 查询。
+        query: AqlQuery,
     },
 }
 

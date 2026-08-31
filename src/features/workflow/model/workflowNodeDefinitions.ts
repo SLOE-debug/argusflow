@@ -187,7 +187,7 @@ export const WORKFLOW_NODE_DEFINITIONS = {
   }),
   ui: defineNode('ui', {
     typeId: 'argus.ui',
-    version: 3,
+    version: 4,
     create: () => ({
       kind: 'ui',
       label: '操作界面',

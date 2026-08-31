@@ -1,6 +1,6 @@
 use argusflow_core::{
     ElementMatcher, MatchOperator, PredicateValue, PropertyPredicate, QueryExpr, RegexLiteral,
-    UiQuery,
+    SpatialAnchor, UiQuery,
 };
 
 use crate::{AqlError, normalize_query, parse_query};
@@ -59,7 +59,7 @@ fn format_compact_expression(expression: &QueryExpr) -> String {
             metric,
         } => format!(
             "nearest(anchor={},target={},direction={direction},index={index},metric={metric})",
-            format_compact_expression(anchor),
+            format_compact_anchor(anchor),
             format_compact_expression(target),
         ),
         QueryExpr::Css { selector } => format!("css({})", quote_string(selector)),
@@ -113,12 +113,34 @@ fn format_pretty_expression(expression: &QueryExpr, indent: usize) -> String {
             let padding = " ".repeat(inner_indent);
             format!(
                 "nearest(\n{padding}anchor = {},\n{padding}target = {},\n{padding}direction = {direction},\n{padding}index = {index},\n{padding}metric = {metric}\n{})",
-                format_pretty_expression(anchor, inner_indent + 9),
+                format_pretty_anchor(anchor, inner_indent + 9),
                 format_pretty_expression(target, inner_indent + 9),
                 " ".repeat(indent),
             )
         }
         QueryExpr::Css { selector } => format_pretty_css(selector, indent),
+    }
+}
+
+/// 输出紧凑的强类型空间锚点。
+fn format_compact_anchor(anchor: &SpatialAnchor) -> String {
+    match anchor {
+        SpatialAnchor::Element { query } => format_compact_expression(query),
+        SpatialAnchor::ViewportCorner { position } => {
+            format!("viewport_corner(position={position})")
+        }
+        SpatialAnchor::ViewportEdge { side } => format!("viewport_edge(side={side})"),
+    }
+}
+
+/// 输出可读的强类型空间锚点。
+fn format_pretty_anchor(anchor: &SpatialAnchor, indent: usize) -> String {
+    match anchor {
+        SpatialAnchor::Element { query } => format_pretty_expression(query, indent),
+        SpatialAnchor::ViewportCorner { position } => {
+            format!("viewport_corner(position = {position})")
+        }
+        SpatialAnchor::ViewportEdge { side } => format!("viewport_edge(side = {side})"),
     }
 }
 

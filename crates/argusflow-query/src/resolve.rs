@@ -2,7 +2,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use argusflow_core::{ElementMatcher, PredicateValue, PropertyPredicate, QueryExpr, UiQuery};
+use argusflow_core::{
+    ElementMatcher, PredicateValue, PropertyPredicate, QueryExpr, SpatialAnchor, UiQuery,
+};
 use thiserror::Error;
 
 /// 参数绑定无法完整解析为本次冻结查询。
@@ -56,13 +58,14 @@ fn collect_parameter_names(expression: &QueryExpr, names: &mut BTreeSet<String>)
         | QueryExpr::Child {
             parent: ancestor,
             target,
-        }
-        | QueryExpr::Nearest {
-            anchor: ancestor,
-            target,
-            ..
         } => {
             collect_parameter_names(ancestor, names);
+            collect_parameter_names(target, names);
+        }
+        QueryExpr::Nearest { anchor, target, .. } => {
+            if let SpatialAnchor::Element { query } = anchor {
+                collect_parameter_names(query, names);
+            }
             collect_parameter_names(target, names);
         }
         QueryExpr::Any { queries } => {
@@ -125,7 +128,7 @@ fn resolve_expression(
             index,
             metric,
         } => QueryExpr::Nearest {
-            anchor: Box::new(resolve_expression(anchor, bindings, used)?),
+            anchor: resolve_spatial_anchor(anchor, bindings, used)?,
             target: Box::new(resolve_expression(target, bindings, used)?),
             direction: *direction,
             index: *index,
@@ -134,6 +137,23 @@ fn resolve_expression(
         QueryExpr::Css { selector } => QueryExpr::Css {
             selector: selector.clone(),
         },
+    })
+}
+
+/// 冻结元素锚点中的参数；viewport 锚点不携带运行时值。
+fn resolve_spatial_anchor(
+    anchor: &SpatialAnchor,
+    bindings: &BTreeMap<String, String>,
+    used: &mut BTreeSet<String>,
+) -> Result<SpatialAnchor, QueryParameterResolutionError> {
+    Ok(match anchor {
+        SpatialAnchor::Element { query } => SpatialAnchor::Element {
+            query: Box::new(resolve_expression(query, bindings, used)?),
+        },
+        SpatialAnchor::ViewportCorner { position } => SpatialAnchor::ViewportCorner {
+            position: *position,
+        },
+        SpatialAnchor::ViewportEdge { side } => SpatialAnchor::ViewportEdge { side: *side },
     })
 }
 

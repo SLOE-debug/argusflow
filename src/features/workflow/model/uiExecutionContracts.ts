@@ -1,4 +1,4 @@
-import type { VisualQueryExpr } from './visual';
+import type { AqlQuery } from './contracts';
 
 /** 当前 UI 节点自己的目标就绪等待模式。 */
 export type TargetWaitMode = 'none' | 'bounded';
@@ -13,16 +13,16 @@ export type TargetWaitPolicy = Readonly<{
 /** UI 节点与动作语义分离的执行策略。 */
 export type UiPostcondition =
   | {
-      /** 要求动作后同一区域内的目标文字实例数量严格增加。 */
-      type: 'new_text';
-      query: VisualQueryExpr;
+      /** 要求动作后出现不与旧实例重叠的新 AQL 匹配。 */
+      type: 'match_added';
+      query: AqlQuery;
       /** 动作前后都必须唯一命中且保持在原位置的上下文。 */
-      stable_context: ReadonlyArray<VisualQueryExpr>;
+      stable_context: ReadonlyArray<AqlQuery>;
     }
   | {
-      /** 要求动作后的新鲜画面中唯一存在目标文字。 */
-      type: 'text_present';
-      query: VisualQueryExpr;
+      /** 要求动作后的新鲜画面中唯一存在目标 AQL 匹配。 */
+      type: 'match_present';
+      query: AqlQuery;
     };
 
 /** UI 节点自己的目标等待与动作后置条件契约。 */

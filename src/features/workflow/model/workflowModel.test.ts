@@ -80,7 +80,7 @@ describe('workflow model', () => {
 
     expect(workflow.nodes[0]).toMatchObject({
       type_id: 'argus.ui',
-      version: 3,
+      version: 4,
       payload: {
         operation: {
           type: 'click',
@@ -243,15 +243,17 @@ describe('workflow model', () => {
         }),
         execution: expect.objectContaining({
           postcondition: {
-            type: 'text_present',
+            type: 'match_present',
             query: {
-              text: {
-                type: 'ref',
-                source: { type: 'workflow_input', key: 'contact_name' },
-                pointer: '',
+              language_version: 2,
+              source: 'nearest(anchor = text(name = "搜索"), target = text(name = $contact_name), direction = any, index = 2)',
+              bindings: {
+                contact_name: {
+                  type: 'ref',
+                  source: { type: 'workflow_input', key: 'contact_name' },
+                  pointer: '',
+                },
               },
-              exact: true,
-              region: { x: 0.34, y: 0, width: 0.66, height: 0.13 },
             },
           },
         }),
@@ -296,13 +298,10 @@ describe('workflow model', () => {
             poll_interval_ms: 150,
           },
           postcondition: expect.objectContaining({
-            type: 'new_text',
-            query: expect.objectContaining({
-              region: { x: 0.34, y: 0.13, width: 0.66, height: 0.64 },
-            }),
+            type: 'match_added',
+            query: expect.objectContaining({ source: 'text(name = $message)' }),
             stable_context: [expect.objectContaining({
-              exact: true,
-              region: { x: 0.34, y: 0, width: 0.66, height: 0.13 },
+              source: 'nearest(anchor = text(name = "搜索"), target = text(name = $contact_name), direction = any, index = 2)',
             })],
           }),
         }),

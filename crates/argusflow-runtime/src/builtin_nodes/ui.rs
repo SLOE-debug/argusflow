@@ -32,7 +32,7 @@ struct UiPayloadV1 {
 
 /// 当前 UI payload，把动作语义与节点执行预算明确分离。
 ///
-/// v3 是 Studio 当前写出的规范版本。
+/// v4 是 Studio 当前写出的 AQL 后置条件规范版本。
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CurrentUiPayload {
@@ -78,7 +78,7 @@ impl NodeCompiler for UiCompiler {
                 let execution = legacy_execution_policy(payload.operation.target().locator.clone());
                 (payload.operation, execution)
             }
-            2 | 3 => {
+            2..=4 => {
                 let payload =
                     serde_json::from_value::<CurrentUiPayload>(definition.payload.clone())
                         .map_err(|error| {
@@ -90,7 +90,7 @@ impl NodeCompiler for UiCompiler {
             }
             version => {
                 return Err(NodeCompileError::new(format!(
-                    "unsupported payload version {version}; expected 1, 2 or 3"
+                    "unsupported payload version {version}; expected 1, 2, 3 or 4"
                 )));
             }
         };
@@ -168,19 +168,24 @@ impl PreparedNode for UiNode {
         }
         if let Some(postcondition) = &self.execution.postcondition {
             match postcondition {
-                UiPostcondition::NewText {
+                UiPostcondition::MatchAdded {
                     query,
                     stable_context,
                 } => {
-                    inputs.push(ValueInput::text(&query.text));
                     inputs.extend(
-                        stable_context
-                            .iter()
-                            .map(|query| ValueInput::text(&query.text)),
+                        query
+                            .bindings
+                            .values()
+                            .chain(
+                                stable_context
+                                    .iter()
+                                    .flat_map(|query| query.bindings.values()),
+                            )
+                            .map(ValueInput::text),
                     );
                 }
-                UiPostcondition::TextPresent { query } => {
-                    inputs.push(ValueInput::text(&query.text));
+                UiPostcondition::MatchPresent { query } => {
+                    inputs.extend(query.bindings.values().map(ValueInput::text));
                 }
             }
         }

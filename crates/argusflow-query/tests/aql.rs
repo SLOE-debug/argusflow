@@ -134,6 +134,27 @@ fn parses_parameterized_nearest_and_preserves_canonical_named_arguments() {
 }
 
 #[test]
+fn parses_viewport_corner_and_edge_anchors_without_rect_coordinates() {
+    let corner = parse_query(
+        r#"nearest(anchor = viewport_corner(position = top_right), target = text(name = $contact), direction = any, index = 1)"#,
+    )
+    .expect("viewport corner anchor should parse");
+    let edge = parse_query(
+        r#"nearest(anchor = viewport_edge(side = left), target = text(name = "搜索"), direction = any, index = 2)"#,
+    )
+    .expect("viewport edge anchor should parse");
+
+    assert_eq!(
+        canonicalize_query(&corner),
+        r#"nearest(anchor=viewport_corner(position=top_right),target=text(name=$contact),direction=any,index=1,metric=edge_gap)"#,
+    );
+    assert_eq!(
+        canonicalize_query(&edge),
+        r#"nearest(anchor=viewport_edge(side=left),target=text(name="搜索"),direction=any,index=2,metric=edge_gap)"#,
+    );
+}
+
+#[test]
 fn nearest_rejects_zero_rank_and_unknown_direction() {
     let zero = parse_query(
         r#"nearest(anchor = text(name = "A"), target = text(name = "B"), direction = below, index = 0)"#,
@@ -146,6 +167,12 @@ fn nearest_rejects_zero_rank_and_unknown_direction() {
     )
     .expect_err("direction is a closed enum");
     assert_eq!(unknown.kind, AqlErrorKind::InvalidArgument);
+
+    let directional_viewport = parse_query(
+        r#"nearest(anchor = viewport_edge(side = left), target = text(name = "B"), direction = right, index = 1)"#,
+    )
+    .expect_err("viewport anchors do not accept element-relative directions");
+    assert_eq!(directional_viewport.kind, AqlErrorKind::InvalidArgument);
 }
 
 #[test]
@@ -376,6 +403,16 @@ fn language_service_provides_completion_and_hover_from_rust_tokens() {
             .iter()
             .any(|item| { item.label == "button" && item.insert_text == "button()" })
     );
+    let viewport_completion = completions(
+        "nearest(anchor = view",
+        EditorPosition {
+            line: 0,
+            utf16_column: 21,
+        },
+    );
+    assert!(viewport_completion.iter().any(|item| {
+        item.label == "viewport_corner" && item.insert_text == "viewport_corner()"
+    }));
 
     let hover = hover(
         "button()",

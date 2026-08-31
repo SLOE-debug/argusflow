@@ -64,10 +64,6 @@ export {
   getNodeValueOutputs,
   WORKFLOW_NODE_DEFINITIONS,
 } from './model/workflowNodeDefinitions';
-export type {
-  NormalizedRect,
-  VisualQueryExpr,
-} from './model/visual';
 export {
   DEFAULT_WORKFLOW_INPUTS,
   DEFAULT_WORKFLOW_NAME,

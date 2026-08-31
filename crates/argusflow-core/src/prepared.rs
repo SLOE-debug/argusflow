@@ -1,19 +1,50 @@
-use crate::{BackendPolicy, ScreenPoint, TargetScope, UiQuery, VisualQuery};
+use crate::{BackendPolicy, ScreenPoint, TargetScope, UiQuery};
+
+/// Runtime 已解析参数并完成类型检查的一条 AQL 查询。
+///
+/// 该对象只存在于一次执行中。后端只读取冻结 AST，不得重新访问工作流值环境。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedAqlQuery {
+    /// 已完成参数替换的强类型查询。
+    query: UiQuery,
+    /// 用于诊断与追踪的原始 AQL 源码。
+    source: String,
+}
+
+impl PreparedAqlQuery {
+    /// 创建一次执行专用的冻结 AQL 查询。
+    pub fn new(query: UiQuery, source: impl Into<String>) -> Self {
+        Self {
+            query,
+            source: source.into(),
+        }
+    }
+
+    /// 返回后端可直接编译的查询 AST。
+    pub const fn query(&self) -> &UiQuery {
+        &self.query
+    }
+
+    /// 返回持久化定义中的原始 AQL 源码。
+    pub fn source(&self) -> &str {
+        &self.source
+    }
+}
 
 /// 一次执行中已经解析完成的视觉后置条件。
 #[derive(Debug, Clone, PartialEq)]
 pub enum PreparedVisualPostcondition {
-    /// 要求动作前后视觉上下文连续，且目标文本实例数量增加。
-    NewText {
-        /// 已冻结的视觉查询。
-        query: VisualQuery,
+    /// 要求动作前后视觉上下文连续，且出现新的空间匹配实例。
+    MatchAdded {
+        /// 已冻结的目标 AQL 查询。
+        query: PreparedAqlQuery,
         /// 已冻结的上下文连续性查询。
-        stable_context: Vec<VisualQuery>,
+        stable_context: Vec<PreparedAqlQuery>,
     },
-    /// 要求动作后的新鲜画面中唯一存在目标文本。
-    TextPresent {
-        /// 已冻结的视觉查询。
-        query: VisualQuery,
+    /// 要求动作后的新鲜画面中唯一存在目标匹配。
+    MatchPresent {
+        /// 已冻结的目标 AQL 查询。
+        query: PreparedAqlQuery,
     },
 }
 

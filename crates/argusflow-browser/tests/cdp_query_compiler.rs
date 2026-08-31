@@ -69,6 +69,19 @@ fn compiler_rejects_uia_specific_query() {
 }
 
 #[test]
+fn compiler_explicitly_rejects_viewport_spatial_queries() {
+    let query = parse_query(
+        r#"nearest(anchor = viewport_corner(position = top_left), target = text(name = "搜索"), direction = any, index = 1)"#,
+    )
+    .expect("viewport query should be valid AQL");
+
+    assert_eq!(
+        compile_cdp_query(&query),
+        Err(CdpQueryCompileError::UnsupportedQuery)
+    );
+}
+
+#[test]
 fn compiler_keeps_supported_branch_of_cross_backend_any() {
     let query = parse_query(
         r#"any(

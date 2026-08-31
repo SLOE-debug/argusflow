@@ -96,27 +96,163 @@ fn most_used_anchor_selects_the_exact_contact_title_below_its_header() {
 }
 
 #[test]
-fn window_close_anchor_selects_conversation_header_among_duplicate_contact_text() {
+fn top_right_viewport_anchor_selects_conversation_header_among_duplicate_contact_text() {
     let app = app_scene(vec![window_scene(
         1,
         7,
-        &[
-            ("X", 185, 5),
-            ("崽崽", 20, 20),
-            ("崽崽", 80, 21),
-            ("崽崽", 25, 70),
-        ],
+        &[("崽崽", 20, 20), ("崽崽", 170, 21), ("崽崽", 25, 70)],
     )]);
-    let source = "nearest(anchor = text(name = \"X\"), target = text(name = \"崽崽\"), direction = left, index = 1)";
+    let source = "nearest(anchor = viewport_corner(position = top_right), target = text(name = \"崽崽\"), direction = any, index = 1)";
     let query = parse_query(source).expect("conversation header AQL should parse");
     let plan = compile_vision_query(&query).expect("conversation header AQL should compile");
     let result = evaluate_vision_query(&app, &plan, source).expect("query should execute");
     let (selected, metrics) =
         require_unique(&result, source).expect("conversation header should be unique");
 
-    assert_eq!(selected.node.bbox.x, 80);
+    assert_eq!(selected.node.bbox.x, 170);
     assert_eq!(selected.node.bbox.y, 21);
     assert_eq!(metrics.spatial_candidates, 3);
+}
+
+#[test]
+fn search_anchor_requires_sidebar_contact_before_selecting_conversation_header() {
+    let source = "nearest(anchor = text(name = \"搜索\"), target = text(name = \"崽崽\"), direction = any, index = 2)";
+    let query = parse_query(source).expect("conversation header AQL should parse");
+    let plan = compile_vision_query(&query).expect("conversation header AQL should compile");
+    let pending = app_scene(vec![window_scene(
+        1,
+        7,
+        &[
+            ("搜索", 20, 20),
+            ("文件传输助手", 100, 20),
+            ("崽崽", 25, 80),
+        ],
+    )]);
+    let opened = app_scene(vec![window_scene(
+        1,
+        7,
+        &[("搜索", 20, 20), ("崽崽", 25, 80), ("崽崽", 170, 20)],
+    )]);
+
+    let pending_result =
+        evaluate_vision_query(&pending, &plan, source).expect("pending query should execute");
+    let opened_result =
+        evaluate_vision_query(&opened, &plan, source).expect("opened query should execute");
+
+    assert!(pending_result.matches.is_empty());
+    assert_eq!(
+        require_unique(&opened_result, source)
+            .expect("opened conversation header should be unique")
+            .0
+            .node
+            .bbox
+            .x,
+        170,
+    );
+}
+
+#[test]
+fn viewport_corner_ranking_survives_independent_axis_scaling() {
+    let source = "nearest(anchor = viewport_corner(position = top_right), target = text(name = \"会话\"), direction = any, index = 1)";
+    let query = parse_query(source).expect("viewport AQL should parse");
+    let plan = compile_vision_query(&query).expect("viewport AQL should compile");
+    let wide = app_scene(vec![window_scene_with_size(
+        1,
+        7,
+        300,
+        150,
+        &[("会话", 20, 20), ("会话", 260, 20)],
+    )]);
+    let tall = app_scene(vec![window_scene_with_size(
+        1,
+        7,
+        150,
+        300,
+        &[("会话", 10, 40), ("会话", 125, 40)],
+    )]);
+
+    let wide_result = evaluate_vision_query(&wide, &plan, source).expect("wide query executes");
+    let tall_result = evaluate_vision_query(&tall, &plan, source).expect("tall query executes");
+
+    assert_eq!(
+        require_unique(&wide_result, source)
+            .expect("wide is unique")
+            .0
+            .node
+            .bbox
+            .x,
+        260
+    );
+    assert_eq!(
+        require_unique(&tall_result, source)
+            .expect("tall is unique")
+            .0
+            .node
+            .bbox
+            .x,
+        125
+    );
+}
+
+#[test]
+fn viewport_edge_uses_real_candidate_ordinal() {
+    let app = app_scene(vec![window_scene(
+        1,
+        7,
+        &[("关键字", 10, 20), ("关键字", 40, 20), ("关键字", 90, 20)],
+    )]);
+    let source = "nearest(anchor = viewport_edge(side = left), target = text(name = \"关键字\"), direction = any, index = 2)";
+    let query = parse_query(source).expect("edge AQL should parse");
+    let plan = compile_vision_query(&query).expect("edge AQL should compile");
+    let result = evaluate_vision_query(&app, &plan, source).expect("edge query executes");
+
+    assert_eq!(
+        require_unique(&result, source)
+            .expect("second candidate is unique")
+            .0
+            .node
+            .bbox
+            .x,
+        40
+    );
+}
+
+#[test]
+fn viewport_anchor_rejects_a_tie_containing_requested_rank() {
+    let app = app_scene(vec![window_scene_with_size(
+        1,
+        7,
+        200,
+        200,
+        &[("同距", 10, 20), ("同距", 20, 10)],
+    )]);
+    let source = "nearest(anchor = viewport_corner(position = top_left), target = text(name = \"同距\"), direction = any, index = 1)";
+    let query = parse_query(source).expect("corner AQL should parse");
+    let plan = compile_vision_query(&query).expect("corner AQL should compile");
+    let error = evaluate_vision_query(&app, &plan, source).expect_err("tie must be ambiguous");
+
+    assert!(matches!(
+        error,
+        AutomationError::AmbiguousTarget { matches: 2, .. }
+    ));
+}
+
+#[test]
+fn viewport_anchor_preserves_cross_window_ambiguity() {
+    let app = app_scene(vec![
+        window_scene(1, 7, &[("搜索", 10, 10)]),
+        window_scene(2, 7, &[("搜索", 10, 10)]),
+    ]);
+    let source = "nearest(anchor = viewport_corner(position = top_left), target = text(name = \"搜索\"), direction = any, index = 1)";
+    let query = parse_query(source).expect("corner AQL should parse");
+    let plan = compile_vision_query(&query).expect("corner AQL should compile");
+    let result = evaluate_vision_query(&app, &plan, source).expect("per-window ranking succeeds");
+    let error = require_unique(&result, source).expect_err("two window matches stay ambiguous");
+
+    assert!(matches!(
+        error,
+        AutomationError::AmbiguousTarget { matches: 2, .. }
+    ));
 }
 
 fn app_scene(windows: Vec<AppWindowScene>) -> AppScene {
@@ -127,18 +263,29 @@ fn app_scene(windows: Vec<AppWindowScene>) -> AppScene {
 }
 
 fn window_scene(handle: u64, process_id: u32, items: &[(&str, i32, i32)]) -> AppWindowScene {
+    window_scene_with_size(handle, process_id, 200, 120, items)
+}
+
+/// 创建具有显式宽高的窗口 Scene，用于验证 X/Y 独立缩放。
+fn window_scene_with_size(
+    handle: u64,
+    process_id: u32,
+    width: u32,
+    height: u32,
+    items: &[(&str, i32, i32)],
+) -> AppWindowScene {
     let identity = WindowIdentity { handle, process_id };
     let frame = CapturedFrame::from_bgra8(
         FrameId::new(handle),
         TopologyGeneration::new(1),
         identity,
         QpcTimestamp::new(handle),
-        200,
-        120,
+        width,
+        height,
         96,
         96,
-        800,
-        vec![0; 200 * 120 * 4],
+        width as usize * 4,
+        vec![0; (width * height * 4) as usize],
     )
     .expect("fixture frame should be valid");
     let response = OcrResponse {
@@ -148,10 +295,10 @@ fn window_scene(handle: u64, process_id: u32, items: &[(&str, i32, i32)]) -> App
         model: OcrModel::PpOcrV6Small,
         elapsed_ms: 1,
         preprocessing: OcrPreprocessingSummary {
-            input_width: 200,
-            input_height: 120,
-            output_width: 200,
-            output_height: 120,
+            input_width: width,
+            input_height: height,
+            output_width: width,
+            output_height: height,
             contrast_enhanced: false,
             sharpened: false,
             binarized: false,
@@ -178,7 +325,7 @@ fn window_scene(handle: u64, process_id: u32, items: &[(&str, i32, i32)]) -> App
             identity,
             owner_handle: None,
             z_order: handle as usize,
-            screen_bounds: PhysicalRect::new(0, 0, 200, 120).expect("valid bounds"),
+            screen_bounds: PhysicalRect::new(0, 0, width, height).expect("valid bounds"),
             foreground: handle == 1,
         },
         scene: Arc::clone(&scene),

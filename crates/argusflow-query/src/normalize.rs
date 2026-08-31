@@ -1,4 +1,6 @@
-use argusflow_core::{ElementMatcher, PredicateValue, PropertyPredicate, QueryExpr, UiQuery};
+use argusflow_core::{
+    ElementMatcher, PredicateValue, PropertyPredicate, QueryExpr, SpatialAnchor, UiQuery,
+};
 
 /// 生成语义等价且顺序稳定的查询树，供缓存、分析和 canonical 输出使用。
 pub fn normalize_query(query: &UiQuery) -> UiQuery {
@@ -44,7 +46,7 @@ fn normalize_expression(expression: &QueryExpr) -> QueryExpr {
             index,
             metric,
         } => QueryExpr::Nearest {
-            anchor: Box::new(normalize_expression(anchor)),
+            anchor: normalize_spatial_anchor(anchor),
             target: Box::new(normalize_expression(target)),
             direction: *direction,
             index: *index,
@@ -53,6 +55,19 @@ fn normalize_expression(expression: &QueryExpr) -> QueryExpr {
         QueryExpr::Css { selector } => QueryExpr::Css {
             selector: selector.trim().to_owned(),
         },
+    }
+}
+
+/// 只递归规范化元素锚点；viewport 锚点已经是规范化值。
+fn normalize_spatial_anchor(anchor: &SpatialAnchor) -> SpatialAnchor {
+    match anchor {
+        SpatialAnchor::Element { query } => SpatialAnchor::Element {
+            query: Box::new(normalize_expression(query)),
+        },
+        SpatialAnchor::ViewportCorner { position } => SpatialAnchor::ViewportCorner {
+            position: *position,
+        },
+        SpatialAnchor::ViewportEdge { side } => SpatialAnchor::ViewportEdge { side: *side },
     }
 }
 

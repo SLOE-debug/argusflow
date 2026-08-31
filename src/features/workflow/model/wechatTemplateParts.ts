@@ -7,21 +7,20 @@ import type {
 } from './contracts';
 import type { KeyboardKey, KeyboardModifier } from './inputContracts';
 
-/** 微信主窗口右侧会话标题栏，排除左侧联系人列表中的同名文字。 */
-const WECHAT_CONVERSATION_HEADER_REGION = {
-  x: 0.34,
-  y: 0,
-  width: 0.66,
-  height: 0.13,
-} as const;
+/**
+ * 以左上角“搜索”为语义锚点：最近的同名文字是侧栏联系人，第二近才是会话标题。
+ * 只有侧栏联系人而右侧会话尚未切换完成时，显式的第二名不存在，查询不会误通过。
+ */
+const WECHAT_CONVERSATION_HEADER_QUERY =
+  'nearest(anchor = text(name = "搜索"), target = text(name = $contact_name), direction = any, index = 2)';
 
-/** 微信主窗口右侧消息区，排除标题栏、联系人列表和底部输入框。 */
-const WECHAT_CONVERSATION_MESSAGES_REGION = {
-  x: 0.34,
-  y: 0.13,
-  width: 0.66,
-  height: 0.64,
-} as const;
+/** 创建参数化 AQL v2 查询，供目标和后置条件共用同一契约。 */
+function createWechatAqlQuery(
+  source: string,
+  bindings: AqlQuery['bindings'] = {},
+): AqlQuery {
+  return { language_version: 2, source, bindings };
+}
 
 /** 创建绑定微信 Application 节点的当前焦点输入目标。 */
 export function createWechatInputTarget(applicationNodeId: string): AutomationTarget {
@@ -58,7 +57,7 @@ export function createWechatAqlTarget(
     },
     locator: {
       type: 'query',
-      query: { language_version: 2, source, bindings },
+      query: createWechatAqlQuery(source, bindings),
     },
     backend_policy: {
       allow: ['ocr_small', 'send_input'],
@@ -94,17 +93,15 @@ export function createWechatOpenConversationExecutionPolicy(
     target_wait: { mode: 'bounded', timeout_ms: 5_000, poll_interval_ms: 300 },
     postcondition_wait: { mode: 'bounded', timeout_ms: 5_000, poll_interval_ms: 150 },
     postcondition: {
-      type: 'text_present',
-      query: {
-        text: contactName,
-        exact: true,
-        region: WECHAT_CONVERSATION_HEADER_REGION,
-      },
+      type: 'match_present',
+      query: createWechatAqlQuery(WECHAT_CONVERSATION_HEADER_QUERY, {
+        contact_name: contactName,
+      }),
     },
   };
 }
 
-/** 发送消息要求同一会话保持不变，且消息区中的同文案实例数量增加。 */
+/** 发送消息要求会话标题保持原位，并出现不与输入框旧文字重叠的新消息实例。 */
 export function createWechatSendMessageExecutionPolicy(
   contactName: ValueExpr,
 ): UiExecutionPolicy {
@@ -112,21 +109,17 @@ export function createWechatSendMessageExecutionPolicy(
     target_wait: { mode: 'none', timeout_ms: 0, poll_interval_ms: 0 },
     postcondition_wait: { mode: 'bounded', timeout_ms: 5_000, poll_interval_ms: 150 },
     postcondition: {
-      type: 'new_text',
-      query: {
-        text: {
+      type: 'match_added',
+      query: createWechatAqlQuery('text(name = $message)', {
+        message: {
           type: 'ref',
           source: { type: 'workflow_input', key: 'message' },
           pointer: '',
         },
-        exact: true,
-        region: WECHAT_CONVERSATION_MESSAGES_REGION,
-      },
-      stable_context: [{
-        text: contactName,
-        exact: true,
-        region: WECHAT_CONVERSATION_HEADER_REGION,
-      }],
+      }),
+      stable_context: [createWechatAqlQuery(WECHAT_CONVERSATION_HEADER_QUERY, {
+        contact_name: contactName,
+      })],
     },
   };
 }

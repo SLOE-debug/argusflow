@@ -19,7 +19,6 @@ mod prepared;
 mod query;
 mod resource;
 mod value;
-mod visual;
 mod workflow;
 
 pub use action_options::{
@@ -53,11 +52,14 @@ pub use execution::{
 pub use input::{RunInputs, WorkflowInputDefinition, WorkflowInputType};
 pub use keyboard::{KeyChord, KeyboardKey, KeyboardModifier};
 pub use output::{ActionOutputContract, ActionOutputKey, OutputContractError};
-pub use prepared::{PreparedAutomationTarget, PreparedTargetLocator, PreparedVisualPostcondition};
+pub use prepared::{
+    PreparedAqlQuery, PreparedAutomationTarget, PreparedTargetLocator, PreparedVisualPostcondition,
+};
 pub use query::{
     AqlQuery, DistanceMetric, DomAttribute, ElementMatcher, ElementRole, MatchOperator,
     PredicateValue, PropertyPredicate, QueryExpr, QueryLanguageVersion, QueryParameter,
-    QueryValueType, RegexLiteral, SelectorAttribute, SpatialDirection, UiQuery, UiaAttribute,
+    QueryValueType, RegexLiteral, SelectorAttribute, SpatialAnchor, SpatialDirection, UiQuery,
+    UiaAttribute, ViewportCorner, ViewportEdge,
 };
 pub use resource::{
     AppSession, ApplicationError, ApplicationSessionProvider, BrowserError, BrowserSession,
@@ -65,7 +67,6 @@ pub use resource::{
     ResourceTypeId, WindowIdentity,
 };
 pub use value::{ValueExpr, ValueSource};
-pub use visual::{NormalizedRect, VisualQuery, VisualQueryExpr};
 pub use workflow::{
     ControlPortId, NodeEnvelope, NodeTypeId, Position, WorkflowDefinition, WorkflowEdge,
     WorkflowNode,

@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use argusflow_core::{
-    BackendKind, BackendPolicy, PreparedTargetLocator, RunTraceContext, ScreenPoint,
-    TargetWaitPolicy, VisualQuery,
+    BackendKind, BackendPolicy, PreparedAqlQuery, PreparedTargetLocator, RunTraceContext,
+    ScreenPoint, TargetWaitPolicy,
 };
 use async_trait::async_trait;
 use uuid::Uuid;
@@ -196,15 +196,17 @@ impl VisualBaseline {
 /// 发送后视觉验证的三态结果。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VisualVerificationResult {
-    /// 同一窗口内目标文字实例数量相对动作前严格增加。
-    NewTextConfirmed {
-        /// 动作前完整画面中的目标实例数量。
+    /// 同一窗口内出现了不与动作前旧实例重叠的新匹配。
+    MatchAddedConfirmed {
+        /// 动作前完整画面中的匹配数量。
         baseline_count: usize,
-        /// 动作后完整画面中的目标实例数量。
+        /// 动作后完整画面中的匹配数量。
         current_count: usize,
+        /// 动作后判定为新实例的匹配数量。
+        added_count: usize,
     },
-    /// 动作后的新鲜画面中唯一存在目标文字。
-    TextPresentConfirmed,
+    /// 动作后的新鲜画面中唯一存在目标匹配。
+    MatchPresentConfirmed,
     /// 新场景明确没有新增事实。
     Rejected {
         /// 可展示给 Explain/Evidence 的原因。
@@ -224,8 +226,8 @@ pub trait VisualVerificationProvider: Send + Sync {
     async fn capture_baseline(
         &self,
         window: &WindowContext,
-        query: &VisualQuery,
-        stable_context: &[VisualQuery],
+        query: &PreparedAqlQuery,
+        stable_context: &[PreparedAqlQuery],
         trace_context: Option<RunTraceContext>,
     ) -> Result<VisualBaseline, argusflow_core::AutomationError>;
 
@@ -233,18 +235,16 @@ pub trait VisualVerificationProvider: Send + Sync {
     async fn discard_baseline(&self, _baseline: VisualBaseline) {}
 
     /// 消费 baseline 并将新场景与其做严格 delta 验证。
-    async fn verify_new_text(
+    async fn verify_match_added(
         &self,
         baseline: VisualBaseline,
-        query: &VisualQuery,
         wait: TargetWaitPolicy,
     ) -> Result<VisualVerificationResult, argusflow_core::AutomationError>;
 
     /// 在动作完成后轮询新鲜画面，直到目标文字严格唯一或预算耗尽。
-    async fn verify_text_present(
+    async fn verify_match_present(
         &self,
         baseline: VisualBaseline,
-        query: &VisualQuery,
         wait: TargetWaitPolicy,
     ) -> Result<VisualVerificationResult, argusflow_core::AutomationError>;
 }

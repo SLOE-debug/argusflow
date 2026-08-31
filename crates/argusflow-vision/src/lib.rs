@@ -15,7 +15,6 @@ mod ocr;
 mod projection;
 mod query;
 mod refresh;
-mod region;
 mod runtime;
 mod scene;
 mod scope;
@@ -43,13 +42,10 @@ pub use ocr::{
 };
 pub use projection::{SceneNodeProjection, SceneProjection, project_app_scene};
 pub use query::{
-    VisionQueryCompileError, VisionQueryMetrics, VisionQueryPlan, VisionQueryResult, VisualMatch,
-    VisualQueryCandidateSummary, VisualQueryReport, compile_vision_query, evaluate_app_query,
-    evaluate_vision_query, evaluate_visual_query, matching_app_nodes, matching_nodes,
-    require_unique,
+    VisionQueryCompileError, VisionQueryMetrics, VisionQueryPlan, VisionQueryResult,
+    compile_vision_query, evaluate_vision_query, require_unique,
 };
 pub use refresh::{RefreshPlan, RefreshReason, choose_refresh_plan};
-pub use region::normalized_region_to_physical;
 pub use runtime::{
     ResolvedTargetHandoffKey, SceneRefreshPolicy, VisionHealth, VisionRuntime, VisualSceneService,
 };

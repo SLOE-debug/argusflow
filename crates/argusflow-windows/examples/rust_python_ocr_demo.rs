@@ -8,11 +8,14 @@ use std::{
     time::{Duration, Instant},
 };
 
-use argusflow_core::{NormalizedRect, VisualQuery, WindowIdentity};
+use argusflow_core::{
+    ElementMatcher, ElementRole, MatchOperator, PredicateValue, PropertyPredicate, QueryExpr,
+    SelectorAttribute, UiQuery, WindowIdentity,
+};
 use argusflow_vision::{
-    CapturePolicy, OcrEngine, OcrProfile, OcrRequest, OcrResponse, PhysicalRect, SceneBuildOptions,
-    VisualQueryReport, VisualSceneBuilder, WindowFrameSource, evaluate_visual_query,
-    matching_nodes, normalized_region_to_physical,
+    AppScene, AppWindowScene, CapturePolicy, OcrEngine, OcrProfile, OcrRequest, OcrResponse,
+    PhysicalRect, SceneBuildOptions, VisualSceneBuilder, WindowDescriptor, WindowFrameSource,
+    compile_vision_query, evaluate_vision_query, require_unique,
 };
 use argusflow_windows::capture::WindowsCaptureHost;
 use serde_json::Value;
@@ -38,7 +41,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         window,
         project_root,
         query,
-        region,
         exact,
     } = DemoArguments::parse()?;
     let project_root = project_root.unwrap_or(std::env::current_dir()?);
@@ -90,13 +92,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         frame.pixels().len()
     );
 
-    let query_roi = normalized_region_to_physical(region, frame.bounds())
-        .ok_or("query region does not intersect the captured frame")?;
     let probe_response = recognize_frame(
         &engine,
         window,
         frame.as_ref(),
-        query_roi,
+        frame.bounds(),
         OcrProfile::small(),
         PROBE_OCR_TIMEOUT,
         "probe_30s",
@@ -108,21 +108,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
         &engine,
         window,
         frame.as_ref(),
-        query_roi,
+        frame.bounds(),
         OcrProfile::small(),
         PRODUCTION_SMALL_TIMEOUT,
         "production_small_6s",
     )
     .await?;
     print_items("production_small_6s", &production_response);
-    print_query_report(
-        window,
-        frame.as_ref(),
-        &production_response,
-        &query,
-        region,
-        exact,
-    )?;
+    print_query_report(window, frame.as_ref(), &production_response, &query, exact)?;
 
     drop(subscription);
     drop(frame_source);
@@ -183,13 +176,12 @@ fn print_items(label: &str, response: &OcrResponse) {
     }
 }
 
-/// 使用指定生产查询区域执行匹配，并输出与 Studio 相同的 OCR 日志摘要。
+/// 使用与 Studio 相同的 AQL Vision 编译器执行匹配并输出求值指标。
 fn print_query_report(
     window: WindowIdentity,
     frame: &argusflow_vision::CapturedFrame,
     response: &OcrResponse,
     query_text: &str,
-    query_region: NormalizedRect,
     exact: bool,
 ) -> Result<(), Box<dyn Error>> {
     let mut builder = VisualSceneBuilder::new();
@@ -199,15 +191,44 @@ fn print_query_report(
         std::slice::from_ref(response),
         &SceneBuildOptions::default(),
     )?;
-    let query = VisualQuery {
-        text: query_text.to_owned(),
-        exact,
-        region: Some(query_region),
+    let operator = if exact {
+        MatchOperator::Equal
+    } else {
+        MatchOperator::Contains
     };
-    let candidates = matching_nodes(&scene, &query);
-    let report = VisualQueryReport::from_matches(&scene, &query, &candidates);
-    println!("search_query_log={}", report.summary());
-    evaluate_visual_query(&scene, &query)?;
+    let query = UiQuery::new(QueryExpr::Match {
+        matcher: ElementMatcher {
+            role: ElementRole::Text,
+            predicates: vec![PropertyPredicate {
+                attribute: SelectorAttribute::Name,
+                operator,
+                value: PredicateValue::Text(query_text.to_owned()),
+            }],
+        },
+    });
+    let plan = compile_vision_query(&query)?;
+    let app_scene = AppScene {
+        process_id: window.process_id,
+        windows: vec![AppWindowScene {
+            window: WindowDescriptor {
+                identity: window,
+                owner_handle: None,
+                z_order: 0,
+                screen_bounds: frame.bounds(),
+                foreground: true,
+            },
+            scene,
+        }],
+    };
+    let result = evaluate_vision_query(&app_scene, &plan, query_text)?;
+    println!(
+        "aql_matches={} scanned_nodes={} exact_index_hits={} elapsed_us={}",
+        result.matches.len(),
+        result.metrics.scanned_nodes,
+        result.metrics.exact_index_hits,
+        result.metrics.elapsed_us,
+    );
+    require_unique(&result, query_text)?;
     Ok(())
 }
 
@@ -220,8 +241,6 @@ struct DemoArguments {
     project_root: Option<PathBuf>,
     /// 需要在 OCR 结果中精确查找的文字。
     query: String,
-    /// 以当前捕获窗口比例表达的 OCR 查询区域。
-    region: NormalizedRect,
     /// 是否要求归一化后的 OCR 文字与查询完全相等。
     exact: bool,
 }
@@ -233,7 +252,6 @@ impl DemoArguments {
         let mut process_id = None;
         let mut project_root = None;
         let mut query = "网络结果".to_owned();
-        let mut region = NormalizedRect::new(0.08, 0.1, 0.38, 0.12)?;
         let mut exact = false;
         let mut arguments = std::env::args().skip(1);
         while let Some(argument) = arguments.next() {
@@ -251,9 +269,6 @@ impl DemoArguments {
                 "--query" => {
                     query = next_value(&mut arguments, "--query")?;
                 }
-                "--region" => {
-                    region = parse_region(&next_value(&mut arguments, "--region")?)?;
-                }
                 "--exact" => {
                     exact = true;
                 }
@@ -269,23 +284,9 @@ impl DemoArguments {
             window,
             project_root,
             query,
-            region,
             exact,
         })
     }
-}
-
-/// 解析 `x,y,width,height` 形式的归一化查询区域。
-fn parse_region(value: &str) -> Result<NormalizedRect, Box<dyn Error>> {
-    let values = value
-        .split(',')
-        .map(str::trim)
-        .map(str::parse::<f32>)
-        .collect::<Result<Vec<_>, _>>()?;
-    let [x, y, width, height] = values.as_slice() else {
-        return Err("--region must contain x,y,width,height".into());
-    };
-    Ok(NormalizedRect::new(*x, *y, *width, *height)?)
 }
 
 /// 读取一个必需的命令行参数值。

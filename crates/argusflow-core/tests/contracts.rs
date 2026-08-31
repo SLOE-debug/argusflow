@@ -5,10 +5,10 @@
 use argusflow_core::{
     AcquirePolicy, ActionOutputContract, ActionOutputKey, ActivationPolicy, ApplicationSpec,
     AqlQuery, AutomationTarget, BackendKind, BackendPolicy, CleanupPolicy, CommandOperation,
-    CommandRunner, KeyChord, KeyboardKey, KeyboardModifier, NodeEnvelope, NormalizedRect, Position,
-    ResourceRef, TargetLocator, TargetScope, UiOperation, ValueExpr, WindowTitleMatcher,
-    WorkflowCapabilityId, WorkflowDefinition, WorkflowEdge, WorkflowInputDefinition,
-    WorkflowInputType, WorkflowNode, WorkflowPermissions,
+    CommandRunner, KeyChord, KeyboardKey, KeyboardModifier, NodeEnvelope, Position, ResourceRef,
+    TargetLocator, TargetScope, UiOperation, ValueExpr, WindowTitleMatcher, WorkflowCapabilityId,
+    WorkflowDefinition, WorkflowEdge, WorkflowInputDefinition, WorkflowInputType, WorkflowNode,
+    WorkflowPermissions,
 };
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -171,28 +171,6 @@ fn focused_keyboard_operation_round_trips_through_json() {
     assert!(serialized.contains("\"type\":\"focused\""));
     assert!(serialized.contains("\"modifiers\":[\"control\"]"));
     assert_eq!(decoded, operation);
-}
-
-#[test]
-fn normalized_visual_regions_reject_out_of_bounds_values() {
-    assert!(
-        serde_json::from_value::<NormalizedRect>(json!({
-            "x": 0.8,
-            "y": 0.0,
-            "width": 0.4,
-            "height": 0.2
-        }))
-        .is_err()
-    );
-    assert!(
-        serde_json::from_value::<NormalizedRect>(json!({
-            "x": 0.0,
-            "y": 0.0,
-            "width": 0.4,
-            "height": 0.2
-        }))
-        .is_ok()
-    );
 }
 
 #[test]

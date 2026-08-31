@@ -54,7 +54,16 @@ const SEMANTIC_TOKEN_INDEX = {
 type HighlightableSyntaxTokenKind = Exclude<SyntaxTokenKind, 'trivia' | 'unknown'>;
 
 /** WASM 初始化前供 Monarch 使用的 AQL 函数清单。 */
-const AQL_FALLBACK_FUNCTIONS = ['any', 'not', 'first', 'nth', 'nearest', 'css'] as const;
+const AQL_FALLBACK_FUNCTIONS = [
+  'any',
+  'not',
+  'first',
+  'nth',
+  'nearest',
+  'viewport_corner',
+  'viewport_edge',
+  'css',
+] as const;
 
 /** WASM 初始化前供 Monarch 使用的 AQL 属性清单。 */
 const AQL_FALLBACK_PROPERTIES = [
@@ -66,6 +75,13 @@ const AQL_FALLBACK_PROPERTIES = [
   'focused',
   'checked',
   'selected',
+  'anchor',
+  'target',
+  'direction',
+  'index',
+  'metric',
+  'position',
+  'side',
 ] as const;
 
 /** WASM 初始化前供 Monarch 使用的单词运算符清单。 */

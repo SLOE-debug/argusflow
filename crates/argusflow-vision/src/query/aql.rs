@@ -1,6 +1,6 @@
 //! AQL 文本查询到 OCR Scene 的一次性编译与无分配热路径求值。
 
-use std::{collections::BTreeMap, fmt, time::Instant};
+use std::{fmt, sync::Arc, time::Instant};
 
 use argusflow_core::{
     AutomationError, DistanceMetric, ElementRole, MatchOperator, PredicateValue, QueryExpr,
@@ -9,7 +9,14 @@ use argusflow_core::{
 use regex::{Regex, RegexBuilder};
 use serde::Serialize;
 
-use crate::{AppNodeRef, AppScene, PhysicalRect, normalize_text};
+use crate::{
+    AppNodeRef, AppScene, AppWindowScene, PhysicalRect, VisualNode, VisualScene, WindowDescriptor,
+    normalize_text,
+};
+
+mod spatial;
+
+use spatial::{VisionAnchor, compile_anchor, evaluate_nearest, validate_viewport_direction};
 
 /// Vision 后端可直接执行的冻结查询计划。
 #[derive(Debug)]
@@ -36,6 +43,15 @@ pub struct VisionQueryMetrics {
 pub struct VisionQueryResult<'scene> {
     /// 按窗口 Z-Order、节点 y/x 排列的候选。
     pub matches: Vec<AppNodeRef<'scene>>,
+    /// 本次求值产生的热路径计数器。
+    pub metrics: VisionQueryMetrics,
+}
+
+/// 单窗口后置条件求值返回的可持有节点快照。
+#[derive(Debug)]
+pub(crate) struct VisionWindowQueryResult {
+    /// 当前完整帧中的全部查询匹配。
+    pub matches: Vec<VisualNode>,
     /// 本次求值产生的热路径计数器。
     pub metrics: VisionQueryMetrics,
 }
@@ -82,6 +98,41 @@ pub fn evaluate_vision_query<'scene>(
     Ok(VisionQueryResult { matches, metrics })
 }
 
+/// 在一份已绑定窗口的完整 Scene 上执行 AQL，并复制短期匹配供前后帧比较。
+pub(crate) fn evaluate_window_query(
+    scene: &Arc<VisualScene>,
+    plan: &VisionQueryPlan,
+    query_source: &str,
+) -> Result<VisionWindowQueryResult, AutomationError> {
+    let app_scene = AppScene {
+        process_id: scene.window.process_id,
+        windows: vec![AppWindowScene {
+            window: WindowDescriptor {
+                identity: scene.window,
+                owner_handle: None,
+                z_order: 0,
+                screen_bounds: PhysicalRect {
+                    x: scene.viewport_origin.x,
+                    y: scene.viewport_origin.y,
+                    width: scene.viewport.width,
+                    height: scene.viewport.height,
+                },
+                foreground: true,
+            },
+            scene: Arc::clone(scene),
+        }],
+    };
+    let result = evaluate_vision_query(&app_scene, plan, query_source)?;
+    Ok(VisionWindowQueryResult {
+        matches: result
+            .matches
+            .into_iter()
+            .map(|candidate| candidate.node.clone())
+            .collect(),
+        metrics: result.metrics,
+    })
+}
+
 /// 对要求唯一目标的动作执行严格 0/1/N 判定。
 pub fn require_unique<'scene>(
     result: &VisionQueryResult<'scene>,
@@ -108,7 +159,7 @@ enum VisionExpr {
     First(Box<VisionExpr>),
     Nth(Box<VisionExpr>, usize),
     Nearest {
-        anchor: Box<VisionExpr>,
+        anchor: VisionAnchor,
         target: Box<VisionExpr>,
         direction: SpatialDirection,
         index: usize,
@@ -192,13 +243,16 @@ fn compile_expression(expression: &QueryExpr) -> Result<VisionExpr, VisionQueryC
             direction,
             index,
             metric,
-        } => Ok(VisionExpr::Nearest {
-            anchor: Box::new(compile_expression(anchor)?),
-            target: Box::new(compile_expression(target)?),
-            direction: *direction,
-            index: index.get(),
-            metric: *metric,
-        }),
+        } => {
+            validate_viewport_direction(anchor, *direction)?;
+            Ok(VisionExpr::Nearest {
+                anchor: compile_anchor(anchor)?,
+                target: Box::new(compile_expression(target)?),
+                direction: *direction,
+                index: index.get(),
+                metric: *metric,
+            })
+        }
         QueryExpr::Descendant { .. }
         | QueryExpr::Child { .. }
         | QueryExpr::Not { .. }
@@ -326,117 +380,6 @@ impl VisionMatcher {
             VisionPredicate::Regex(regex) => regex.is_match(actual),
         })
     }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn evaluate_nearest<'scene>(
-    scene: &'scene AppScene,
-    anchor: &VisionExpr,
-    target: &VisionExpr,
-    direction: SpatialDirection,
-    index: usize,
-    metric: DistanceMetric,
-    window_scope: &[usize],
-    query_source: &str,
-    metrics: &mut VisionQueryMetrics,
-) -> Result<Vec<AppNodeRef<'scene>>, AutomationError> {
-    let anchors = evaluate_expression(scene, anchor, window_scope, query_source, metrics)?;
-    let anchor = match anchors.as_slice() {
-        [] => return Ok(Vec::new()),
-        [anchor] => *anchor,
-        matches => {
-            return Err(AutomationError::AmbiguousTarget {
-                query: query_source.to_owned(),
-                matches: matches.len(),
-                details: "nearest anchor must resolve to exactly one OCR text node".to_owned(),
-            });
-        }
-    };
-    let anchor_window_index = scene
-        .windows
-        .iter()
-        .position(|window| window.window.identity == anchor.window.identity)
-        .ok_or_else(|| AutomationError::BackendFailed {
-            backend: argusflow_core::BackendKind::OcrSmall,
-            message: "nearest anchor window disappeared from the frozen scene".to_owned(),
-        })?;
-    let mut ranked = BTreeMap::<u128, Vec<AppNodeRef<'scene>>>::new();
-    for candidate in
-        evaluate_expression(scene, target, &[anchor_window_index], query_source, metrics)?
-    {
-        if candidate.node.id == anchor.node.id
-            || !in_direction(anchor.node.bbox, candidate.node.bbox, direction)
-        {
-            continue;
-        }
-        metrics.spatial_candidates += 1;
-        ranked
-            .entry(distance_squared(
-                anchor.node.bbox,
-                candidate.node.bbox,
-                metric,
-            ))
-            .or_default()
-            .push(candidate);
-    }
-    let Some((_, selected_rank)) = ranked.into_iter().nth(index - 1) else {
-        return Ok(Vec::new());
-    };
-    if selected_rank.len() > 1 {
-        return Err(AutomationError::AmbiguousTarget {
-            query: query_source.to_owned(),
-            matches: selected_rank.len(),
-            details: format!("nearest distance rank {index} contains an exact geometry tie"),
-        });
-    }
-    Ok(selected_rank)
-}
-
-fn in_direction(anchor: PhysicalRect, target: PhysicalRect, direction: SpatialDirection) -> bool {
-    let anchor_x = i128::from(anchor.x) * 2 + i128::from(anchor.width);
-    let anchor_y = i128::from(anchor.y) * 2 + i128::from(anchor.height);
-    let target_x = i128::from(target.x) * 2 + i128::from(target.width);
-    let target_y = i128::from(target.y) * 2 + i128::from(target.height);
-    match direction {
-        SpatialDirection::Any => true,
-        SpatialDirection::Above => target_y < anchor_y,
-        SpatialDirection::Below => target_y > anchor_y,
-        SpatialDirection::Left => target_x < anchor_x,
-        SpatialDirection::Right => target_x > anchor_x,
-    }
-}
-
-fn distance_squared(anchor: PhysicalRect, target: PhysicalRect, metric: DistanceMetric) -> u128 {
-    let (dx, dy) = match metric {
-        DistanceMetric::CenterDistanceNormalized => {
-            let anchor_x = i128::from(anchor.x) * 2 + i128::from(anchor.width);
-            let anchor_y = i128::from(anchor.y) * 2 + i128::from(anchor.height);
-            let target_x = i128::from(target.x) * 2 + i128::from(target.width);
-            let target_y = i128::from(target.y) * 2 + i128::from(target.height);
-            (
-                (target_x - anchor_x).unsigned_abs(),
-                (target_y - anchor_y).unsigned_abs(),
-            )
-        }
-        DistanceMetric::EdgeGapNormalized => {
-            let horizontal = if anchor.right() < i64::from(target.x) {
-                i128::from(i64::from(target.x) - anchor.right())
-            } else if target.right() < i64::from(anchor.x) {
-                i128::from(i64::from(anchor.x) - target.right())
-            } else {
-                0
-            };
-            let vertical = if anchor.bottom() < i64::from(target.y) {
-                i128::from(i64::from(target.y) - anchor.bottom())
-            } else if target.bottom() < i64::from(anchor.y) {
-                i128::from(i64::from(anchor.y) - target.bottom())
-            } else {
-                0
-            };
-            (horizontal as u128, vertical as u128)
-        }
-    };
-    dx.saturating_mul(dx).saturating_add(dy.saturating_mul(dy))
 }
 
 #[cfg(test)]

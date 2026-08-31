@@ -31,7 +31,7 @@ export function createWechatMessageDefinition(): FlowComponentDefinition {
   return {
     schema_version: 1,
     id: WECHAT_MESSAGE_COMPONENT_ID,
-    version: '4.0.0',
+    version: '5.0.0',
     name: '发送微信联系人消息',
     inputs: [
       { key: 'contact_name', value_type: 'text' },
@@ -50,7 +50,7 @@ export function createWechatMessageDefinition(): FlowComponentDefinition {
       componentNode(applicationNodeId, 180, 'argus.application', 1, {
         spec: createWechatApplicationSpec(),
       }),
-      componentNode('open_search', 400, 'argus.ui', 3, {
+      componentNode('open_search', 400, 'argus.ui', 4, {
         operation: createWechatPressKeyOperation(
           applicationNodeId,
           { type: 'character', value: 'f' },
@@ -58,14 +58,14 @@ export function createWechatMessageDefinition(): FlowComponentDefinition {
         ),
         execution: createWechatInputExecutionPolicy(),
       }),
-      componentNode('verify_search', 620, 'argus.ui', 3, {
+      componentNode('verify_search', 620, 'argus.ui', 4, {
         operation: createWechatAqlGetTextOperation(
           applicationNodeId,
           'text(name contains "网络结果")',
         ),
         execution: visualExecution,
       }),
-      componentNode('select_search', 840, 'argus.ui', 3, {
+      componentNode('select_search', 840, 'argus.ui', 4, {
         operation: createWechatPressKeyOperation(
           applicationNodeId,
           { type: 'character', value: 'a' },
@@ -73,11 +73,11 @@ export function createWechatMessageDefinition(): FlowComponentDefinition {
         ),
         execution: createWechatInputExecutionPolicy(),
       }),
-      componentNode('type_contact', 1_060, 'argus.ui', 3, {
+      componentNode('type_contact', 1_060, 'argus.ui', 4, {
         operation: createWechatTypeTextOperation(applicationNodeId, 'contact_name'),
         execution: createWechatInputExecutionPolicy(),
       }),
-      componentNode('click_contact', 1_280, 'argus.ui', 3, {
+      componentNode('click_contact', 1_280, 'argus.ui', 4, {
         operation: createWechatAqlClickOperation(
           applicationNodeId,
           WECHAT_CONTACT_RESULT_QUERY,
@@ -85,11 +85,11 @@ export function createWechatMessageDefinition(): FlowComponentDefinition {
         ),
         execution: createWechatOpenConversationExecutionPolicy(contactName),
       }),
-      componentNode('type_message', 1_500, 'argus.ui', 3, {
+      componentNode('type_message', 1_500, 'argus.ui', 4, {
         operation: createWechatTypeTextOperation(applicationNodeId, 'message'),
         execution: createWechatInputExecutionPolicy(),
       }),
-      componentNode('send_message', 1_720, 'argus.ui', 3, {
+      componentNode('send_message', 1_720, 'argus.ui', 4, {
         operation: createWechatPressKeyOperation(applicationNodeId, { type: 'enter' }, []),
         execution: createWechatSendMessageExecutionPolicy(contactName),
       }),

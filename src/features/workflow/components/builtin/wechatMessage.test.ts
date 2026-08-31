@@ -9,7 +9,12 @@ describe('WeChat message component', () => {
     const clickContact = definition.nodes.find((node) => node.id === 'click_contact');
     const sendMessage = definition.nodes.find((node) => node.id === 'send_message');
 
-    expect(definition.version).toBe('4.0.0');
+    expect(definition.version).toBe('5.0.0');
+    expect(
+      definition.nodes
+        .filter((node) => node.type_id === 'argus.ui')
+        .every((node) => node.version === 4),
+    ).toBe(true);
     expect(nodeIds).not.toContain('find_contact');
     expect(nodeIds).not.toContain('verify_header');
     expect(definition.edges).toContainEqual(expect.objectContaining({
@@ -22,14 +27,22 @@ describe('WeChat message component', () => {
     }));
     expect(clickContact?.payload).toEqual(expect.objectContaining({
       execution: expect.objectContaining({
-        postcondition: expect.objectContaining({ type: 'text_present' }),
+        postcondition: {
+          type: 'match_present',
+          query: expect.objectContaining({
+            source: 'nearest(anchor = text(name = "搜索"), target = text(name = $contact_name), direction = any, index = 2)',
+          }),
+        },
       }),
     }));
     expect(sendMessage?.payload).toEqual(expect.objectContaining({
       execution: expect.objectContaining({
         postcondition: expect.objectContaining({
-          type: 'new_text',
-          stable_context: [expect.objectContaining({ exact: true })],
+          type: 'match_added',
+          query: expect.objectContaining({ source: 'text(name = $message)' }),
+          stable_context: [expect.objectContaining({
+            source: 'nearest(anchor = text(name = "搜索"), target = text(name = $contact_name), direction = any, index = 2)',
+          })],
         }),
       }),
     }));

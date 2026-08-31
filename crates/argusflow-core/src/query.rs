@@ -6,6 +6,10 @@ use std::{collections::BTreeMap, fmt, num::NonZeroUsize};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 
+mod spatial;
+
+pub use spatial::{DistanceMetric, SpatialAnchor, SpatialDirection, ViewportCorner, ViewportEdge};
+
 /// 当前稳定 AQL 语言版本。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum QueryLanguageVersion {
@@ -142,8 +146,8 @@ pub enum QueryExpr {
     },
     /// 以唯一 anchor 为中心按相对方向和归一化距离选择显式名次。
     Nearest {
-        /// 必须唯一命中的锚点查询。
-        anchor: Box<QueryExpr>,
+        /// 元素查询、viewport 角或 viewport 边组成的空间锚点。
+        anchor: SpatialAnchor,
         /// 参与方向过滤和距离排序的目标查询。
         target: Box<QueryExpr>,
         /// 相对于锚点的方向约束。
@@ -158,59 +162,6 @@ pub enum QueryExpr {
         /// 不由 AQL 解释的完整 CSS selector。
         selector: String,
     },
-}
-
-/// 空间查询相对于 anchor 的有限方向集合。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SpatialDirection {
-    /// 不限制方向。
-    Any,
-    /// 目标位于锚点上方。
-    Above,
-    /// 目标位于锚点下方。
-    Below,
-    /// 目标位于锚点左侧。
-    Left,
-    /// 目标位于锚点右侧。
-    Right,
-}
-
-impl fmt::Display for SpatialDirection {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::Any => "any",
-            Self::Above => "above",
-            Self::Below => "below",
-            Self::Left => "left",
-            Self::Right => "right",
-        })
-    }
-}
-
-/// 视觉空间排序使用的分辨率无关距离度量。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum DistanceMetric {
-    /// 两个矩形边缘间隙除以 viewport 对角线；相交轴不产生额外距离。
-    EdgeGapNormalized,
-    /// 两个矩形中心距离除以 viewport 对角线。
-    CenterDistanceNormalized,
-}
-
-impl Default for DistanceMetric {
-    fn default() -> Self {
-        Self::EdgeGapNormalized
-    }
-}
-
-impl fmt::Display for DistanceMetric {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::EdgeGapNormalized => "edge_gap",
-            Self::CenterDistanceNormalized => "center_distance",
-        })
-    }
 }
 
 /// 单个 UI 元素的语义角色和属性谓词。

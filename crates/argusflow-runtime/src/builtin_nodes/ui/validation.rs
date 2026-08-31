@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 
 use argusflow_core::{
-    BackendKind, FieldProjectionSource, KeyboardKey, TargetLocator, TargetScope, TargetWaitMode,
-    TargetWaitPolicy, UiExecutionPolicy, UiOperation, UiPostcondition, ValueExpr,
+    AqlQuery, BackendKind, FieldProjectionSource, KeyboardKey, TargetLocator, TargetScope,
+    TargetWaitMode, TargetWaitPolicy, UiExecutionPolicy, UiOperation, UiPostcondition,
 };
 use argusflow_query::{parse_stored_query, query_parameter_names};
 
@@ -234,50 +234,70 @@ fn validate_postcondition(
         return;
     };
     match postcondition {
-        UiPostcondition::NewText {
+        UiPostcondition::MatchAdded {
             query,
             stable_context,
         } => {
             if !is_input_operation(operation) {
                 issues.push(context.issue(
                     ValidationIssueCode::InvalidNodeDefinition,
-                    "视觉新增文字后置条件只能用于按键或物理文本输入动作",
+                    "视觉新增匹配后置条件只能用于按键或物理文本输入动作",
                 ));
             }
-            validate_visual_text(query, context, issues);
+            validate_aql_query(query, "视觉新增匹配", context, issues);
             if stable_context.is_empty() {
                 issues.push(context.issue(
                     ValidationIssueCode::InvalidNodeDefinition,
-                    "视觉新增文字后置条件必须至少绑定一条稳定上下文查询",
+                    "视觉新增匹配后置条件必须至少绑定一条稳定上下文查询",
                 ));
             }
             for query in stable_context {
-                validate_visual_text(query, context, issues);
+                validate_aql_query(query, "视觉稳定上下文", context, issues);
             }
         }
-        UiPostcondition::TextPresent { query } => {
+        UiPostcondition::MatchPresent { query } => {
             if !matches!(operation, UiOperation::Click { .. }) && !is_input_operation(operation) {
                 issues.push(context.issue(
                     ValidationIssueCode::InvalidNodeDefinition,
-                    "视觉文字存在后置条件只能用于点击、按键或物理文本输入动作",
+                    "视觉匹配存在后置条件只能用于点击、按键或物理文本输入动作",
                 ));
             }
-            validate_visual_text(query, context, issues);
+            validate_aql_query(query, "视觉匹配存在", context, issues);
         }
     }
 }
 
-/// 校验一条视觉查询的静态文字值；动态值留到 Runtime 冻结时解析。
-fn validate_visual_text(
-    query: &argusflow_core::VisualQueryExpr,
+/// 校验后置条件使用的 AQL 语法以及源码和参数绑定集合的一致性。
+fn validate_aql_query(
+    query: &AqlQuery,
+    label: &str,
     context: &NodeValidationContext<'_>,
     issues: &mut Vec<ValidationIssue>,
 ) {
-    if visual_text_is_empty(&query.text) {
-        issues.push(context.issue(
-            ValidationIssueCode::InvalidAqlQuery,
-            "视觉后置条件文字不能为空",
-        ));
+    match parse_stored_query(query) {
+        Err(error) => {
+            let help = error
+                .help
+                .as_deref()
+                .map(|help| format!("；建议：{help}"))
+                .unwrap_or_default();
+            issues.push(context.issue(
+                ValidationIssueCode::InvalidAqlQuery,
+                format!("{label} AQL 查询无效：{error}{help}"),
+            ));
+        }
+        Ok(parsed) => {
+            let referenced = query_parameter_names(&parsed);
+            let bound = query.bindings.keys().cloned().collect();
+            if referenced != bound {
+                issues.push(context.issue(
+                    ValidationIssueCode::InvalidAqlQuery,
+                    format!(
+                        "{label} AQL 参数绑定与源码不一致：引用 {referenced:?}，绑定 {bound:?}"
+                    ),
+                ));
+            }
+        }
     }
 }
 
@@ -310,29 +330,9 @@ fn validate_locator(
     issues: &mut Vec<ValidationIssue>,
 ) {
     match &operation.target().locator {
-        TargetLocator::Query { query } => match parse_stored_query(query) {
-            Err(error) => {
-                let help = error
-                    .help
-                    .as_deref()
-                    .map(|help| format!("；建议：{help}"))
-                    .unwrap_or_default();
-                issues.push(context.issue(
-                    ValidationIssueCode::InvalidAqlQuery,
-                    format!("AQL 查询无效：{error}{help}"),
-                ));
-            }
-            Ok(parsed) => {
-                let referenced = query_parameter_names(&parsed);
-                let bound = query.bindings.keys().cloned().collect();
-                if referenced != bound {
-                    issues.push(context.issue(
-                        ValidationIssueCode::InvalidAqlQuery,
-                        format!("AQL 参数绑定与源码不一致：引用 {referenced:?}，绑定 {bound:?}"),
-                    ));
-                }
-            }
-        },
+        TargetLocator::Query { query } => {
+            validate_aql_query(query, "目标", context, issues);
+        }
         TargetLocator::Focused if !is_input_operation(operation) => {
             issues.push(context.issue(
                 ValidationIssueCode::InvalidNodeDefinition,
@@ -341,14 +341,6 @@ fn validate_locator(
         }
         TargetLocator::Coordinate { .. } | TargetLocator::Focused => {}
     }
-}
-
-/// 只有静态空字符串可以在工作流校验阶段直接判定为空；动态值交给 Runtime 求值。
-fn visual_text_is_empty(expression: &ValueExpr) -> bool {
-    matches!(
-        expression,
-        ValueExpr::Literal { value } if value.as_str().is_some_and(|text| text.trim().is_empty())
-    )
 }
 
 /// 判断操作是否依赖应用当前键盘焦点。

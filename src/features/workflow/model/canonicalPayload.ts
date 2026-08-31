@@ -2,6 +2,7 @@ import type {
   AcquirePolicy,
   ActivationPolicy,
   ApplicationSpec,
+  AqlQuery,
   AutomationTarget,
   BackendKind,
   BackendPolicy,
@@ -20,7 +21,6 @@ import type {
   WindowTitleMatcher,
 } from './contracts';
 import type { KeyboardKey, KeyboardModifier, KeyChord } from './inputContracts';
-import type { NormalizedRect } from './visual';
 import { isJsonObject } from './contracts';
 
 /** 从 canonical JSON payload 建立对象边界；缺失或错误类型立即终止模板初始化。 */
@@ -33,12 +33,6 @@ export function asObject(value: JsonValue | undefined, label = 'payload'): JsonO
 function asString(value: JsonValue | undefined, label: string): string {
   if (typeof value === 'string') return value;
   throw new Error(`canonical payload field '${label}' must be a string`);
-}
-
-/** 读取必填布尔字段。 */
-function asBoolean(value: JsonValue | undefined, label: string): boolean {
-  if (typeof value === 'boolean') return value;
-  throw new Error(`canonical payload field '${label}' must be a boolean`);
 }
 
 /** 读取有限数值字段。 */
@@ -102,29 +96,6 @@ function asValueSource(value: JsonValue | undefined): ValueSource {
     default:
       throw new Error(`canonical value source type '${type}' is unsupported`);
   }
-}
-
-/** 读取归一化视觉区域。 */
-function asNormalizedRect(value: JsonValue | undefined): NormalizedRect {
-  const object = asObject(value, 'visual_query.region');
-  const x = asNumber(object.x, 'visual_query.region.x');
-  const y = asNumber(object.y, 'visual_query.region.y');
-  const width = asNumber(object.width, 'visual_query.region.width');
-  const height = asNumber(object.height, 'visual_query.region.height');
-  if (x < 0 || y < 0 || width <= 0 || height <= 0 || x + width > 1 || y + height > 1) {
-    throw new Error("canonical visual query region must stay inside [0, 1]");
-  }
-  return { x, y, width, height };
-}
-
-/** 读取视觉查询表达式。 */
-function asVisualQuery(value: JsonValue | undefined): import('./visual').VisualQueryExpr {
-  const object = asObject(value, 'visual_query');
-  return {
-    text: asValueExpr(object.text),
-    exact: asBoolean(object.exact, 'visual_query.exact'),
-    region: object.region === null ? null : asNormalizedRect(object.region),
-  };
 }
 
 /** 读取资源引用。 */
@@ -196,29 +167,9 @@ function asTargetLocator(value: JsonValue | undefined): TargetLocator {
   const type = asString(object.type, 'target.locator.type');
   switch (type) {
     case 'query': {
-      const query = asObject(object.query, 'target.locator.query');
-      const languageVersion = asNumber(
-        query.language_version,
-        'target.locator.query.language_version',
-      );
-      if (languageVersion !== 1 && languageVersion !== 2) {
-        throw new Error("canonical AQL language_version must be 1 or 2");
-      }
-      const bindingsObject = query.bindings === undefined
-        ? {}
-        : asObject(query.bindings, 'target.locator.query.bindings');
       return {
         type,
-        query: {
-          language_version: languageVersion,
-          source: asString(query.source, 'target.locator.query.source'),
-          bindings: Object.fromEntries(
-            Object.entries(bindingsObject).map(([name, expression]) => [
-              name,
-              asValueExpr(expression),
-            ]),
-          ),
-        },
+        query: asAqlQuery(object.query, 'target.locator.query'),
       };
     }
     case 'coordinate': {
@@ -236,6 +187,28 @@ function asTargetLocator(value: JsonValue | undefined): TargetLocator {
     default:
       throw new Error(`canonical target locator '${type}' is unsupported`);
   }
+}
+
+/** 读取持久化 AQL 源码及其动态参数绑定。 */
+function asAqlQuery(value: JsonValue | undefined, label: string): AqlQuery {
+  const query = asObject(value, label);
+  const languageVersion = asNumber(query.language_version, `${label}.language_version`);
+  if (languageVersion !== 1 && languageVersion !== 2) {
+    throw new Error("canonical AQL language_version must be 1 or 2");
+  }
+  const bindingsObject = query.bindings === undefined
+    ? {}
+    : asObject(query.bindings, `${label}.bindings`);
+  return {
+    language_version: languageVersion,
+    source: asString(query.source, `${label}.source`),
+    bindings: Object.fromEntries(
+      Object.entries(bindingsObject).map(([name, expression]) => [
+        name,
+        asValueExpr(expression),
+      ]),
+    ),
+  };
 }
 
 /** 读取完整自动化目标。 */
@@ -314,17 +287,25 @@ function asPostcondition(value: JsonValue | undefined): UiPostcondition | null {
   if (value === null) return null;
   const object = asObject(value, 'execution.postcondition');
   const type = asString(object.type, 'execution.postcondition.type');
-  if (type === 'new_text') {
+  if (type === 'match_added') {
     return {
       type,
-      query: asVisualQuery(object.query),
+      query: asAqlQuery(object.query, 'execution.postcondition.query'),
       stable_context: asArray(
         object.stable_context,
         'execution.postcondition.stable_context',
-      ).map(asVisualQuery),
+      ).map((query, index) => asAqlQuery(
+        query,
+        `execution.postcondition.stable_context[${index}]`,
+      )),
     };
   }
-  if (type === 'text_present') return { type, query: asVisualQuery(object.query) };
+  if (type === 'match_present') {
+    return {
+      type,
+      query: asAqlQuery(object.query, 'execution.postcondition.query'),
+    };
+  }
   throw new Error(`canonical postcondition '${type}' is unsupported`);
 }
 

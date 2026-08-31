@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use argusflow_core::{AutomationError, BackendKind, RunTraceContext, VisualQuery};
+use argusflow_core::{AutomationError, BackendKind, RunTraceContext};
 
 use super::{SceneRefreshPolicy, VisionRuntime};
 use crate::{
@@ -49,76 +49,6 @@ impl VisionRuntime {
             process_id,
             windows: scenes,
         }))
-    }
-
-    /// Small 首选；0/N 结果立即交给外层等待器，只有唯一低置信度命中才升级模型。
-    pub async fn resolve_text(
-        &self,
-        inventory: &dyn WindowInventory,
-        process_id: u32,
-        query: &VisualQuery,
-        minimum_confidence: f32,
-        trace_context: Option<&RunTraceContext>,
-    ) -> Result<ResolvedTextTarget, AutomationError> {
-        let small = self
-            .current_app_scene(
-                inventory,
-                process_id,
-                &SceneRefreshPolicy::small(),
-                trace_context,
-            )
-            .await
-            .map_err(vision_runtime_error)?;
-        let small_matches = crate::matching_app_nodes(&small, query);
-        match small_matches.as_slice() {
-            [] => {
-                return Err(AutomationError::TargetNotFound {
-                    query: query.text.clone(),
-                    details: "Small OCR complete scene contains no matching text node".to_owned(),
-                });
-            }
-            [candidate] if candidate.node.confidence >= minimum_confidence => {
-                return Ok(owned_target(*candidate));
-            }
-            [_candidate] => {
-                // 唯一候选已证明文字语义可能存在，才值得支付更高精度模型的成本。
-            }
-            candidates => {
-                return Err(AutomationError::AmbiguousTarget {
-                    query: query.text.clone(),
-                    matches: candidates.len(),
-                    details: "Small OCR produced multiple matching window nodes".to_owned(),
-                });
-            }
-        }
-
-        let mut medium_policy = SceneRefreshPolicy::medium();
-        medium_policy.force_full_ocr = true;
-        let medium = self
-            .current_app_scene(inventory, process_id, &medium_policy, trace_context)
-            .await
-            .map_err(vision_runtime_error)?;
-        let candidates = crate::matching_app_nodes(&medium, query);
-        match candidates.as_slice() {
-            [candidate] if candidate.node.confidence >= minimum_confidence => {
-                Ok(owned_target(*candidate))
-            }
-            candidates if candidates.len() > 1 => Err(AutomationError::AmbiguousTarget {
-                query: query.text.clone(),
-                matches: candidates.len(),
-                details: "Small/Medium escalation still produced multiple window nodes".to_owned(),
-            }),
-            _ => {
-                let mut binary_policy = SceneRefreshPolicy::medium();
-                binary_policy.force_full_ocr = true;
-                binary_policy.ocr = OcrProfile::medium_binary();
-                let binary = self
-                    .current_app_scene(inventory, process_id, &binary_policy, trace_context)
-                    .await
-                    .map_err(vision_runtime_error)?;
-                finish_binary_resolution(&binary, query, minimum_confidence)
-            }
-        }
     }
 
     /// 使用一次性编译的 AQL 计划执行严格唯一查询；仅为低置信度唯一项升级模型。
@@ -305,38 +235,6 @@ impl VisionRuntime {
             outcome,
             metrics,
         );
-    }
-}
-
-/// 对最后一次二值化观察执行严格 0/1/N 和置信度判定。
-fn finish_binary_resolution(
-    scene: &Arc<AppScene>,
-    query: &VisualQuery,
-    minimum_confidence: f32,
-) -> Result<ResolvedTextTarget, AutomationError> {
-    let candidates = crate::matching_app_nodes(scene, query);
-    match candidates.as_slice() {
-        [] => Err(AutomationError::TargetNotFound {
-            query: query.text.clone(),
-            details: "Small, Medium, and binary-enhanced Medium OCR found no matching text"
-                .to_owned(),
-        }),
-        [candidate] if candidate.node.confidence >= minimum_confidence => {
-            Ok(owned_target(*candidate))
-        }
-        [candidate] => Err(AutomationError::TargetNotFound {
-            query: query.text.clone(),
-            details: format!(
-                "binary-enhanced Medium confidence {:.0}% is below the required {:.0}%",
-                candidate.node.confidence * 100.0,
-                minimum_confidence * 100.0,
-            ),
-        }),
-        candidates => Err(AutomationError::AmbiguousTarget {
-            query: query.text.clone(),
-            matches: candidates.len(),
-            details: "binary-enhanced Medium OCR produced multiple window nodes".to_owned(),
-        }),
     }
 }
 

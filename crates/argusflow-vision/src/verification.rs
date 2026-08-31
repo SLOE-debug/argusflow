@@ -1,4 +1,4 @@
-//! 物理输入前后的单窗口视觉事实验证。
+//! 物理输入前后的单窗口 AQL 视觉事实验证。
 
 use std::{
     collections::HashMap,
@@ -10,16 +10,20 @@ use argusflow_agent::{
     VisualBaseline, VisualVerificationProvider, VisualVerificationResult, WindowContext,
 };
 use argusflow_core::{
-    AutomationError, BackendKind, RunTraceContext, TargetWaitMode, TargetWaitPolicy, VisualQuery,
-    WindowIdentity,
+    AutomationError, BackendKind, PreparedAqlQuery, RunTraceContext, TargetWaitMode,
+    TargetWaitPolicy, WindowIdentity,
 };
 use async_trait::async_trait;
 use uuid::Uuid;
 
 use crate::{
-    FrameId, PhysicalRect, SceneRefreshPolicy, VisionError, VisionRuntime, VisualScene,
-    matching_nodes,
+    FrameId, PhysicalRect, SceneRefreshPolicy, TopologyGeneration, VisionError, VisionQueryPlan,
+    VisionRuntime, VisualNode, VisualScene, compile_vision_query, query::evaluate_window_query,
 };
+
+mod match_delta;
+
+use match_delta::added_match_count;
 
 /// 与一次非幂等输入绑定的主窗口视觉基线。
 #[derive(Debug)]
@@ -28,20 +32,56 @@ struct VisualBaselineSnapshot {
     window: WindowContext,
     /// 完整 OCR 基线所属的单调帧。
     frame_id: FrameId,
-    /// 动作前查询区域中的目标文字实例数量。
-    target_count: usize,
+    /// 捕获时的窗口拓扑代数；动作期间 resize 会使连续性失效。
+    topology_generation: TopologyGeneration,
+    /// 已编译且绑定动态参数的目标查询。
+    target_query: FrozenVisionQuery,
+    /// 动作前目标查询的全部空间实例。
+    target_matches: Vec<VisualNode>,
     /// 动作前必须唯一存在且在动作后保持原位的上下文。
     stable_context: Vec<StableContextSnapshot>,
     /// 保存动作前后 OCR 帧所需的运行轨迹身份。
     trace_context: Option<RunTraceContext>,
 }
 
+/// 一条只供当前动作重复求值的 Vision 查询计划。
+#[derive(Debug)]
+struct FrozenVisionQuery {
+    /// 已完成能力检查和正则预编译的计划。
+    plan: VisionQueryPlan,
+    /// 用于错误和追踪的原始 AQL 源码。
+    source: String,
+}
+
+impl FrozenVisionQuery {
+    /// 将 Runtime 冻结的 AQL 编译为 Vision 可执行计划。
+    fn compile(query: &PreparedAqlQuery) -> Result<Self, AutomationError> {
+        let plan = compile_vision_query(query.query()).map_err(|error| {
+            AutomationError::BackendFailed {
+                backend: BackendKind::OcrSmall,
+                message: format!("视觉后置条件 AQL 不受 Vision 支持：{error}"),
+            }
+        })?;
+        Ok(Self {
+            plan,
+            source: query.source().to_owned(),
+        })
+    }
+
+    /// 在完整单窗口 Scene 上执行冻结计划并返回可持有的节点快照。
+    fn evaluate(&self, scene: &Arc<VisualScene>) -> Result<Vec<VisualNode>, AutomationError> {
+        let result = evaluate_window_query(scene, &self.plan, &self.source)?;
+        let _metrics = result.metrics;
+        Ok(result.matches)
+    }
+}
+
 /// 一条上下文查询及其动作前唯一命中的位置。
 #[derive(Debug)]
 struct StableContextSnapshot {
-    /// 动态值已冻结的文字查询。
-    query: VisualQuery,
-    /// 动作前唯一文字实例的帧内位置。
+    /// 动态参数已冻结的 AQL 查询计划。
+    query: FrozenVisionQuery,
+    /// 动作前唯一实例的帧内位置。
     bounds: PhysicalRect,
 }
 
@@ -111,6 +151,28 @@ impl VisionPostconditionVerifier {
         }
         Ok(snapshot)
     }
+
+    /// 在剩余预算内取得一份强制完整 OCR 的窗口 Scene；正常耗尽预算时返回 `None`。
+    async fn observe_with_deadline(
+        &self,
+        window: &WindowContext,
+        trace_context: Option<&RunTraceContext>,
+        deadline: Option<tokio::time::Instant>,
+    ) -> Result<Option<Arc<VisualScene>>, AutomationError> {
+        match deadline {
+            Some(deadline) => {
+                let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+                if remaining.is_zero() {
+                    return Ok(None);
+                }
+                match tokio::time::timeout(remaining, self.observe(window, trace_context)).await {
+                    Ok(scene) => scene.map(Some),
+                    Err(_) => Ok(None),
+                }
+            }
+            None => self.observe(window, trace_context).await.map(Some),
+        }
+    }
 }
 
 #[async_trait]
@@ -118,12 +180,18 @@ impl VisualVerificationProvider for VisionPostconditionVerifier {
     async fn capture_baseline(
         &self,
         window: &WindowContext,
-        query: &VisualQuery,
-        stable_context: &[VisualQuery],
+        query: &PreparedAqlQuery,
+        stable_context: &[PreparedAqlQuery],
         trace_context: Option<RunTraceContext>,
     ) -> Result<VisualBaseline, AutomationError> {
+        let target_query = FrozenVisionQuery::compile(query)?;
+        let stable_queries = stable_context
+            .iter()
+            .map(FrozenVisionQuery::compile)
+            .collect::<Result<Vec<_>, _>>()?;
         let scene = self.observe(window, trace_context.as_ref()).await?;
-        let context_snapshots = capture_stable_context(&scene, stable_context)?;
+        let target_matches = target_query.evaluate(&scene)?;
+        let context_snapshots = capture_stable_context(&scene, stable_queries)?;
         let baseline = VisualBaseline::new(window.clone());
         self.baselines
             .lock()
@@ -133,7 +201,9 @@ impl VisualVerificationProvider for VisionPostconditionVerifier {
                 VisualBaselineSnapshot {
                     window: window.clone(),
                     frame_id: scene.frame_id,
-                    target_count: matching_nodes(&scene, query).len(),
+                    topology_generation: scene.topology_generation,
+                    target_query,
+                    target_matches,
                     stable_context: context_snapshots,
                     trace_context,
                 },
@@ -148,10 +218,9 @@ impl VisualVerificationProvider for VisionPostconditionVerifier {
             .remove(&baseline.token());
     }
 
-    async fn verify_new_text(
+    async fn verify_match_added(
         &self,
         baseline: VisualBaseline,
-        query: &VisualQuery,
         wait: TargetWaitPolicy,
     ) -> Result<VisualVerificationResult, AutomationError> {
         let snapshot = self.take_baseline(&baseline)?;
@@ -159,144 +228,142 @@ impl VisualVerificationProvider for VisionPostconditionVerifier {
         let mut observed_fresh_scene = false;
         let mut last_reason = "尚未取得动作后的新鲜完整画面".to_owned();
         loop {
-            let scene = self
-                .observe_with_deadline(
-                    &snapshot.window,
-                    snapshot.trace_context.as_ref(),
-                    deadline,
-                    wait,
-                )
-                .await?;
+            let Some(scene) = self
+                .observe_with_deadline(&snapshot.window, snapshot.trace_context.as_ref(), deadline)
+                .await?
+            else {
+                break;
+            };
+            if scene.topology_generation != snapshot.topology_generation {
+                return Ok(VisualVerificationResult::Uncertain {
+                    reason: "动作期间窗口大小或显示拓扑发生变化，无法比较前后视觉实例".to_owned(),
+                });
+            }
             if scene.frame_id > snapshot.frame_id {
                 observed_fresh_scene = true;
                 match stable_context_preserved(&snapshot.stable_context, &scene) {
                     Ok(()) => {
-                        let current_count = matching_nodes(&scene, query).len();
-                        if target_count_increased(snapshot.target_count, current_count) {
-                            return Ok(VisualVerificationResult::NewTextConfirmed {
-                                baseline_count: snapshot.target_count,
-                                current_count,
+                        let current_matches = snapshot.target_query.evaluate(&scene)?;
+                        let added_count =
+                            added_match_count(&snapshot.target_matches, &current_matches);
+                        if added_count > 0 {
+                            return Ok(VisualVerificationResult::MatchAddedConfirmed {
+                                baseline_count: snapshot.target_matches.len(),
+                                current_count: current_matches.len(),
+                                added_count,
                             });
                         }
                         last_reason = format!(
-                            "同一窗口内目标文字数量未增加（动作前 {}，当前 {current_count}）",
-                            snapshot.target_count,
+                            "当前 {} 个匹配都与动作前同文本实例相交，没有发现新实例",
+                            current_matches.len(),
                         );
                     }
                     Err(reason) => last_reason = reason,
                 }
             }
             if !wait_again(deadline, wait).await {
-                return Ok(if observed_fresh_scene {
-                    VisualVerificationResult::Rejected {
-                        reason: format!(
-                            "发送后 {}ms 内未确认新增文字：{last_reason}",
-                            wait.timeout_ms
-                        ),
-                    }
-                } else {
-                    VisualVerificationResult::Uncertain {
-                        reason: format!(
-                            "在 {}ms 内未取得晚于动作前基线的完整视觉 Scene",
-                            wait.timeout_ms,
-                        ),
-                    }
-                });
+                break;
             }
         }
+        Ok(match_added_deadline_result(
+            observed_fresh_scene,
+            &last_reason,
+            wait,
+        ))
     }
 
-    async fn verify_text_present(
+    async fn verify_match_present(
         &self,
         baseline: VisualBaseline,
-        query: &VisualQuery,
         wait: TargetWaitPolicy,
     ) -> Result<VisualVerificationResult, AutomationError> {
         let snapshot = self.take_baseline(&baseline)?;
         let deadline = verification_deadline(wait);
         let mut last_count = None;
         loop {
-            let scene = self
-                .observe_with_deadline(
-                    &snapshot.window,
-                    snapshot.trace_context.as_ref(),
-                    deadline,
-                    wait,
-                )
-                .await?;
+            let Some(scene) = self
+                .observe_with_deadline(&snapshot.window, snapshot.trace_context.as_ref(), deadline)
+                .await?
+            else {
+                break;
+            };
+            if scene.topology_generation != snapshot.topology_generation {
+                return Ok(VisualVerificationResult::Uncertain {
+                    reason: "动作期间窗口大小或显示拓扑发生变化，无法确认视觉连续性".to_owned(),
+                });
+            }
             if scene.frame_id > snapshot.frame_id {
-                let current_count = matching_nodes(&scene, query).len();
+                let current_count = snapshot.target_query.evaluate(&scene)?.len();
                 last_count = Some(current_count);
                 if current_count == 1 {
-                    return Ok(VisualVerificationResult::TextPresentConfirmed);
+                    return Ok(VisualVerificationResult::MatchPresentConfirmed);
                 }
             }
             if !wait_again(deadline, wait).await {
-                return Ok(match last_count {
-                    Some(current_count) => VisualVerificationResult::Rejected {
-                        reason: format!(
-                            "动作后 {}ms 内目标文字未唯一出现（最后完整画面命中 {current_count} 项）",
-                            wait.timeout_ms,
-                        ),
-                    },
-                    None => VisualVerificationResult::Uncertain {
-                        reason: format!(
-                            "在 {}ms 内未取得晚于动作前基线的完整视觉 Scene",
-                            wait.timeout_ms,
-                        ),
-                    },
-                });
+                break;
             }
+        }
+        Ok(match_present_deadline_result(last_count, wait))
+    }
+}
+
+/// 将新增匹配轮询的正常截止转换为基于既有视觉证据的三态结果。
+fn match_added_deadline_result(
+    observed_fresh_scene: bool,
+    last_reason: &str,
+    wait: TargetWaitPolicy,
+) -> VisualVerificationResult {
+    if observed_fresh_scene {
+        VisualVerificationResult::Rejected {
+            reason: format!(
+                "动作后 {}ms 内未确认新增匹配：{last_reason}",
+                wait.timeout_ms,
+            ),
+        }
+    } else {
+        VisualVerificationResult::Uncertain {
+            reason: format!(
+                "在 {}ms 内未取得晚于动作前基线的完整视觉 Scene",
+                wait.timeout_ms,
+            ),
         }
     }
 }
 
-impl VisionPostconditionVerifier {
-    /// 在剩余预算内取得一份强制完整 OCR 的窗口 Scene。
-    async fn observe_with_deadline(
-        &self,
-        window: &WindowContext,
-        trace_context: Option<&RunTraceContext>,
-        deadline: Option<tokio::time::Instant>,
-        wait: TargetWaitPolicy,
-    ) -> Result<Arc<VisualScene>, AutomationError> {
-        match deadline {
-            Some(deadline) => {
-                let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-                if remaining.is_zero() {
-                    return Err(AutomationError::OutcomeUnknown {
-                        backend: BackendKind::SendInput,
-                        message: format!("视觉观察已耗尽 {}ms 截止时间", wait.timeout_ms),
-                    });
-                }
-                tokio::time::timeout(remaining, self.observe(window, trace_context))
-                    .await
-                    .map_err(|_| AutomationError::OutcomeUnknown {
-                        backend: BackendKind::SendInput,
-                        message: format!(
-                            "发送后视觉观察在 {}ms 截止时间内未完成",
-                            wait.timeout_ms,
-                        ),
-                    })?
-            }
-            None => self.observe(window, trace_context).await,
-        }
+/// 将存在性轮询的正常截止转换为最后一帧的明确拒绝或无观测不确定结果。
+fn match_present_deadline_result(
+    last_count: Option<usize>,
+    wait: TargetWaitPolicy,
+) -> VisualVerificationResult {
+    match last_count {
+        Some(current_count) => VisualVerificationResult::Rejected {
+            reason: format!(
+                "动作后 {}ms 内目标未唯一匹配（最后完整画面命中 {current_count} 项）",
+                wait.timeout_ms,
+            ),
+        },
+        None => VisualVerificationResult::Uncertain {
+            reason: format!(
+                "在 {}ms 内未取得晚于动作前基线的完整视觉 Scene",
+                wait.timeout_ms,
+            ),
+        },
     }
 }
 
 /// 在动作前要求每条上下文查询都严格唯一，避免向错误会话提交输入。
 fn capture_stable_context(
-    scene: &VisualScene,
-    queries: &[VisualQuery],
+    scene: &Arc<VisualScene>,
+    queries: Vec<FrozenVisionQuery>,
 ) -> Result<Vec<StableContextSnapshot>, AutomationError> {
     queries
-        .iter()
+        .into_iter()
         .enumerate()
         .map(|(index, query)| {
-            let matches = matching_nodes(scene, query);
+            let matches = query.evaluate(scene)?;
             match matches.as_slice() {
                 [candidate] => Ok(StableContextSnapshot {
-                    query: query.clone(),
+                    query,
                     bounds: candidate.bbox,
                 }),
                 [] => Err(AutomationError::TargetNotFound {
@@ -316,10 +383,13 @@ fn capture_stable_context(
 /// 确保动作后的上下文仍严格唯一，并与动作前事实位置相交。
 fn stable_context_preserved(
     expected: &[StableContextSnapshot],
-    scene: &VisualScene,
+    scene: &Arc<VisualScene>,
 ) -> Result<(), String> {
     for (index, snapshot) in expected.iter().enumerate() {
-        let matches = matching_nodes(scene, &snapshot.query);
+        let matches = snapshot
+            .query
+            .evaluate(scene)
+            .map_err(|error| format!("动作后上下文 #{} 求值失败：{error}", index + 1))?;
         let [candidate] = matches.as_slice() else {
             return Err(format!(
                 "动作后上下文 #{} 不再严格唯一（命中 {} 项）",
@@ -332,11 +402,6 @@ fn stable_context_preserved(
         }
     }
     Ok(())
-}
-
-/// 只有同一查询区域中的实例数量严格增加，才允许确认新增文字。
-const fn target_count_increased(baseline_count: usize, current_count: usize) -> bool {
-    current_count > baseline_count
 }
 
 /// 根据等待策略构造独立于动作目标等待的截止时间。
@@ -384,28 +449,5 @@ fn map_vision_error(error: VisionError) -> AutomationError {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn shifted_historical_text_does_not_confirm_a_new_instance() {
-        let historical_count_before_action = 1;
-        let same_historical_text_after_layout_shift = 1;
-
-        assert!(!target_count_increased(
-            historical_count_before_action,
-            same_historical_text_after_layout_shift,
-        ));
-    }
-
-    #[test]
-    fn repeated_text_confirms_only_when_instance_count_increases() {
-        let historical_count_before_action = 1;
-        let historical_and_new_message_count = 2;
-
-        assert!(target_count_increased(
-            historical_count_before_action,
-            historical_and_new_message_count,
-        ));
-    }
-}
+#[path = "verification/tests.rs"]
+mod tests;

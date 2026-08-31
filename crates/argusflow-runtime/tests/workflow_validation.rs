@@ -73,6 +73,84 @@ fn ui_payload_v1_remains_valid_and_v2_rejects_waiting_on_coordinates() {
 }
 
 #[test]
+fn ui_payload_v4_accepts_aql_postconditions_and_rejects_region_protocol() {
+    let operation = json!({
+        "type": "press_key",
+        "target": {
+            "scope": { "type": "current" },
+            "locator": { "type": "focused" },
+            "backend_policy": {
+                "allow": ["send_input"],
+                "deny": [],
+                "prefer": ["send_input"]
+            }
+        },
+        "chord": { "key": { "type": "enter" }, "modifiers": [] }
+    });
+    let mut workflow = demo_workflow(1);
+    workflow.nodes[1].definition = NodeEnvelope::new(
+        "argus.ui",
+        4,
+        json!({
+            "operation": operation,
+            "execution": {
+                "target_wait": { "mode": "none", "timeout_ms": 0, "poll_interval_ms": 0 },
+                "postcondition_wait": {
+                    "mode": "bounded",
+                    "timeout_ms": 5_000,
+                    "poll_interval_ms": 150
+                },
+                "postcondition": {
+                    "type": "match_added",
+                    "query": {
+                        "language_version": 2,
+                        "source": "text(name = $message)",
+                        "bindings": {
+                            "message": { "type": "literal", "value": "你好" }
+                        }
+                    },
+                    "stable_context": [{
+                        "language_version": 2,
+                        "source": "nearest(anchor = viewport_corner(position = top_right), target = text(name = $contact), direction = any, index = 1)",
+                        "bindings": {
+                            "contact": { "type": "literal", "value": "联系人" }
+                        }
+                    }]
+                }
+            }
+        }),
+    );
+    assert!(validate_workflow(&workflow).valid);
+
+    let mut legacy_region = workflow;
+    legacy_region.nodes[1].definition = NodeEnvelope::new(
+        "argus.ui",
+        4,
+        json!({
+            "operation": operation,
+            "execution": {
+                "target_wait": { "mode": "none", "timeout_ms": 0, "poll_interval_ms": 0 },
+                "postcondition_wait": {
+                    "mode": "bounded",
+                    "timeout_ms": 5_000,
+                    "poll_interval_ms": 150
+                },
+                "postcondition": {
+                    "type": "new_text",
+                    "query": {
+                        "text": { "type": "literal", "value": "你好" },
+                        "exact": true,
+                        "region": { "x": 0.34, "y": 0.13, "width": 0.66, "height": 0.64 }
+                    },
+                    "stable_context": []
+                }
+            }
+        }),
+    );
+    assert_has_issue(&legacy_region, ValidationIssueCode::InvalidNodeDefinition);
+}
+
+#[test]
 fn validation_rejects_unknown_types_and_invalid_registered_payloads() {
     let mut unknown = demo_workflow(1);
     unknown.nodes[1].definition = NodeEnvelope::new("plugin.database.query", 1, json!({}));

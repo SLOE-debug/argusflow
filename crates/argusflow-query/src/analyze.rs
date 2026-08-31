@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use argusflow_core::{QueryExpr, SelectorAttribute, UiQuery};
+use argusflow_core::{QueryExpr, SelectorAttribute, SpatialAnchor, UiQuery};
 use serde::Serialize;
 
 use crate::{
@@ -113,7 +113,9 @@ fn collect_specific_backends(expression: &QueryExpr, backends: &mut BTreeSet<Que
             collect_specific_backends(query, backends)
         }
         QueryExpr::Nearest { anchor, target, .. } => {
-            collect_specific_backends(anchor, backends);
+            if let SpatialAnchor::Element { query } = anchor {
+                collect_specific_backends(query, backends);
+            }
             collect_specific_backends(target, backends);
         }
         QueryExpr::Css { .. } => {

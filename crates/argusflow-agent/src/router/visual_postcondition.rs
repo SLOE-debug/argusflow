@@ -1,8 +1,8 @@
 //! 动作路由中的视觉后置条件生命周期。
 
 use argusflow_core::{
-    ActionOutcome, AutomationError, BackendKind, PreparedVisualPostcondition, RunTraceContext,
-    TargetWaitPolicy, VisualQuery,
+    ActionOutcome, AutomationError, BackendKind, PreparedAqlQuery, PreparedVisualPostcondition,
+    RunTraceContext, TargetWaitPolicy,
 };
 
 use crate::{VisualBaseline, VisualVerificationProvider, VisualVerificationResult, WindowContext};
@@ -25,12 +25,12 @@ pub(super) async fn capture_baseline(
         backend: BackendKind::SendInput,
         message: "visual postcondition requires a frozen window context".to_owned(),
     })?;
-    let (query, stable_context): (&VisualQuery, &[VisualQuery]) = match postcondition {
-        PreparedVisualPostcondition::NewText {
+    let (query, stable_context): (&PreparedAqlQuery, &[PreparedAqlQuery]) = match postcondition {
+        PreparedVisualPostcondition::MatchAdded {
             query,
             stable_context,
         } => (query, stable_context.as_slice()),
-        PreparedVisualPostcondition::TextPresent { query } => (query, &[]),
+        PreparedVisualPostcondition::MatchPresent { query } => (query, &[]),
     };
     provider
         .capture_baseline(window, query, stable_context, trace_context)
@@ -70,11 +70,11 @@ pub(super) async fn verify(
             message: "视觉后置条件缺少动作前基线".to_owned(),
         })?;
     let verification = match postcondition {
-        PreparedVisualPostcondition::NewText { query, .. } => {
-            provider.verify_new_text(baseline, query, wait).await
+        PreparedVisualPostcondition::MatchAdded { .. } => {
+            provider.verify_match_added(baseline, wait).await
         }
-        PreparedVisualPostcondition::TextPresent { query } => {
-            provider.verify_text_present(baseline, query, wait).await
+        PreparedVisualPostcondition::MatchPresent { .. } => {
+            provider.verify_match_present(baseline, wait).await
         }
     }
     .map_err(|error| match error {
@@ -85,20 +85,21 @@ pub(super) async fn verify(
         },
     })?;
     match verification {
-        VisualVerificationResult::NewTextConfirmed {
+        VisualVerificationResult::MatchAddedConfirmed {
             baseline_count,
             current_count,
+            added_count,
         } => {
             outcome.outputs.insert("confirmed".to_owned(), true.into());
             outcome.message.push_str(&format!(
-                "；视觉确认同一窗口内目标文字数量由 {baseline_count} 增至 {current_count}",
+                "；视觉确认同一窗口内出现 {added_count} 个新匹配（动作前 {baseline_count}，当前 {current_count}）",
             ));
         }
-        VisualVerificationResult::TextPresentConfirmed => {
+        VisualVerificationResult::MatchPresentConfirmed => {
             outcome.outputs.insert("confirmed".to_owned(), true.into());
             outcome
                 .message
-                .push_str("；视觉确认目标文字已在新鲜画面中唯一出现");
+                .push_str("；视觉确认目标已在新鲜画面中唯一匹配");
         }
         VisualVerificationResult::Rejected { reason }
         | VisualVerificationResult::Uncertain { reason } => {

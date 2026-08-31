@@ -100,6 +100,8 @@ pub fn completions(source: &str, position: EditorPosition) -> Vec<CompletionItem
             ("selected", CompletionItemKind::Property, "是否选中"),
             ("anchor", CompletionItemKind::Property, "空间查询锚点"),
             ("target", CompletionItemKind::Property, "空间查询目标"),
+            ("position", CompletionItemKind::Property, "viewport 角位置"),
+            ("side", CompletionItemKind::Property, "viewport 边方向"),
             (
                 "direction",
                 CompletionItemKind::Property,
@@ -111,6 +113,16 @@ pub fn completions(source: &str, position: EditorPosition) -> Vec<CompletionItem
                 "从 1 开始的显式距离名次",
             ),
             ("metric", CompletionItemKind::Property, "分辨率无关距离度量"),
+            (
+                "viewport_corner",
+                CompletionItemKind::Function,
+                "使用当前窗口角作为空间锚点",
+            ),
+            (
+                "viewport_edge",
+                CompletionItemKind::Function,
+                "使用当前窗口边作为空间锚点",
+            ),
             (
                 "uia.automation_id",
                 CompletionItemKind::Property,
@@ -149,6 +161,13 @@ pub fn completions(source: &str, position: EditorPosition) -> Vec<CompletionItem
             ("below", CompletionItemKind::Value, "锚点下方"),
             ("left", CompletionItemKind::Value, "锚点左侧"),
             ("right", CompletionItemKind::Value, "锚点右侧"),
+            ("any", CompletionItemKind::Value, "不限制相对方向"),
+            ("top", CompletionItemKind::Value, "viewport 顶边"),
+            ("bottom", CompletionItemKind::Value, "viewport 底边"),
+            ("top_left", CompletionItemKind::Value, "viewport 左上角"),
+            ("top_right", CompletionItemKind::Value, "viewport 右上角"),
+            ("bottom_left", CompletionItemKind::Value, "viewport 左下角"),
+            ("bottom_right", CompletionItemKind::Value, "viewport 右下角"),
             ("edge_gap", CompletionItemKind::Value, "归一化矩形边缘间隙"),
             (
                 "center_distance",
@@ -292,12 +311,26 @@ fn classify_token(token: &RawToken) -> SyntaxToken {
 fn classify_identifier(identifier: &str) -> SyntaxTokenKind {
     if matches!(
         identifier,
-        "any" | "not" | "first" | "nth" | "nearest" | "css"
+        "any" | "not" | "first" | "nth" | "nearest" | "viewport_corner" | "viewport_edge" | "css"
     ) {
         SyntaxTokenKind::Function
     } else if matches!(
         identifier,
-        "name" | "key" | "value" | "enabled" | "visible" | "focused" | "checked" | "selected"
+        "name"
+            | "key"
+            | "value"
+            | "enabled"
+            | "visible"
+            | "focused"
+            | "checked"
+            | "selected"
+            | "anchor"
+            | "target"
+            | "direction"
+            | "index"
+            | "metric"
+            | "position"
+            | "side"
     ) {
         SyntaxTokenKind::Property
     } else if identifier.starts_with("uia.") || identifier.starts_with("dom.") {

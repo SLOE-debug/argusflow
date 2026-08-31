@@ -46,6 +46,19 @@ fn compiler_rejects_dom_specific_query() {
 }
 
 #[test]
+fn compiler_explicitly_rejects_viewport_spatial_queries() {
+    let query = parse_query(
+        r#"nearest(anchor = viewport_edge(side = left), target = text(name = "联系人"), direction = any, index = 1)"#,
+    )
+    .expect("viewport query should be valid AQL");
+
+    assert_eq!(
+        compile_uia_query(&query),
+        Err(UiaQueryCompileError::UnsupportedQuery)
+    );
+}
+
+#[test]
 fn compiler_keeps_supported_branch_of_cross_backend_any() {
     let query = parse_query(
         r#"any(
