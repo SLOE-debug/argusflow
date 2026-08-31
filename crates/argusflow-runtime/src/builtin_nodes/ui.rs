@@ -171,6 +171,10 @@ impl PreparedNode for UiNode {
                 UiPostcondition::MatchAdded {
                     query,
                     stable_context,
+                }
+                | UiPostcondition::MatchRemoved {
+                    query,
+                    stable_context,
                 } => {
                     inputs.extend(
                         query

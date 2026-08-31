@@ -10,6 +10,9 @@ export type ValueExprLocation =
   | { type: 'output_binding'; name: string }
   | { type: 'ui_set_value' }
   | { type: 'ui_type_text' }
+  | { type: 'navigate_url' }
+  | { type: 'format_items' }
+  | { type: 'component_input'; name: string }
   | {
       type: 'command_field';
       field: 'program' | 'script' | 'working_directory' | 'stdin';
@@ -42,6 +45,14 @@ export function readNodeValueExpr(
     case 'ui_type_text':
       return data.kind === 'ui' && data.operation.type === 'type_text'
         ? data.operation.value
+        : null;
+    case 'navigate_url':
+      return data.kind === 'navigate' ? data.operation.url : null;
+    case 'format_items':
+      return data.kind === 'format' ? data.operation.items : null;
+    case 'component_input':
+      return data.kind === 'component'
+        ? data.component.inputs[location.name] ?? null
         : null;
     case 'command_field':
       return data.kind === 'command' ? data.operation[location.field] : null;
@@ -97,6 +108,24 @@ export function updateNodeValueExpr(
       return {
         ...data,
         operation: { ...data.operation, value },
+        invalid: false,
+      };
+    case 'navigate_url':
+      return data.kind === 'navigate'
+        ? { ...data, operation: { ...data.operation, url: value }, invalid: false }
+        : data;
+    case 'format_items':
+      return data.kind === 'format'
+        ? { ...data, operation: { ...data.operation, items: value }, invalid: false }
+        : data;
+    case 'component_input':
+      if (data.kind !== 'component' || !data.component.inputs[location.name]) return data;
+      return {
+        ...data,
+        component: {
+          ...data.component,
+          inputs: { ...data.component.inputs, [location.name]: value },
+        },
         invalid: false,
       };
     case 'command_field':

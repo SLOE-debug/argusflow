@@ -67,9 +67,18 @@ describe('CommandNodeFields', () => {
     render(
       <ValueExprEditorProvider
         value={{
-          upstreamNodes: [],
-          workflowInputs: [{ key: 'maintenance_script', value_type: 'text' }],
-          variableNames: [],
+          symbols: {
+            inputs: [{
+              id: 'input:maintenance_script',
+              kind: 'workflow_input',
+              name: 'maintenance_script',
+              label: 'maintenance_script',
+              valueType: 'text',
+              available: true,
+            }],
+            variables: [],
+            nodeOutputs: [],
+          },
           onOpenExpression: vi.fn(),
         }}
       >

@@ -133,6 +133,7 @@ validation_issue_codes! {
     InvalidCommand => "invalid_command",
     CommandPermissionDenied => "command_permission_denied",
     InvalidValueReference => "invalid_value_reference",
+    UndeclaredVariable => "undeclared_variable",
     InvalidExpression => "invalid_expression",
     InvalidOutputBinding => "invalid_output_binding",
     InvalidVariableAssignment => "invalid_variable_assignment",

@@ -218,6 +218,32 @@ fn viewport_edge_uses_real_candidate_ordinal() {
 }
 
 #[test]
+fn bottom_edge_selects_pending_input_over_repeated_message_bubbles() {
+    let app = app_scene(vec![window_scene_with_size(
+        1,
+        7,
+        200,
+        200,
+        &[("重复消息", 140, 50), ("重复消息", 20, 160)],
+    )]);
+    let source = "nearest(anchor = viewport_edge(side = bottom), target = text(name = \"重复消息\"), direction = any, index = 1)";
+    let query = parse_query(source).expect("pending message AQL should parse");
+    let plan = compile_vision_query(&query).expect("pending message AQL should compile");
+    let result =
+        evaluate_vision_query(&app, &plan, source).expect("pending message query executes");
+
+    assert_eq!(
+        require_unique(&result, source)
+            .expect("bottom-most pending input is unique")
+            .0
+            .node
+            .bbox
+            .y,
+        160
+    );
+}
+
+#[test]
 fn viewport_anchor_rejects_a_tie_containing_requested_rank() {
     let app = app_scene(vec![window_scene_with_size(
         1,

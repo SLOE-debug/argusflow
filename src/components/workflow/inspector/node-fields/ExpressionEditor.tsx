@@ -5,7 +5,7 @@ import {
   RUNTIME_EXPRESSION_LANGUAGE_ID,
   setRuntimeExpressionSuggestions,
 } from '../../../../features/workflow';
-import type { WorkflowCanvasNode } from '../../../../features/workflow';
+import type { WorkflowSymbolRegistry } from '../../../../features/workflow';
 import { MonacoEditor, type MonacoApi } from '../../../ui/monaco';
 
 type ExpressionEditorProps = Readonly<{
@@ -13,8 +13,10 @@ type ExpressionEditorProps = Readonly<{
   modelUri: string;
   /** 当前受限 Rhai 表达式源码。 */
   source: string;
-  /** 实时工作流节点，用于提供节点与输出补全。 */
-  nodes: ReadonlyArray<WorkflowCanvasNode>;
+  /** 已按当前消费节点过滤可用性的统一值目录。 */
+  symbols: WorkflowSymbolRegistry;
+  /** 当前是否处于 output binding，可读取原生 result 快照。 */
+  includeResult?: boolean;
   /** 最近一次 Runtime prepare 返回的编译错误。 */
   compileError: string | null;
   /** 实时写回所属 ValueExpr。 */
@@ -25,15 +27,16 @@ type ExpressionEditorProps = Readonly<{
 export function ExpressionEditor({
   modelUri,
   source,
-  nodes,
+  symbols,
+  includeResult = false,
   compileError,
   onChange,
 }: ExpressionEditorProps) {
   /** 在 Monaco 创建模型前刷新当前文档补全并安装一次语言 provider。 */
   const configureLanguage = useCallback((monaco: MonacoApi) => {
-    setRuntimeExpressionSuggestions(modelUri, nodes);
+    setRuntimeExpressionSuggestions(modelUri, symbols, includeResult);
     configureRuntimeExpressionLanguage(monaco);
-  }, [modelUri, nodes]);
+  }, [includeResult, modelUri, symbols]);
 
   return (
     <section className="flex h-full min-h-0 flex-col bg-white">

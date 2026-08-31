@@ -118,4 +118,99 @@ describe('useWorkflowStudio', () => {
     )).toBe(true);
     expect(studio.result.current.running).toBe(true);
   });
+
+  it('exposes structured variable CRUD and the advanced JSON import API', () => {
+    const studio = renderHook(() => useWorkflowStudio());
+
+    act(() => {
+      expect(studio.result.current.setVariable('retry_count', 0)).toBe(true);
+      expect(studio.result.current.setVariable('enabled', true)).toBe(true);
+    });
+    expect(studio.result.current.variables).toEqual({ retry_count: 0, enabled: true });
+
+    act(() => {
+      expect(studio.result.current.renameVariable('retry_count', 'attempts')).toBe(true);
+    });
+    expect(studio.result.current.variables).toEqual({ attempts: 0, enabled: true });
+
+    act(() => {
+      expect(studio.result.current.deleteVariable('enabled')).toBe(true);
+      expect(studio.result.current.replaceVariablesFromJson('{"keyword":"ready"}')).toBe(true);
+    });
+    expect(studio.result.current.variables).toEqual({ keyword: 'ready' });
+    expect(studio.result.current.variablesDraft).toBe(JSON.stringify({ keyword: 'ready' }, null, 2));
+  });
+
+  it('does not silently break advanced expressions when renaming a variable', () => {
+    const studio = renderHook(() => useWorkflowStudio());
+
+    act(() => {
+      expect(studio.result.current.addVariable('prefix', '联系人：')).toBe(true);
+      studio.result.current.addNode('debug', { x: 80, y: 80 });
+      studio.result.current.updateNode((current) => current.kind === 'debug'
+        ? {
+            ...current,
+            value: { type: 'expression', source: 'vars["prefix"] + "测试"' },
+          }
+        : current);
+      expect(studio.result.current.renameVariable('prefix', 'label')).toBe(false);
+    });
+
+    expect(studio.result.current.variables).toEqual({ prefix: '联系人：' });
+    expect(studio.result.current.variablesError).toContain('被高级表达式引用');
+  });
+
+  it('renames an input in metadata and its structured node references atomically', () => {
+    const studio = renderHook(() => useWorkflowStudio());
+    const before = studio.result.current.flowStore.getState().nodes.find((node) => (
+      node.data.kind === 'ui'
+      && (node.data.operation.type === 'type_text' || node.data.operation.type === 'set_value')
+      && node.data.operation.value.type === 'ref'
+      && node.data.operation.value.source.type === 'workflow_input'
+      && node.data.operation.value.source.key === 'contact_name'
+    ));
+    expect(before).toBeDefined();
+
+    act(() => {
+      expect(studio.result.current.updateInput('contact_name', {
+        key: 'customer_name',
+        value_type: 'text',
+      })).toBe(true);
+    });
+
+    const after = studio.result.current.flowStore.getState().nodes.find((node) => node.id === before?.id);
+    expect(after?.data).toMatchObject({
+      kind: 'ui',
+      operation: {
+        value: {
+          source: { type: 'workflow_input', key: 'customer_name' },
+        },
+      },
+    });
+  });
+
+  it('blocks deleting an input that remains referenced by a node', () => {
+    const studio = renderHook(() => useWorkflowStudio());
+
+    act(() => {
+      expect(studio.result.current.deleteInput('contact_name')).toBe(false);
+    });
+
+    expect(studio.result.current.inputDefinitions.some(({ key }) => key === 'contact_name')).toBe(true);
+  });
+
+  it('runs with submitted values immediately, without waiting for hook state', async () => {
+    const studio = renderHook(() => useWorkflowStudio());
+    const submittedValues = { contact_name: 'Bob', message: 'Hello' } as const;
+
+    await act(async () => {
+      await studio.result.current.run(submittedValues);
+    });
+
+    expect(workflowApiMocks.runWorkflow).toHaveBeenCalledOnce();
+    expect(workflowApiMocks.runWorkflow.mock.calls[0]?.[2]).toEqual({
+      values: submittedValues,
+    });
+    expect(studio.result.current.runInputValues).toEqual(submittedValues);
+  });
 });

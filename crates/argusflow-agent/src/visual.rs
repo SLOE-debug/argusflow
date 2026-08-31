@@ -193,6 +193,15 @@ impl VisualBaseline {
     }
 }
 
+/// 动作提交前对目标查询匹配数量的要求。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VisualBaselineRequirement {
+    /// 基线允许没有目标实例，供“新增匹配”和动作后存在性验证使用。
+    AnyCount,
+    /// 基线必须至少存在一个目标实例，防止把本来就不存在误判为动作导致的消失。
+    AtLeastOne,
+}
+
 /// 发送后视觉验证的三态结果。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VisualVerificationResult {
@@ -204,6 +213,15 @@ pub enum VisualVerificationResult {
         current_count: usize,
         /// 动作后判定为新实例的匹配数量。
         added_count: usize,
+    },
+    /// 同一窗口内至少一个动作前匹配实例已经消失。
+    MatchRemovedConfirmed {
+        /// 动作前完整画面中的匹配数量。
+        baseline_count: usize,
+        /// 动作后完整画面中的匹配数量。
+        current_count: usize,
+        /// 动作后判定为已消失的实例数量。
+        removed_count: usize,
     },
     /// 动作后的新鲜画面中唯一存在目标匹配。
     MatchPresentConfirmed,
@@ -228,6 +246,7 @@ pub trait VisualVerificationProvider: Send + Sync {
         window: &WindowContext,
         query: &PreparedAqlQuery,
         stable_context: &[PreparedAqlQuery],
+        requirement: VisualBaselineRequirement,
         trace_context: Option<RunTraceContext>,
     ) -> Result<VisualBaseline, argusflow_core::AutomationError>;
 
@@ -236,6 +255,13 @@ pub trait VisualVerificationProvider: Send + Sync {
 
     /// 消费 baseline 并将新场景与其做严格 delta 验证。
     async fn verify_match_added(
+        &self,
+        baseline: VisualBaseline,
+        wait: TargetWaitPolicy,
+    ) -> Result<VisualVerificationResult, argusflow_core::AutomationError>;
+
+    /// 消费 baseline 并确认至少一个动作前空间实例已从新场景中消失。
+    async fn verify_match_removed(
         &self,
         baseline: VisualBaseline,
         wait: TargetWaitPolicy,

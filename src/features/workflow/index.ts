@@ -95,6 +95,39 @@ export {
   updateNodeValueExpr,
   type ValueExprLocation,
 } from './values/workflowValueExpressions';
+export {
+  buildWorkflowSymbolRegistry,
+  symbolToValueExpr,
+  type BuildWorkflowSymbolRegistryArgs,
+  type WorkflowInputSymbol,
+  type WorkflowNodeOutputSymbol,
+  type WorkflowNodeResultSymbol,
+  type WorkflowNodeValueSymbol,
+  type WorkflowSymbol,
+  type WorkflowSymbolRegistry,
+  type WorkflowVariableSymbol,
+} from './values/workflowSymbols';
+export {
+  buildWorkflowNodeOutputAvailabilityIndex,
+  getWorkflowNodeOutputAvailability,
+  isWorkflowNodeOutputAvailable,
+  type BuildWorkflowNodeOutputAvailabilityIndexArgs,
+  type WorkflowNodeOutputAvailabilityArgs,
+  type WorkflowSymbolAvailability,
+} from './values/workflowSymbolAvailability';
+export {
+  countWorkflowReferences,
+  findExpressionReferenceLocations,
+  renameValueReference,
+  renameWorkflowReferences,
+  type WorkflowReferenceKind,
+  type WorkflowReferenceRename,
+} from './values/workflowValueReferences';
+export {
+  normalizeRunInputValues,
+  validateRunInputValues,
+  type RunInputValidationResult,
+} from './inputs/workflowRunInputs';
 export type {
   KeyChord,
   KeyboardKey,

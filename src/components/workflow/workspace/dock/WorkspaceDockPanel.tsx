@@ -43,6 +43,10 @@ type WorkspaceDockPanelProps = Readonly<{
   nodes: ReadonlyArray<WorkflowCanvasNode>;
   /** 最近一次校验结果。 */
   report: ValidationReport | null;
+  /** 工作流级数据面板；缺省时不显示对应页签。 */
+  workflowData?: ReactNode;
+  /** 外部请求激活工作流数据页签的递增序号。 */
+  workflowDataRequest?: number;
   /** 展开或折叠整个 Dock。 */
   onOpenChange: (open: boolean) => void;
   /** 调整 Dock 高度。 */
@@ -53,11 +57,12 @@ type WorkspaceDockPanelProps = Readonly<{
   onCloseEditor: () => void;
 }>;
 
-type UtilityTab = 'tasks' | 'runs' | 'logs' | 'alerts';
+type UtilityTab = 'data' | 'tasks' | 'runs' | 'logs' | 'alerts';
 type DockTab = 'structured_editor' | UtilityTab;
 
 /** Utility Tabs 的稳定顺序与产品名称。 */
 const UTILITY_TABS = [
+  { id: 'data', label: '工作流数据' },
   { id: 'tasks', label: '任务' },
   { id: 'runs', label: '运行记录' },
   { id: 'logs', label: '运行日志' },
@@ -77,6 +82,8 @@ export function WorkspaceDockPanel({
   events,
   nodes,
   report,
+  workflowData = null,
+  workflowDataRequest = 0,
   onOpenChange,
   onDockHeightChange,
   onEditorModeChange,
@@ -92,10 +99,15 @@ export function WorkspaceDockPanel({
       : current === 'structured_editor' ? 'tasks' : current);
   }, [editorTarget]);
 
+  useEffect(() => {
+    if (workflowDataRequest > 0) setActiveTab('data');
+  }, [workflowDataRequest]);
+
   const ToggleIcon = open ? ChevronDown : ChevronUp;
   const utilityTabs = (
     <UtilityTabButtons
       activeTab={activeTab}
+      hasWorkflowData={Boolean(workflowData)}
       onActivate={(tab) => {
         setActiveTab(tab);
         if (editorMode === 'maximized') {
@@ -154,7 +166,7 @@ export function WorkspaceDockPanel({
         </header>
       )}
       {open
-        ? resolveDockContent(activeTab, structuredEditor, events, nodes, report)
+        ? resolveDockContent(activeTab, structuredEditor, workflowData, events, nodes, report)
         : null}
     </section>
   );
@@ -163,13 +175,15 @@ export function WorkspaceDockPanel({
 type UtilityTabButtonsProps = Readonly<{
   /** 当前激活的 Dock 页签。 */
   activeTab: DockTab;
+  /** 工作流数据页是否由外层装配。 */
+  hasWorkflowData: boolean;
   /** 激活一个 Utility Tab。 */
   onActivate: (tab: UtilityTab) => void;
 }>;
 
 /** 渲染结构化文档之外的稳定工具页签。 */
-function UtilityTabButtons({ activeTab, onActivate }: UtilityTabButtonsProps) {
-  return UTILITY_TABS.map((tab) => (
+function UtilityTabButtons({ activeTab, hasWorkflowData, onActivate }: UtilityTabButtonsProps) {
+  return UTILITY_TABS.filter((tab) => tab.id !== 'data' || hasWorkflowData).map((tab) => (
     <button
       key={tab.id}
       type="button"
@@ -190,11 +204,20 @@ function UtilityTabButtons({ activeTab, onActivate }: UtilityTabButtonsProps) {
 function resolveDockContent(
   activeTab: DockTab,
   structuredEditor: ReactNode,
+  workflowData: ReactNode,
   events: ReadonlyArray<ExecutionEvent>,
   nodes: ReadonlyArray<WorkflowCanvasNode>,
   report: ValidationReport | null,
 ) {
   switch (activeTab) {
+    case 'data':
+      return workflowData ?? (
+        <DockPlaceholder
+          icon={BellRing}
+          title="暂无工作流数据"
+          description="工作流数据面板尚未装配。"
+        />
+      );
     case 'structured_editor':
       return <div className="min-h-0 flex-1">{structuredEditor}</div>;
     case 'tasks':

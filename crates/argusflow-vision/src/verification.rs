@@ -7,7 +7,8 @@ use std::{
 };
 
 use argusflow_agent::{
-    VisualBaseline, VisualVerificationProvider, VisualVerificationResult, WindowContext,
+    VisualBaseline, VisualBaselineRequirement, VisualVerificationProvider,
+    VisualVerificationResult, WindowContext,
 };
 use argusflow_core::{
     AutomationError, BackendKind, PreparedAqlQuery, RunTraceContext, TargetWaitMode,
@@ -17,13 +18,15 @@ use async_trait::async_trait;
 use uuid::Uuid;
 
 use crate::{
-    FrameId, PhysicalRect, SceneRefreshPolicy, TopologyGeneration, VisionError, VisionQueryPlan,
-    VisionRuntime, VisualNode, VisualScene, compile_vision_query, query::evaluate_window_query,
+    FrameId, SceneRefreshPolicy, TopologyGeneration, VisionError, VisionQueryPlan, VisionRuntime,
+    VisualNode, VisualScene, compile_vision_query, query::evaluate_window_query,
 };
 
 mod match_delta;
+mod stable_context;
 
-use match_delta::added_match_count;
+use match_delta::{added_match_count, removed_match_count};
+use stable_context::{StableContextSnapshot, capture_stable_context, stable_context_preserved};
 
 /// 与一次非幂等输入绑定的主窗口视觉基线。
 #[derive(Debug)]
@@ -74,15 +77,6 @@ impl FrozenVisionQuery {
         let _metrics = result.metrics;
         Ok(result.matches)
     }
-}
-
-/// 一条上下文查询及其动作前唯一命中的位置。
-#[derive(Debug)]
-struct StableContextSnapshot {
-    /// 动态参数已冻结的 AQL 查询计划。
-    query: FrozenVisionQuery,
-    /// 动作前唯一实例的帧内位置。
-    bounds: PhysicalRect,
 }
 
 /// 使用共享 VisionRuntime 完成动作前基线和动作后事实验证。
@@ -182,6 +176,7 @@ impl VisualVerificationProvider for VisionPostconditionVerifier {
         window: &WindowContext,
         query: &PreparedAqlQuery,
         stable_context: &[PreparedAqlQuery],
+        requirement: VisualBaselineRequirement,
         trace_context: Option<RunTraceContext>,
     ) -> Result<VisualBaseline, AutomationError> {
         let target_query = FrozenVisionQuery::compile(query)?;
@@ -191,6 +186,12 @@ impl VisualVerificationProvider for VisionPostconditionVerifier {
             .collect::<Result<Vec<_>, _>>()?;
         let scene = self.observe(window, trace_context.as_ref()).await?;
         let target_matches = target_query.evaluate(&scene)?;
+        if requirement == VisualBaselineRequirement::AtLeastOne && target_matches.is_empty() {
+            return Err(AutomationError::TargetNotFound {
+                query: target_query.source.clone(),
+                details: " was not present before the action".to_owned(),
+            });
+        }
         let context_snapshots = capture_stable_context(&scene, stable_queries)?;
         let baseline = VisualBaseline::new(window.clone());
         self.baselines
@@ -272,6 +273,61 @@ impl VisualVerificationProvider for VisionPostconditionVerifier {
         ))
     }
 
+    async fn verify_match_removed(
+        &self,
+        baseline: VisualBaseline,
+        wait: TargetWaitPolicy,
+    ) -> Result<VisualVerificationResult, AutomationError> {
+        let snapshot = self.take_baseline(&baseline)?;
+        let deadline = verification_deadline(wait);
+        let mut observed_fresh_scene = false;
+        let mut last_reason = "尚未取得动作后的新鲜完整画面".to_owned();
+        loop {
+            let Some(scene) = self
+                .observe_with_deadline(&snapshot.window, snapshot.trace_context.as_ref(), deadline)
+                .await?
+            else {
+                break;
+            };
+            if scene.topology_generation != snapshot.topology_generation {
+                return Ok(VisualVerificationResult::Uncertain {
+                    reason: "动作期间窗口大小或显示拓扑发生变化，无法比较前后视觉实例".to_owned(),
+                });
+            }
+            if scene.frame_id > snapshot.frame_id {
+                observed_fresh_scene = true;
+                match stable_context_preserved(&snapshot.stable_context, &scene) {
+                    Ok(()) => {
+                        let current_matches = snapshot.target_query.evaluate(&scene)?;
+                        let removed_count =
+                            removed_match_count(&snapshot.target_matches, &current_matches);
+                        if removed_count > 0 {
+                            return Ok(VisualVerificationResult::MatchRemovedConfirmed {
+                                baseline_count: snapshot.target_matches.len(),
+                                current_count: current_matches.len(),
+                                removed_count,
+                            });
+                        }
+                        last_reason = format!(
+                            "动作前 {} 个匹配在当前 {} 个匹配中仍有同文本相交实例，没有发现旧实例消失",
+                            snapshot.target_matches.len(),
+                            current_matches.len(),
+                        );
+                    }
+                    Err(reason) => last_reason = reason,
+                }
+            }
+            if !wait_again(deadline, wait).await {
+                break;
+            }
+        }
+        Ok(match_removed_deadline_result(
+            observed_fresh_scene,
+            &last_reason,
+            wait,
+        ))
+    }
+
     async fn verify_match_present(
         &self,
         baseline: VisualBaseline,
@@ -330,6 +386,29 @@ fn match_added_deadline_result(
     }
 }
 
+/// 将匹配消失轮询的正常截止转换为基于既有视觉证据的三态结果。
+fn match_removed_deadline_result(
+    observed_fresh_scene: bool,
+    last_reason: &str,
+    wait: TargetWaitPolicy,
+) -> VisualVerificationResult {
+    if observed_fresh_scene {
+        VisualVerificationResult::Rejected {
+            reason: format!(
+                "动作后 {}ms 内未确认匹配消失：{last_reason}",
+                wait.timeout_ms,
+            ),
+        }
+    } else {
+        VisualVerificationResult::Uncertain {
+            reason: format!(
+                "在 {}ms 内未取得晚于动作前基线的完整视觉 Scene",
+                wait.timeout_ms,
+            ),
+        }
+    }
+}
+
 /// 将存在性轮询的正常截止转换为最后一帧的明确拒绝或无观测不确定结果。
 fn match_present_deadline_result(
     last_count: Option<usize>,
@@ -349,59 +428,6 @@ fn match_present_deadline_result(
             ),
         },
     }
-}
-
-/// 在动作前要求每条上下文查询都严格唯一，避免向错误会话提交输入。
-fn capture_stable_context(
-    scene: &Arc<VisualScene>,
-    queries: Vec<FrozenVisionQuery>,
-) -> Result<Vec<StableContextSnapshot>, AutomationError> {
-    queries
-        .into_iter()
-        .enumerate()
-        .map(|(index, query)| {
-            let matches = query.evaluate(scene)?;
-            match matches.as_slice() {
-                [candidate] => Ok(StableContextSnapshot {
-                    query,
-                    bounds: candidate.bbox,
-                }),
-                [] => Err(AutomationError::TargetNotFound {
-                    query: format!("visual stable context #{}", index + 1),
-                    details: " was not present in the frozen action window".to_owned(),
-                }),
-                candidates => Err(AutomationError::AmbiguousTarget {
-                    query: format!("visual stable context #{}", index + 1),
-                    matches: candidates.len(),
-                    details: " in the frozen action window".to_owned(),
-                }),
-            }
-        })
-        .collect()
-}
-
-/// 确保动作后的上下文仍严格唯一，并与动作前事实位置相交。
-fn stable_context_preserved(
-    expected: &[StableContextSnapshot],
-    scene: &Arc<VisualScene>,
-) -> Result<(), String> {
-    for (index, snapshot) in expected.iter().enumerate() {
-        let matches = snapshot
-            .query
-            .evaluate(scene)
-            .map_err(|error| format!("动作后上下文 #{} 求值失败：{error}", index + 1))?;
-        let [candidate] = matches.as_slice() else {
-            return Err(format!(
-                "动作后上下文 #{} 不再严格唯一（命中 {} 项）",
-                index + 1,
-                matches.len(),
-            ));
-        };
-        if !candidate.bbox.intersects(snapshot.bounds) {
-            return Err(format!("动作后上下文 #{} 已离开动作前位置", index + 1));
-        }
-    }
-    Ok(())
 }
 
 /// 根据等待策略构造独立于动作目标等待的截止时间。

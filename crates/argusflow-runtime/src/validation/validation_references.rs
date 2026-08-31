@@ -11,6 +11,18 @@ use crate::{
     value_runtime::validate_json_pointer,
 };
 
+/// 单次工作流校验共享的值生产者、编译节点与 CFG 索引。
+struct DataReferenceContext<'a> {
+    /// 原始工作流声明，用于核对输入和变量。
+    workflow: &'a WorkflowDefinition,
+    /// 由稳定节点 ID 索引的原始节点。
+    nodes: &'a HashMap<&'a str, &'a WorkflowNode>,
+    /// 已由注册表编译的节点端口契约。
+    prepared_nodes: &'a HashMap<String, Arc<dyn PreparedNode>>,
+    /// 每个消费节点的控制流支配集合。
+    dominators: &'a HashMap<String, HashSet<String>>,
+}
+
 /// 校验注册节点声明的值/资源输入、生产端口、节点存在性与 CFG 支配关系。
 pub(crate) fn validate_data_references(
     workflow: &WorkflowDefinition,
@@ -33,6 +45,12 @@ pub(crate) fn validate_data_references(
         start_id,
         predecessors,
     );
+    let context = DataReferenceContext {
+        workflow,
+        nodes: &nodes,
+        prepared_nodes,
+        dominators: &dominators,
+    };
     for consumer in &workflow.nodes {
         let Some(prepared) = prepared_nodes.get(&consumer.id) else {
             continue;
@@ -42,9 +60,7 @@ pub(crate) fn validate_data_references(
                 input.reference,
                 input.expected_type,
                 consumer,
-                &nodes,
-                prepared_nodes,
-                &dominators,
+                &context,
                 issues,
             );
         }
@@ -53,24 +69,12 @@ pub(crate) fn validate_data_references(
                 input.expression,
                 &input.expected_type,
                 consumer,
-                workflow,
-                &nodes,
-                prepared_nodes,
-                &dominators,
+                &context,
                 issues,
             );
         }
         for expression in consumer.output_bindings.values() {
-            validate_value(
-                expression,
-                &ValueTypeId::json(),
-                consumer,
-                workflow,
-                &nodes,
-                prepared_nodes,
-                &dominators,
-                issues,
-            );
+            validate_value(expression, &ValueTypeId::json(), consumer, &context, issues);
         }
     }
 }
@@ -80,12 +84,10 @@ fn validate_resource(
     resource: &ResourceRef,
     expected_type: &argusflow_core::ResourceTypeId,
     consumer: &WorkflowNode,
-    nodes: &HashMap<&str, &WorkflowNode>,
-    prepared_nodes: &HashMap<String, Arc<dyn PreparedNode>>,
-    dominators: &HashMap<String, HashSet<String>>,
+    context: &DataReferenceContext<'_>,
     issues: &mut Vec<ValidationIssue>,
 ) {
-    let Some(_producer) = nodes.get(resource.producer_node_id.as_str()) else {
+    let Some(_producer) = context.nodes.get(resource.producer_node_id.as_str()) else {
         issues.push(reference_issue(
             ValidationIssueCode::InvalidResourceReference,
             consumer,
@@ -94,7 +96,8 @@ fn validate_resource(
         ));
         return;
     };
-    let producer_matches = prepared_nodes
+    let producer_matches = context
+        .prepared_nodes
         .get(&resource.producer_node_id)
         .and_then(|prepared| prepared.resource_output(&resource.output_name))
         .is_some_and(|actual_type| actual_type == expected_type);
@@ -110,7 +113,7 @@ fn validate_resource(
     validate_dominance(
         &resource.producer_node_id,
         consumer,
-        dominators,
+        context.dominators,
         ValidationIssueCode::ReferenceNotDominating,
         format!(
             "资源 '{}.{}' 并非在所有到达消费节点的路径上先执行",
@@ -125,10 +128,7 @@ fn validate_value(
     expression: &ValueExpr,
     expected_type: &ValueTypeId,
     consumer: &WorkflowNode,
-    workflow: &WorkflowDefinition,
-    nodes: &HashMap<&str, &WorkflowNode>,
-    prepared_nodes: &HashMap<String, Arc<dyn PreparedNode>>,
-    dominators: &HashMap<String, HashSet<String>>,
+    context: &DataReferenceContext<'_>,
     issues: &mut Vec<ValidationIssue>,
 ) {
     match expression {
@@ -142,17 +142,9 @@ fn validate_value(
                 ));
             }
         }
-        ValueExpr::Ref { source, pointer } => validate_structured_ref(
-            source,
-            pointer,
-            expected_type,
-            consumer,
-            workflow,
-            nodes,
-            prepared_nodes,
-            dominators,
-            issues,
-        ),
+        ValueExpr::Ref { source, pointer } => {
+            validate_structured_ref(source, pointer, expected_type, consumer, context, issues)
+        }
         ValueExpr::Expression { .. } => {
             // 高级表达式只做 prepare 语法编译，结果类型在消费节点边界检查。
         }
@@ -160,16 +152,12 @@ fn validate_value(
 }
 
 /// 校验结构化引用的数据源、JSON Pointer、端口和 CFG 支配关系。
-#[allow(clippy::too_many_arguments)]
 fn validate_structured_ref(
     source: &ValueSource,
     pointer: &str,
     expected_type: &ValueTypeId,
     consumer: &WorkflowNode,
-    workflow: &WorkflowDefinition,
-    nodes: &HashMap<&str, &WorkflowNode>,
-    prepared_nodes: &HashMap<String, Arc<dyn PreparedNode>>,
-    dominators: &HashMap<String, HashSet<String>>,
+    context: &DataReferenceContext<'_>,
     issues: &mut Vec<ValidationIssue>,
 ) {
     if !validate_json_pointer(pointer) {
@@ -183,7 +171,11 @@ fn validate_structured_ref(
     }
     match source {
         ValueSource::WorkflowInput { key } => {
-            let declared = workflow.inputs.iter().any(|input| input.key == *key);
+            let declared = context
+                .workflow
+                .inputs
+                .iter()
+                .any(|input| input.key == *key);
             let type_matches = pointer.is_empty()
                 && (expected_type == &ValueTypeId::text() || expected_type == &ValueTypeId::json());
             if key.trim().is_empty() || !declared || !type_matches {
@@ -203,34 +195,36 @@ fn validate_structured_ref(
                     Some(consumer.id.clone()),
                     None,
                 ));
+            } else if !context
+                .workflow
+                .variables
+                .as_object()
+                .is_some_and(|variables| variables.contains_key(name))
+            {
+                issues.push(issue(
+                    ValidationIssueCode::UndeclaredVariable,
+                    format!("变量 '{name}' 未声明"),
+                    Some(consumer.id.clone()),
+                    None,
+                ));
             }
         }
-        ValueSource::Node { node_id } => validate_node_ref(
-            node_id,
-            pointer,
-            expected_type,
-            consumer,
-            nodes,
-            prepared_nodes,
-            dominators,
-            issues,
-        ),
+        ValueSource::Node { node_id } => {
+            validate_node_ref(node_id, pointer, expected_type, consumer, context, issues)
+        }
     }
 }
 
 /// 校验节点 Published Outputs 的完整对象或已知第一层输出。
-#[allow(clippy::too_many_arguments)]
 fn validate_node_ref(
     node_id: &str,
     pointer: &str,
     expected_type: &ValueTypeId,
     consumer: &WorkflowNode,
-    nodes: &HashMap<&str, &WorkflowNode>,
-    prepared_nodes: &HashMap<String, Arc<dyn PreparedNode>>,
-    dominators: &HashMap<String, HashSet<String>>,
+    context: &DataReferenceContext<'_>,
     issues: &mut Vec<ValidationIssue>,
 ) {
-    let Some(producer) = nodes.get(node_id) else {
+    let Some(producer) = context.nodes.get(node_id) else {
         issues.push(issue(
             ValidationIssueCode::InvalidValueReference,
             format!("值输出生产节点 '{node_id}' 不存在"),
@@ -250,7 +244,8 @@ fn validate_node_ref(
             return;
         }
     } else if let Some((output_name, nested)) = first_pointer_token(pointer) {
-        let native_type = prepared_nodes
+        let native_type = context
+            .prepared_nodes
             .get(node_id)
             .and_then(|prepared| prepared.value_output(&output_name));
         let custom_output = producer.output_bindings.contains_key(&output_name);
@@ -284,7 +279,7 @@ fn validate_node_ref(
     validate_dominance(
         node_id,
         consumer,
-        dominators,
+        context.dominators,
         ValidationIssueCode::ReferenceNotDominating,
         format!("节点输出 '{node_id}{pointer}' 并非在所有到达消费节点的路径上先执行"),
         issues,

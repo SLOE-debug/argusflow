@@ -81,6 +81,7 @@ async fn command_terminates_immediately_when_stdout_exceeds_limit() {
 
 /// 被测根进程：启动继承 stdout/stderr 的确定性后代后立即退出。
 #[test]
+#[allow(clippy::zombie_processes)]
 fn command_helper_parent() {
     if std::env::var(HELPER_MODE).ok().as_deref() != Some(PARENT_MODE) {
         return;

@@ -1,5 +1,5 @@
 import type { WorkflowPermissions } from '../../../features/workflow';
-import { Checkbox } from '../../ui';
+import { Button, Checkbox } from '../../ui';
 
 import {
   INSPECTOR_CONTROL_CLASS_NAME,
@@ -11,47 +11,23 @@ import {
 type WorkflowInspectorFieldsProps = Readonly<{
   /** 当前工作流名称。 */
   workflowName: string;
-  /** JSON 变量编辑草稿。 */
-  variablesDraft: string;
-  /** JSON 变量草稿的即时错误。 */
-  variablesError: string | null;
-  /** 持久化运行输入声明草稿。 */
-  inputDefinitionsDraft: string;
-  /** 输入声明草稿错误。 */
-  inputDefinitionsError: string | null;
-  /** 本次运行的瞬时输入值草稿。 */
-  runInputValuesDraft: string;
-  /** 本次运行输入值错误。 */
-  runInputValuesError: string | null;
   /** Application 与 Command 节点使用的显式能力声明。 */
   permissions: WorkflowPermissions;
   /** 修改工作流名称。 */
   onNameChange: (name: string) => void;
-  /** 修改 JSON 变量草稿。 */
-  onVariablesChange: (draft: string) => void;
-  /** 修改运行输入声明。 */
-  onInputDefinitionsChange: (draft: string) => void;
-  /** 修改本次运行的瞬时输入值。 */
-  onRunInputValuesChange: (draft: string) => void;
   /** 修改系统能力声明。 */
   onPermissionsChange: (permissions: WorkflowPermissions) => void;
+  /** 打开工作流数据面板。 */
+  onOpenWorkflowData?: () => void;
 }>;
 
 /** 工作流级信息、能力、输入和变量设置。 */
 export function WorkflowInspectorFields({
   workflowName,
-  variablesDraft,
-  variablesError,
-  inputDefinitionsDraft,
-  inputDefinitionsError,
-  runInputValuesDraft,
-  runInputValuesError,
   permissions,
   onNameChange,
-  onVariablesChange,
-  onInputDefinitionsChange,
-  onRunInputValuesChange,
   onPermissionsChange,
+  onOpenWorkflowData,
 }: WorkflowInspectorFieldsProps) {
   return (
     <>
@@ -112,66 +88,13 @@ export function WorkflowInspectorFields({
           开启后，工作流才能使用对应的程序或命令。
         </p>
       </InspectorSection>
-      <JsonEditorSection
-        title="输入字段"
-        draft={inputDefinitionsDraft}
-        error={inputDefinitionsError}
-        help="用 JSON 定义工作流需要的输入字段，目前只支持文本类型。"
-        onChange={onInputDefinitionsChange}
-      />
-      <JsonEditorSection
-        title="本次运行输入"
-        draft={runInputValuesDraft}
-        error={runInputValuesError}
-        help="只用于这次运行，不会保存到工作流。"
-        onChange={onRunInputValuesChange}
-      />
-      <JsonEditorSection
-        title="变量"
-        draft={variablesDraft}
-        error={variablesError}
-        help="工作流开始时会载入这些变量；条件和表达式可以读取它们。"
-        onChange={onVariablesChange}
-      />
+      <InspectorSection title="工作流数据">
+        <p className={INSPECTOR_HELP_CLASS_NAME}>
+          输入参数、变量和节点输出都在工作流数据面板中管理。
+        </p>
+        <Button onClick={onOpenWorkflowData}>打开工作流数据</Button>
+      </InspectorSection>
     </>
-  );
-}
-
-/** 统一渲染带即时错误和格式化操作的 JSON 配置区。 */
-function JsonEditorSection({
-  title,
-  draft,
-  error,
-  help,
-  onChange,
-}: Readonly<{
-  title: string;
-  draft: string;
-  error: string | null;
-  help: string;
-  onChange: (draft: string) => void;
-}>) {
-  return (
-    <InspectorSection title={title}>
-      <textarea
-        className={`${INSPECTOR_CONTROL_CLASS_NAME} h-[150px] resize-none py-2 font-mono leading-5`}
-        spellCheck={false}
-        value={draft}
-        onChange={(event) => onChange(event.target.value)}
-      />
-      {error ? (
-        <p className="text-[11px] leading-4 text-rose-600">{error}</p>
-      ) : (
-        <button
-          type="button"
-          className="flex h-8 items-center justify-center self-start rounded-[4px] border border-slate-300 bg-white px-3 text-[11px] text-slate-600 hover:bg-slate-50"
-          onClick={() => onChange(JSON.stringify(JSON.parse(draft), null, 2))}
-        >
-          格式化 JSON
-        </button>
-      )}
-      <p className={INSPECTOR_HELP_CLASS_NAME}>{help}</p>
-    </InspectorSection>
   );
 }
 

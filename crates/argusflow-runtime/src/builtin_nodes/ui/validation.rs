@@ -237,18 +237,22 @@ fn validate_postcondition(
         UiPostcondition::MatchAdded {
             query,
             stable_context,
+        }
+        | UiPostcondition::MatchRemoved {
+            query,
+            stable_context,
         } => {
             if !is_input_operation(operation) {
                 issues.push(context.issue(
                     ValidationIssueCode::InvalidNodeDefinition,
-                    "视觉新增匹配后置条件只能用于按键或物理文本输入动作",
+                    "视觉匹配变化后置条件只能用于按键或物理文本输入动作",
                 ));
             }
-            validate_aql_query(query, "视觉新增匹配", context, issues);
+            validate_aql_query(query, "视觉匹配变化", context, issues);
             if stable_context.is_empty() {
                 issues.push(context.issue(
                     ValidationIssueCode::InvalidNodeDefinition,
-                    "视觉新增匹配后置条件必须至少绑定一条稳定上下文查询",
+                    "视觉匹配变化后置条件必须至少绑定一条稳定上下文查询",
                 ));
             }
             for query in stable_context {

@@ -5,7 +5,10 @@ use argusflow_core::{
     RunTraceContext, TargetWaitPolicy,
 };
 
-use crate::{VisualBaseline, VisualVerificationProvider, VisualVerificationResult, WindowContext};
+use crate::{
+    VisualBaseline, VisualBaselineRequirement, VisualVerificationProvider,
+    VisualVerificationResult, WindowContext,
+};
 
 /// 在动作提交前冻结窗口内的目标数量与稳定上下文。
 pub(super) async fn capture_baseline(
@@ -25,15 +28,33 @@ pub(super) async fn capture_baseline(
         backend: BackendKind::SendInput,
         message: "visual postcondition requires a frozen window context".to_owned(),
     })?;
-    let (query, stable_context): (&PreparedAqlQuery, &[PreparedAqlQuery]) = match postcondition {
+    let (query, stable_context, requirement): (
+        &PreparedAqlQuery,
+        &[PreparedAqlQuery],
+        VisualBaselineRequirement,
+    ) = match postcondition {
         PreparedVisualPostcondition::MatchAdded {
             query,
             stable_context,
-        } => (query, stable_context.as_slice()),
-        PreparedVisualPostcondition::MatchPresent { query } => (query, &[]),
+        } => (
+            query,
+            stable_context.as_slice(),
+            VisualBaselineRequirement::AnyCount,
+        ),
+        PreparedVisualPostcondition::MatchRemoved {
+            query,
+            stable_context,
+        } => (
+            query,
+            stable_context.as_slice(),
+            VisualBaselineRequirement::AtLeastOne,
+        ),
+        PreparedVisualPostcondition::MatchPresent { query } => {
+            (query, &[], VisualBaselineRequirement::AnyCount)
+        }
     };
     provider
-        .capture_baseline(window, query, stable_context, trace_context)
+        .capture_baseline(window, query, stable_context, requirement, trace_context)
         .await
         .map(Some)
 }
@@ -73,6 +94,9 @@ pub(super) async fn verify(
         PreparedVisualPostcondition::MatchAdded { .. } => {
             provider.verify_match_added(baseline, wait).await
         }
+        PreparedVisualPostcondition::MatchRemoved { .. } => {
+            provider.verify_match_removed(baseline, wait).await
+        }
         PreparedVisualPostcondition::MatchPresent { .. } => {
             provider.verify_match_present(baseline, wait).await
         }
@@ -100,6 +124,16 @@ pub(super) async fn verify(
             outcome
                 .message
                 .push_str("；视觉确认目标已在新鲜画面中唯一匹配");
+        }
+        VisualVerificationResult::MatchRemovedConfirmed {
+            baseline_count,
+            current_count,
+            removed_count,
+        } => {
+            outcome.outputs.insert("confirmed".to_owned(), true.into());
+            outcome.message.push_str(&format!(
+                "；视觉确认同一窗口内 {removed_count} 个旧匹配已消失（动作前 {baseline_count}，当前 {current_count}）",
+            ));
         }
         VisualVerificationResult::Rejected { reason }
         | VisualVerificationResult::Uncertain { reason } => {

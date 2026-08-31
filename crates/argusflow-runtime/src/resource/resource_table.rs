@@ -136,13 +136,12 @@ impl ResourceTable {
     pub(crate) async fn cleanup_all(&self) -> Result<(), RuntimeError> {
         let mut first_error = None;
         for resource_id in self.acquisition_order.iter().rev() {
-            if let Some(resource) = self.resources.get(resource_id) {
-                if let Err(error) = resource.cleanup.cleanup(resource.value.as_ref()).await
-                    && first_error.is_none()
-                {
-                    // 记录第一项失败，但继续释放其它独立资源，避免一个插件清理器阻断全局回收。
-                    first_error = Some(error);
-                }
+            if let Some(resource) = self.resources.get(resource_id)
+                && let Err(error) = resource.cleanup.cleanup(resource.value.as_ref()).await
+                && first_error.is_none()
+            {
+                // 记录第一项失败，但继续释放其它独立资源，避免一个插件清理器阻断全局回收。
+                first_error = Some(error);
             }
         }
         first_error.map_or(Ok(()), Err)

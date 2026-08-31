@@ -4,12 +4,16 @@ import type {
 } from '../../../../features/workflow';
 import { AqlEditor } from '../../../../features/aql-editor/view/AqlEditor';
 import { changeTargetLocator } from '../../../../features/workflow';
+import { buildWorkflowSymbolRegistry } from '../../../../features/workflow';
 import {
   readNodeValueExpr,
   updateNodeValueExpr,
 } from '../../../../features/workflow';
 import type {
   WorkflowCanvasNode,
+  WorkflowCanvasEdge,
+  JsonObject,
+  WorkflowInputDefinition,
   WorkflowNodeUpdater,
 } from '../../../../features/workflow';
 import { CommandScriptEditor } from '../../inspector/node-fields/CommandScriptEditor';
@@ -21,8 +25,14 @@ type WorkspaceStructuredEditorProps = Readonly<{
   target: StructuredEditorTarget;
   /** 实时工作流节点集合。 */
   nodes: ReadonlyArray<WorkflowCanvasNode>;
+  /** 当前工作流连线，用于过滤表达式补全中的非支配节点输出。 */
+  edges?: ReadonlyArray<WorkflowCanvasEdge>;
   /** 最近一次 Runtime 校验结果，用于表达式编译诊断。 */
   report?: ValidationReport | null;
+  /** 当前工作流声明的输入参数，用于 Rhai 补全。 */
+  workflowInputs?: ReadonlyArray<WorkflowInputDefinition>;
+  /** 当前工作流变量，用于 Rhai 补全。 */
+  workflowVariables?: JsonObject;
   /** 按目标节点写回，不依赖当前画布选择。 */
   onUpdateNode: (nodeId: string, updater: WorkflowNodeUpdater) => void;
 }>;
@@ -31,7 +41,10 @@ type WorkspaceStructuredEditorProps = Readonly<{
 export function WorkspaceStructuredEditor({
   target,
   nodes,
+  edges = [],
   report = null,
+  workflowInputs = [],
+  workflowVariables = {},
   onUpdateNode,
 }: WorkspaceStructuredEditorProps) {
   const node = nodes.find((candidate) => candidate.id === target.nodeId);
@@ -90,11 +103,19 @@ export function WorkspaceStructuredEditor({
       const compileError = report?.issues.find((issue) => (
         issue.code === 'invalid_expression' && issue.node_id === node.id
       ))?.message ?? null;
+      const symbols = buildWorkflowSymbolRegistry({
+        inputs: workflowInputs,
+        variables: workflowVariables,
+        nodes,
+        edges,
+        consumerNodeId: node.id,
+      });
       return (
         <ExpressionEditor
           modelUri={`inmemory://argusflow/workflow/${encodeURIComponent(node.id)}/expression/${locationKey}`}
           source={expression.source}
-          nodes={nodes}
+          symbols={symbols}
+          includeResult={target.location.type === 'output_binding'}
           compileError={compileError}
           onChange={(source) => onUpdateNode(node.id, (current) => (
             updateNodeValueExpr(current, target.location, { type: 'expression', source })

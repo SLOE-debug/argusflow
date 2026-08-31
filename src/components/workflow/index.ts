@@ -9,6 +9,11 @@ export { EditorPrimaryActions } from './workspace/toolbar/EditorPrimaryActions';
 export { EditorToolbarControls } from './workspace/toolbar/EditorToolbarControls';
 export { WorkflowOverview } from './overview/WorkflowOverview';
 export { resolveWorkflowStatus, type WorkflowStatusPresentation } from './overview/workflowStatus';
+export { WorkflowDataPanel } from './data/WorkflowDataPanel';
+export { RunInputsDialog } from './data/RunInputsDialog';
+export { ValueField } from './value-editor/ValueField';
+export { ValuePicker } from './value-editor/ValuePicker';
+export { ValueReferencePreview } from './value-editor/ValueReferencePreview';
 export { useWorkspaceEditor } from './workspace/dock/useWorkspaceEditor';
 export type {
   StructuredEditorTarget,

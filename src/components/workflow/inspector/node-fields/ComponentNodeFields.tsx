@@ -86,6 +86,7 @@ export function ComponentNodeFields({
           <ValueExprFields
             value={value}
             literalLabel={`组件输入 ${name}`}
+            expressionLocation={{ type: 'component_input', name }}
             onChange={(nextValue) => updateComponent({
               ...data.component,
               inputs: { ...data.component.inputs, [name]: nextValue },

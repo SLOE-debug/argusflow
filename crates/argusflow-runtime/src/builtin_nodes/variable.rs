@@ -1,4 +1,7 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashSet},
+    sync::Arc,
+};
 
 use argusflow_core::{ValueExpr, WorkflowPermissions};
 use async_trait::async_trait;
@@ -52,26 +55,33 @@ impl PreparedNode for SetVariablesNode {
     }
 
     fn validate(&self, context: &NodeValidationContext<'_>) -> Vec<ValidationIssue> {
-        let mut names = std::collections::HashSet::new();
+        let mut names = HashSet::new();
         if self.assignments.is_empty() {
             return vec![context.issue(
                 ValidationIssueCode::InvalidVariableAssignment,
                 "设置变量节点至少需要一项赋值",
             )];
         }
-        self.assignments
-            .iter()
-            .filter_map(|assignment| {
-                if assignment.name.trim().is_empty() || !names.insert(assignment.name.as_str()) {
-                    Some(context.issue(
-                        ValidationIssueCode::InvalidVariableAssignment,
-                        "变量名称必须非空且在同一节点内唯一",
-                    ))
-                } else {
-                    None
-                }
-            })
-            .collect()
+        let declared_variables = context.workflow.variables.as_object();
+        let mut issues = Vec::new();
+        for assignment in &self.assignments {
+            if assignment.name.trim().is_empty() || !names.insert(assignment.name.as_str()) {
+                issues.push(context.issue(
+                    ValidationIssueCode::InvalidVariableAssignment,
+                    "变量名称必须非空且在同一节点内唯一",
+                ));
+            }
+            if !assignment.name.trim().is_empty()
+                && !declared_variables
+                    .is_some_and(|variables| variables.contains_key(assignment.name.as_str()))
+            {
+                issues.push(context.issue(
+                    ValidationIssueCode::UndeclaredVariable,
+                    format!("变量 '{}' 未声明", assignment.name),
+                ));
+            }
+        }
+        issues
     }
 
     fn value_inputs(&self) -> Vec<ValueInput<'_>> {

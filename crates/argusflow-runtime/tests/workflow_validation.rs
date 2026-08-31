@@ -101,10 +101,10 @@ fn ui_payload_v4_accepts_aql_postconditions_and_rejects_region_protocol() {
                     "poll_interval_ms": 150
                 },
                 "postcondition": {
-                    "type": "match_added",
+                    "type": "match_removed",
                     "query": {
                         "language_version": 2,
-                        "source": "text(name = $message)",
+                        "source": "nearest(anchor = viewport_edge(side = bottom), target = text(name = $message), direction = any, index = 1)",
                         "bindings": {
                             "message": { "type": "literal", "value": "你好" }
                         }
@@ -392,6 +392,76 @@ fn validation_uses_input_declarations_instead_of_persisted_variables() {
         },
     }
     .into();
+
+    assert!(validate_workflow(&workflow).valid);
+}
+
+#[test]
+fn validation_rejects_undeclared_variable_references() {
+    let mut workflow = demo_workflow(1);
+    workflow.nodes[1].definition = WorkflowNodeKind::Debug {
+        value: ValueExpr::Ref {
+            source: ValueSource::Variable {
+                name: "missing".to_owned(),
+            },
+            pointer: String::new(),
+        },
+    }
+    .into();
+
+    let report = validate_workflow(&workflow);
+    let issue = report
+        .issues
+        .iter()
+        .find(|issue| issue.code == ValidationIssueCode::UndeclaredVariable)
+        .expect("undeclared variable reference should produce a stable issue");
+    assert_eq!(issue.code.as_str(), "undeclared_variable");
+    assert_eq!(issue.node_id.as_deref(), Some("log"));
+    assert!(issue.message.contains("'missing' 未声明"));
+}
+
+#[test]
+fn validation_rejects_undeclared_variable_assignments() {
+    let mut workflow = demo_workflow(1);
+    workflow.nodes[1].definition = NodeEnvelope::new(
+        "argus.variable.set",
+        1,
+        json!({
+            "assignments": [
+                { "name": "missing", "value": { "type": "literal", "value": 1 } }
+            ]
+        }),
+    );
+
+    let report = validate_workflow(&workflow);
+    let issue = report
+        .issues
+        .iter()
+        .find(|issue| issue.code == ValidationIssueCode::UndeclaredVariable)
+        .expect("undeclared variable assignment should produce a stable issue");
+    assert_eq!(issue.node_id.as_deref(), Some("log"));
+    assert!(issue.message.contains("'missing' 未声明"));
+}
+
+#[test]
+fn validation_accepts_declared_variable_references_and_assignments() {
+    let mut workflow = demo_workflow(1);
+    workflow.variables = json!({ "state": 1 });
+    workflow.nodes[1].definition = NodeEnvelope::new(
+        "argus.variable.set",
+        1,
+        json!({
+            "assignments": [{
+                "name": "state",
+                "value": ValueExpr::Ref {
+                    source: ValueSource::Variable {
+                        name: "state".to_owned(),
+                    },
+                    pointer: String::new(),
+                }
+            }]
+        }),
+    );
 
     assert!(validate_workflow(&workflow).valid);
 }

@@ -35,7 +35,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use argusflow_core::{ValueExpr, ValueSource};
-    use serde_json::{Value, json};
+    use serde_json::json;
     use uuid::Uuid;
 
     use super::publish_outcome;

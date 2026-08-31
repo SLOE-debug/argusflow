@@ -140,7 +140,7 @@ export const WORKFLOW_NODE_DEFINITIONS = {
       kind: 'variable',
       label: '设置变量',
       outputBindings: {},
-      assignments: [{ name: 'value', value: { type: 'literal', value: null } }],
+      assignments: [{ name: '', value: { type: 'literal', value: null } }],
       runState: 'idle',
     }),
     encode: (data) => ({ assignments: data.assignments }),

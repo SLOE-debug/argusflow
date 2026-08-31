@@ -33,7 +33,9 @@ import {
   type WorkflowNodeUpdater,
 } from '../model/workflowModel';
 import { useWorkflowInputs } from '../inputs/useWorkflowInputs';
+import { validateRunInputValues } from '../inputs/workflowRunInputs';
 import { useWorkflowComponents } from '../components/useWorkflowComponents';
+import { useWorkflowVariables } from './useWorkflowVariables';
 import {
   isDesktopRuntime,
   normalizeCommandError,
@@ -69,20 +71,25 @@ export function useWorkflowStudio() {
     flowStore,
     (state) => state.metadata.workflowName as string,
   );
-  const variables = useStore(
-    flowStore,
-    (state) => state.metadata.variables as JsonObject,
-  );
   const permissions = useStore(
     flowStore,
     (state) => state.metadata.permissions as WorkflowPermissions,
   );
   const nodes = useStore(flowStore, (state) => state.nodes);
+  const edges = useStore(flowStore, (state) => state.edges);
   const workflowInputs = useWorkflowInputs(flowStore);
-  const [variablesDraft, setVariablesDraft] = useState(
-    JSON.stringify(DEFAULT_WORKFLOW_VARIABLES, null, 2),
-  );
-  const [variablesError, setVariablesError] = useState<string | null>(null);
+  const workflowVariables = useWorkflowVariables(flowStore);
+  const {
+    variables,
+    variablesDraft,
+    variablesError,
+    setVariable,
+    addVariable,
+    updateVariable,
+    deleteVariable,
+    renameVariable,
+    replaceVariablesFromJson,
+  } = workflowVariables;
   const [report, setReport] = useState<ValidationReport | null>(null);
   const [events, setEvents] = useState<ExecutionEvent[]>([]);
   const [running, setRunning] = useState(false);
@@ -109,16 +116,6 @@ export function useWorkflowStudio() {
       'workflow-permissions',
     );
   }, [flowStore]);
-
-  useEffect(() => {
-    try {
-      if (JSON.stringify(JSON.parse(variablesDraft)) !== JSON.stringify(variables)) {
-        setVariablesDraft(JSON.stringify(variables, null, 2));
-      }
-    } catch {
-      // 非法草稿必须保留给用户修正，不能被历史状态覆盖。
-    }
-  }, [variables, variablesDraft]);
 
   useEffect(() => {
     // 普通浏览器开发预览没有 Tauri IPC；只在桌面 WebView 中注册事件桥接。
@@ -193,7 +190,7 @@ export function useWorkflowStudio() {
     }
   }, [componentCatalog, currentWorkflow, flowStore, variablesError, workflowInputs.inputDefinitionsError]);
 
-  const run = useCallback(async () => {
+  const run = useCallback(async (submittedValues?: JsonObject) => {
     setEvents([]);
     setRunId(null);
     setErrorMessage(null);
@@ -204,9 +201,24 @@ export function useWorkflowStudio() {
     })), false);
     const nextReport = await validate();
     if (!nextReport?.valid) return;
-    if (workflowInputs.runInputValuesError) {
+    if (submittedValues === undefined && workflowInputs.runInputValuesError) {
       setErrorMessage(workflowInputs.runInputValuesError);
       return;
+    }
+
+    /** IPC 前再次验证公开 Hook 调用，不能只依赖运行对话框的 UI 边界。 */
+    const runInputValidation = validateRunInputValues(
+      workflowInputs.inputDefinitions,
+      submittedValues ?? workflowInputs.runInputValues,
+    );
+    if (!runInputValidation.valid) {
+      setErrorMessage(runInputValidation.message);
+      return;
+    }
+    /** 提交对话框传入的整组值直接作为 IPC payload，避免等待 React 状态刷新。 */
+    const runInputValues = runInputValidation.values;
+    if (submittedValues !== undefined) {
+      workflowInputs.replaceRunInputValues(runInputValues);
     }
 
     const validatedState = flowStore.getState();
@@ -219,7 +231,7 @@ export function useWorkflowStudio() {
       const started = await runWorkflow(
         currentWorkflow(),
         componentCatalog.map((item) => item.definition),
-        { values: workflowInputs.runInputValues },
+        { values: runInputValues },
       );
       setRunId(started.run_id);
     } catch (error) {
@@ -416,28 +428,6 @@ export function useWorkflowStudio() {
     });
   }, [flowStore]);
 
-  const updateVariables = useCallback((draft: string) => {
-    setVariablesDraft(draft);
-    try {
-      const parsed: unknown = JSON.parse(draft);
-      if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
-        throw new Error('变量必须是 JSON 对象。');
-      }
-      flowStore.getState().setMetadata(
-        { variables: parsed as JsonObject },
-        true,
-        'workflow-variables',
-      );
-      setVariablesError(null);
-    } catch (error) {
-      setVariablesError(
-        error instanceof Error && error.message === '变量必须是 JSON 对象。'
-          ? error.message
-          : 'JSON 格式有误，请检查引号、括号和逗号。',
-      );
-    }
-  }, [flowStore]);
-
   const deleteSelection = useCallback(() => {
     flowStore.getState().deleteSelection();
   }, [flowStore]);
@@ -445,13 +435,20 @@ export function useWorkflowStudio() {
   return {
     flowStore,
     nodes,
+    edges,
     workflowName,
     setWorkflowName,
+    variables,
     permissions,
     updatePermissions,
     variablesDraft,
     variablesError,
-    updateVariables,
+    setVariable,
+    addVariable,
+    updateVariable,
+    deleteVariable,
+    renameVariable,
+    replaceVariablesFromJson,
     ...workflowInputs,
     report,
     events,

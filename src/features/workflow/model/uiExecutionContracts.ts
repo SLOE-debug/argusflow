@@ -23,6 +23,13 @@ export type UiPostcondition =
       /** 要求动作后的新鲜画面中唯一存在目标 AQL 匹配。 */
       type: 'match_present';
       query: AqlQuery;
+    }
+  | {
+      /** 要求动作后至少一个动作前 AQL 匹配实例已经消失。 */
+      type: 'match_removed';
+      query: AqlQuery;
+      /** 动作前后都必须唯一命中且保持在原位置的上下文。 */
+      stable_context: ReadonlyArray<AqlQuery>;
     };
 
 /** UI 节点自己的目标等待与动作后置条件契约。 */

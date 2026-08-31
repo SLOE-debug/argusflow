@@ -279,6 +279,7 @@ export type BuiltinValidationIssueCode =
   | 'invalid_command'
   | 'command_permission_denied'
   | 'invalid_value_reference'
+  | 'undeclared_variable'
   | 'invalid_expression'
   | 'invalid_output_binding'
   | 'invalid_variable_assignment'

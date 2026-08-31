@@ -14,6 +14,10 @@ import type { KeyboardKey, KeyboardModifier } from './inputContracts';
 const WECHAT_CONVERSATION_HEADER_QUERY =
   'nearest(anchor = text(name = "搜索"), target = text(name = $contact_name), direction = any, index = 2)';
 
+/** 动作前选择最靠近窗口底边的同文本实例，即当前输入框中的待发送消息。 */
+const WECHAT_PENDING_MESSAGE_QUERY =
+  'nearest(anchor = viewport_edge(side = bottom), target = text(name = $message), direction = any, index = 1)';
+
 /** 创建参数化 AQL v2 查询，供目标和后置条件共用同一契约。 */
 function createWechatAqlQuery(
   source: string,
@@ -101,7 +105,7 @@ export function createWechatOpenConversationExecutionPolicy(
   };
 }
 
-/** 发送消息要求会话标题保持原位，并出现不与输入框旧文字重叠的新消息实例。 */
+/** 发送消息要求会话标题保持原位，并确认输入框中的待发送文字实例已经消失。 */
 export function createWechatSendMessageExecutionPolicy(
   contactName: ValueExpr,
 ): UiExecutionPolicy {
@@ -109,8 +113,8 @@ export function createWechatSendMessageExecutionPolicy(
     target_wait: { mode: 'none', timeout_ms: 0, poll_interval_ms: 0 },
     postcondition_wait: { mode: 'bounded', timeout_ms: 5_000, poll_interval_ms: 150 },
     postcondition: {
-      type: 'match_added',
-      query: createWechatAqlQuery('text(name = $message)', {
+      type: 'match_removed',
+      query: createWechatAqlQuery(WECHAT_PENDING_MESSAGE_QUERY, {
         message: {
           type: 'ref',
           source: { type: 'workflow_input', key: 'message' },

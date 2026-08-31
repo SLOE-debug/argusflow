@@ -287,7 +287,7 @@ function asPostcondition(value: JsonValue | undefined): UiPostcondition | null {
   if (value === null) return null;
   const object = asObject(value, 'execution.postcondition');
   const type = asString(object.type, 'execution.postcondition.type');
-  if (type === 'match_added') {
+  if (type === 'match_added' || type === 'match_removed') {
     return {
       type,
       query: asAqlQuery(object.query, 'execution.postcondition.query'),

@@ -31,7 +31,7 @@ export function createWechatMessageDefinition(): FlowComponentDefinition {
   return {
     schema_version: 1,
     id: WECHAT_MESSAGE_COMPONENT_ID,
-    version: '5.0.0',
+    version: '5.0.1',
     name: '发送微信联系人消息',
     inputs: [
       { key: 'contact_name', value_type: 'text' },

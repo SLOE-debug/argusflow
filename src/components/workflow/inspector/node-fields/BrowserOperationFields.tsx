@@ -36,6 +36,7 @@ export function BrowserOperationFields({
       <ValueExprFields
         value={operation.url}
         literalLabel="目标网址"
+        expressionLocation={{ type: 'navigate_url' }}
         onChange={(url) => updateOperation(onUpdate, { ...operation, url })}
       />
       <p className={INSPECTOR_HELP_CLASS_NAME}>

@@ -9,7 +9,7 @@ describe('WeChat message component', () => {
     const clickContact = definition.nodes.find((node) => node.id === 'click_contact');
     const sendMessage = definition.nodes.find((node) => node.id === 'send_message');
 
-    expect(definition.version).toBe('5.0.0');
+    expect(definition.version).toBe('5.0.1');
     expect(
       definition.nodes
         .filter((node) => node.type_id === 'argus.ui')
@@ -38,8 +38,10 @@ describe('WeChat message component', () => {
     expect(sendMessage?.payload).toEqual(expect.objectContaining({
       execution: expect.objectContaining({
         postcondition: expect.objectContaining({
-          type: 'match_added',
-          query: expect.objectContaining({ source: 'text(name = $message)' }),
+          type: 'match_removed',
+          query: expect.objectContaining({
+            source: 'nearest(anchor = viewport_edge(side = bottom), target = text(name = $message), direction = any, index = 1)',
+          }),
           stable_context: [expect.objectContaining({
             source: 'nearest(anchor = text(name = "搜索"), target = text(name = $contact_name), direction = any, index = 2)',
           })],

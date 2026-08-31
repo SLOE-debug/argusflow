@@ -7,11 +7,14 @@ import {
 } from 'react';
 
 import type {
+  JsonObject,
   ExecutionEvent,
   ValidationReport,
+  WorkflowInputDefinition,
 } from '../../../features/workflow';
 import type {
   WorkflowCanvasNode,
+  WorkflowCanvasEdge,
   WorkflowNodeUpdater,
 } from '../../../features/workflow';
 import type {
@@ -34,8 +37,18 @@ type WorkflowWorkspaceProps = Readonly<{
   events: ReadonlyArray<ExecutionEvent>;
   /** 当前工作流节点，用于结构化文档解析和日志显示。 */
   nodes: ReadonlyArray<WorkflowCanvasNode>;
+  /** 当前工作流连线，用于结构化表达式的 dominance-aware 补全。 */
+  edges?: ReadonlyArray<WorkflowCanvasEdge>;
+  /** 当前工作流声明的输入参数。 */
+  workflowInputs?: ReadonlyArray<WorkflowInputDefinition>;
+  /** 当前工作流变量。 */
+  workflowVariables?: JsonObject;
   /** 最近一次结构校验结果。 */
   report: ValidationReport | null;
+  /** 工作流级数据面板；缺省时不显示对应页签。 */
+  workflowData?: ReactNode;
+  /** 外部请求激活工作流数据页签的递增序号。 */
+  workflowDataRequest?: number;
   /** 展开或折叠 Workspace Dock。 */
   onDockOpenChange: (open: boolean) => void;
   /** 保存拖拽后的 Dock 高度。 */
@@ -55,7 +68,12 @@ export function WorkflowWorkspace({
   editorState,
   events,
   nodes,
+  edges = [],
+  workflowInputs = [],
+  workflowVariables = {},
   report,
+  workflowData,
+  workflowDataRequest,
   onDockOpenChange,
   onDockHeightChange,
   onEditorModeChange,
@@ -101,7 +119,10 @@ export function WorkflowWorkspace({
     <WorkspaceStructuredEditor
       target={editorState.target}
       nodes={nodes}
+      edges={edges}
       report={report}
+      workflowInputs={workflowInputs}
+      workflowVariables={workflowVariables}
       onUpdateNode={onUpdateNode}
     />
   ) : null;
@@ -127,6 +148,8 @@ export function WorkflowWorkspace({
         events={events}
         nodes={nodes}
         report={report}
+        workflowData={workflowData}
+        workflowDataRequest={workflowDataRequest}
         onOpenChange={onDockOpenChange}
         onDockHeightChange={onDockHeightChange}
         onEditorModeChange={onEditorModeChange}

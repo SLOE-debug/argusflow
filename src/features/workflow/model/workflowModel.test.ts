@@ -298,8 +298,10 @@ describe('workflow model', () => {
             poll_interval_ms: 150,
           },
           postcondition: expect.objectContaining({
-            type: 'match_added',
-            query: expect.objectContaining({ source: 'text(name = $message)' }),
+            type: 'match_removed',
+            query: expect.objectContaining({
+              source: 'nearest(anchor = viewport_edge(side = bottom), target = text(name = $message), direction = any, index = 1)',
+            }),
             stable_context: [expect.objectContaining({
               source: 'nearest(anchor = text(name = "搜索"), target = text(name = $contact_name), direction = any, index = 2)',
             })],

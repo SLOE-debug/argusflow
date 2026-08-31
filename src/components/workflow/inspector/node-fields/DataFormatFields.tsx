@@ -25,6 +25,7 @@ export function DataFormatFields({ operation, onUpdate }: DataFormatFieldsProps)
         value={operation.items}
         literalLabel="输入数据"
         literalMode="json"
+        expressionLocation={{ type: 'format_items' }}
         onChange={(items) => change({ ...operation, items })}
       />
       <InspectorField label="列顺序">

@@ -90,6 +90,13 @@ pub enum UiPostcondition {
         /// 动作前后都必须唯一命中且保持在原位置的上下文查询。
         stable_context: Vec<AqlQuery>,
     },
+    /// 要求动作前后保持同一视觉上下文，且动作前的一个空间匹配实例已经消失。
+    MatchRemoved {
+        /// 需要在动作前后做 scene delta 比较的 AQL 查询。
+        query: AqlQuery,
+        /// 动作前后都必须唯一命中且保持在原位置的上下文查询。
+        stable_context: Vec<AqlQuery>,
+    },
     /// 要求动作完成后的新鲜画面中唯一存在目标匹配。
     MatchPresent {
         /// 只在动作完成后求值的 AQL 查询。

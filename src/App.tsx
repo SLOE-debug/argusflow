@@ -10,6 +10,8 @@ import {
   resolveWorkflowStatus,
   useWorkspaceEditor,
   WorkflowCanvas,
+  WorkflowDataPanel,
+  RunInputsDialog,
   WorkflowOverview,
   WorkflowWorkspace,
   WorkspaceStatusBar,
@@ -55,6 +57,8 @@ export default function App({ startupStatus, executionEnabled }: AppProps) {
   const [appView, setAppView] = useState<AppView>('home');
   /** 当前通过组件节点双击进入的精确版本；null 表示主流程。 */
   const [drillDownComponentId, setDrillDownComponentId] = useState<string | null>(null);
+  const [workflowDataRequest, setWorkflowDataRequest] = useState(0);
+  const [runInputsOpen, setRunInputsOpen] = useState(false);
 
   useEffect(() => {
     const hasConsoleContent =
@@ -77,6 +81,37 @@ export default function App({ startupStatus, executionEnabled }: AppProps) {
     workspaceEditor.openEditor(target);
     setDockOpen(true);
   };
+  /** 激活底部工作流数据页签，并保持所有数据编辑在统一面板完成。 */
+  const openWorkflowData = () => {
+    setWorkflowDataRequest((current) => current + 1);
+    setDockOpen(true);
+  };
+  const workflowData = (
+    <WorkflowDataPanel
+      inputs={studio.inputDefinitions}
+      runInputValues={studio.runInputValues}
+      variables={studio.variables}
+      running={studio.running}
+      nodes={studio.nodes}
+      onAddInput={(key) => studio.addInput({ key, value_type: 'text' })}
+      onRenameInput={(oldKey, newKey) => studio.updateInput(oldKey, {
+        key: newKey,
+        value_type: 'text',
+      })}
+      onDeleteInput={studio.deleteInput}
+      onRunInputValueChange={(key, value) => studio.setRunInputValue(key, value)}
+      onAddVariable={studio.addVariable}
+      onUpdateVariable={studio.updateVariable}
+      onDeleteVariable={studio.deleteVariable}
+      inputDefinitionsDraft={studio.inputDefinitionsDraft}
+      inputDefinitionsError={studio.inputDefinitionsError}
+      onImportInputs={studio.importInputsFromJson}
+      onExportInputs={studio.exportInputsAsJson}
+      variablesDraft={studio.variablesDraft}
+      variablesError={studio.variablesError}
+      onReplaceVariables={studio.replaceVariablesFromJson}
+    />
+  );
   const workflowStatus = resolveWorkflowStatus(
     studio.running,
     studio.report,
@@ -119,7 +154,7 @@ export default function App({ startupStatus, executionEnabled }: AppProps) {
             running={studio.running}
             executionEnabled={executionEnabled}
             onValidate={() => void studio.validate()}
-            onRun={() => void studio.run()}
+            onRun={() => setRunInputsOpen(true)}
             onPublish={() => undefined}
           />
         ) : null}
@@ -170,7 +205,12 @@ export default function App({ startupStatus, executionEnabled }: AppProps) {
               editorState={workspaceEditor.state}
               events={studio.events}
               nodes={studio.nodes}
+              edges={studio.edges}
+              workflowInputs={studio.inputDefinitions}
+              workflowVariables={studio.variables}
               report={studio.report}
+              workflowData={workflowData}
+              workflowDataRequest={workflowDataRequest}
               onDockOpenChange={setDockOpen}
               onDockHeightChange={workspaceEditor.setDockHeight}
               onEditorModeChange={workspaceEditor.setMode}
@@ -214,20 +254,12 @@ export default function App({ startupStatus, executionEnabled }: AppProps) {
                 <NodeInspector
                   store={studio.flowStore}
                   workflowName={studio.workflowName}
-                  variablesDraft={studio.variablesDraft}
-                  variablesError={studio.variablesError}
-                  inputDefinitionsDraft={studio.inputDefinitionsDraft}
-                  inputDefinitionsError={studio.inputDefinitionsError}
-                  runInputValuesDraft={studio.runInputValuesDraft}
-                  runInputValuesError={studio.runInputValuesError}
                   permissions={studio.permissions}
                   componentCatalog={studio.componentCatalog}
                   onNameChange={studio.setWorkflowName}
                   onCollapse={() => setInspectorOpen(false)}
-                  onVariablesChange={studio.updateVariables}
-                  onInputDefinitionsChange={studio.updateInputDefinitions}
-                  onRunInputValuesChange={studio.updateRunInputValues}
                   onPermissionsChange={studio.updatePermissions}
+                  onOpenWorkflowData={openWorkflowData}
                   onUpdateNode={studio.updateNode}
                   onUpdateEdgeBranch={studio.updateEdgeBranch}
                   onOpenStructuredEditor={openStructuredEditor}
@@ -245,6 +277,16 @@ export default function App({ startupStatus, executionEnabled }: AppProps) {
             runtimeStatus={startupStatus}
             libraryWidth={libraryOpen ? libraryWidth : null}
             inspectorWidth={inspectorOpen ? inspectorWidth : null}
+          />
+          <RunInputsDialog
+            open={runInputsOpen}
+            inputs={studio.inputDefinitions}
+            values={studio.runInputValues}
+            onOpenChange={setRunInputsOpen}
+            onSubmit={(values) => {
+              setRunInputsOpen(false);
+              void studio.run(values);
+            }}
           />
         </>
       )}

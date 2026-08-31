@@ -41,6 +41,13 @@ pub enum PreparedVisualPostcondition {
         /// 已冻结的上下文连续性查询。
         stable_context: Vec<PreparedAqlQuery>,
     },
+    /// 要求动作前后视觉上下文连续，且一个既有空间匹配实例已经消失。
+    MatchRemoved {
+        /// 已冻结的目标 AQL 查询。
+        query: PreparedAqlQuery,
+        /// 已冻结的上下文连续性查询。
+        stable_context: Vec<PreparedAqlQuery>,
+    },
     /// 要求动作后的新鲜画面中唯一存在目标匹配。
     MatchPresent {
         /// 已冻结的目标 AQL 查询。

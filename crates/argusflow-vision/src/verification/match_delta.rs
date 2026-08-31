@@ -15,11 +15,16 @@ pub(super) fn added_match_count(baseline: &[VisualNode], current: &[VisualNode])
         .count()
 }
 
+/// 统计历史匹配中不再与任一同文本当前实例相交的节点。
+pub(super) fn removed_match_count(baseline: &[VisualNode], current: &[VisualNode]) -> usize {
+    added_match_count(current, baseline)
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{PolygonPoint, SceneId, VisualNode, VisualNodeSource};
 
-    use super::added_match_count;
+    use super::{added_match_count, removed_match_count};
 
     /// 创建用于空间差分的最小 OCR 节点。
     fn node(text: &str, x: f32, y: f32) -> VisualNode {
@@ -63,5 +68,23 @@ mod tests {
         let current = vec![node("新消息", 10.0, 10.0)];
 
         assert_eq!(added_match_count(&baseline, &current), 1);
+    }
+
+    #[test]
+    fn scrolling_repeated_messages_does_not_hide_removed_input_instance() {
+        let baseline = vec![
+            node("重复消息", 10.0, 10.0),
+            node("重复消息", 100.0, 20.0),
+            node("重复消息", 100.0, 60.0),
+            node("重复消息", 20.0, 100.0),
+        ];
+        let current = vec![
+            node("重复消息", 10.0, 10.0),
+            node("重复消息", 100.0, 20.0),
+            node("重复消息", 100.0, 60.0),
+        ];
+
+        assert_eq!(removed_match_count(&baseline, &current), 1);
+        assert_eq!(added_match_count(&baseline, &current), 0);
     }
 }

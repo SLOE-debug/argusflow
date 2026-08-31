@@ -1,6 +1,5 @@
 import type { MonacoApi } from '../../../components/ui/monaco';
-import type { WorkflowCanvasNode } from '../model/workflowModel';
-import { getNodeValueOutputs } from '../model/workflowNodeDefinitions';
+import type { WorkflowSymbolRegistry } from './workflowSymbols';
 
 /** 受限 Rhai 表达式在 Monaco 中使用的稳定语言 ID。 */
 export const RUNTIME_EXPRESSION_LANGUAGE_ID = 'argusflow-runtime-expression';
@@ -51,38 +50,50 @@ const BASE_SUGGESTIONS = [
 /** 刷新一个表达式文档可见的节点 ID 与 Published Outputs 补全。 */
 export function setRuntimeExpressionSuggestions(
   modelUri: string,
-  nodes: ReadonlyArray<WorkflowCanvasNode>,
+  symbols: WorkflowSymbolRegistry,
+  includeResult = false,
 ): void {
-  const nodeSuggestions = nodes.flatMap((node): ExpressionSuggestion[] => {
-    /** JSON.stringify 生成可直接粘贴到 Rhai 下标表达式中的安全字符串。 */
-    const nodeKey = JSON.stringify(node.id);
-    const nodeRoot = `nodes[${nodeKey}]`;
-    return [
-      {
-        label: nodeRoot,
-        insertText: nodeRoot,
-        detail: `${node.data.label} 的全部 Published Outputs`,
-      },
-      ...getNodeValueOutputs(node.data).map((output) => ({
-        label: `${node.id}.${output.name}`,
-        insertText: `${nodeRoot}[${JSON.stringify(output.name)}]`,
-        detail: `${node.data.label} · ${output.label}`,
-      })),
-    ];
-  });
-  documentSuggestions.set(modelUri, [...BASE_SUGGESTIONS, ...nodeSuggestions]);
-  documentHoverTargets.set(modelUri, nodes.flatMap((node) => {
-    const nodeKey = JSON.stringify(node.id);
-    return [
-      { nodeKey, token: node.id, type: 'node' as const, detail: node.data.label },
-      ...getNodeValueOutputs(node.data).map((output) => ({
-        nodeKey,
-        token: output.name,
-        type: 'output' as const,
-        detail: `${node.data.label} · ${output.label}`,
-      })),
-    ];
+  const inputSuggestions = symbols.inputs.map((input): ExpressionSuggestion => ({
+    label: `input[${JSON.stringify(input.name)}]`,
+    insertText: `input[${JSON.stringify(input.name)}]`,
+    detail: `流程输入 · ${input.label}`,
   }));
+  const variableSuggestions = symbols.variables.map((variable): ExpressionSuggestion => ({
+    label: `vars[${JSON.stringify(variable.name)}]`,
+    insertText: `vars[${JSON.stringify(variable.name)}]`,
+    detail: `工作流变量 · ${variable.label}`,
+  }));
+  const availableNodeSymbols = symbols.nodeOutputs.filter((symbol) => symbol.available);
+  const nodeSuggestions = availableNodeSymbols.map((symbol): ExpressionSuggestion => {
+    /** JSON.stringify 生成可直接粘贴到 Rhai 下标表达式中的安全字符串。 */
+    const nodeRoot = `nodes[${JSON.stringify(symbol.nodeId)}]`;
+    return symbol.kind === 'node_result'
+      ? {
+          label: nodeRoot,
+          insertText: nodeRoot,
+          detail: `${symbol.nodeLabel} 的全部 Published Outputs`,
+        }
+      : {
+          label: `${symbol.nodeId}.${symbol.outputName}`,
+          insertText: `${nodeRoot}[${JSON.stringify(symbol.outputName)}]`,
+          detail: symbol.label,
+        };
+  });
+  const baseSuggestions = includeResult
+    ? BASE_SUGGESTIONS
+    : BASE_SUGGESTIONS.filter((suggestion) => suggestion.label !== 'result');
+  documentSuggestions.set(modelUri, [
+    ...baseSuggestions,
+    ...inputSuggestions,
+    ...variableSuggestions,
+    ...nodeSuggestions,
+  ]);
+  documentHoverTargets.set(modelUri, availableNodeSymbols.map((symbol) => ({
+    nodeKey: JSON.stringify(symbol.nodeId),
+    token: symbol.kind === 'node_result' ? symbol.nodeId : symbol.outputName,
+    type: symbol.kind === 'node_result' ? 'node' as const : 'output' as const,
+    detail: symbol.label,
+  })));
 }
 
 /** 注册受限 Rhai 的基础高亮与上下文补全。 */

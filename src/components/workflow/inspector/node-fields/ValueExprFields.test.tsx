@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { WorkflowCanvasNode } from '../../../../features/workflow';
+import { buildWorkflowSymbolRegistry } from '../../../../features/workflow';
 import {
   ValueExprEditorProvider,
   ValueExprFields,
@@ -38,32 +39,28 @@ function upstreamCommand(): WorkflowCanvasNode {
 }
 
 describe('ValueExprFields', () => {
-  it('selects upstream nodes and known outputs without a producer ID textbox', () => {
+  it('selects a published output through the unified picker', () => {
     const onChange = vi.fn();
+    const upstream = upstreamCommand();
+    const symbols = buildWorkflowSymbolRegistry({
+      inputs: [],
+      variables: {},
+      nodes: [upstream],
+      edges: [],
+    });
     render(
       <ValueExprEditorProvider
-        value={{
-          upstreamNodes: [upstreamCommand()],
-          workflowInputs: [],
-          variableNames: [],
-          onOpenExpression: vi.fn(),
-        }}
+        value={{ symbols, onOpenExpression: vi.fn() }}
       >
         <ValueExprFields
-          value={{
-            type: 'ref',
-            source: { type: 'node', node_id: 'write-file' },
-            pointer: '',
-          }}
+          value={{ type: 'literal', value: '' }}
           onChange={onChange}
         />
       </ValueExprEditorProvider>,
     );
 
-    expect(screen.getByRole('combobox', { name: '上游节点' })).toHaveTextContent('写入文件');
-    expect(screen.queryByRole('textbox', { name: /生产节点/ })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('combobox', { name: '要读取的内容' }));
-    fireEvent.click(screen.getByRole('option', { name: 'output（自定义）' }));
+    fireEvent.click(screen.getByRole('button', { name: '输入值：选择工作流值' }));
+    fireEvent.click(screen.getByRole('option', { name: /写入文件 · output（自定义）/ }));
     expect(onChange).toHaveBeenCalledWith({
       type: 'ref',
       source: { type: 'node', node_id: 'write-file' },
@@ -76,9 +73,7 @@ describe('ValueExprFields', () => {
     render(
       <ValueExprEditorProvider
         value={{
-          upstreamNodes: [],
-          workflowInputs: [],
-          variableNames: [],
+          symbols: { inputs: [], variables: [], nodeOutputs: [] },
           onOpenExpression,
         }}
       >
@@ -90,7 +85,7 @@ describe('ValueExprFields', () => {
       </ValueExprEditorProvider>,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: '编辑表达式' }));
+    fireEvent.click(screen.getByRole('button', { name: '编辑' }));
     expect(onOpenExpression).toHaveBeenCalledWith({ type: 'debug_value' });
   });
 });

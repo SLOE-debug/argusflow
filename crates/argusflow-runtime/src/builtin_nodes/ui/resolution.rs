@@ -53,6 +53,16 @@ pub(super) fn resolve_postcondition(
                 .map(|query| resolve_aql_query(query, context))
                 .collect::<Result<Vec<_>, _>>()?,
         },
+        UiPostcondition::MatchRemoved {
+            query,
+            stable_context,
+        } => PreparedVisualPostcondition::MatchRemoved {
+            query: resolve_aql_query(query, context)?,
+            stable_context: stable_context
+                .iter()
+                .map(|query| resolve_aql_query(query, context))
+                .collect::<Result<Vec<_>, _>>()?,
+        },
         UiPostcondition::MatchPresent { query } => PreparedVisualPostcondition::MatchPresent {
             query: resolve_aql_query(query, context)?,
         },
