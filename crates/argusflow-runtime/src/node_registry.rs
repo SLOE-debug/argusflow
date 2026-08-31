@@ -22,6 +22,11 @@ pub enum NodeFlow {
         /// 该节点类型拥有的稳定开放控制流端口。
         ports: Vec<ControlPortId>,
     },
+    /// 允许唯一结构化回边的有界循环门；端口语义由节点类型拥有。
+    Loop {
+        /// 必须包含 `iterate` 与 `exhausted` 的稳定端口集合。
+        ports: Vec<ControlPortId>,
+    },
     /// 唯一出口；至少一条入边且没有出边。
     End,
 }
@@ -44,6 +49,16 @@ impl ValueTypeId {
     /// 不带更具体 schema 的结构化 JSON 类型。
     pub fn json() -> Self {
         Self::new("argus.value.json")
+    }
+
+    /// JSON number 类型。
+    pub fn number() -> Self {
+        Self::new("argus.value.number")
+    }
+
+    /// JSON boolean 类型。
+    pub fn boolean() -> Self {
+        Self::new("argus.value.boolean")
     }
 
     /// 返回注册表和诊断使用的稳定值类型名称。
@@ -152,9 +167,9 @@ pub trait PreparedNode: fmt::Debug + Send + Sync {
         Ok(AccessSet::default())
     }
 
-    /// 条件节点选择分支；普通节点沿用默认的无分支结果。
-    fn select_branch(&self, _context: &RunContext) -> Result<Option<ControlPortId>, RuntimeError> {
-        Ok(None)
+    /// 当前节点是否在成功执行时绑定需要生命周期清理的资源。
+    fn acquires_resources(&self) -> bool {
+        false
     }
 
     /// 执行冻结的强类型节点计划并更新单次运行上下文。

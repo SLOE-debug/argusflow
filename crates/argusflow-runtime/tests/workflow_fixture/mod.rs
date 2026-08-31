@@ -1,12 +1,13 @@
-//! 工作流 Runtime 集成测试共享的强类型 schema v8 fixture。
+//! 工作流 Runtime 集成测试共享的强类型 schema v9 fixture。
 
 // 每个集成测试会独立编译该模块，因此只使用共享 fixture 的一个职责子集。
 #![allow(dead_code)]
 
 use argusflow_core::{
     AcquirePolicy, ActivationPolicy, ApplicationSpec, CleanupPolicy, CommandOperation,
-    ConditionOperator, ControlPortId, NodeEnvelope, Position, UiOperation, ValueExpr, ValueSource,
-    WindowTitleMatcher, WorkflowDefinition, WorkflowEdge, WorkflowNode, WorkflowPermissions,
+    ConditionOperator, ControlPortId, NodeEnvelope, Position, UiExecutionPolicy, UiOperation,
+    ValueExpr, ValueSource, WindowTitleMatcher, WorkflowDefinition, WorkflowEdge, WorkflowNode,
+    WorkflowPermissions,
 };
 use serde_json::json;
 use uuid::Uuid;
@@ -37,6 +38,15 @@ pub(crate) enum WorkflowNodeKind {
     },
     Ui {
         operation: UiOperation,
+    },
+    Loop {
+        max_iterations: u32,
+        timeout_ms: u64,
+        interval_ms: u64,
+    },
+    Fail {
+        code: String,
+        message: ValueExpr,
     },
     Command {
         operation: CommandOperation,
@@ -78,8 +88,29 @@ impl From<WorkflowNodeKind> for NodeEnvelope {
             WorkflowNodeKind::Application { spec } => {
                 Self::new("argus.application", 1, json!({ "spec": spec }))
             }
-            WorkflowNodeKind::Ui { operation } => {
-                Self::new("argus.ui", 1, json!({ "operation": operation }))
+            WorkflowNodeKind::Ui { operation } => Self::new(
+                "argus.ui",
+                5,
+                json!({
+                    "operation": operation,
+                    "execution": UiExecutionPolicy::default(),
+                }),
+            ),
+            WorkflowNodeKind::Loop {
+                max_iterations,
+                timeout_ms,
+                interval_ms,
+            } => Self::new(
+                "argus.loop",
+                1,
+                json!({
+                    "max_iterations": max_iterations,
+                    "timeout_ms": timeout_ms,
+                    "interval_ms": interval_ms,
+                }),
+            ),
+            WorkflowNodeKind::Fail { code, message } => {
+                Self::new("argus.fail", 1, json!({ "code": code, "message": message }))
             }
             WorkflowNodeKind::Command { operation } => {
                 Self::new("argus.command", 1, json!({ "operation": operation }))
@@ -92,7 +123,7 @@ impl From<WorkflowNodeKind> for NodeEnvelope {
 /// 在测试中构造一条可执行的 Start -> Log -> Delay -> End 线性链。
 pub(crate) fn demo_workflow(milliseconds: u64) -> WorkflowDefinition {
     WorkflowDefinition {
-        schema_version: 8,
+        schema_version: 9,
         id: Uuid::new_v4(),
         name: "Demo".to_owned(),
         inputs: Vec::new(),
@@ -141,7 +172,7 @@ pub(crate) fn edge(source: &str, target: &str) -> WorkflowEdge {
 /// 构造两条分支最终汇合到 End 的条件 DAG。
 pub(crate) fn condition_workflow(enabled: bool) -> WorkflowDefinition {
     WorkflowDefinition {
-        schema_version: 8,
+        schema_version: 9,
         id: Uuid::new_v4(),
         name: "Condition".to_owned(),
         inputs: Vec::new(),

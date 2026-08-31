@@ -27,7 +27,7 @@ fn compiler_pushes_native_predicates_and_caches_residual_attributes() {
 #[test]
 fn compiler_preserves_descendant_scope() {
     let query =
-        parse_query(r#"window(name contains "微信") >> button(name = "发送", enabled = true)"#)
+        parse_query(r#"window(name contains "示例应用") >> button(name = "提交", enabled = true)"#)
             .expect("descendant query should parse");
     let plan = compile_single(&query);
 
@@ -104,7 +104,7 @@ fn action_capability_rejects_only_the_unsupported_any_alternative() {
     let query = parse_query(source).expect("mixed action capability fallback should parse");
     let plans = compile_uia_query(&query).expect("both UIA query alternatives should compile");
     let action = AutomationAction::Click {
-        target: AutomationTarget::query(AqlQuery::v1(source)),
+        target: AutomationTarget::query(AqlQuery::v3(source)),
     };
     let mut prepared = plans
         .into_iter()
@@ -283,7 +283,7 @@ fn checkbox_click_is_rejected_instead_of_being_reported_as_native_invoke() {
     let query = parse_query(r#"checkbox(name = "Enable")"#).expect("checkbox query should parse");
     let query_plan = compile_single(&query);
     let action = AutomationAction::Click {
-        target: AutomationTarget::query(AqlQuery::v1(r#"checkbox(name = "Enable")"#)),
+        target: AutomationTarget::query(AqlQuery::v3(r#"checkbox(name = "Enable")"#)),
     };
 
     assert!(matches!(
@@ -297,7 +297,7 @@ fn menu_item_click_reports_runtime_pattern_check_in_combined_support() {
     let query = parse_query(r#"menu_item(name = "Search")"#).expect("menu item query should parse");
     let query_plan = compile_single(&query);
     let action = AutomationAction::Click {
-        target: AutomationTarget::query(AqlQuery::v1(r#"menu_item(name = "Search")"#)),
+        target: AutomationTarget::query(AqlQuery::v3(r#"menu_item(name = "Search")"#)),
     };
     let prepared =
         compile_uia_action(&action, query_plan).expect("menu item invoke requires instance proof");

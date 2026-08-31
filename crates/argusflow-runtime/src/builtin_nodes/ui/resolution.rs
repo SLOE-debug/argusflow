@@ -1,9 +1,9 @@
-//! UI 节点动态目标、后置条件与资源作用域的运行时冻结。
+//! UI 节点动态目标与资源作用域的运行时冻结。
 
 use argusflow_core::{
     AppSession, AqlQuery, AutomationError, AutomationExecutionScope, BrowserSession,
-    PreparedAqlQuery, PreparedAutomationTarget, PreparedTargetLocator, PreparedVisualPostcondition,
-    ResourceTypeId, TargetLocator, TargetScope, UiPostcondition,
+    PreparedAqlQuery, PreparedAutomationTarget, PreparedTargetLocator, ResourceTypeId,
+    TargetLocator, TargetScope,
 };
 
 use crate::{RunContext, RuntimeError};
@@ -32,41 +32,6 @@ pub(super) fn resolve_target(
             target.backend_policy.clone(),
         ),
     ))
-}
-
-/// 解析视觉后置条件中的动态文字表达式与稳定上下文。
-pub(super) fn resolve_postcondition(
-    postcondition: &Option<UiPostcondition>,
-    context: &RunContext,
-) -> Result<Option<PreparedVisualPostcondition>, RuntimeError> {
-    let Some(postcondition) = postcondition else {
-        return Ok(None);
-    };
-    Ok(Some(match postcondition {
-        UiPostcondition::MatchAdded {
-            query,
-            stable_context,
-        } => PreparedVisualPostcondition::MatchAdded {
-            query: resolve_aql_query(query, context)?,
-            stable_context: stable_context
-                .iter()
-                .map(|query| resolve_aql_query(query, context))
-                .collect::<Result<Vec<_>, _>>()?,
-        },
-        UiPostcondition::MatchRemoved {
-            query,
-            stable_context,
-        } => PreparedVisualPostcondition::MatchRemoved {
-            query: resolve_aql_query(query, context)?,
-            stable_context: stable_context
-                .iter()
-                .map(|query| resolve_aql_query(query, context))
-                .collect::<Result<Vec<_>, _>>()?,
-        },
-        UiPostcondition::MatchPresent { query } => PreparedVisualPostcondition::MatchPresent {
-            query: resolve_aql_query(query, context)?,
-        },
-    }))
 }
 
 /// 解析并冻结一条 AQL 查询及其动态参数，后端不再访问流程表达式环境。
@@ -100,7 +65,7 @@ fn resolve_aql_query(
 }
 
 /// 把资源引用解析成不进入持久化定义的瞬时后端作用域。
-pub(super) fn resolve_execution_scope(
+pub(crate) fn resolve_execution_scope(
     scope: &TargetScope,
     context: &RunContext,
 ) -> Result<AutomationExecutionScope, RuntimeError> {

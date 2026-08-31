@@ -5,8 +5,8 @@ mod workflow_fixture;
 use std::sync::Arc;
 
 use argusflow_core::{
-    AqlQuery, AutomationTarget, ExecutionEvent, ExecutionEventKind, RunInputs, UiOperation,
-    ValueExpr, ValueSource, WorkflowInputDefinition, WorkflowInputType,
+    AqlQuery, AutomationTarget, ControlPortId, ExecutionEvent, ExecutionEventKind, RunInputs,
+    UiOperation, ValueExpr, ValueSource, WorkflowEdge, WorkflowInputDefinition, WorkflowInputType,
 };
 use argusflow_runtime::{
     ExecutionEventSink, FileRunTraceStore, RunStatus, RunTraceLevel, RuntimeError,
@@ -15,7 +15,7 @@ use argusflow_runtime::{
 use serde_json::json;
 use tokio::sync::mpsc;
 
-use workflow_fixture::{WorkflowNodeKind, condition_workflow, demo_workflow};
+use workflow_fixture::{WorkflowNodeKind, condition_workflow, demo_workflow, edge};
 
 /// 将运行时事件转发到测试接收端的内存 sink。
 struct ChannelSink(mpsc::UnboundedSender<ExecutionEvent>);
@@ -292,13 +292,123 @@ async fn runtime_accepts_multiple_active_run_worlds() {
 }
 
 #[tokio::test]
+async fn bounded_loop_emits_each_iteration_then_exits_through_exhausted() {
+    let engine = Arc::new(WorkflowEngine::new(Arc::new(UnavailableActionDispatcher)));
+    let (sender, mut receiver) = mpsc::unbounded_channel();
+    let mut workflow = demo_workflow(1);
+    workflow.nodes[2].definition = WorkflowNodeKind::Loop {
+        max_iterations: 2,
+        timeout_ms: 1_000,
+        interval_ms: 0,
+    }
+    .into();
+    workflow.edges = vec![
+        edge("start", "delay"),
+        WorkflowEdge {
+            id: "loop-body".to_owned(),
+            source: "delay".to_owned(),
+            target: "log".to_owned(),
+            branch: Some(ControlPortId::new("iterate")),
+        },
+        edge("log", "delay"),
+        WorkflowEdge {
+            id: "loop-exit".to_owned(),
+            source: "delay".to_owned(),
+            target: "end".to_owned(),
+            branch: Some(ControlPortId::new("exhausted")),
+        },
+    ];
+
+    engine
+        .start(
+            workflow,
+            RunInputs::default(),
+            Arc::new(ChannelSink(sender)),
+        )
+        .await
+        .expect("bounded loop should start");
+    let mut events = Vec::new();
+    while let Some(event) = receiver.recv().await {
+        let completed = event.kind == ExecutionEventKind::WorkflowCompleted;
+        events.push(event);
+        if completed {
+            break;
+        }
+    }
+
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event.kind == ExecutionEventKind::LoopIteration)
+            .count(),
+        2,
+    );
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event.kind == ExecutionEventKind::LoopExhausted)
+            .count(),
+        1,
+    );
+}
+
+#[tokio::test]
+async fn fail_node_declares_a_typed_workflow_failure() {
+    let engine = Arc::new(WorkflowEngine::new(Arc::new(UnavailableActionDispatcher)));
+    let (sender, mut receiver) = mpsc::unbounded_channel();
+    let mut workflow = demo_workflow(1);
+    workflow.nodes = vec![
+        workflow.nodes.remove(0),
+        workflow_fixture::node(
+            "fail",
+            220.0,
+            WorkflowNodeKind::Fail {
+                code: "state_rejected".to_owned(),
+                message: ValueExpr::text("状态不符合业务约束"),
+            },
+        ),
+    ];
+    workflow.edges = vec![edge("start", "fail")];
+
+    engine
+        .start(
+            workflow,
+            RunInputs::default(),
+            Arc::new(ChannelSink(sender)),
+        )
+        .await
+        .expect("fail workflow should be accepted before execution");
+    let mut declared = None;
+    let mut failed = None;
+    while let Some(event) = receiver.recv().await {
+        if event.kind == ExecutionEventKind::WorkflowFailureDeclared {
+            declared = event.payload.clone();
+        }
+        if event.kind == ExecutionEventKind::WorkflowFailed {
+            failed = event.message;
+            break;
+        }
+    }
+
+    assert_eq!(
+        declared,
+        Some(
+            argusflow_core::ExecutionEventPayload::WorkflowFailureDeclared {
+                code: "state_rejected".to_owned(),
+            }
+        ),
+    );
+    assert!(failed.is_some_and(|message| message.contains("state_rejected")));
+}
+
+#[tokio::test]
 async fn runtime_emits_a_failure_for_an_unavailable_action_backend() {
     let engine = Arc::new(WorkflowEngine::new(Arc::new(UnavailableActionDispatcher)));
     let (sender, mut receiver) = mpsc::unbounded_channel();
     let mut workflow = demo_workflow(1);
     workflow.nodes[1].definition = WorkflowNodeKind::Ui {
         operation: UiOperation::Click {
-            target: AutomationTarget::query(AqlQuery::v1("button(name = \"保存\")")),
+            target: AutomationTarget::query(AqlQuery::v3("button(name = \"保存\")")),
         },
     }
     .into();

@@ -9,6 +9,10 @@ import {
   getWorkflowNodeOutputAvailability,
   isWorkflowNodeOutputAvailable,
 } from './workflowSymbolAvailability';
+import {
+  WECHAT_WORKFLOW_EDGES,
+  WECHAT_WORKFLOW_NODES,
+} from '../examples/wechat/template';
 
 /** 创建可用于图支配关系测试的最小画布节点。 */
 function createNode(
@@ -124,5 +128,17 @@ describe('workflow symbol availability', () => {
       nodes: [producer],
       edges: [],
     })).toEqual({ available: true });
+  });
+
+  it('terminates for the repeated-check branches in the WeChat example', () => {
+    expect(getWorkflowNodeOutputAvailability({
+      producerNodeId: 'open_wechat',
+      consumerNodeId: 'start',
+      nodes: WECHAT_WORKFLOW_NODES,
+      edges: WECHAT_WORKFLOW_EDGES,
+    })).toEqual({
+      available: false,
+      unavailableReason: '并非在所有执行路径上可用',
+    });
   });
 });

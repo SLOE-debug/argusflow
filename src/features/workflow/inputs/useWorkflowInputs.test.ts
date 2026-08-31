@@ -2,17 +2,17 @@ import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import { createFlowStore } from '../../../flow';
-import {
-  DEFAULT_WORKFLOW_INPUTS,
-  type WorkflowEdgeData,
-  type WorkflowNodeData,
-} from '../index';
+import type { WorkflowEdgeData, WorkflowInputDefinition, WorkflowNodeData } from '../index';
 import { useWorkflowInputs } from './useWorkflowInputs';
 
 /** 创建只包含输入元数据的测试工作流，避免把画布节点带入 Hook 单元测试。 */
 function createInputStore() {
+  const inputs: ReadonlyArray<WorkflowInputDefinition> = [
+    { key: 'recipient', value_type: 'text' },
+    { key: 'content', value_type: 'text' },
+  ];
   return createFlowStore<WorkflowNodeData, WorkflowEdgeData>({
-    metadata: { inputs: DEFAULT_WORKFLOW_INPUTS },
+    metadata: { inputs },
     nodes: [],
     edges: [],
   });
@@ -24,7 +24,7 @@ describe('useWorkflowInputs', () => {
     const inputs = renderHook(() => useWorkflowInputs(store));
 
     act(() => {
-      expect(inputs.result.current.setRunInputValue('contact_name', 'Alice')).toBe(true);
+      expect(inputs.result.current.setRunInputValue('recipient', 'Alice')).toBe(true);
       expect(inputs.result.current.addInput({
         key: 'channel',
         value_type: 'text',
@@ -32,17 +32,17 @@ describe('useWorkflowInputs', () => {
     });
 
     expect(store.getState().metadata.inputs).toEqual([
-      { key: 'contact_name', value_type: 'text' },
-      { key: 'message', value_type: 'text' },
+      { key: 'recipient', value_type: 'text' },
+      { key: 'content', value_type: 'text' },
       { key: 'channel', value_type: 'text' },
     ]);
     expect(inputs.result.current.runInputValues).toMatchObject({
-      contact_name: 'Alice',
+      recipient: 'Alice',
       channel: '',
     });
 
     act(() => {
-      expect(inputs.result.current.updateInput('contact_name', {
+      expect(inputs.result.current.updateInput('recipient', {
         key: 'customer_name',
         value_type: 'text',
       })).toBe(true);
@@ -54,13 +54,13 @@ describe('useWorkflowInputs', () => {
     expect(inputs.result.current.runInputValues).toMatchObject({
       customer_name: 'Alice',
     });
-    expect(inputs.result.current.runInputValues.contact_name).toBeUndefined();
+    expect(inputs.result.current.runInputValues.recipient).toBeUndefined();
 
     act(() => {
-      expect(inputs.result.current.deleteInput('message')).toBe(true);
+      expect(inputs.result.current.deleteInput('content')).toBe(true);
     });
     expect(inputs.result.current.inputDefinitions).toHaveLength(2);
-    expect(inputs.result.current.runInputValues.message).toBeUndefined();
+    expect(inputs.result.current.runInputValues.content).toBeUndefined();
   });
 
   it('rejects duplicate definitions and supports advanced JSON import/export', () => {
@@ -69,7 +69,7 @@ describe('useWorkflowInputs', () => {
 
     act(() => {
       expect(inputs.result.current.addInput({
-        key: 'contact_name',
+        key: 'recipient',
         value_type: 'text',
       })).toBe(false);
     });
@@ -85,7 +85,7 @@ describe('useWorkflowInputs', () => {
 
   it('can replace the complete run input object in one operation', () => {
     const inputs = renderHook(() => useWorkflowInputs(createInputStore()));
-    const nextValues = { contact_name: 'Bob', message: 'Hello' } as const;
+    const nextValues = { recipient: 'Bob', content: 'Hello' } as const;
 
     act(() => {
       expect(inputs.result.current.replaceRunInputValues(nextValues)).toBe(true);
@@ -98,14 +98,14 @@ describe('useWorkflowInputs', () => {
     const inputs = renderHook(() => useWorkflowInputs(createInputStore()));
 
     act(() => {
-      expect(inputs.result.current.replaceRunInputValues({ contact_name: 'Bob' })).toBe(false);
+      expect(inputs.result.current.replaceRunInputValues({ recipient: 'Bob' })).toBe(false);
     });
-    expect(inputs.result.current.runInputValuesError).toBe("缺少输入参数 'message'。");
+    expect(inputs.result.current.runInputValuesError).toBe("缺少输入参数 'content'。");
 
     act(() => {
       expect(inputs.result.current.replaceRunInputValues({
-        contact_name: 'Bob',
-        message: 'Hello',
+        recipient: 'Bob',
+        content: 'Hello',
         extra: 'no',
       })).toBe(false);
     });
@@ -113,10 +113,10 @@ describe('useWorkflowInputs', () => {
 
     act(() => {
       expect(inputs.result.current.replaceRunInputValues({
-        contact_name: 1,
-        message: 'Hello',
+        recipient: 1,
+        content: 'Hello',
       })).toBe(false);
     });
-    expect(inputs.result.current.runInputValuesError).toBe("输入参数 'contact_name' 必须是文本。");
+    expect(inputs.result.current.runInputValuesError).toBe("输入参数 'recipient' 必须是文本。");
   });
 });

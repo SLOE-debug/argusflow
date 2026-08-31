@@ -23,12 +23,6 @@ export function createDefaultUiExecutionPolicy(): UiExecutionPolicy {
       timeout_ms: 5_000,
       poll_interval_ms: 100,
     },
-    postcondition_wait: {
-      mode: 'bounded',
-      timeout_ms: 5_000,
-      poll_interval_ms: 150,
-    },
-    postcondition: null,
   };
 }
 
@@ -106,33 +100,6 @@ export function changeUiOperationKind(
           ? operation.value
           : { type: 'literal', value: '' },
       };
-    case 'get_text':
-      return { type: kind, target: elementTarget };
-    case 'get_value':
-      return { type: kind, target: elementTarget };
-    case 'extract':
-      return {
-        type: kind,
-        target: elementTarget.locator.type === 'query'
-          ? elementTarget
-          : {
-              ...elementTarget,
-              locator: createTargetLocator('query'),
-            },
-        cardinality: 'many',
-        fields: [{ name: 'text', source: { type: 'text' } }],
-      };
-    case 'collect_links':
-      return {
-        type: kind,
-        target: {
-          ...elementTarget,
-          locator: elementTarget.locator.type === 'query'
-            ? elementTarget.locator
-            : createTargetLocator('query'),
-          backend_policy: createBackendPolicy('browser_cdp'),
-        },
-      };
   }
 }
 
@@ -150,14 +117,6 @@ export function replaceAutomationTarget(
       return { ...operation, target };
     case 'type_text':
       return { ...operation, target };
-    case 'get_text':
-      return { type: operation.type, target };
-    case 'get_value':
-      return { type: operation.type, target };
-    case 'extract':
-      return { ...operation, target };
-    case 'collect_links':
-      return { type: operation.type, target };
   }
 }
 
@@ -277,7 +236,7 @@ function createTargetLocator(kind: TargetLocatorKind): TargetLocator {
     case 'query':
       return {
         type: 'query',
-        query: { language_version: 1, source: DEFAULT_ACTION_AQL_SOURCE },
+        query: { language_version: 3, source: DEFAULT_ACTION_AQL_SOURCE, bindings: {} },
       };
     case 'coordinate':
       return { type: 'coordinate', point: { x: 0, y: 0 } };

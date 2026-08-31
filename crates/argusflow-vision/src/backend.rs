@@ -1,23 +1,16 @@
 //! 单一 Vision Backend：进程窗口枚举、Small OCR 与 Medium 内部升级。
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::sync::Arc;
 
-use argusflow_agent::{
-    ActionBackend, ContextFitness, ExecutionContext, PlanExplain, PlanRejection, PlanStepExplain,
-    PlanStepKind, PreparedCandidate, PreparedExecution, RuntimeAvailability,
-};
+use argusflow_agent::{ExecutionContext, ObservationBackend, ObservationBackendError};
 use argusflow_core::{
-    ActionCapability, ActionOutcome, ActionOutputKey, AutomationAction, AutomationError,
-    BackendKind, ExtractCardinality, FieldProjection, FieldProjectionSource,
-    PreparedAutomationTarget, PreparedTargetLocator, TargetLocator,
+    BackendKind, CoordinateSpace as EntityCoordinateSpace, EntityBounds, EntityObservation,
+    EntitySnapshot, EntitySource, ObservationRequest, ObservationUnknownReason,
 };
-use argusflow_query::{BranchPath, QueryCost, QueryPortability, SupportLevel};
 use async_trait::async_trait;
-use serde_json::Value;
 
 use crate::{
-    OcrProfile, ResolvedTargetHandoffKey, SceneRefreshPolicy, VisionQueryPlan, VisionRuntime,
-    WindowInventory, compile_vision_query, evaluate_vision_query,
+    SceneRefreshPolicy, VisionRuntime, WindowInventory, compile_vision_query, evaluate_vision_query,
 };
 
 /// 对外只暴露一个候选，OCR 档位升级完全封装在 VisionRuntime 内部。
@@ -41,354 +34,80 @@ impl VisionBackend {
     }
 }
 
-impl ActionBackend for VisionBackend {
+#[async_trait]
+impl ObservationBackend for VisionBackend {
     fn kind(&self) -> BackendKind {
         BackendKind::OcrSmall
     }
 
-    fn prepare(
+    async fn observe(
         &self,
-        _action: &AutomationAction,
-        _context: &ExecutionContext,
-    ) -> Result<Vec<PreparedCandidate>, PlanRejection> {
-        Err(PlanRejection::Unsupported {
-            backend: BackendKind::OcrSmall,
-        })
-    }
-
-    fn prepare_with_target(
-        &self,
-        action: &AutomationAction,
+        request: &ObservationRequest,
         context: &ExecutionContext,
-        prepared_target: Option<&PreparedAutomationTarget>,
-    ) -> Result<Vec<PreparedCandidate>, PlanRejection> {
-        if !supports_action(action)
-            || !matches!(action.target().locator, TargetLocator::Query { .. })
-        {
-            return Err(PlanRejection::Unsupported {
-                backend: BackendKind::OcrSmall,
-            });
-        }
-        let Some(PreparedTargetLocator::Query { query, source }) =
-            prepared_target.map(PreparedAutomationTarget::locator)
-        else {
-            return Err(PlanRejection::Unsupported {
-                backend: BackendKind::OcrSmall,
-            });
-        };
-        let plan = compile_vision_query(query).map_err(|_| PlanRejection::Unsupported {
-            backend: BackendKind::OcrSmall,
-        })?;
-        let handoff_key = ResolvedTargetHandoffKey::from_query(query);
-        let window = context.foreground_window.clone();
-        let health = self.runtime.health();
-        let availability = if window.is_none() {
-            RuntimeAvailability::MissingContext
-        } else if health.capture.is_ready() && health.worker_ready {
-            RuntimeAvailability::Ready
-        } else {
-            RuntimeAvailability::Unavailable
-        };
-        let explain = PlanExplain {
-            backend: BackendKind::OcrSmall,
-            branch_path: Some(BranchPath::root()),
-            support: SupportLevel::Native,
-            cost: QueryCost::Medium,
-            availability,
-            context_fitness: if window.is_some() {
-                ContextFitness::Good
-            } else {
-                ContextFitness::Poor
-            },
-            portability: QueryPortability::Portable,
-            steps: vec![
-                PlanStepExplain {
-                    kind: PlanStepKind::Scope,
-                    summary: "enumerate visible top-level windows for the frozen process"
-                        .to_owned(),
-                },
-                PlanStepExplain {
-                    kind: PlanStepKind::CandidateSource,
-                    summary: "reuse unchanged WindowScene or refresh dirty regions with Small OCR"
-                        .to_owned(),
-                },
-                PlanStepExplain {
-                    kind: PlanStepKind::Selection,
-                    summary: "upgrade unresolved text to Medium and enforce 0/1/N".to_owned(),
-                },
-            ],
-            diagnostics: Vec::new(),
-        };
-        Ok(vec![PreparedCandidate::new(
-            explain,
-            Arc::new(VisionExecution {
-                runtime: self.runtime.clone(),
-                inventory: self.inventory.clone(),
-                window,
-                plan: Arc::new(plan),
-                handoff_key,
-                query_source: source.clone(),
-                action: action.clone(),
-                trace_context: context.trace_context.clone(),
-            }),
-        )])
-    }
-}
-
-/// Prepare 后冻结的视觉读取执行。
-#[derive(Debug)]
-struct VisionExecution {
-    /// 共享视觉运行时。
-    runtime: Arc<VisionRuntime>,
-    /// 平台窗口注册表。
-    inventory: Arc<dyn WindowInventory>,
-    /// 冻结的进程/前台窗口上下文。
-    window: Option<argusflow_agent::WindowContext>,
-    /// 已验证并预编译正则的 OCR AQL 计划。
-    plan: Arc<VisionQueryPlan>,
-    /// 参数绑定后的稳定查询身份，用于相邻输入动作一次性交接目标。
-    handoff_key: ResolvedTargetHandoffKey,
-    /// 错误与查询追踪使用的原始 AQL。
-    query_source: String,
-    /// 输出契约所属动作。
-    action: AutomationAction,
-    /// Run Inspector 关联身份；没有诊断上下文时查询不生成投影。
-    trace_context: Option<argusflow_core::RunTraceContext>,
-}
-
-#[async_trait]
-impl PreparedExecution for VisionExecution {
-    async fn execute(&self) -> Result<ActionOutcome, AutomationError> {
-        let window = self
-            .window
+    ) -> Result<Vec<EntityObservation>, ObservationBackendError> {
+        let process_id = context
+            .foreground_window
             .as_ref()
-            .ok_or_else(|| AutomationError::BackendUnavailable {
-                backend: BackendKind::OcrSmall,
-                message: "Vision execution has no frozen process context".to_owned(),
-            })?;
-        match &self.action {
-            AutomationAction::GetText { .. } => {
-                let target = self
-                    .runtime
-                    .resolve_query(
-                        self.inventory.as_ref(),
-                        window.process_id,
-                        &self.plan,
-                        &self.query_source,
-                        0.35,
-                        self.trace_context.as_ref(),
-                    )
-                    .await?;
-                if let Some(context) = self.trace_context.as_ref() {
-                    self.runtime
-                        .publish_resolved_target_handoff(
-                            context,
-                            window.process_id,
-                            &self.handoff_key,
-                            &target,
-                        )
-                        .await;
-                }
-                let outputs = BTreeMap::from([(
-                    ActionOutputKey::Text.as_str().to_owned(),
-                    Value::String(target.node.raw_text),
-                )]);
-                outcome(&self.action, outputs, "Vision text query resolved uniquely")
-            }
-            AutomationAction::Extract {
-                cardinality,
-                fields,
-                ..
-            } => self.extract(window.process_id, *cardinality, fields).await,
-            _ => Err(AutomationError::ActionUnsupported {
-                backend: BackendKind::OcrSmall,
-                query: self.query_source.clone(),
-                semantic_matches: 0,
-                required: ActionCapability::ReadText,
-            }),
-        }
-    }
-}
+            .map(|window| window.process_id)
+            .ok_or(ObservationBackendError::Unavailable { retryable: true })?;
+        let plans = argusflow_query::observation_selectors(&request.query)
+            .into_iter()
+            .map(compile_vision_query)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| ObservationBackendError::Unsupported)?;
 
-impl VisionExecution {
-    /// 执行单项或多项文本字段提取；空结果会用 Medium 再观察一次。
-    async fn extract(
-        &self,
-        process_id: u32,
-        cardinality: ExtractCardinality,
-        fields: &[FieldProjection],
-    ) -> Result<ActionOutcome, AutomationError> {
-        if cardinality == ExtractCardinality::One {
-            let target = self
-                .runtime
-                .resolve_query(
-                    self.inventory.as_ref(),
-                    process_id,
-                    &self.plan,
-                    &self.query_source,
-                    0.35,
-                    self.trace_context.as_ref(),
-                )
-                .await?;
-            let outputs = BTreeMap::from([(
-                ActionOutputKey::Item.as_str().to_owned(),
-                project_fields(&target.node, fields)?,
-            )]);
-            return outcome(&self.action, outputs, "Vision extracted one text node");
-        }
-
-        let small = self
+        // Observe 必须在调用开始后取得完整新帧，不能把旧缓存中的“未命中”当作确定不存在。
+        let mut policy = SceneRefreshPolicy::small();
+        policy.force_refresh = true;
+        policy.force_full_ocr = true;
+        let scene = self
             .runtime
             .current_app_scene(
                 self.inventory.as_ref(),
                 process_id,
-                &SceneRefreshPolicy::small(),
-                self.trace_context.as_ref(),
+                &policy,
+                context.trace_context.as_ref(),
             )
             .await
-            .map_err(map_runtime_error)?;
-        let selected_scene = if evaluate_vision_query(&small, &self.plan, &self.query_source)?
-            .matches
-            .is_empty()
-        {
-            let mut policy = SceneRefreshPolicy::medium();
-            policy.force_full_ocr = true;
-            let medium = self
-                .runtime
-                .current_app_scene(
-                    self.inventory.as_ref(),
-                    process_id,
-                    &policy,
-                    self.trace_context.as_ref(),
-                )
-                .await
-                .map_err(map_runtime_error)?;
-            if evaluate_vision_query(&medium, &self.plan, &self.query_source)?
-                .matches
-                .is_empty()
-            {
-                let mut binary_policy = SceneRefreshPolicy::medium();
-                binary_policy.force_full_ocr = true;
-                binary_policy.ocr = OcrProfile::medium_binary();
-                self.runtime
-                    .current_app_scene(
-                        self.inventory.as_ref(),
-                        process_id,
-                        &binary_policy,
-                        self.trace_context.as_ref(),
-                    )
-                    .await
-                    .map_err(map_runtime_error)?
-            } else {
-                medium
-            }
-        } else {
-            small
-        };
-        let query_result = evaluate_vision_query(&selected_scene, &self.plan, &self.query_source)?;
-        self.runtime.record_query_trace(
-            self.trace_context.as_ref(),
-            &selected_scene,
-            &self.query_source,
-            &query_result.matches,
-            None,
-            if query_result.matches.is_empty() {
-                crate::VisionSelectionOutcome::NotFound
-            } else {
-                crate::VisionSelectionOutcome::Multiple
-            },
-            query_result.metrics,
-        );
-        let values = query_result
-            .matches
+            .map_err(|_| ObservationBackendError::Unavailable { retryable: true })?;
+
+        plans
             .iter()
-            .map(|candidate| project_fields(candidate.node, fields))
-            .collect::<Result<Vec<_>, _>>()?;
-        let outputs = BTreeMap::from([(
-            ActionOutputKey::Items.as_str().to_owned(),
-            Value::Array(values),
-        )]);
-        outcome(
-            &self.action,
-            outputs,
-            "Vision extracted matching text nodes",
-        )
-    }
-}
-
-/// 当前 MVP 只读取文字事实。
-fn supports_action(action: &AutomationAction) -> bool {
-    match action {
-        AutomationAction::GetText { .. } => true,
-        AutomationAction::Extract { fields, .. } => fields.iter().all(|field| {
-            matches!(
-                field.source,
-                FieldProjectionSource::Text | FieldProjectionSource::Name
-            )
-        }),
-        _ => false,
-    }
-}
-
-/// 将文本节点投影成现有 Extract 对象。
-fn project_fields(
-    node: &crate::VisualNode,
-    fields: &[FieldProjection],
-) -> Result<Value, AutomationError> {
-    let mut object = serde_json::Map::new();
-    for field in fields {
-        let value = match field.source {
-            FieldProjectionSource::Text | FieldProjectionSource::Name => {
-                Value::String(node.raw_text.clone())
-            }
-            _ => {
-                return Err(AutomationError::ActionUnsupported {
-                    backend: BackendKind::OcrSmall,
-                    query: node.raw_text.clone(),
-                    semantic_matches: 1,
-                    required: ActionCapability::ReadValue,
-                });
-            }
-        };
-        object.insert(field.name.clone(), value);
-    }
-    Ok(Value::Object(object))
-}
-
-/// 校验并构造统一动作输出。
-fn outcome(
-    action: &AutomationAction,
-    outputs: BTreeMap<String, Value>,
-    message: &str,
-) -> Result<ActionOutcome, AutomationError> {
-    action
-        .output_contract()
-        .validate(&outputs)
-        .map_err(|error| AutomationError::BackendFailed {
-            backend: BackendKind::OcrSmall,
-            message: format!("Vision output contract mismatch: {error:?}"),
-        })?;
-    Ok(ActionOutcome {
-        backend: BackendKind::OcrSmall,
-        message: message.to_owned(),
-        outputs,
-        diagnostic_evidence: Vec::new(),
-    })
-}
-
-/// 将内部捕获/OCR错误映射到 Planner 运行错误。
-fn map_runtime_error(error: crate::VisionError) -> AutomationError {
-    match error {
-        crate::VisionError::CaptureUnavailable { message }
-        | crate::VisionError::WorkerUnavailable { message }
-        | crate::VisionError::OcrFailed { message }
-        | crate::VisionError::Protocol { message } => AutomationError::BackendUnavailable {
-            backend: BackendKind::OcrSmall,
-            message,
-        },
-        other => AutomationError::BackendFailed {
-            backend: BackendKind::OcrSmall,
-            message: other.to_string(),
-        },
+            .map(|plan| {
+                let result =
+                    evaluate_vision_query(&scene, plan, &request.source).map_err(|_| {
+                        ObservationBackendError::Unknown {
+                            reason: ObservationUnknownReason::InvalidResponse,
+                            retryable: false,
+                        }
+                    })?;
+                let entities = result
+                    .matches
+                    .into_iter()
+                    .map(|candidate| {
+                        let bounds = candidate.node.bbox;
+                        EntitySnapshot {
+                            name: Some(candidate.node.raw_text.clone()),
+                            text: Some(candidate.node.raw_text.clone()),
+                            value: None,
+                            role: Some("text".to_owned()),
+                            bounds: Some(EntityBounds {
+                                space: EntityCoordinateSpace::ScreenPhysical,
+                                x: f64::from(candidate.scene.viewport_origin.x + bounds.x),
+                                y: f64::from(candidate.scene.viewport_origin.y + bounds.y),
+                                width: f64::from(bounds.width),
+                                height: f64::from(bounds.height),
+                            }),
+                            confidence: Some(candidate.node.confidence),
+                            source: EntitySource::Ocr,
+                        }
+                    })
+                    .collect();
+                Ok(EntityObservation {
+                    entities,
+                    complete: true,
+                })
+            })
+            .collect()
     }
 }

@@ -2,7 +2,7 @@
 
 use std::ffi::c_void;
 
-use argusflow_core::{ActionOutcome, AutomationError, BackendKind};
+use argusflow_core::{ActionOutcome, AutomationError, BackendKind, EntityObservation};
 use windows::Win32::{
     Foundation::HWND,
     UI::{
@@ -20,7 +20,7 @@ use super::{
     condition::build_match_condition,
     element_search::find_cached_matches,
     error::{UiaError, UiaOperation},
-    extract::{ExtractExecutionError, execute_extract},
+    extract::snapshot_element,
     plan::{UiaMatcherPlan, UiaPlanExpr, UiaResultLimit},
     process_search::find_process_matches,
     runtime::{PreparedWindowTarget, UiaExecuteRequest},
@@ -53,6 +53,50 @@ impl<'automation> UiaExecutor<'automation> {
         self.execute_once(&request, &mut materialization_budget)
     }
 
+    /// 在同一 worker 请求中按顺序执行全部 selector 并返回普通 Rust 实体快照。
+    pub(crate) fn observe(
+        &self,
+        request: super::runtime::UiaObserveRequest,
+        budget: UiaExecutionBudget,
+    ) -> Result<Vec<EntityObservation>, AutomationError> {
+        let mut budget = UiaBudgetTracker::new(budget);
+        let root = self
+            .root_element(request.window, &budget)
+            .map_err(UiaError::into_automation_error)?;
+        request
+            .plans
+            .into_iter()
+            .map(|alternatives| {
+                let mut candidates = Vec::new();
+                for plan in alternatives {
+                    candidates = self
+                        .execute_expression(
+                            &root,
+                            SearchScope::Process {
+                                process_id: request.window.process_id,
+                            },
+                            &plan.expression,
+                            UiaResultLimit::All,
+                            &mut budget,
+                        )
+                        .map_err(UiaError::into_automation_error)?;
+                    if !candidates.is_empty() {
+                        break;
+                    }
+                }
+                let entities = candidates
+                    .iter()
+                    .map(|candidate| snapshot_element(&candidate.element))
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(UiaError::into_automation_error)?;
+                Ok(EntityObservation {
+                    entities,
+                    complete: true,
+                })
+            })
+            .collect()
+    }
+
     /// 使用同一冻结计划完成一次 materialize、动作适配与执行。
     fn execute_once(
         &self,
@@ -79,29 +123,6 @@ impl<'automation> UiaExecutor<'automation> {
                 Err(error) if attempt == 0 && error.is_element_unavailable() => continue,
                 Err(error) => return Err(error.into_automation_error()),
             };
-            if let super::plan::UiaActionPlan::Extract {
-                cardinality,
-                fields,
-            } = &request.plan.action
-            {
-                budget
-                    .check_deadline()
-                    .map_err(UiaError::into_automation_error)?;
-                match execute_extract(candidates, *cardinality, fields) {
-                    Ok(outcome) => return Ok(outcome),
-                    Err(ExtractExecutionError::Uia(error))
-                        if attempt == 0 && error.is_element_unavailable() =>
-                    {
-                        continue;
-                    }
-                    Err(ExtractExecutionError::Uia(error)) => {
-                        return Err(error.into_automation_error());
-                    }
-                    Err(ExtractExecutionError::Resolution(failure)) => {
-                        return Err(resolution_error(failure, &request.query));
-                    }
-                }
-            }
             let target = match resolve_action_target(candidates, &request.plan.action) {
                 Ok(target) => target,
                 Err(TargetSelectionError::Uia(error))

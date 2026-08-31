@@ -1,6 +1,7 @@
 use std::{
     collections::{BTreeMap, HashMap},
     sync::Arc,
+    time::{Duration, Instant},
 };
 
 use argusflow_core::{ValueExpr, ValueSource};
@@ -49,6 +50,17 @@ pub struct RunContext {
     variables: Map<String, Value>,
     /// prepare 阶段编译、所有运行只读共享的表达式计划。
     value_plan: Arc<RuntimeValuePlan>,
+    /// 每个 Loop Gate 独立维护的单调时钟与已开始轮次。
+    loop_states: HashMap<String, LoopState>,
+}
+
+/// 单个有界循环在本次 RunWorld 中的瞬时状态。
+#[derive(Debug)]
+struct LoopState {
+    /// 首次进入 Gate 的单调时钟时间。
+    started_at: Instant,
+    /// 已经进入循环体的轮次数。
+    iterations: u32,
 }
 
 impl RunContext {
@@ -80,6 +92,7 @@ impl RunContext {
             resources: ResourceTable::default(),
             variables,
             value_plan,
+            loop_states: HashMap::new(),
         }
     }
 
@@ -96,6 +109,34 @@ impl RunContext {
     /// 保存一个成功节点的结果，覆盖同一节点的旧结果以支持重试语义。
     pub fn record_outcome(&mut self, node_id: String, outcome: NodeOutcome) {
         self.node_outputs.insert(node_id, outcome);
+    }
+
+    /// 返回指定 Gate 已经开始的轮次数；尚未进入时为零。
+    pub(crate) fn loop_iterations(&self, node_id: &str) -> u32 {
+        self.loop_states
+            .get(node_id)
+            .map_or(0, |state| state.iterations)
+    }
+
+    /// 在次数与总时长预算内开始下一轮；耗尽时返回已完成轮次。
+    pub(crate) fn begin_loop_iteration(
+        &mut self,
+        node_id: &str,
+        max_iterations: u32,
+        timeout: Duration,
+    ) -> Result<u32, u32> {
+        let state = self
+            .loop_states
+            .entry(node_id.to_owned())
+            .or_insert_with(|| LoopState {
+                started_at: Instant::now(),
+                iterations: 0,
+            });
+        if state.iterations >= max_iterations || state.started_at.elapsed() >= timeout {
+            return Err(state.iterations);
+        }
+        state.iterations += 1;
+        Ok(state.iterations)
     }
 
     /// 解析 ValueExpr，并克隆出不依赖上下文借用的冻结 JSON 值。

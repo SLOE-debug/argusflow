@@ -7,13 +7,14 @@ mod backend;
 mod context;
 mod evidence;
 mod evidence_sink;
+mod observation_router;
 mod plan;
 mod prepared_plan;
 mod router;
 mod visual;
 mod visual_materialization;
 
-pub use backend::ActionBackend;
+pub use backend::{ActionBackend, ObservationBackend, ObservationBackendError};
 pub use context::{
     AccessibilityContext, BrowserSessionContext, ContextFitness, ExecutionContext,
     ExecutionContextProvider, ProcessContext, StaticExecutionContext, VisualCacheContext,
@@ -28,6 +29,7 @@ pub use evidence_sink::{
     DiscardEvidenceSink, EvidenceReference, EvidenceSettings, EvidenceSink, EvidenceSinkError,
     FileSystemEvidenceSink, InMemoryEvidenceSink,
 };
+pub use observation_router::ObservationRouter;
 pub use plan::{
     PlanExplain, PlanRejection, PlanStepExplain, PlanStepKind, PlanningReport, RuntimeAvailability,
 };
@@ -35,7 +37,6 @@ pub use prepared_plan::{PreparedCandidate, PreparedExecution, PreparedPlan};
 pub use router::{ActionRouter, ROUTE_TIE_BREAK_ORDER};
 pub use visual::{
     MaterializedTarget, MaterializedTargetValidator, PreparedTargetMaterialization,
-    PreparedTargetMaterializer, SharedTargetMaterializer, VisualBaseline,
-    VisualBaselineRequirement, VisualMaterializationPlan, VisualMaterializationStage,
-    VisualTargetBounds, VisualVerificationProvider, VisualVerificationResult,
+    PreparedTargetMaterializer, SharedTargetMaterializer, VisualMaterializationPlan,
+    VisualMaterializationStage, VisualTargetBounds,
 };

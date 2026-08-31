@@ -10,7 +10,7 @@ use std::{
 };
 
 use argusflow_agent::{EvidenceBundle, EvidenceCaptureError, EvidenceCaptureRequest};
-use argusflow_core::{ActionOutcome, AutomationError, BackendKind};
+use argusflow_core::{ActionOutcome, AutomationError, BackendKind, EntityObservation};
 use tokio::sync::oneshot;
 
 use super::{
@@ -35,6 +35,15 @@ pub(crate) struct UiaExecuteRequest {
     pub(crate) plan: UiaPreparedPlan,
     /// 规范化查询，仅用于公共错误复现。
     pub(crate) query: String,
+}
+
+/// 一次 worker 往返中执行的有序 selector 计划集合。
+#[derive(Debug)]
+pub(crate) struct UiaObserveRequest {
+    /// prepare 阶段冻结的窗口身份。
+    pub(crate) window: PreparedWindowTarget,
+    /// 每个 AQL selector 的有序备选计划；首个非空结果即为该 selector 的事实。
+    pub(crate) plans: Vec<Vec<super::plan::UiaQueryPlan>>,
 }
 
 /// 不携带 COM interface、只绑定 prepared 状态的 UIA evidence 请求。
@@ -259,6 +268,53 @@ impl UiaRuntime {
                 self.recover_worker(generation);
                 Err(unavailable(
                     "UI Automation request exceeded the ArgusFlow execution deadline".to_owned(),
+                ))
+            }
+        }
+    }
+
+    /// 异步提交一批 UIA 观察计划，保持同一 worker 与窗口身份。
+    pub(crate) async fn observe(
+        &self,
+        request: UiaObserveRequest,
+    ) -> Result<Vec<EntityObservation>, AutomationError> {
+        if !self.health.is_ready() {
+            return Err(unavailable(runtime_state_message(self.health.snapshot())));
+        }
+        let (response_sender, response_receiver) = oneshot::channel();
+        let budget = UiaExecutionBudget::new(
+            self.config.execution_timeout,
+            self.config.max_traversal_nodes,
+            self.config.max_relation_roots,
+        );
+        let generation = {
+            let worker = self
+                .worker
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let generation = worker.generation();
+            if worker
+                .send_observe(request, budget, response_sender)
+                .is_err()
+            {
+                return Err(unavailable(
+                    "UI Automation observation channel is closed".to_owned(),
+                ));
+            }
+            generation
+        };
+        match tokio::time::timeout(self.config.execution_timeout, response_receiver).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(_)) => {
+                self.recover_worker(generation);
+                Err(unavailable(
+                    "UI Automation worker stopped during observation".to_owned(),
+                ))
+            }
+            Err(_) => {
+                self.recover_worker(generation);
+                Err(unavailable(
+                    "UI Automation observation exceeded its deadline".to_owned(),
                 ))
             }
         }

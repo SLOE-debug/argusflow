@@ -13,6 +13,8 @@ import LoaderCircle from 'lucide-react/dist/esm/icons/loader-circle.mjs';
 import MinusCircle from 'lucide-react/dist/esm/icons/circle-minus.mjs';
 import MousePointerClick from 'lucide-react/dist/esm/icons/mouse-pointer-click.mjs';
 import PlayCircle from 'lucide-react/dist/esm/icons/circle-play.mjs';
+import Repeat2 from 'lucide-react/dist/esm/icons/repeat-2.mjs';
+import ScanSearch from 'lucide-react/dist/esm/icons/scan-search.mjs';
 import Square from 'lucide-react/dist/esm/icons/square.mjs';
 import TableProperties from 'lucide-react/dist/esm/icons/table-properties.mjs';
 import Terminal from 'lucide-react/dist/esm/icons/terminal.mjs';
@@ -51,6 +53,8 @@ const NODE_ICONS: Readonly<Record<WorkflowNodeKind, LucideIcon>> = {
   debug: Bug,
   delay: Clock3,
   condition: GitBranch,
+  observe: ScanSearch,
+  loop: Repeat2,
   variable: Braces,
   application: AppWindow,
   browser: Globe2,
@@ -59,6 +63,7 @@ const NODE_ICONS: Readonly<Record<WorkflowNodeKind, LucideIcon>> = {
   command: Terminal,
   format: TableProperties,
   component: Boxes,
+  fail: CircleX,
   end: Square,
 };
 
@@ -116,6 +121,14 @@ const NODE_TONES: Readonly<Record<
     accent: 'bg-violet-500',
     icon: 'bg-violet-50 text-violet-600',
   },
+  observe: {
+    accent: 'bg-cyan-500',
+    icon: 'bg-cyan-50 text-cyan-700',
+  },
+  loop: {
+    accent: 'bg-violet-500',
+    icon: 'bg-violet-50 text-violet-700',
+  },
   variable: {
     accent: 'bg-teal-500',
     icon: 'bg-teal-50 text-teal-700',
@@ -148,6 +161,10 @@ const NODE_TONES: Readonly<Record<
     accent: 'bg-violet-600',
     icon: 'bg-violet-50 text-violet-700',
   },
+  fail: {
+    accent: 'bg-rose-600',
+    icon: 'bg-rose-50 text-rose-700',
+  },
   end: {
     accent: 'bg-rose-500',
     icon: 'bg-rose-50 text-rose-600',
@@ -178,8 +195,10 @@ export const workflowNodeRegistry = {
   },
   log: createDefinition('log', '记录日志', WORKFLOW_NODE_SIZES.log),
   debug: createDefinition('debug', '查看结果', WORKFLOW_NODE_SIZES.debug),
-  delay: createDefinition('delay', '固定暂停', WORKFLOW_NODE_SIZES.delay),
+  delay: createDefinition('delay', '等待一段时间', WORKFLOW_NODE_SIZES.delay),
   condition: createDefinition('condition', '条件判断', WORKFLOW_NODE_SIZES.condition),
+  observe: createDefinition('observe', '检查界面', WORKFLOW_NODE_SIZES.observe),
+  loop: createDefinition('loop', '重复执行', WORKFLOW_NODE_SIZES.loop),
   variable: createDefinition('variable', '设置变量', WORKFLOW_NODE_SIZES.variable),
   application: createDefinition('application', '打开应用', WORKFLOW_NODE_SIZES.application),
   browser: createDefinition('browser', '打开浏览器', WORKFLOW_NODE_SIZES.browser),
@@ -187,7 +206,11 @@ export const workflowNodeRegistry = {
   ui: createDefinition('ui', '操作界面', WORKFLOW_NODE_SIZES.ui),
   command: createDefinition('command', '执行命令', WORKFLOW_NODE_SIZES.command),
   format: createDefinition('format', '整理文本', WORKFLOW_NODE_SIZES.format),
-  component: createDefinition('component', '流程组件', WORKFLOW_NODE_SIZES.component),
+  component: createDefinition('component', '组合步骤', WORKFLOW_NODE_SIZES.component),
+  fail: {
+    ...createDefinition('fail', '停止并报错', WORKFLOW_NODE_SIZES.fail),
+    canStartConnection: false,
+  },
   end: {
     ...createDefinition('end', '结束', WORKFLOW_NODE_SIZES.end, true),
     canStartConnection: false,
@@ -265,6 +288,10 @@ function resolveNodeDetail(data: WorkflowNodeData): string {
       return `暂停 ${data.milliseconds / 1000} 秒`;
     case 'condition':
       return `${valueExprDetail(data.left)} · ${CONDITION_OPERATOR_LABELS[data.operator]}`;
+    case 'observe':
+      return observationTypeLabel(data.resultType);
+    case 'loop':
+      return `最多重复 ${data.maxIterations} 次`;
     case 'variable':
       return `设置 ${data.assignments.length} 个变量`;
     case 'application':
@@ -281,6 +308,8 @@ function resolveNodeDetail(data: WorkflowNodeData): string {
       return `生成 ${data.operation.fields.length} 列文本`;
     case 'component':
       return `${data.componentName} · ${data.component.component_version}`;
+    case 'fail':
+      return data.code || '尚未填写错误标识';
     case 'start':
       return '手动运行';
     case 'end':
@@ -346,9 +375,17 @@ function operationLabel(operation: UiOperationKind): string {
     case 'set_value': return '输入文字';
     case 'press_key': return '按键';
     case 'type_text': return '物理输入文字';
-    case 'get_text': return '读取文字';
-    case 'get_value': return '读取控件值';
-    case 'extract': return '读取数据';
-    case 'collect_links': return '读取链接';
+  }
+}
+
+/** Observe 顶层结果类型的卡片短标签。 */
+function observationTypeLabel(
+  resultType: Extract<WorkflowNodeData, { kind: 'observe' }>['resultType'],
+): string {
+  switch (resultType) {
+    case 'boolean': return '判断是或否';
+    case 'entities': return '找到的项目';
+    case 'records': return '提取的信息';
+    case 'number': return '数量';
   }
 }

@@ -25,7 +25,7 @@ type PaletteModuleDefinition = Readonly<{
 /** 工作台模块清单同时驱动导航与占位页文案。 */
 const PALETTE_MODULES = [
   { id: 'nodes', label: '节点', description: '把基础节点拖到画布，组装流程。', icon: Layers3 },
-  { id: 'presets', label: '预设', description: '使用常用操作和可复用流程。', icon: Sparkles },
+  { id: 'presets', label: '快捷步骤', description: '使用常用操作和已经编排好的步骤。', icon: Sparkles },
   { id: 'resources', label: '资源', description: '管理流程要用的数据和凭据。', icon: Boxes },
   { id: 'settings', label: '设置', description: '调整节点库和编辑器偏好。', icon: Settings },
 ] as const satisfies ReadonlyArray<PaletteModuleDefinition>;

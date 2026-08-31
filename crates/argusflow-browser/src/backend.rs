@@ -3,12 +3,12 @@
 use std::sync::Arc;
 
 use argusflow_agent::{
-    ActionBackend, ContextFitness, ExecutionContext, PlanExplain, PlanRejection, PreparedCandidate,
-    PreparedExecution, RuntimeAvailability,
+    ActionBackend, ContextFitness, ExecutionContext, ObservationBackend, ObservationBackendError,
+    PlanExplain, PlanRejection, PreparedCandidate, PreparedExecution, RuntimeAvailability,
 };
 use argusflow_core::{
-    ActionOutcome, AutomationAction, AutomationError, BackendKind, PreparedAutomationTarget,
-    PreparedTargetLocator, TargetLocator, UiQuery,
+    ActionOutcome, AutomationAction, AutomationError, BackendKind, EntityObservation,
+    ObservationRequest, PreparedAutomationTarget, PreparedTargetLocator, TargetLocator, UiQuery,
 };
 use argusflow_query::{
     Diagnostic, DiagnosticCode, DiagnosticSeverity, QueryBackend, analyze_query,
@@ -18,7 +18,7 @@ use async_trait::async_trait;
 
 use crate::cdp::{
     CdpPageSession, CdpQueryPlan, CdpSessionRegistry, compile_cdp_query, execute_cdp_action,
-    explain_cdp_plan,
+    execute_cdp_observation, explain_cdp_plan,
 };
 
 /// 使用应用级持久 CDP session registry 的浏览器动作后端。
@@ -78,6 +78,55 @@ impl ActionBackend for CdpBackend {
             return self.prepare(action, context);
         };
         self.prepare_query(action, context, query, source.clone())
+    }
+}
+
+#[async_trait]
+impl ObservationBackend for CdpBackend {
+    fn kind(&self) -> BackendKind {
+        BackendKind::BrowserCdp
+    }
+
+    async fn observe(
+        &self,
+        request: &ObservationRequest,
+        context: &ExecutionContext,
+    ) -> Result<Vec<EntityObservation>, ObservationBackendError> {
+        let page_session = context
+            .browser_session
+            .as_ref()
+            .and_then(|context_session| {
+                self.sessions
+                    .get(context_session.session_id)
+                    .filter(|session| session.target_id() == context_session.target_id)
+            })
+            .ok_or(ObservationBackendError::Unavailable { retryable: true })?;
+        let expressions = argusflow_query::observation_selectors(&request.query)
+            .into_iter()
+            .map(|query| {
+                let expressions = compile_cdp_query(query)
+                    .map_err(|_| ObservationBackendError::Unsupported)?
+                    .into_iter()
+                    .map(|plan| plan.expression)
+                    .collect::<Vec<_>>();
+                if expressions.is_empty() {
+                    Err(ObservationBackendError::Unsupported)
+                } else {
+                    Ok(expressions)
+                }
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        execute_cdp_observation(&page_session, &expressions)
+            .await
+            .map_err(|error| match error {
+                AutomationError::BackendUnavailable { .. } => {
+                    ObservationBackendError::Unavailable { retryable: true }
+                }
+                _ => ObservationBackendError::Unknown {
+                    reason: argusflow_core::ObservationUnknownReason::InvalidResponse,
+                    retryable: false,
+                },
+            })
     }
 }
 

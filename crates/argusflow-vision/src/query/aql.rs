@@ -1,6 +1,6 @@
 //! AQL 文本查询到 OCR Scene 的一次性编译与无分配热路径求值。
 
-use std::{fmt, sync::Arc, time::Instant};
+use std::{fmt, time::Instant};
 
 use argusflow_core::{
     AutomationError, DistanceMetric, ElementRole, MatchOperator, PredicateValue, QueryExpr,
@@ -9,10 +9,7 @@ use argusflow_core::{
 use regex::{Regex, RegexBuilder};
 use serde::Serialize;
 
-use crate::{
-    AppNodeRef, AppScene, AppWindowScene, PhysicalRect, VisualNode, VisualScene, WindowDescriptor,
-    normalize_text,
-};
+use crate::{AppNodeRef, AppScene, normalize_text};
 
 mod spatial;
 
@@ -43,15 +40,6 @@ pub struct VisionQueryMetrics {
 pub struct VisionQueryResult<'scene> {
     /// 按窗口 Z-Order、节点 y/x 排列的候选。
     pub matches: Vec<AppNodeRef<'scene>>,
-    /// 本次求值产生的热路径计数器。
-    pub metrics: VisionQueryMetrics,
-}
-
-/// 单窗口后置条件求值返回的可持有节点快照。
-#[derive(Debug)]
-pub(crate) struct VisionWindowQueryResult {
-    /// 当前完整帧中的全部查询匹配。
-    pub matches: Vec<VisualNode>,
     /// 本次求值产生的热路径计数器。
     pub metrics: VisionQueryMetrics,
 }
@@ -96,41 +84,6 @@ pub fn evaluate_vision_query<'scene>(
     )?;
     metrics.elapsed_us = started.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
     Ok(VisionQueryResult { matches, metrics })
-}
-
-/// 在一份已绑定窗口的完整 Scene 上执行 AQL，并复制短期匹配供前后帧比较。
-pub(crate) fn evaluate_window_query(
-    scene: &Arc<VisualScene>,
-    plan: &VisionQueryPlan,
-    query_source: &str,
-) -> Result<VisionWindowQueryResult, AutomationError> {
-    let app_scene = AppScene {
-        process_id: scene.window.process_id,
-        windows: vec![AppWindowScene {
-            window: WindowDescriptor {
-                identity: scene.window,
-                owner_handle: None,
-                z_order: 0,
-                screen_bounds: PhysicalRect {
-                    x: scene.viewport_origin.x,
-                    y: scene.viewport_origin.y,
-                    width: scene.viewport.width,
-                    height: scene.viewport.height,
-                },
-                foreground: true,
-            },
-            scene: Arc::clone(scene),
-        }],
-    };
-    let result = evaluate_vision_query(&app_scene, plan, query_source)?;
-    Ok(VisionWindowQueryResult {
-        matches: result
-            .matches
-            .into_iter()
-            .map(|candidate| candidate.node.clone())
-            .collect(),
-        metrics: result.metrics,
-    })
 }
 
 /// 对要求唯一目标的动作执行严格 0/1/N 判定。

@@ -22,9 +22,9 @@ export type WorkflowInputSymbol = Readonly<{
   kind: 'workflow_input';
   /** 持久化 ValueSource 使用的输入 key。 */
   name: string;
-  /** 值选择器显示名称；schema v8 暂无独立 label。 */
+  /** 值选择器显示名称；schema v9 暂无独立 label。 */
   label: string;
-  /** 当前 schema v8 输入的值类型。 */
+  /** 当前 schema v9 输入的值类型。 */
   valueType: 'text';
   /** 输入声明始终可作为引用候选。 */
   available: true;

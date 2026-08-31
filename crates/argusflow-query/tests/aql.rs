@@ -1,14 +1,89 @@
-//! AQL v1 grammar、规范化、格式化和能力分析回归测试。
+//! AQL v3 选择、观察、格式化和能力分析回归测试。
 
 use argusflow_core::{
-    DomAttribute, ElementRole, MatchOperator, PredicateValue, QueryExpr, SelectorAttribute,
-    UiaAttribute,
+    BackendKind, DomAttribute, ElementRole, EntityObservation, EntitySnapshot, EntitySource,
+    MatchOperator, ObservationResult, ObservationUnknownReason, ObservationValue, PredicateValue,
+    QueryExpr, SelectorAttribute, UiaAttribute,
 };
 use argusflow_query::{
     AqlErrorKind, DiagnosticCode, EditorPosition, QueryBackend, QueryPortability, analyze_query,
-    byte_range_to_editor_range, canonicalize_query, code_actions, completions, format_query,
-    format_source, hover, parse_document, parse_query, query_parameter_names,
+    byte_range_to_editor_range, canonicalize_query, code_actions, completions,
+    evaluate_observation, format_query, format_source, hover, parse_document,
+    parse_observation_query, parse_query, query_parameter_names,
 };
+
+#[test]
+fn observation_projection_and_count_comparison_have_static_types() {
+    let projection = parse_observation_query("project(text(), fields = [name, text, bounds])")
+        .expect("projection should parse");
+    let comparison =
+        parse_observation_query("count(button()) >= 2").expect("count comparison should parse");
+
+    assert_eq!(
+        projection.value_type(),
+        argusflow_core::ObservationValueType::Records,
+    );
+    assert_eq!(
+        comparison.value_type(),
+        argusflow_core::ObservationValueType::Boolean,
+    );
+}
+
+#[test]
+fn incomplete_observation_is_unknown_instead_of_empty_or_false() {
+    let query = parse_observation_query("exists(button())").expect("exists should parse");
+    let result = evaluate_observation(
+        &query,
+        &[EntityObservation {
+            entities: Vec::new(),
+            complete: false,
+        }],
+        BackendKind::WindowsUia,
+    );
+
+    assert_eq!(
+        result,
+        ObservationResult::Unknown {
+            backend: Some(BackendKind::WindowsUia),
+            reason: ObservationUnknownReason::IncompleteCoverage,
+            retryable: true,
+        },
+    );
+}
+
+#[test]
+fn strong_three_valued_logic_keeps_dominant_boolean_facts() {
+    let query = parse_observation_query(
+        "all_of(exists(button(name = \"stop\")), exists(text(name = \"pending\")))",
+    )
+    .expect("boolean observation should parse");
+    let facts = [
+        EntityObservation {
+            entities: Vec::new(),
+            complete: true,
+        },
+        EntityObservation {
+            entities: vec![EntitySnapshot {
+                name: Some("pending".to_owned()),
+                text: Some("pending".to_owned()),
+                value: None,
+                role: Some("text".to_owned()),
+                bounds: None,
+                confidence: None,
+                source: EntitySource::WindowsUia,
+            }],
+            complete: false,
+        },
+    ];
+
+    assert_eq!(
+        evaluate_observation(&query, &facts, BackendKind::WindowsUia),
+        ObservationResult::Known {
+            backend: BackendKind::WindowsUia,
+            value: ObservationValue::Boolean(false),
+        },
+    );
+}
 
 #[test]
 fn parses_portable_matcher_and_normalizes_predicate_order() {
@@ -35,7 +110,7 @@ fn parses_portable_matcher_and_normalizes_predicate_order() {
 #[test]
 fn parses_relations_regex_and_explicit_namespaces() {
     let query = parse_query(
-        r#"window(name contains "微信")
+        r#"window(name contains "示例应用")
             >> button(
                 name matches /保存|Save/i,
                 uia.automation_id = "btnSave",
@@ -236,7 +311,7 @@ fn source_formatter_preserves_predicate_order_and_duplicates() {
 #[test]
 fn pretty_formatter_round_trips_nested_queries() {
     let query = parse_query(
-        r#"any(window(name contains "微信") >> button(name = "发送"), nth(button(name = "确定"), 2))"#,
+        r#"any(window(name contains "示例应用") >> button(name = "提交"), nth(button(name = "确定"), 2))"#,
     )
     .expect("nested query should parse");
     let formatted = format_query(&query);

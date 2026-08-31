@@ -50,8 +50,6 @@ pub(crate) enum UiaOperation {
     LegacyDefaultAction,
     /// 调用 ValuePattern。
     SetValue,
-    /// 读取元素当前 Name。
-    GetText,
     /// 读取 ValuePattern 当前值。
     GetValue,
 }

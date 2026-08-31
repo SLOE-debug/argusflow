@@ -61,14 +61,16 @@ export function buildWorkflowNodeOutputAvailabilityIndex(
   if (args.consumerNodeId === undefined) {
     return new Map(args.nodes.map((node) => [node.id, AVAILABLE_SYMBOL]));
   }
+  /** 在数组回调外固定已收窄的消费节点，避免可选参数窄化跨闭包丢失。 */
+  const consumerNodeId = args.consumerNodeId;
 
   const nodeIds = new Set(args.nodes.map((node) => node.id));
-  if (!nodeIds.has(args.consumerNodeId)) {
+  if (!nodeIds.has(consumerNodeId)) {
     return new Map(args.nodes.map((node) => [node.id, unavailable('消费节点不存在')]));
   }
 
   const graph = buildGraph(args.nodes, args.edges);
-  if (!graph.reachable.has(args.consumerNodeId)) {
+  if (!graph.reachable.has(consumerNodeId)) {
     return new Map(args.nodes.map((node) => [
       node.id,
       unavailable('消费节点无法从 Start 到达'),
@@ -80,9 +82,9 @@ export function buildWorkflowNodeOutputAvailabilityIndex(
     graph.predecessors,
     graph.entryIds,
   );
-  const consumerDominators = dominators.get(args.consumerNodeId) ?? new Set<string>();
+  const consumerDominators = dominators.get(consumerNodeId) ?? new Set<string>();
   return new Map(args.nodes.map((node): [string, WorkflowSymbolAvailability] => {
-    if (node.id === args.consumerNodeId) {
+    if (node.id === consumerNodeId) {
       return [node.id, unavailable('生产节点与消费节点相同，当前节点执行前尚未产生该输出')];
     }
     if (!graph.reachable.has(node.id)) {
@@ -165,9 +167,13 @@ function collectReachable(
 ): ReadonlySet<string> {
   const reachable = new Set<string>();
   const queue = [...entryIds];
-  while (queue.length > 0) {
-    const nodeId = queue.shift();
-    if (nodeId === undefined || !reachable.add(nodeId)) continue;
+  /** 使用游标而不是 shift，保证循环图上的队列消费保持线性复杂度。 */
+  let queueIndex = 0;
+  while (queueIndex < queue.length) {
+    const nodeId = queue[queueIndex];
+    queueIndex += 1;
+    if (nodeId === undefined || reachable.has(nodeId)) continue;
+    reachable.add(nodeId);
     queue.push(...(successors.get(nodeId) ?? []));
   }
   return reachable;

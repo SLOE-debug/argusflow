@@ -288,9 +288,7 @@ async fn target_wait_captures_timeout_evidence_only_after_the_deadline() {
             AutomationExecutionScope::Current,
             ActionExecutionOptions {
                 target_wait: TargetWaitPolicy::bounded(10, 3),
-                postcondition_wait: TargetWaitPolicy::default(),
                 prepared_target: None,
-                postcondition: None,
                 trace_context: None,
             },
         )
@@ -325,7 +323,7 @@ fn backend(
 /// 创建包含两个 fallback 分支的 portable action。
 fn click() -> AutomationAction {
     AutomationAction::Click {
-        target: AutomationTarget::query(AqlQuery::v1(
+        target: AutomationTarget::query(AqlQuery::v3(
             "any(button(name = \"missing\"), button(name = \"fallback\"))",
         )),
     }

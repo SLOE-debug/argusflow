@@ -11,7 +11,7 @@ pub(crate) struct Token {
     pub(crate) end: usize,
 }
 
-/// AQL v1 的语义词法单元集合。
+/// AQL v3 的语义词法单元集合。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum TokenKind {
     /// 角色、属性、操作符关键字或组合器名称。
@@ -39,6 +39,10 @@ pub(crate) enum TokenKind {
     RightParen,
     /// `,`。
     Comma,
+    /// `[`。
+    LeftBracket,
+    /// `]`。
+    RightBracket,
     /// `=`。
     Equal,
     /// `!=`。
@@ -47,6 +51,12 @@ pub(crate) enum TokenKind {
     Child,
     /// `>>`。
     Descendant,
+    /// `>=`。
+    GreaterThanOrEqual,
+    /// `<`。
+    LessThan,
+    /// `<=`。
+    LessThanOrEqual,
     /// 输入结尾。
     End,
 }
@@ -107,11 +117,16 @@ fn lower_token(source: &str, token: &RawToken) -> Result<Token, AqlError> {
         RawTokenKind::LeftParen => TokenKind::LeftParen,
         RawTokenKind::RightParen => TokenKind::RightParen,
         RawTokenKind::Comma => TokenKind::Comma,
+        RawTokenKind::LeftBracket => TokenKind::LeftBracket,
+        RawTokenKind::RightBracket => TokenKind::RightBracket,
         RawTokenKind::Operator => match token.text.as_str() {
             "=" => TokenKind::Equal,
             "!=" => TokenKind::NotEqual,
             ">" => TokenKind::Child,
             ">>" => TokenKind::Descendant,
+            ">=" => TokenKind::GreaterThanOrEqual,
+            "<" => TokenKind::LessThan,
+            "<=" => TokenKind::LessThanOrEqual,
             operator => {
                 return Err(AqlError::at(
                     source,
@@ -200,8 +215,8 @@ fn error_from_diagnostic(source: &str, code: DiagnosticCode, token: Option<&RawT
         ),
         DiagnosticCode::InvalidRegex => (
             AqlErrorKind::InvalidRegex,
-            "AQL v1 正则标志无效".to_owned(),
-            Some("AQL v1 仅支持可选的 i 标志".to_owned()),
+            "AQL v3 正则标志无效".to_owned(),
+            Some("AQL v3 仅支持可选的 i 标志".to_owned()),
         ),
         _ => (
             AqlErrorKind::InvalidToken,

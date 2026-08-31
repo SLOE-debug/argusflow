@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use argusflow_core::{ActionCapability, ActionOutputKey};
+use argusflow_core::ActionCapability;
 use serde_json::Value;
 use windows::{
     Win32::UI::Accessibility::{
@@ -32,12 +32,6 @@ pub(crate) enum UiaActionStrategy {
     LegacyDefaultAction,
     /// 可写 ValuePattern。
     SetValue,
-    /// CurrentName 读取。
-    GetText,
-    /// ValuePattern 读取。
-    GetValue,
-    /// Extract 由集合执行器处理，此策略只用于穷尽动作能力模型。
-    Extract,
 }
 
 /// 返回 prepared action 对目标实例要求的跨后端能力。
@@ -45,9 +39,6 @@ pub(crate) const fn required_capability(action: &UiaActionPlan) -> ActionCapabil
     match action {
         UiaActionPlan::Invoke => ActionCapability::Activate,
         UiaActionPlan::SetValue { .. } => ActionCapability::WriteValue,
-        UiaActionPlan::GetText => ActionCapability::ReadText,
-        UiaActionPlan::GetValue => ActionCapability::ReadValue,
-        UiaActionPlan::Extract { .. } => ActionCapability::ReadText,
     }
 }
 
@@ -59,9 +50,6 @@ pub(crate) fn resolve_action_strategy(
     match action {
         UiaActionPlan::Invoke => resolve_invoke_strategy(element),
         UiaActionPlan::SetValue { .. } => resolve_value_strategy(element, true),
-        UiaActionPlan::GetText => Ok(Some(UiaActionStrategy::GetText)),
-        UiaActionPlan::GetValue => resolve_value_strategy(element, false),
-        UiaActionPlan::Extract { .. } => Ok(Some(UiaActionStrategy::Extract)),
     }
 }
 
@@ -76,8 +64,6 @@ pub(crate) fn execute_action(
         (UiaActionPlan::SetValue { value }, UiaActionStrategy::SetValue) => {
             set_value(element, value)
         }
-        (UiaActionPlan::GetText, UiaActionStrategy::GetText) => get_text(element),
-        (UiaActionPlan::GetValue, UiaActionStrategy::GetValue) => get_value(element),
         _ => Err(UiaError::ActionStrategyMismatch),
     }
 }
@@ -174,10 +160,9 @@ fn resolve_value_strategy(
         if is_read_only.as_bool() {
             return Ok(None);
         }
-        Ok(Some(UiaActionStrategy::SetValue))
-    } else {
-        Ok(Some(UiaActionStrategy::GetValue))
+        return Ok(Some(UiaActionStrategy::SetValue));
     }
+    Ok(None)
 }
 
 /// 读取 UIA pattern availability 布尔属性，并拒绝 provider 返回的意外 VARIANT 类型。
@@ -218,40 +203,6 @@ fn set_value(element: &IUIAutomationElement, value: &str) -> Result<ExecutedUiaA
     Ok(ExecutedUiaAction {
         message: "已通过 UI Automation ValuePattern 写入目标",
         outputs: BTreeMap::new(),
-    })
-}
-
-/// 读取所有 UIA 元素都公开的 CurrentName 语义文本。
-fn get_text(element: &IUIAutomationElement) -> Result<ExecutedUiaAction, UiaError> {
-    // SAFETY: element 只在创建它的 UIA worker apartment 中同步使用。
-    let text = unsafe { element.CurrentName() }
-        .map(|value| value.to_string())
-        .map_err(|source| UiaError::from_native(UiaOperation::GetText, source))?;
-    Ok(ExecutedUiaAction {
-        message: "已通过 UI Automation 读取目标文本",
-        outputs: BTreeMap::from([(
-            ActionOutputKey::Text.as_str().to_owned(),
-            Value::String(text),
-        )]),
-    })
-}
-
-/// 要求 ValuePattern 并读取当前字符串值。
-fn get_value(element: &IUIAutomationElement) -> Result<ExecutedUiaAction, UiaError> {
-    // SAFETY: element 与返回的 pattern 都只在创建它们的 UIA worker apartment 中使用。
-    let pattern: IUIAutomationValuePattern =
-        unsafe { element.GetCurrentPatternAs(UIA_ValuePatternId) }
-            .map_err(|source| pattern_error(source, UiaPattern::Value))?;
-    // SAFETY: typed ValuePattern 仍在创建它的 UIA worker apartment 中。
-    let value = unsafe { pattern.CurrentValue() }
-        .map(|value| value.to_string())
-        .map_err(|source| UiaError::from_native(UiaOperation::GetValue, source))?;
-    Ok(ExecutedUiaAction {
-        message: "已通过 UI Automation ValuePattern 读取目标值",
-        outputs: BTreeMap::from([(
-            ActionOutputKey::Value.as_str().to_owned(),
-            Value::String(value),
-        )]),
     })
 }
 

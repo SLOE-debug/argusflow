@@ -85,6 +85,32 @@ pub enum ExecutionEventPayload {
         /// 是否由更晚 candidate 恢复成功。
         recovered_by_fallback: bool,
     },
+    /// Observe 节点完成一次确定或不确定事实求值，不包含业务正文。
+    ObservationEvaluated {
+        /// AQL 顶层静态结果类型。
+        value_type: crate::ObservationValueType,
+        /// 实际事实源；没有可用候选时为空。
+        backend: Option<crate::BackendKind>,
+        /// 是否得到 Known 结果。
+        known: bool,
+    },
+    /// Loop Gate 已开始指定轮次。
+    LoopIteration {
+        /// 从 1 开始的当前轮次。
+        iteration: u32,
+        /// 配置的最大轮次。
+        max_iterations: u32,
+    },
+    /// Loop Gate 因次数或总超时预算耗尽离开循环。
+    LoopExhausted {
+        /// 实际已经开始的轮次数。
+        iterations: u32,
+    },
+    /// Fail 节点声明的稳定失败码；消息保存在事件 message 中。
+    WorkflowFailureDeclared {
+        /// 工作流作者配置的稳定错误码。
+        code: String,
+    },
 }
 
 /// 工作流和节点生命周期中可观察的事件类别。
@@ -107,6 +133,14 @@ pub enum ExecutionEventKind {
     CommandExited,
     /// 自动化候选失败现场已写入 artifact store。
     DiagnosticEvidenceCaptured,
+    /// Observe 节点完成事实求值。
+    ObservationEvaluated,
+    /// Loop Gate 开始一轮循环。
+    LoopIteration,
+    /// Loop Gate 走向 exhausted 分支。
+    LoopExhausted,
+    /// Fail 节点声明预期失败。
+    WorkflowFailureDeclared,
     /// 某个节点执行成功。
     NodeSucceeded,
     /// 运行时已选择并进入一条连线。

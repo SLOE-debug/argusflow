@@ -54,6 +54,8 @@ pub(crate) fn lex_lossless(source: &str) -> (Vec<RawToken>, Vec<Diagnostic>) {
             '(' => single(&mut cursor, RawTokenKind::LeftParen),
             ')' => single(&mut cursor, RawTokenKind::RightParen),
             ',' => single(&mut cursor, RawTokenKind::Comma),
+            '[' => single(&mut cursor, RawTokenKind::LeftBracket),
+            ']' => single(&mut cursor, RawTokenKind::RightBracket),
             '=' => single(&mut cursor, RawTokenKind::Operator),
             '!' => {
                 cursor.bump();
@@ -74,7 +76,14 @@ pub(crate) fn lex_lossless(source: &str) -> (Vec<RawToken>, Vec<Diagnostic>) {
             }
             '>' => {
                 cursor.bump();
-                if cursor.peek() == Some('>') {
+                if matches!(cursor.peek(), Some('>' | '=')) {
+                    cursor.bump();
+                }
+                (RawTokenKind::Operator, None)
+            }
+            '<' => {
+                cursor.bump();
+                if cursor.peek() == Some('=') {
                     cursor.bump();
                 }
                 (RawTokenKind::Operator, None)

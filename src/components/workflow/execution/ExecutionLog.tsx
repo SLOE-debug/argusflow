@@ -28,6 +28,8 @@ const NODE_LOG_TONES = {
   debug: 'border-fuchsia-500 text-fuchsia-700',
   delay: 'border-amber-500 text-amber-700',
   condition: 'border-violet-500 text-violet-700',
+  observe: 'border-cyan-500 text-cyan-700',
+  loop: 'border-violet-500 text-violet-700',
   variable: 'border-teal-500 text-teal-700',
   application: 'border-indigo-500 text-indigo-700',
   browser: 'border-sky-500 text-sky-700',
@@ -36,6 +38,7 @@ const NODE_LOG_TONES = {
   command: 'border-slate-600 text-slate-700',
   format: 'border-amber-500 text-amber-700',
   component: 'border-violet-600 text-violet-700',
+  fail: 'border-rose-600 text-rose-700',
   end: 'border-rose-500 text-rose-700',
 } satisfies Readonly<Record<WorkflowNodeData['kind'], string>>;
 

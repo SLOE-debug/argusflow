@@ -26,7 +26,11 @@ pub enum RawTokenKind {
     RightParen,
     /// `,`。
     Comma,
-    /// `=`、`!=`、`>` 或 `>>`。
+    /// `[`。
+    LeftBracket,
+    /// `]`。
+    RightBracket,
+    /// `=`、`!=`、`>`、`>=`、`<`、`<=` 或 `>>`。
     Operator,
     /// 无法识别或不完整的 token。
     Error,

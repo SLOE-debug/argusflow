@@ -134,6 +134,10 @@ impl PreparedNode for ApplicationNode {
         (name == "session").then_some(&self.resource_type)
     }
 
+    fn acquires_resources(&self) -> bool {
+        true
+    }
+
     fn access_set(&self, _node_id: &str, _context: &RunContext) -> Result<AccessSet, RuntimeError> {
         Ok(AccessSet::exclusive(application_access_key(&self.spec)))
     }
@@ -178,6 +182,7 @@ impl PreparedNode for ApplicationNode {
                     resource_type: self.resource_type.as_str().to_owned(),
                 }),
             }],
+            ..NodeExecution::default()
         })
     }
 }

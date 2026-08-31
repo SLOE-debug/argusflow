@@ -160,14 +160,14 @@ async fn notepadpp_standard_controls_complete_real_uia_e2e() {
 /// 创建自动选择后端的 AQL Click 动作。
 fn click(source: &str) -> AutomationAction {
     AutomationAction::Click {
-        target: AutomationTarget::query(AqlQuery::v1(source)),
+        target: AutomationTarget::query(AqlQuery::v3(source)),
     }
 }
 
 /// 创建自动选择后端的 AQL SetValue 动作。
 fn set_value(source: &str, value: &str) -> AutomationAction {
     AutomationAction::SetValue {
-        target: AutomationTarget::query(AqlQuery::v1(source)),
+        target: AutomationTarget::query(AqlQuery::v3(source)),
         value: value.to_owned(),
     }
 }

@@ -13,15 +13,48 @@ use crate::{
 };
 
 mod nearest;
+mod observation;
 
 /// 按持久化查询携带的语言版本解析 AQL。
 pub fn parse_stored_query(query: &AqlQuery) -> Result<UiQuery, AqlError> {
     match query.language_version {
-        QueryLanguageVersion::V1 | QueryLanguageVersion::V2 => parse_query(&query.source),
+        QueryLanguageVersion::V3 => parse_query(&query.source),
     }
 }
 
-/// 将 AQL v1 源码解析为强类型 AST，并完成谓词类型检查。
+/// 按 AQL v3 契约解析选择、投影、聚合或三态布尔观察表达式。
+pub fn parse_stored_observation(
+    query: &AqlQuery,
+) -> Result<argusflow_core::ObservationQuery, AqlError> {
+    match query.language_version {
+        QueryLanguageVersion::V3 => parse_observation_query(&query.source),
+    }
+}
+
+/// 将 AQL v3 源码解析为强类型观察表达式。
+pub fn parse_observation_query(source: &str) -> Result<argusflow_core::ObservationQuery, AqlError> {
+    if source.trim().is_empty() {
+        return Err(AqlError::at(
+            source,
+            0,
+            0,
+            AqlErrorKind::EmptyQuery,
+            "AQL 查询不能为空",
+            Some("例如：exists(button(name = \"保存\"))".to_owned()),
+        ));
+    }
+    let tokens = lex(source)?;
+    let mut parser = Parser {
+        source,
+        tokens,
+        position: 0,
+    };
+    let expression = parser.parse_observation_expression()?;
+    parser.expect_end()?;
+    Ok(argusflow_core::ObservationQuery::new(expression))
+}
+
+/// 将 AQL v3 选择器源码解析为强类型 AST，并完成谓词类型检查。
 pub fn parse_query(source: &str) -> Result<UiQuery, AqlError> {
     if source.trim().is_empty() {
         return Err(AqlError::at(
@@ -221,9 +254,20 @@ impl Parser<'_> {
                 role_token,
                 AqlErrorKind::UnknownRole,
                 format!("未知元素角色 '{role_name}'"),
-                Some("AQL v1 角色示例：button、textbox、window、dialog、text".to_owned()),
+                Some("AQL 角色示例：button、textbox、window、dialog、text".to_owned()),
             )
         })?;
+        if matches!(self.current().kind, TokenKind::LeftBracket) {
+            return Err(self.error(
+                self.current(),
+                AqlErrorKind::CssSyntax,
+                "AQL 角色不使用 CSS 属性选择器语法",
+                Some(
+                    "请使用 button(name = \"保存\")；原生 CSS 请写成 css(\"button[name='保存']\")"
+                        .to_owned(),
+                ),
+            ));
+        }
         self.expect_left_paren("元素角色后必须使用括号，例如 button()")?;
 
         let mut predicates = Vec::new();

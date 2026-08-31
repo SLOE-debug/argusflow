@@ -1,10 +1,9 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::sync::Arc;
 
 use argusflow_core::{
-    ActionExecutionOptions, ActionOutputContract, ActionOutputKey, AutomationAction,
-    AutomationError, ExecutionEventKind, ExecutionEventPayload, NodeEnvelope, NodeTypeId,
-    OutputContractError, ResourceTypeId, TargetLocator, TargetScope, TargetWaitPolicy,
-    UiExecutionPolicy, UiOperation, UiPostcondition, WorkflowPermissions,
+    ActionExecutionOptions, AutomationAction, ExecutionEventKind, ExecutionEventPayload,
+    NodeEnvelope, NodeTypeId, ResourceTypeId, TargetLocator, TargetScope, UiExecutionPolicy,
+    UiOperation, WorkflowPermissions,
 };
 use async_trait::async_trait;
 use serde::Deserialize;
@@ -12,7 +11,7 @@ use serde::Deserialize;
 use crate::{
     AccessSet, ActionDispatcher, NodeCompileError, NodeCompiler, NodeEvent, NodeExecution,
     NodeFlow, NodeOutcome, NodeValidationContext, PreparedNode, ResourceAccessKey, ResourceInput,
-    RunContext, RuntimeError, ValidationIssue, ValueInput, ValueTypeId,
+    RunContext, RuntimeError, ValidationIssue, ValueInput,
 };
 
 #[path = "ui/resolution.rs"]
@@ -20,19 +19,12 @@ mod resolution;
 #[path = "ui/validation.rs"]
 mod validation;
 
-use resolution::{resolve_execution_scope, resolve_postcondition, resolve_target};
-
-/// UI 节点的强类型 payload。
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct UiPayloadV1 {
-    /// 资源作用域、目标定位与动作语义。
-    operation: UiOperation,
-}
+pub(super) use resolution::resolve_execution_scope;
+use resolution::resolve_target;
 
 /// 当前 UI payload，把动作语义与节点执行预算明确分离。
 ///
-/// v4 是 Studio 当前写出的 AQL 后置条件规范版本。
+/// v5 只承载写操作；读取、断言与分支统一由 Observe 节点表达。
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CurrentUiPayload {
@@ -67,33 +59,16 @@ impl NodeCompiler for UiCompiler {
         &self,
         definition: &NodeEnvelope,
     ) -> Result<Arc<dyn PreparedNode>, NodeCompileError> {
-        let (operation, execution) = match definition.version {
-            1 => {
-                let payload = serde_json::from_value::<UiPayloadV1>(definition.payload.clone())
-                    .map_err(|error| {
-                        NodeCompileError::new(format!(
-                            "payload does not match registered schema: {error}"
-                        ))
-                    })?;
-                let execution = legacy_execution_policy(payload.operation.target().locator.clone());
-                (payload.operation, execution)
-            }
-            2..=4 => {
-                let payload =
-                    serde_json::from_value::<CurrentUiPayload>(definition.payload.clone())
-                        .map_err(|error| {
-                            NodeCompileError::new(format!(
-                                "payload does not match registered schema: {error}"
-                            ))
-                        })?;
-                (payload.operation, payload.execution)
-            }
-            version => {
-                return Err(NodeCompileError::new(format!(
-                    "unsupported payload version {version}; expected 1, 2, 3 or 4"
-                )));
-            }
-        };
+        if definition.version != 5 {
+            return Err(NodeCompileError::new(format!(
+                "界面操作的设置版本为 {}，当前只支持版本 5",
+                definition.version
+            )));
+        }
+        let payload = serde_json::from_value::<CurrentUiPayload>(definition.payload.clone())
+            .map_err(|error| NodeCompileError::new(format!("界面操作的设置格式不正确：{error}")))?;
+        let operation = payload.operation;
+        let execution = payload.execution;
         let resource_type = match &operation.target().scope {
             TargetScope::Application { .. } => Some(ResourceTypeId::application()),
             TargetScope::Browser { .. } => Some(ResourceTypeId::browser()),
@@ -143,10 +118,6 @@ impl PreparedNode for UiNode {
             UiOperation::SetValue { .. } => "UI SetValue",
             UiOperation::PressKey { .. } => "UI PressKey",
             UiOperation::TypeText { .. } => "UI TypeText",
-            UiOperation::GetText { .. } => "UI GetText",
-            UiOperation::GetValue { .. } => "UI GetValue",
-            UiOperation::Extract { .. } => "UI Extract",
-            UiOperation::CollectLinks { .. } => "UI CollectLinks",
         }
         .to_owned()
     }
@@ -166,33 +137,6 @@ impl PreparedNode for UiNode {
         if let TargetLocator::Query { query } = &self.operation.target().locator {
             inputs.extend(query.bindings.values().map(ValueInput::text));
         }
-        if let Some(postcondition) = &self.execution.postcondition {
-            match postcondition {
-                UiPostcondition::MatchAdded {
-                    query,
-                    stable_context,
-                }
-                | UiPostcondition::MatchRemoved {
-                    query,
-                    stable_context,
-                } => {
-                    inputs.extend(
-                        query
-                            .bindings
-                            .values()
-                            .chain(
-                                stable_context
-                                    .iter()
-                                    .flat_map(|query| query.bindings.values()),
-                            )
-                            .map(ValueInput::text),
-                    );
-                }
-                UiPostcondition::MatchPresent { query } => {
-                    inputs.extend(query.bindings.values().map(ValueInput::text));
-                }
-            }
-        }
         inputs
     }
 
@@ -211,33 +155,6 @@ impl PreparedNode for UiNode {
         }
     }
 
-    fn value_output(&self, name: &str) -> Option<ValueTypeId> {
-        if name == "confirmed" && self.execution.postcondition.is_some() {
-            return Some(ValueTypeId::json());
-        }
-        match (self.operation.output_contract(), name) {
-            (ActionOutputContract::Text, key) if key == ActionOutputKey::Text.as_str() => {
-                Some(ValueTypeId::text())
-            }
-            (ActionOutputContract::Value, key) if key == ActionOutputKey::Value.as_str() => {
-                Some(ValueTypeId::text())
-            }
-            (ActionOutputContract::Item, key) if key == ActionOutputKey::Item.as_str() => {
-                Some(ValueTypeId::json())
-            }
-            (ActionOutputContract::Items, key) if key == ActionOutputKey::Items.as_str() => {
-                Some(ValueTypeId::json())
-            }
-            (ActionOutputContract::TextAndLinks, key) if key == ActionOutputKey::Text.as_str() => {
-                Some(ValueTypeId::text())
-            }
-            (ActionOutputContract::TextAndLinks, key) if key == ActionOutputKey::Links.as_str() => {
-                Some(ValueTypeId::json())
-            }
-            _ => None,
-        }
-    }
-
     fn access_set(&self, _node_id: &str, context: &RunContext) -> Result<AccessSet, RuntimeError> {
         let key = match &self.operation.target().scope {
             TargetScope::Current => ResourceAccessKey::global("ui.current"),
@@ -245,16 +162,7 @@ impl PreparedNode for UiNode {
                 context.resources().access_key(resource)?
             }
         };
-        Ok(match &self.operation {
-            UiOperation::GetText { .. }
-            | UiOperation::GetValue { .. }
-            | UiOperation::Extract { .. }
-            | UiOperation::CollectLinks { .. } => AccessSet::read(key),
-            UiOperation::Click { .. }
-            | UiOperation::SetValue { .. }
-            | UiOperation::PressKey { .. }
-            | UiOperation::TypeText { .. } => AccessSet::exclusive(key),
-        })
+        Ok(AccessSet::exclusive(key))
     }
 
     async fn execute(
@@ -264,7 +172,6 @@ impl PreparedNode for UiNode {
         context: &mut RunContext,
     ) -> Result<NodeExecution, RuntimeError> {
         let (target, prepared_target) = resolve_target(self.operation.target(), context)?;
-        let postcondition = resolve_postcondition(&self.execution.postcondition, context)?;
         let scope = resolve_execution_scope(&target.scope, context)?;
         let action = match &self.operation {
             UiOperation::Click { .. } => AutomationAction::Click { target },
@@ -280,18 +187,6 @@ impl PreparedNode for UiNode {
                 target,
                 value: context.resolve_text(value)?,
             },
-            UiOperation::GetText { .. } => AutomationAction::GetText { target },
-            UiOperation::GetValue { .. } => AutomationAction::GetValue { target },
-            UiOperation::Extract {
-                cardinality,
-                fields,
-                ..
-            } => AutomationAction::Extract {
-                target,
-                cardinality: *cardinality,
-                fields: fields.clone(),
-            },
-            UiOperation::CollectLinks { .. } => AutomationAction::CollectLinks { target },
         };
         let action_outcome = self
             .dispatcher
@@ -300,9 +195,7 @@ impl PreparedNode for UiNode {
                 scope,
                 ActionExecutionOptions {
                     target_wait: self.execution.target_wait,
-                    postcondition_wait: self.execution.postcondition_wait,
                     prepared_target: Some(prepared_target),
-                    postcondition,
                     trace_context: Some(argusflow_core::RunTraceContext {
                         run_id: context.run_id,
                         node_id: node_id.to_owned(),
@@ -310,19 +203,6 @@ impl PreparedNode for UiNode {
                 },
             )
             .await?;
-        if let Err(error) = validate_action_outputs(
-            &self.operation,
-            self.execution.postcondition.is_some(),
-            &action_outcome.outputs,
-        ) {
-            return Err(RuntimeError::Automation(AutomationError::BackendFailed {
-                backend: action_outcome.backend,
-                message: format!(
-                    "UI action output contract mismatch: expected {:?}, got {:?}",
-                    error.expected, error.actual
-                ),
-            }));
-        }
         // 失败现场在 fallback 前产生，因此事件顺序也先于最终成功后端。
         let mut events = action_outcome
             .diagnostic_evidence
@@ -346,50 +226,9 @@ impl PreparedNode for UiNode {
             }),
         });
         Ok(NodeExecution {
-            outcome: NodeOutcome::values(action_outcome.outputs),
+            outcome: NodeOutcome::default(),
             events,
+            ..NodeExecution::default()
         })
     }
-}
-
-/// v1 UI payload 沿用定位类别对应的新统一默认值，同时仍只 prepare 一次动作。
-fn legacy_execution_policy(locator: TargetLocator) -> UiExecutionPolicy {
-    let target_wait = match locator {
-        TargetLocator::Coordinate { .. } => TargetWaitPolicy::none(),
-        TargetLocator::Focused => TargetWaitPolicy::none(),
-        TargetLocator::Query { .. } => TargetWaitPolicy::bounded(5_000, 100),
-    };
-    UiExecutionPolicy {
-        target_wait,
-        postcondition_wait: TargetWaitPolicy::default(),
-        postcondition: None,
-    }
-}
-
-/// 校验普通动作输出，或校验已由视觉后置条件确认的输入动作输出。
-fn validate_action_outputs(
-    operation: &UiOperation,
-    has_postcondition: bool,
-    outputs: &BTreeMap<String, serde_json::Value>,
-) -> Result<(), OutputContractError> {
-    if !has_postcondition {
-        return operation.output_contract().validate(outputs);
-    }
-    let mut expected = operation
-        .output_contract()
-        .keys()
-        .iter()
-        .map(|key| key.as_str().to_owned())
-        .collect::<Vec<_>>();
-    expected.push("confirmed".to_owned());
-    expected.sort();
-    let actual = outputs.keys().cloned().collect::<Vec<_>>();
-    if actual == expected
-        && outputs
-            .get("confirmed")
-            .is_some_and(serde_json::Value::is_boolean)
-    {
-        return Ok(());
-    }
-    Err(OutputContractError { expected, actual })
 }

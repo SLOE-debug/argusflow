@@ -1,6 +1,7 @@
 import ArrowRight from 'lucide-react/dist/esm/icons/arrow-right.mjs';
 import { useState } from 'react';
 import {
+  type ControlPortId,
   type WorkflowCanvasEdge,
   type WorkflowCanvasNode,
   type WorkflowNodeData,
@@ -26,6 +27,9 @@ import { ValueExprFields } from './node-fields/ValueExprFields';
 import { VariableNodeFields } from './node-fields/VariableNodeFields';
 import { ComponentNodeFields } from './node-fields/ComponentNodeFields';
 import { DataFormatFields } from './node-fields/DataFormatFields';
+import { FailNodeFields } from './node-fields/FailNodeFields';
+import { LoopNodeFields } from './node-fields/LoopNodeFields';
+import { ObserveNodeFields } from './node-fields/ObserveNodeFields';
 import type { StructuredEditorTarget } from '../workspace/dock/structuredEditorTarget';
 
 type NodeInspectorFieldsProps = Readonly<{
@@ -44,25 +48,40 @@ type NodeInspectorFieldsProps = Readonly<{
 type EdgeInspectorFieldsProps = Readonly<{
   /** 当前选中的连线。 */
   edge: WorkflowCanvasEdge;
-  /** 修改条件分支。 */
-  onBranchChange: (branch: 'true' | 'false') => void;
+  /** 源节点决定当前端口族，不依赖端口字符串猜测语义。 */
+  sourceData: WorkflowNodeData | null;
+  /** 修改分支节点的控制端口。 */
+  onBranchChange: (branch: ControlPortId) => void;
   /** 删除当前连线。 */
   onDelete: () => void;
 }>;
 
-/** 条件连线可以携带的两个稳定分支值。 */
-const EDGE_BRANCH_OPTIONS = [
-  { value: 'true', label: '满足条件' },
-  { value: 'false', label: '不满足条件' },
-] as const;
+/** 内置分支节点的控制端口及其用户可读名称。 */
+const EDGE_BRANCH_OPTIONS = {
+  boolean: [
+    { value: 'true', label: '符合条件' },
+    { value: 'false', label: '不符合条件' },
+    { value: 'unknown', label: '暂时无法判断' },
+  ],
+  observation: [
+    { value: 'known', label: '已获得结果' },
+    { value: 'unknown', label: '暂时无法判断' },
+  ],
+  loop: [
+    { value: 'iterate', label: '继续重复' },
+    { value: 'exhausted', label: '停止重复' },
+  ],
+} as const;
 
 /** 节点类型的稳定中文名称。 */
 const NODE_KIND_LABELS: Readonly<Record<WorkflowNodeData['kind'], string>> = {
   start: '开始',
   log: '记录日志',
   debug: '查看结果',
-  delay: '固定暂停',
+  delay: '等待一段时间',
   condition: '条件判断',
+  observe: '检查界面',
+  loop: '重复执行',
   variable: '设置变量',
   application: '打开应用',
   browser: '打开浏览器',
@@ -70,14 +89,15 @@ const NODE_KIND_LABELS: Readonly<Record<WorkflowNodeData['kind'], string>> = {
   ui: '操作界面',
   command: '执行命令',
   format: '整理文本',
-  component: '流程组件',
+  component: '组合步骤',
+  fail: '停止并报错',
   end: '结束',
 };
 
 /** 节点运行状态的稳定中文名称。 */
 const RUN_STATE_LABELS: Readonly<Record<NonNullable<WorkflowNodeData['runState']>, string>> = {
   idle: '等待执行',
-  pending: '排队等待',
+  pending: '等待运行',
   running: '正在运行',
   success: '执行成功',
   error: '执行失败',
@@ -248,6 +268,18 @@ function NodeKindFields({
           onUpdate={onUpdate}
         />
       );
+    case 'observe':
+      return (
+        <ObserveNodeFields
+          nodeId={node.id}
+          observation={data.observation}
+          resultType={data.resultType}
+          onUpdate={onUpdate}
+          onOpenEditor={onOpenStructuredEditor}
+        />
+      );
+    case 'loop':
+      return <LoopNodeFields data={data} onUpdate={onUpdate} />;
     case 'variable':
       return (
         <VariableNodeFields
@@ -321,6 +353,8 @@ function NodeKindFields({
           onUpdate={onUpdate}
         />
       );
+    case 'fail':
+      return <FailNodeFields data={data} onUpdate={onUpdate} />;
     case 'start':
       return <p className={INSPECTOR_HELP_CLASS_NAME}>流程从这里开始，不需要设置。</p>;
     case 'end':
@@ -328,12 +362,14 @@ function NodeKindFields({
   }
 }
 
-/** 编辑当前选中边的条件分支。 */
+/** 编辑当前选中边的分支控制端口。 */
 export function EdgeInspectorFields({
   edge,
+  sourceData,
   onBranchChange,
   onDelete,
 }: EdgeInspectorFieldsProps) {
+  const branchOptions = resolveBranchOptions(sourceData);
   return (
     <>
       <InspectorSection title="连线信息">
@@ -342,11 +378,11 @@ export function EdgeInspectorFields({
           <ArrowRight className="size-4 shrink-0 text-blue-600" aria-hidden="true" />
           <span className="min-w-0 flex-1 truncate text-right">{edge.target.nodeId}</span>
         </div>
-        {isConditionBranch(edge.data.branch) ? (
-          <InspectorField label="条件分支">
-            <Select<'true' | 'false'>
+        {edge.data.branch && branchOptions ? (
+          <InspectorField label="控制分支">
+            <Select<ControlPortId>
               value={edge.data.branch}
-              options={EDGE_BRANCH_OPTIONS}
+              options={branchOptions}
               containerClassName="border-slate-300 bg-white"
               onValueChange={onBranchChange}
             />
@@ -363,11 +399,18 @@ export function EdgeInspectorFields({
   );
 }
 
-/** 仅把当前 Inspector 支持的两个条件分支交给基础 Select。 */
-function isConditionBranch(
-  branch: WorkflowCanvasEdge['data']['branch'],
-): branch is 'true' | 'false' {
-  return branch === 'true' || branch === 'false';
+/** 根据当前端口族返回可互换的分支，禁止跨节点语义改写端口。 */
+function resolveBranchOptions(
+  sourceData: WorkflowNodeData | null,
+): ReadonlyArray<{ value: ControlPortId; label: string }> | null {
+  if (sourceData?.kind === 'condition') return EDGE_BRANCH_OPTIONS.boolean.slice(0, 2);
+  if (sourceData?.kind === 'loop') return EDGE_BRANCH_OPTIONS.loop;
+  if (sourceData?.kind === 'observe') {
+    return sourceData.resultType === 'boolean'
+      ? EDGE_BRANCH_OPTIONS.boolean
+      : EDGE_BRANCH_OPTIONS.observation;
+  }
+  return null;
 }
 
 /** 展示多节点选择时可执行的操作提示。 */
@@ -378,15 +421,15 @@ export function MultipleSelection({
   count: number;
   onCreateComponent: (name: string, version: string) => boolean;
 }>) {
-  const [name, setName] = useState('新流程组件');
+  const [name, setName] = useState('新的组合步骤');
   const [version, setVersion] = useState('1.0.0');
   return (
     <InspectorSection title="已选择多个节点" last>
       <div className="rounded-md border border-dashed border-slate-300 px-3 py-5 text-center text-slate-600">
         <strong className="text-[13px]">已选择 {count} 个节点</strong>
-        <p className="mt-1 text-[11px]">选择一段连续流程，即可保存为可复用组件。</p>
+        <p className="mt-1 text-[11px]">选择一段连续流程，即可保存并重复使用。</p>
       </div>
-      <InspectorField label="组件名称">
+      <InspectorField label="组合步骤名称">
         <input
           className={`${INSPECTOR_CONTROL_CLASS_NAME} h-8`}
           value={name}
@@ -405,7 +448,7 @@ export function MultipleSelection({
         className="h-8 w-full rounded bg-violet-600 text-[11px] font-semibold text-white hover:bg-violet-700"
         onClick={() => onCreateComponent(name, version)}
       >
-        保存为流程组件
+        保存组合步骤
       </button>
     </InspectorSection>
   );

@@ -4,6 +4,7 @@ import { useStore, type StoreApi } from 'zustand';
 import type { FlowState } from '../../../flow';
 import type { FlowComponentCatalogItem } from '../../../features/workflow';
 import type {
+  ControlPortId,
   WorkflowCanvasEdge,
   WorkflowCanvasNode,
   WorkflowEdgeData,
@@ -45,8 +46,8 @@ type NodeInspectorProps = Readonly<{
   onOpenWorkflowData?: () => void;
   /** 修改节点字段。 */
   onUpdateNode: (updater: WorkflowNodeUpdater) => void;
-  /** 修改条件分支。 */
-  onUpdateEdgeBranch: (branch: 'true' | 'false') => void;
+  /** 修改分支节点的控制端口。 */
+  onUpdateEdgeBranch: (branch: ControlPortId) => void;
   /** 请求中央工作区打开结构化文档。 */
   onOpenStructuredEditor: (target: StructuredEditorTarget) => void;
   /** 删除当前选择。 */
@@ -158,6 +159,7 @@ export function NodeInspector(props: NodeInspectorProps) {
         {edge ? (
           <EdgeInspectorFields
             edge={edge}
+            sourceData={nodes.find((candidate) => candidate.id === edge.source.nodeId)?.data ?? null}
             onBranchChange={props.onUpdateEdgeBranch}
             onDelete={props.onDelete}
           />

@@ -47,7 +47,7 @@ describe('WorkflowNodeCard', () => {
             scope: { type: 'current' },
             locator: {
               type: 'query',
-              query: { language_version: 1, source: 'document()' },
+              query: { language_version: 3 as const, bindings: {}, source: 'document()' },
             },
             backend_policy: {
               allow: ['windows_uia'],
@@ -59,8 +59,6 @@ describe('WorkflowNodeCard', () => {
         },
         execution: {
           target_wait: { mode: 'bounded', timeout_ms: 5_000, poll_interval_ms: 100 },
-          postcondition_wait: { mode: 'none', timeout_ms: 0, poll_interval_ms: 0 },
-          postcondition: null,
         },
       },
     };

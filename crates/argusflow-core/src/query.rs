@@ -13,18 +13,15 @@ pub use spatial::{DistanceMetric, SpatialAnchor, SpatialDirection, ViewportCorne
 /// 当前稳定 AQL 语言版本。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum QueryLanguageVersion {
-    /// AQL v1 语法与语义。
-    V1,
-    /// AQL v2 参数绑定与空间查询语义。
-    V2,
+    /// AQL v3 选择、投影、聚合与三态布尔语义。
+    V3,
 }
 
 impl QueryLanguageVersion {
     /// 返回持久化协议使用的数值版本。
     pub const fn number(self) -> u16 {
         match self {
-            Self::V1 => 1,
-            Self::V2 => 2,
+            Self::V3 => 3,
         }
     }
 }
@@ -44,8 +41,7 @@ impl<'de> Deserialize<'de> for QueryLanguageVersion {
         D: Deserializer<'de>,
     {
         match u16::deserialize(deserializer)? {
-            1 => Ok(Self::V1),
-            2 => Ok(Self::V2),
+            3 => Ok(Self::V3),
             version => Err(de::Error::custom(format_args!(
                 "unsupported AQL language version {version}"
             ))),
@@ -66,19 +62,18 @@ pub struct AqlQuery {
 }
 
 impl AqlQuery {
-    /// 创建使用 AQL v1 的持久化查询。
-    pub fn v1(source: impl Into<String>) -> Self {
-        Self {
-            language_version: QueryLanguageVersion::V1,
-            source: source.into(),
-            bindings: BTreeMap::new(),
-        }
+    /// 创建不含动态参数的 AQL v3 持久化查询。
+    pub fn v3(source: impl Into<String>) -> Self {
+        Self::v3_with_bindings(source, BTreeMap::new())
     }
 
-    /// 创建使用 AQL v2 的参数化查询。
-    pub fn v2(source: impl Into<String>, bindings: BTreeMap<String, crate::ValueExpr>) -> Self {
+    /// 创建带显式参数表达式的 AQL v3 持久化查询。
+    pub fn v3_with_bindings(
+        source: impl Into<String>,
+        bindings: BTreeMap<String, crate::ValueExpr>,
+    ) -> Self {
         Self {
-            language_version: QueryLanguageVersion::V2,
+            language_version: QueryLanguageVersion::V3,
             source: source.into(),
             bindings,
         }
@@ -99,7 +94,7 @@ impl UiQuery {
     }
 }
 
-/// AQL v1 查询代数。
+/// AQL v3 的选择器查询代数。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum QueryExpr {
@@ -173,7 +168,7 @@ pub struct ElementMatcher {
     pub predicates: Vec<PropertyPredicate>,
 }
 
-/// AQL v1 支持的有限语义角色集合。
+/// AQL v3 支持的有限语义角色集合。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ElementRole {
@@ -324,7 +319,7 @@ impl fmt::Display for SelectorAttribute {
     }
 }
 
-/// AQL v1 显式开放的 Windows UIA 属性。
+/// AQL v3 显式开放的 Windows UIA 属性。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum UiaAttribute {
@@ -340,7 +335,7 @@ pub enum UiaAttribute {
     FrameworkId,
 }
 
-/// AQL v1 显式开放的 DOM 属性。
+/// AQL v3 显式开放的 DOM 属性。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DomAttribute {
@@ -350,7 +345,7 @@ pub enum DomAttribute {
     Class,
 }
 
-/// AQL v1 的比较运算符。
+/// AQL v3 选择器谓词的比较运算符。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MatchOperator {
@@ -410,6 +405,10 @@ pub struct QueryParameter {
 pub enum QueryValueType {
     /// Unicode 文本。
     Text,
+    /// 非负整数。
+    Integer,
+    /// 布尔真值。
+    Boolean,
 }
 
 /// 不依赖具体正则实现的 AQL 正则字面量。

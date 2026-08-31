@@ -61,7 +61,7 @@ describe('AqlEditor', () => {
 
   it('shows planner selection and exposes the standard format command', () => {
     const onChange = vi.fn();
-    const query = { language_version: 1 as const, source: 'button(name="保存",enabled=true)' };
+    const query = { language_version: 3 as const, bindings: {}, source: 'button(name="保存",enabled=true)' };
     render(
       <AqlEditor
         query={query}
@@ -79,7 +79,7 @@ describe('AqlEditor', () => {
       />,
     );
 
-    expect(screen.getByText('执行方式：Windows UI 自动化')).toBeVisible();
+    expect(screen.getByText('执行方式：Windows 控件')).toBeVisible();
     expect(screen.getByText('查找条件可以使用')).toBeVisible();
 
     fireEvent.click(screen.getByRole('button', { name: '格式化' }));
@@ -87,7 +87,7 @@ describe('AqlEditor', () => {
   });
 
   it('explains that a document already matches the formatter output', () => {
-    const query = { language_version: 1 as const, source: 'button()' };
+    const query = { language_version: 3 as const, bindings: {}, source: 'button()' };
     const languageDocument = {
       parsed: { diagnostics: [], semantic_tokens: [], hir: {} },
       formatted_source: query.source,
@@ -124,7 +124,7 @@ describe('AqlEditor', () => {
 
   it('writes Monaco document changes back to the versioned query', () => {
     const onChange = vi.fn();
-    const query = { language_version: 1 as const, source: 'button' };
+    const query = { language_version: 3 as const, bindings: {}, source: 'button' };
     render(
       <AqlEditor
         query={query}
@@ -141,11 +141,11 @@ describe('AqlEditor', () => {
     expect(input).toHaveAttribute('data-language', 'argusflow-aql');
     fireEvent.change(input, { target: { value: 'button()' } });
 
-    expect(onChange).toHaveBeenCalledWith({ language_version: 1, source: 'button()' });
+    expect(onChange).toHaveBeenCalledWith({ language_version: 3 as const, bindings: {}, source: 'button()' });
   });
 
   it('does not expose a separate token-help button', () => {
-    const query = { language_version: 1 as const, source: 'button' };
+    const query = { language_version: 3 as const, bindings: {}, source: 'button' };
     const { rerender } = render(
       <AqlEditor
         query={query}
@@ -180,7 +180,7 @@ describe('AqlEditor', () => {
   });
 
   it('renders as a Workspace editor without a modal dialog', () => {
-    const query = { language_version: 1 as const, source: 'button' };
+    const query = { language_version: 3 as const, bindings: {}, source: 'button' };
     render(
       <AqlEditor
         query={query}
@@ -201,8 +201,9 @@ describe('AqlEditor', () => {
   it('keeps native composition input as the document source', () => {
     function CompositionHarness() {
       const [query, setQuery] = useState<AqlQuery>({
-        language_version: 1 as const,
+        language_version: 3,
         source: 'button(name = "")',
+        bindings: {},
       });
       return (
         <AqlEditor

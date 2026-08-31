@@ -1,6 +1,6 @@
 //! UIA 查询最终目标角色与动作 pattern 的联合能力证明。
 
-use argusflow_core::{AutomationAction, FieldProjectionSource};
+use argusflow_core::AutomationAction;
 use argusflow_query::SupportLevel;
 use thiserror::Error;
 
@@ -30,17 +30,8 @@ pub fn compile_uia_action(
 ) -> Result<UiaPreparedPlan, UiaActionCompileError> {
     if matches!(
         action,
-        AutomationAction::PressKey { .. }
-            | AutomationAction::TypeText { .. }
-            | AutomationAction::CollectLinks { .. }
+        AutomationAction::PressKey { .. } | AutomationAction::TypeText { .. }
     ) {
-        return Err(UiaActionCompileError::UnsupportedAction);
-    }
-    if let AutomationAction::Extract { fields, .. } = action
-        && fields
-            .iter()
-            .any(|field| !supports_projection(&field.source))
-    {
         return Err(UiaActionCompileError::UnsupportedAction);
     }
     let action_plan = match action {
@@ -48,17 +39,6 @@ pub fn compile_uia_action(
         AutomationAction::SetValue { value, .. } => UiaActionPlan::SetValue {
             value: value.clone(),
         },
-        AutomationAction::GetText { .. } => UiaActionPlan::GetText,
-        AutomationAction::GetValue { .. } => UiaActionPlan::GetValue,
-        AutomationAction::Extract {
-            cardinality,
-            fields,
-            ..
-        } => UiaActionPlan::Extract {
-            cardinality: *cardinality,
-            fields: fields.clone(),
-        },
-        AutomationAction::CollectLinks { .. } => unreachable!("handled before action planning"),
         AutomationAction::PressKey { .. } | AutomationAction::TypeText { .. } => {
             unreachable!("handled before action planning")
         }
@@ -121,50 +101,7 @@ fn role_action_support(role: UiaRoleConstraint, action: &UiaActionPlan) -> UiaAc
             UiaActionPlan::SetValue { .. },
             UiaRoleConstraint::ControlType(UiaControlType::ComboBox),
         ) => UiaActionSupport::RequiresRuntimePatternCheck,
-        (UiaActionPlan::GetText, _) => UiaActionSupport::Native,
-        (UiaActionPlan::GetValue, UiaRoleConstraint::ControlType(UiaControlType::Edit)) => {
-            UiaActionSupport::Native
-        }
-        (UiaActionPlan::GetValue, UiaRoleConstraint::ControlType(UiaControlType::ComboBox)) => {
-            UiaActionSupport::RequiresRuntimePatternCheck
-        }
-        (UiaActionPlan::Extract { fields, .. }, role)
-            if fields
-                .iter()
-                .any(|field| matches!(&field.source, FieldProjectionSource::Value)) =>
-        {
-            match role {
-                UiaRoleConstraint::ControlType(UiaControlType::Edit) => UiaActionSupport::Native,
-                UiaRoleConstraint::ControlType(UiaControlType::ComboBox) => {
-                    UiaActionSupport::RequiresRuntimePatternCheck
-                }
-                _ => UiaActionSupport::Unsupported,
-            }
-        }
-        (UiaActionPlan::Extract { .. }, _) => UiaActionSupport::Native,
         _ => UiaActionSupport::Unsupported,
-    }
-}
-
-/// UIA 只接受可访问语义字段；DOM Attribute 必须交给 Browser CDP。
-fn supports_projection(source: &FieldProjectionSource) -> bool {
-    match source {
-        FieldProjectionSource::Text
-        | FieldProjectionSource::Value
-        | FieldProjectionSource::Name => true,
-        FieldProjectionSource::Property { name } => matches!(
-            name.as_str(),
-            "name"
-                | "automation_id"
-                | "class_name"
-                | "framework_id"
-                | "accelerator_key"
-                | "access_key"
-                | "enabled"
-                | "visible"
-                | "focused"
-        ),
-        FieldProjectionSource::Attribute { .. } => false,
     }
 }
 

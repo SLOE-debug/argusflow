@@ -43,7 +43,7 @@ export function ComponentNodeFields({
   ));
   return (
     <div className="flex flex-col gap-2.5">
-      <InspectorField label="流程组件">
+      <InspectorField label="组合步骤">
         <input
           className="h-8 w-full rounded border border-slate-300 bg-slate-50 px-2 text-[11px] text-slate-700"
           value={data.componentName}
@@ -85,7 +85,7 @@ export function ComponentNodeFields({
         <div key={name} className="rounded-md border border-violet-100 bg-violet-50/40 p-2.5">
           <ValueExprFields
             value={value}
-            literalLabel={`组件输入 ${name}`}
+            literalLabel={name}
             expressionLocation={{ type: 'component_input', name }}
             onChange={(nextValue) => updateComponent({
               ...data.component,
@@ -101,7 +101,7 @@ export function ComponentNodeFields({
         </p>
       </div>
       <p className={INSPECTOR_HELP_CLASS_NAME}>
-        使用的版本不会自动变化；双击节点可查看组件内部流程。
+        版本不会自动更新。双击节点可以查看其中的步骤。
       </p>
     </div>
   );

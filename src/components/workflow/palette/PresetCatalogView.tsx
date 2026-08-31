@@ -55,16 +55,16 @@ export function PresetCatalogView({
         density="compact"
         shape="square"
         containerClassName="mt-2 bg-white"
-        placeholder="搜索预设或组件"
+        placeholder="搜索快捷操作或组合步骤"
         value={query}
         onChange={(event) => setQuery(event.target.value)}
         startAdornment={<Search className="size-3 shrink-0" aria-hidden="true" />}
       />
       <CatalogSection
-        title="单节点预设"
-        description="常用操作的快捷配置"
+        title="快捷操作"
+        description="拖入画布后仍可继续修改"
         icon={Sparkles}
-        emptyMessage="没有匹配的单节点预设"
+        emptyMessage="没有找到匹配的快捷操作"
       >
         {visiblePresets.map((preset) => (
           <PresetCard
@@ -78,10 +78,10 @@ export function PresetCatalogView({
         ))}
       </CatalogSection>
       <CatalogSection
-        title="流程组件"
-        description="可复用的完整流程"
+        title="组合步骤"
+        description="一次加入一组已经编排好的步骤"
         icon={Workflow}
-        emptyMessage="没有匹配的流程组件"
+        emptyMessage="没有找到匹配的组合步骤"
       >
         {visibleComponents.map((component) => (
           <PresetCard

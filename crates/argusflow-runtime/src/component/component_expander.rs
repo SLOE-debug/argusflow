@@ -44,7 +44,7 @@ impl ComponentSourceMap {
 /// 组件解析后可直接交给现有 Validator/Engine 的扁平工作流。
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExpandedWorkflow {
-    /// 不再包含 `argus.component` 实例的扁平 schema v8 工作流。
+    /// 不再包含 `argus.component` 实例的扁平 schema v9 工作流。
     pub definition: WorkflowDefinition,
     /// 执行事件映射回嵌套编辑器所需的来源表。
     pub source_map: ComponentSourceMap,
@@ -292,7 +292,7 @@ fn validate_component_definition(
     if definition.schema_version != 1 {
         return Err(ComponentExpansionError::at(
             instance_node_id,
-            "组件 schema_version 必须为 1",
+            "组合步骤的格式版本必须为 1",
         ));
     }
     if definition.name.trim().is_empty() {
@@ -376,11 +376,11 @@ fn decode_instance(node: &WorkflowNode) -> Result<ComponentInstance, ComponentEx
     if node.definition.version != 1 {
         return Err(ComponentExpansionError::at(
             &node.id,
-            "argus.component payload version 必须为 1",
+            "组合步骤的设置版本必须为 1",
         ));
     }
     serde_json::from_value(node.definition.payload.clone()).map_err(|error| {
-        ComponentExpansionError::at(&node.id, format!("组件实例 payload 无效：{error}"))
+        ComponentExpansionError::at(&node.id, format!("组合步骤的设置格式不正确：{error}"))
     })
 }
 

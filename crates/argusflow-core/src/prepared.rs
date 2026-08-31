@@ -31,30 +31,6 @@ impl PreparedAqlQuery {
     }
 }
 
-/// 一次执行中已经解析完成的视觉后置条件。
-#[derive(Debug, Clone, PartialEq)]
-pub enum PreparedVisualPostcondition {
-    /// 要求动作前后视觉上下文连续，且出现新的空间匹配实例。
-    MatchAdded {
-        /// 已冻结的目标 AQL 查询。
-        query: PreparedAqlQuery,
-        /// 已冻结的上下文连续性查询。
-        stable_context: Vec<PreparedAqlQuery>,
-    },
-    /// 要求动作前后视觉上下文连续，且一个既有空间匹配实例已经消失。
-    MatchRemoved {
-        /// 已冻结的目标 AQL 查询。
-        query: PreparedAqlQuery,
-        /// 已冻结的上下文连续性查询。
-        stable_context: Vec<PreparedAqlQuery>,
-    },
-    /// 要求动作后的新鲜画面中唯一存在目标匹配。
-    MatchPresent {
-        /// 已冻结的目标 AQL 查询。
-        query: PreparedAqlQuery,
-    },
-}
-
 /// 一次执行中已经解析完成的目标定位类别。
 ///
 /// 该类型不实现序列化。它只存在于 Runtime 将值表达式冻结之后，避免把运行时状态

@@ -6,8 +6,8 @@ use argusflow_query::parse_query;
 use super::*;
 use crate::{
     AppWindowScene, CapturedFrame, FrameId, OcrItem, OcrModel, OcrPreprocessingSummary,
-    OcrRequestId, OcrResponse, OcrTimingSummary, PolygonPoint, QpcTimestamp, SceneBuildOptions,
-    TopologyGeneration, VisualSceneBuilder, WindowDescriptor,
+    OcrRequestId, OcrResponse, OcrTimingSummary, PhysicalRect, PolygonPoint, QpcTimestamp,
+    SceneBuildOptions, TopologyGeneration, VisualSceneBuilder, WindowDescriptor,
 };
 
 #[test]

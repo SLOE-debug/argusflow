@@ -13,9 +13,9 @@ use argusflow_agent::{ActionBackend, ActionRouter};
 use argusflow_core::{
     AcquirePolicy, ActivationPolicy, ApplicationSessionProvider, ApplicationSpec, BackendKind,
     BackendPolicy, CleanupPolicy, ExecutionEvent, ExecutionEventKind, NodeEnvelope, Position,
-    ResourceRef, RunInputs, TargetLocator, TargetScope, UiOperation, WindowIdentity,
-    WindowTitleMatcher, WorkflowCapabilityId, WorkflowDefinition, WorkflowEdge, WorkflowNode,
-    WorkflowPermissions,
+    ResourceRef, RunInputs, TargetLocator, TargetScope, UiExecutionPolicy, UiOperation,
+    WindowIdentity, WindowTitleMatcher, WorkflowCapabilityId, WorkflowDefinition, WorkflowEdge,
+    WorkflowNode, WorkflowPermissions,
 };
 use argusflow_runtime::{ExecutionEventSink, WorkflowEngine};
 use argusflow_windows::{
@@ -51,9 +51,14 @@ impl From<WorkflowNodeKind> for NodeEnvelope {
             WorkflowNodeKind::Application { spec } => {
                 Self::new("argus.application", 1, json!({ "spec": spec }))
             }
-            WorkflowNodeKind::Ui { operation } => {
-                Self::new("argus.ui", 1, json!({ "operation": operation }))
-            }
+            WorkflowNodeKind::Ui { operation } => Self::new(
+                "argus.ui",
+                5,
+                json!({
+                    "operation": operation,
+                    "execution": UiExecutionPolicy::default(),
+                }),
+            ),
             WorkflowNodeKind::End => Self::new("argus.end", 1, json!({})),
         }
     }
@@ -164,7 +169,7 @@ async fn workflow_application_resource_scopes_a_real_uia_action() {
 /// 构造 Start → Application → Ui → End 的真实资源数据路径。
 fn application_workflow(spec: ApplicationSpec) -> WorkflowDefinition {
     WorkflowDefinition {
-        schema_version: 8,
+        schema_version: 9,
         id: Uuid::new_v4(),
         name: "Notepad++ AppSession E2E".to_owned(),
         inputs: Vec::new(),
@@ -186,7 +191,7 @@ fn application_workflow(spec: ApplicationSpec) -> WorkflowDefinition {
                                 },
                             },
                             locator: TargetLocator::Query {
-                                query: argusflow_core::AqlQuery::v1(
+                                query: argusflow_core::AqlQuery::v3(
                                     r#"menu_item(name = "搜索(S)")"#,
                                 ),
                             },

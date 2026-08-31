@@ -29,9 +29,12 @@ pub use component::{
 pub use component::{ComponentRegistry, ComponentRegistryError};
 pub use error::RuntimeError;
 pub use execution::{AccessSet, ResourceAccess, ResourceAccessKey, ResourceAccessMode};
-pub use execution::{ActionDispatcher, UnavailableActionDispatcher};
+pub use execution::{
+    ActionDispatcher, ObservationDispatcher, UnavailableActionDispatcher,
+    UnavailableObservationDispatcher,
+};
 pub use execution::{ExecutionEventSink, WorkflowEngine};
-pub use execution::{NodeEvent, NodeExecution};
+pub use execution::{NodeEvent, NodeExecution, WorkflowTermination};
 pub use execution::{NodeOutcome, RunContext};
 pub use node_registry::{
     NodeCompileError, NodeCompiler, NodeFlow, NodeRegistryError, NodeTypeRegistry,

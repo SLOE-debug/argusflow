@@ -1,4 +1,4 @@
-//! schema v8 工作流结构、节点与引用校验契约。
+//! schema v9 工作流结构、节点与引用校验契约。
 
 mod workflow_fixture;
 
@@ -23,11 +23,43 @@ fn valid_linear_workflow_passes_validation() {
 }
 
 #[test]
+fn validation_accepts_one_level_bounded_loop_and_rejects_an_unbounded_cycle() {
+    let mut workflow = demo_workflow(1);
+    workflow.nodes[2].definition = WorkflowNodeKind::Loop {
+        max_iterations: 3,
+        timeout_ms: 1_000,
+        interval_ms: 0,
+    }
+    .into();
+    workflow.edges = vec![
+        edge("start", "delay"),
+        WorkflowEdge {
+            id: "loop-body".to_owned(),
+            source: "delay".to_owned(),
+            target: "log".to_owned(),
+            branch: Some(ControlPortId::new("iterate")),
+        },
+        edge("log", "delay"),
+        WorkflowEdge {
+            id: "loop-exit".to_owned(),
+            source: "delay".to_owned(),
+            target: "end".to_owned(),
+            branch: Some(ControlPortId::new("exhausted")),
+        },
+    ];
+    let report = validate_workflow(&workflow);
+    assert!(report.valid, "{:#?}", report.issues);
+
+    workflow.nodes[2].definition = WorkflowNodeKind::Delay { milliseconds: 1 }.into();
+    assert_has_issue(&workflow, ValidationIssueCode::CycleDetected);
+}
+
+#[test]
 fn validation_rejects_invalid_aql_before_execution() {
     let mut workflow = demo_workflow(1);
     workflow.nodes[1].definition = WorkflowNodeKind::Ui {
         operation: UiOperation::Click {
-            target: AutomationTarget::query(AqlQuery::v1(r#"button[name="保存"]"#)),
+            target: AutomationTarget::query(AqlQuery::v3(r#"button[name="保存"]"#)),
         },
     }
     .into();
@@ -39,41 +71,31 @@ fn validation_rejects_invalid_aql_before_execution() {
         .find(|issue| issue.code == ValidationIssueCode::InvalidAqlQuery)
         .expect("invalid AQL should produce a node issue");
     assert_eq!(issue.node_id.as_deref(), Some("log"));
-    assert!(issue.message.contains("AQL 不支持 CSS"));
+    assert!(issue.message.contains("CSS"), "{}", issue.message);
 }
 
 #[test]
-fn ui_payload_v1_remains_valid_and_v2_rejects_waiting_on_coordinates() {
-    let operation = UiOperation::Click {
-        target: AutomationTarget::query(AqlQuery::v1("button(name = \"保存\")")),
-    };
-    let mut legacy = demo_workflow(1);
-    legacy.nodes[1].definition =
-        NodeEnvelope::new("argus.ui", 1, json!({ "operation": operation }));
-    assert!(validate_workflow(&legacy).valid);
-
+fn ui_payload_v5_rejects_waiting_on_coordinates() {
     let coordinate_operation = UiOperation::Click {
         target: AutomationTarget::coordinate(20, 40),
     };
-    let mut invalid_v2 = demo_workflow(1);
-    invalid_v2.nodes[1].definition = NodeEnvelope::new(
+    let mut workflow = demo_workflow(1);
+    workflow.nodes[1].definition = NodeEnvelope::new(
         "argus.ui",
-        2,
+        5,
         json!({
             "operation": coordinate_operation,
             "execution": UiExecutionPolicy {
                 target_wait: TargetWaitPolicy::bounded(5_000, 100),
-                postcondition_wait: TargetWaitPolicy::default(),
-                postcondition: None,
             },
         }),
     );
 
-    assert_has_issue(&invalid_v2, ValidationIssueCode::InvalidTargetWaitPolicy);
+    assert_has_issue(&workflow, ValidationIssueCode::InvalidTargetWaitPolicy);
 }
 
 #[test]
-fn ui_payload_v4_accepts_aql_postconditions_and_rejects_region_protocol() {
+fn ui_payload_v5_rejects_removed_postconditions_and_prior_payload_versions() {
     let operation = json!({
         "type": "press_key",
         "target": {
@@ -90,27 +112,22 @@ fn ui_payload_v4_accepts_aql_postconditions_and_rejects_region_protocol() {
     let mut workflow = demo_workflow(1);
     workflow.nodes[1].definition = NodeEnvelope::new(
         "argus.ui",
-        4,
+        5,
         json!({
             "operation": operation,
             "execution": {
                 "target_wait": { "mode": "none", "timeout_ms": 0, "poll_interval_ms": 0 },
-                "postcondition_wait": {
-                    "mode": "bounded",
-                    "timeout_ms": 5_000,
-                    "poll_interval_ms": 150
-                },
                 "postcondition": {
                     "type": "match_removed",
                     "query": {
-                        "language_version": 2,
+                    "language_version": 3,
                         "source": "nearest(anchor = viewport_edge(side = bottom), target = text(name = $message), direction = any, index = 1)",
                         "bindings": {
                             "message": { "type": "literal", "value": "你好" }
                         }
                     },
                     "stable_context": [{
-                        "language_version": 2,
+                        "language_version": 3,
                         "source": "nearest(anchor = viewport_corner(position = top_right), target = text(name = $contact), direction = any, index = 1)",
                         "bindings": {
                             "contact": { "type": "literal", "value": "联系人" }
@@ -120,34 +137,36 @@ fn ui_payload_v4_accepts_aql_postconditions_and_rejects_region_protocol() {
             }
         }),
     );
-    assert!(validate_workflow(&workflow).valid);
+    let removed_report = validate_workflow(&workflow);
+    assert!(
+        removed_report
+            .issues
+            .iter()
+            .any(|issue| issue.code == ValidationIssueCode::InvalidNodeDefinition),
+        "{:#?}",
+        removed_report.issues,
+    );
 
-    let mut legacy_region = workflow;
-    legacy_region.nodes[1].definition = NodeEnvelope::new(
+    let mut prior_version = demo_workflow(1);
+    prior_version.nodes[1].definition = NodeEnvelope::new(
         "argus.ui",
         4,
         json!({
             "operation": operation,
             "execution": {
-                "target_wait": { "mode": "none", "timeout_ms": 0, "poll_interval_ms": 0 },
-                "postcondition_wait": {
-                    "mode": "bounded",
-                    "timeout_ms": 5_000,
-                    "poll_interval_ms": 150
-                },
-                "postcondition": {
-                    "type": "new_text",
-                    "query": {
-                        "text": { "type": "literal", "value": "你好" },
-                        "exact": true,
-                        "region": { "x": 0.34, "y": 0.13, "width": 0.66, "height": 0.64 }
-                    },
-                    "stable_context": []
-                }
+                "target_wait": { "mode": "none", "timeout_ms": 0, "poll_interval_ms": 0 }
             }
         }),
     );
-    assert_has_issue(&legacy_region, ValidationIssueCode::InvalidNodeDefinition);
+    let version_report = validate_workflow(&prior_version);
+    assert!(
+        version_report
+            .issues
+            .iter()
+            .any(|issue| issue.code == ValidationIssueCode::InvalidNodeDefinition),
+        "{:#?}",
+        version_report.issues,
+    );
 }
 
 #[test]
@@ -273,7 +292,7 @@ fn validation_rejects_an_application_resource_that_does_not_dominate_its_consume
                             },
                         },
                         locator: TargetLocator::Query {
-                            query: AqlQuery::v1("button(name = \"保存\")"),
+                            query: AqlQuery::v3("button(name = \"保存\")"),
                         },
                         backend_policy: BackendPolicy::default(),
                     },
@@ -311,12 +330,12 @@ fn validation_rejects_browser_cdp_for_a_desktop_application_resource() {
     let target = AutomationTarget {
         scope: TargetScope::Application { resource },
         locator: TargetLocator::Query {
-            query: AqlQuery::v1("button(name = \"Save\")"),
+            query: AqlQuery::v3("button(name = \"Save\")"),
         },
         backend_policy: BackendPolicy::only(BackendKind::BrowserCdp),
     };
     let workflow = WorkflowDefinition {
-        schema_version: 8,
+        schema_version: 9,
         id: Uuid::new_v4(),
         name: "Application backend validation".to_owned(),
         inputs: Vec::new(),

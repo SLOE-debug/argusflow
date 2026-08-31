@@ -14,7 +14,6 @@ export {
 export {
   FLOW_COMPONENT_CATALOG,
   findFlowComponent,
-  WECHAT_MESSAGE_COMPONENT_ID,
   type FlowComponentCatalogItem,
 } from './components/componentCatalog';
 export {
@@ -167,9 +166,6 @@ export type {
   ExecutionEvent,
   ExecutionEventKind,
   ExecutionEventPayload,
-  ExtractCardinality,
-  FieldProjection,
-  FieldProjectionSource,
   FlowComponentDefinition,
   JsonObject,
   JsonValue,
@@ -204,9 +200,11 @@ export type {
   TargetWaitMode,
   TargetWaitPolicy,
   UiExecutionPolicy,
-  UiPostcondition,
   UiOperation,
   UiOperationKind,
+  ObservationPolicy,
+  ObservationValueType,
+  ObserveSpec,
   ValidationReport,
   ValidationIssue,
   ValidationIssueCode,

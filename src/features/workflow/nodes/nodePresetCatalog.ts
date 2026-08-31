@@ -3,7 +3,6 @@ import type {
   UiOperation,
 } from '../model/contracts';
 import {
-  createBackendPolicy,
   createDefaultUiExecutionPolicy,
   createDefaultUiOperation,
 } from './workflowAction';
@@ -27,30 +26,6 @@ export const NODE_PRESET_CATALOG = [
     ...createDefaultUiOperation(),
     type: 'set_value',
     value: { type: 'literal', value: '' },
-  })),
-  defineUiPreset('get-text', '读取文字', '读取界面上的文字', '读取文字', () => ({
-    ...createDefaultUiOperation(),
-    type: 'get_text',
-  })),
-  defineUiPreset('get-value', '读取控件值', '读取控件里的值', '读取控件值', () => ({
-    ...createDefaultUiOperation(),
-    type: 'get_value',
-  })),
-  defineUiPreset('extract-links', '读取网页链接', '批量读取网页上的链接', '读取网页链接', () => ({
-    type: 'extract',
-    target: {
-      ...createDefaultUiOperation().target,
-      locator: {
-        type: 'query',
-        query: { language_version: 1, source: 'css("a[href]")' },
-      },
-      backend_policy: createBackendPolicy('browser_cdp'),
-    },
-    cardinality: 'many',
-    fields: [
-      { name: 'title', source: { type: 'text' } },
-      { name: 'url', source: { type: 'attribute', name: 'href' } },
-    ],
   })),
 ] as const satisfies ReadonlyArray<NodePresetDefinition>;
 

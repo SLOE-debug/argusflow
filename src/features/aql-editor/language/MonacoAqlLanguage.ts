@@ -92,7 +92,7 @@ const AQL_FALLBACK_OPERATORS = [
   'matches',
 ] as const;
 
-/** WASM 初始化前供 Monarch 使用的 AQL v1 角色清单。 */
+/** WASM 初始化前供 Monarch 使用的 AQL v3 角色清单。 */
 const AQL_FALLBACK_ROLES = [
   'window',
   'dialog',

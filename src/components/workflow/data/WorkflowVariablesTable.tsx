@@ -17,7 +17,7 @@ type WorkflowVariablesTableProps = Readonly<{
   onDelete: (name: string) => boolean;
 }>;
 
-/** 工作流变量 CRUD；类型只展示 JSON 值推断结果，不改变 schema v8。 */
+/** 工作流变量 CRUD；类型只展示 JSON 值推断结果，不改变 schema v9。 */
 export function WorkflowVariablesTable({
   variables,
   onAdd,

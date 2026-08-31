@@ -4,12 +4,12 @@ use std::sync::Arc;
 
 use argusflow_agent::{
     ActionBackend, ContextFitness, EvidenceBundle, EvidenceCaptureError, EvidenceCaptureRequest,
-    ExecutionContext, PlanExplain, PlanRejection, PreparedCandidate, PreparedDiagnostics,
-    PreparedExecution, RuntimeAvailability,
+    ExecutionContext, ObservationBackend, ObservationBackendError, PlanExplain, PlanRejection,
+    PreparedCandidate, PreparedDiagnostics, PreparedExecution, RuntimeAvailability,
 };
 use argusflow_core::{
-    ActionOutcome, AutomationAction, AutomationError, BackendKind, PreparedAutomationTarget,
-    PreparedTargetLocator, TargetLocator, UiQuery,
+    ActionOutcome, AutomationAction, AutomationError, BackendKind, EntityObservation,
+    ObservationRequest, PreparedAutomationTarget, PreparedTargetLocator, TargetLocator, UiQuery,
 };
 use argusflow_query::{
     Diagnostic, DiagnosticCode, DiagnosticSeverity, QueryBackend, analyze_query,
@@ -23,7 +23,8 @@ use super::{
     explain::{explain_uia_action, explain_uia_plan},
     plan::UiaPreparedPlan,
     runtime::{
-        PreparedWindowTarget, UiaEvidenceRequest, UiaExecuteRequest, UiaRuntime, UiaRuntimeState,
+        PreparedWindowTarget, UiaEvidenceRequest, UiaExecuteRequest, UiaObserveRequest, UiaRuntime,
+        UiaRuntimeState,
     },
 };
 
@@ -77,6 +78,55 @@ impl ActionBackend for UiaBackend {
             return self.prepare(action, context);
         };
         self.prepare_query(action, context, query, source.clone())
+    }
+}
+
+#[async_trait]
+impl ObservationBackend for UiaBackend {
+    fn kind(&self) -> BackendKind {
+        BackendKind::WindowsUia
+    }
+
+    async fn observe(
+        &self,
+        request: &ObservationRequest,
+        context: &ExecutionContext,
+    ) -> Result<Vec<EntityObservation>, ObservationBackendError> {
+        let window = context
+            .foreground_window
+            .as_ref()
+            .map(|window| PreparedWindowTarget {
+                handle: window.handle,
+                process_id: window.process_id,
+            })
+            .ok_or(ObservationBackendError::Unavailable { retryable: true })?;
+        if !self.runtime.health().is_ready() {
+            return Err(ObservationBackendError::Unavailable { retryable: true });
+        }
+        let plans = argusflow_query::observation_selectors(&request.query)
+            .into_iter()
+            .map(|query| {
+                let plans =
+                    compile_uia_query(query).map_err(|_| ObservationBackendError::Unsupported)?;
+                if plans.is_empty() {
+                    Err(ObservationBackendError::Unsupported)
+                } else {
+                    Ok(plans)
+                }
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        self.runtime
+            .observe(UiaObserveRequest { window, plans })
+            .await
+            .map_err(|error| match error {
+                AutomationError::BackendUnavailable { .. } => {
+                    ObservationBackendError::Unavailable { retryable: true }
+                }
+                _ => ObservationBackendError::Unknown {
+                    reason: argusflow_core::ObservationUnknownReason::InvalidResponse,
+                    retryable: false,
+                },
+            })
     }
 }
 

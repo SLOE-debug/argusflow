@@ -162,17 +162,35 @@ describe('useWorkflowStudio', () => {
 
   it('renames an input in metadata and its structured node references atomically', () => {
     const studio = renderHook(() => useWorkflowStudio());
+    act(() => {
+      expect(studio.result.current.addInput({ key: 'recipient', value_type: 'text' })).toBe(true);
+      studio.result.current.addNode('ui', { x: 80, y: 80 });
+      studio.result.current.updateNode((current) => current.kind === 'ui'
+        ? {
+            ...current,
+            operation: {
+              type: 'set_value',
+              target: current.operation.target,
+              value: {
+                type: 'ref',
+                source: { type: 'workflow_input', key: 'recipient' },
+                pointer: '',
+              },
+            },
+          }
+        : current);
+    });
     const before = studio.result.current.flowStore.getState().nodes.find((node) => (
       node.data.kind === 'ui'
       && (node.data.operation.type === 'type_text' || node.data.operation.type === 'set_value')
       && node.data.operation.value.type === 'ref'
       && node.data.operation.value.source.type === 'workflow_input'
-      && node.data.operation.value.source.key === 'contact_name'
+      && node.data.operation.value.source.key === 'recipient'
     ));
     expect(before).toBeDefined();
 
     act(() => {
-      expect(studio.result.current.updateInput('contact_name', {
+      expect(studio.result.current.updateInput('recipient', {
         key: 'customer_name',
         value_type: 'text',
       })).toBe(true);
@@ -193,16 +211,41 @@ describe('useWorkflowStudio', () => {
     const studio = renderHook(() => useWorkflowStudio());
 
     act(() => {
-      expect(studio.result.current.deleteInput('contact_name')).toBe(false);
+      expect(studio.result.current.addInput({ key: 'recipient', value_type: 'text' })).toBe(true);
+      studio.result.current.addNode('ui', { x: 80, y: 80 });
+      studio.result.current.updateNode((current) => current.kind === 'ui'
+        ? {
+            ...current,
+            operation: {
+              type: 'set_value',
+              target: current.operation.target,
+              value: {
+                type: 'ref',
+                source: { type: 'workflow_input', key: 'recipient' },
+                pointer: '',
+              },
+            },
+          }
+        : current);
+      expect(studio.result.current.deleteInput('recipient')).toBe(false);
     });
 
-    expect(studio.result.current.inputDefinitions.some(({ key }) => key === 'contact_name')).toBe(true);
+    expect(studio.result.current.inputDefinitions.some(({ key }) => key === 'recipient')).toBe(true);
   });
 
   it('runs with submitted values immediately, without waiting for hook state', async () => {
     const studio = renderHook(() => useWorkflowStudio());
-    const submittedValues = { contact_name: 'Bob', message: 'Hello' } as const;
+    const submittedValues = {
+      联系人: '文件传输助手',
+      消息内容: 'ArgusFlow 测试消息',
+      recipient: 'Bob',
+      content: 'Hello',
+    } as const;
 
+    act(() => {
+      studio.result.current.addInput({ key: 'recipient', value_type: 'text' });
+      studio.result.current.addInput({ key: 'content', value_type: 'text' });
+    });
     await act(async () => {
       await studio.result.current.run(submittedValues);
     });

@@ -32,15 +32,13 @@ describe('WorkspaceDockPanel', () => {
                 scope: { type: 'current' },
                 locator: {
                   type: 'query',
-                  query: { language_version: 1, source: 'button()' },
+                  query: { language_version: 3 as const, bindings: {}, source: 'button()' },
                 },
                 backend_policy: { allow: [], deny: [], prefer: [] },
               },
             },
             execution: {
               target_wait: { mode: 'bounded', timeout_ms: 5_000, poll_interval_ms: 100 },
-              postcondition_wait: { mode: 'none', timeout_ms: 0, poll_interval_ms: 0 },
-              postcondition: null,
             },
           },
         }]}

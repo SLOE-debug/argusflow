@@ -1,4 +1,8 @@
-use argusflow_core::{AutomationAction, BackendKind, PreparedAutomationTarget};
+use argusflow_core::{
+    AutomationAction, BackendKind, EntityObservation, ObservationRequest, ObservationUnknownReason,
+    PreparedAutomationTarget,
+};
+use async_trait::async_trait;
 
 use crate::{ExecutionContext, MaterializedTarget, PlanRejection, PreparedCandidate};
 
@@ -37,4 +41,37 @@ pub trait ActionBackend: Send + Sync {
     ) -> Result<Vec<PreparedCandidate>, PlanRejection> {
         self.prepare_with_target(action, context, prepared_target)
     }
+}
+
+/// 单一 UI 事实源执行 AQL v3 selector 叶节点的异步边界。
+#[async_trait]
+pub trait ObservationBackend: Send + Sync {
+    /// 返回策略过滤和结果证据使用的稳定后端类别。
+    fn kind(&self) -> BackendKind;
+
+    /// 在同一后端状态快照中按表达式顺序求值全部 selector 叶节点。
+    async fn observe(
+        &self,
+        request: &ObservationRequest,
+        context: &ExecutionContext,
+    ) -> Result<Vec<EntityObservation>, ObservationBackendError>;
+}
+
+/// 观察后端无法产生可交给统一求值层的事实。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ObservationBackendError {
+    /// 后端不支持查询语义，不应影响其它候选。
+    Unsupported,
+    /// 会话、窗口或运行服务暂不可用。
+    Unavailable {
+        /// 是否允许 Observe bounded 策略再次尝试整个路由。
+        retryable: bool,
+    },
+    /// 后端已执行但无法给出完整、可信事实。
+    Unknown {
+        /// 稳定 Unknown 原因。
+        reason: ObservationUnknownReason,
+        /// 是否允许 Observe bounded 策略再次尝试整个路由。
+        retryable: bool,
+    },
 }

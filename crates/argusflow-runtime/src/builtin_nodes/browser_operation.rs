@@ -144,6 +144,7 @@ impl PreparedNode for BrowserOperationNode {
         Ok(NodeExecution {
             outcome: NodeOutcome::default(),
             events: Vec::new(),
+            ..NodeExecution::default()
         })
     }
 }

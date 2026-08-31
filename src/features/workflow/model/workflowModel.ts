@@ -11,6 +11,8 @@ import type {
   ExecutionEvent,
   JsonObject,
   DelimitedTextFormat,
+  ObservationValueType,
+  ObserveSpec,
   UiOperation,
   UiExecutionPolicy,
   ValueExpr,
@@ -61,6 +63,18 @@ export type WorkflowNodeData =
       operator: ConditionOperator;
       right: ValueExpr | null;
     }
+  | WorkflowNodeDataBase & {
+      kind: 'observe';
+      observation: ObserveSpec;
+      /** 只用于 Studio 端口预览；Runtime 从 AQL AST 独立推导真实类型。 */
+      resultType: ObservationValueType;
+    }
+  | WorkflowNodeDataBase & {
+      kind: 'loop';
+      maxIterations: number;
+      timeoutMs: number;
+      intervalMs: number;
+    }
   | WorkflowNodeDataBase & { kind: 'variable'; assignments: VariableAssignment[] }
   | WorkflowNodeDataBase & { kind: 'application'; spec: ApplicationSpec }
   | WorkflowNodeDataBase & { kind: 'browser'; spec: BrowserSpec }
@@ -82,6 +96,7 @@ export type WorkflowNodeData =
       /** Studio 下钻和本次运行注册使用的精确冻结定义。 */
       componentDefinition: import('./contracts').FlowComponentDefinition;
     }
+  | WorkflowNodeDataBase & { kind: 'fail'; code: string; message: ValueExpr }
   | WorkflowNodeDataBase & { kind: 'end' };
 
 /** 可由节点库创建的完整节点类型集合。 */
@@ -107,6 +122,8 @@ export const WORKFLOW_NODE_SIZES = {
   debug: { width: 156, height: 52 },
   delay: { width: 136, height: 52 },
   condition: { width: 132, height: 52 },
+  observe: { width: 158, height: 52 },
+  loop: { width: 142, height: 52 },
   variable: { width: 148, height: 52 },
   application: { width: 172, height: 52 },
   browser: { width: 172, height: 52 },
@@ -115,6 +132,7 @@ export const WORKFLOW_NODE_SIZES = {
   command: { width: 164, height: 52 },
   format: { width: 164, height: 52 },
   component: { width: 188, height: 58 },
+  fail: { width: 132, height: 52 },
   end: { width: 122, height: 52 },
 } as const satisfies Readonly<
   Record<EditableNodeKind, Readonly<{ width: number; height: number }>>
@@ -200,18 +218,19 @@ export function resolveCreationKind(creationKey: string): EditableNodeKind | nul
     : null;
 }
 
-/** 新增边并根据 Condition 已占分支自动分配 true/false。 */
+/** 新增边并根据分支节点尚未占用的端口分配稳定 branch。 */
 export function createEdge(source: string, target: string, nodes: ReadonlyArray<WorkflowCanvasNode>, edges: ReadonlyArray<WorkflowCanvasEdge>, sourceSide?: WorkflowCanvasEdge['source']['side'], targetSide?: WorkflowCanvasEdge['target']['side']): WorkflowCanvasEdge {
   const sourceNode = nodes.find((node) => node.id === source);
   let branch: ControlPortId | null = null;
-  if (sourceNode?.kind === 'condition') {
+  const ports = sourceNode ? controlPorts(sourceNode.data) : [];
+  if (ports.length > 0) {
     const used = new Set(edges.filter((edge) => edge.source.nodeId === source).map((edge) => edge.data.branch));
-    branch = used.has('true') ? 'false' : 'true';
+    branch = ports.find((port) => !used.has(port)) ?? ports[0];
   }
   return { id: `edge-${crypto.randomUUID()}`, source: { nodeId: source, side: sourceSide }, target: { nodeId: target, side: targetSide }, data: { branch } };
 }
 
-/** 将画布状态转换为后端 schema v8 开放节点契约。 */
+/** 将画布状态转换为后端 schema v9 开放节点契约。 */
 export function toWorkflowDefinition(
   workflowId: string,
   name: string,
@@ -222,7 +241,7 @@ export function toWorkflowDefinition(
   edges: ReadonlyArray<WorkflowCanvasEdge>,
 ): WorkflowDefinition {
   return {
-    schema_version: 8,
+    schema_version: 9,
     id: workflowId,
     name,
     inputs: [...inputs],
@@ -279,16 +298,17 @@ export function canConnect(nodes: ReadonlyArray<WorkflowCanvasNode>, edges: Read
   if (source === target || edges.some((edge) => edge.id !== ignoredEdgeId && edge.source.nodeId === source && edge.target.nodeId === target)) return false;
   const sourceNode = nodes.find((node) => node.id === source);
   const targetNode = nodes.find((node) => node.id === target);
-  if (!sourceNode || !targetNode || sourceNode.kind === 'end' || targetNode.kind === 'start') return false;
+  if (!sourceNode || !targetNode || isTerminal(sourceNode.data) || targetNode.kind === 'start') return false;
   const outgoing = edges.filter((edge) => edge.id !== ignoredEdgeId && edge.source.nodeId === source).length;
-  if (outgoing >= (sourceNode.kind === 'condition' ? 2 : 1)) return false;
+  const maximumOutgoing = Math.max(1, controlPorts(sourceNode.data).length);
+  if (outgoing >= maximumOutgoing) return false;
   const adjacency = new Map<string, string[]>();
   for (const edge of edges.filter((edge) => edge.id !== ignoredEdgeId)) adjacency.set(edge.source.nodeId, [...(adjacency.get(edge.source.nodeId) ?? []), edge.target.nodeId]);
   const queue = [target];
   const visited = new Set<string>();
   while (queue.length > 0) {
     const id = queue.shift()!;
-    if (id === source) return false;
+    if (id === source) return targetNode.kind === 'loop';
     if (visited.has(id)) continue;
     visited.add(id);
     queue.push(...(adjacency.get(id) ?? []));
@@ -301,4 +321,21 @@ export const isUnary = isUnaryCondition;
 /** 为每种节点建立字段完整且立即可编辑的默认数据。 */
 function createNodeData(kind: EditableNodeKind): WorkflowNodeData {
   return createRegisteredNodeData(kind);
+}
+
+/** 返回一个分支节点声明的控制端口顺序。 */
+export function controlPorts(data: WorkflowNodeData): ReadonlyArray<ControlPortId> {
+  if (data.kind === 'condition') return ['true', 'false'];
+  if (data.kind === 'loop') return ['iterate', 'exhausted'];
+  if (data.kind === 'observe') {
+    return data.resultType === 'boolean'
+      ? ['true', 'false', 'unknown']
+      : ['known', 'unknown'];
+  }
+  return [];
+}
+
+/** End 与 Fail 都是显式终点，不允许创建出边。 */
+function isTerminal(data: WorkflowNodeData): boolean {
+  return data.kind === 'end' || data.kind === 'fail';
 }

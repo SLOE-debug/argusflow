@@ -20,10 +20,16 @@ export function useCanvasSize(
 
     const observer = new ResizeObserver(([entry]) => {
       if (!entry) return;
-      setSize({
-        width: entry.contentRect.width,
-        height: entry.contentRect.height,
-      });
+      /** WebView 可能重复报告同一尺寸；相等时保留旧对象，避免画布空转。 */
+      const nextSize: CanvasSize = {
+        width: Math.round(entry.contentRect.width),
+        height: Math.round(entry.contentRect.height),
+      };
+      setSize((currentSize) => (
+        currentSize.width === nextSize.width && currentSize.height === nextSize.height
+          ? currentSize
+          : nextSize
+      ));
     });
 
     observer.observe(element);

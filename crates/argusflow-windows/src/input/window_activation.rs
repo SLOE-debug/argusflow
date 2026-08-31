@@ -64,7 +64,7 @@ fn activate_with<'window>(
     mut is_foreground: impl FnMut(&WindowContext) -> bool,
     mut activate: impl FnMut(&WindowContext) -> Result<(), KeyboardInputError>,
 ) -> Result<ActivatedVisualWindow<'window>, VisualWindowActivationError> {
-    // 微信等桌面应用会把搜索结果实现为不可前台化的 owned popup；其 owner 已经在前台时，
+    // 部分桌面应用会把浮层结果实现为不可前台化的 owned popup；其 owner 已经在前台时，
     // 任何 SetForegroundWindow 尝试都可能触发失焦关闭，因此直接沿用 owner 的输入权限。
     if let Some(owner) = owner_fallback {
         if is_foreground(owner) {

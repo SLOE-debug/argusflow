@@ -1,6 +1,6 @@
 use std::{any::Any, future::Future, panic::AssertUnwindSafe};
 
-use argusflow_core::{ExecutionEventKind, ExecutionEventPayload};
+use argusflow_core::{ControlPortId, ExecutionEventKind, ExecutionEventPayload};
 use futures_util::FutureExt;
 
 use super::run_context::NodeOutcome;
@@ -23,6 +23,19 @@ pub struct NodeExecution {
     pub outcome: NodeOutcome,
     /// 在 NodeSucceeded 前按顺序发出的节点内事件。
     pub events: Vec<NodeEvent>,
+    /// 分支节点在同一次执行快照中选定的控制流端口。
+    pub branch: Option<ControlPortId>,
+    /// 显式 Fail 节点请求的预期工作流失败。
+    pub termination: Option<WorkflowTermination>,
+}
+
+/// 节点成功完成自身语义后请求的工作流级终止。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkflowTermination {
+    /// 供自动化调用方稳定识别的失败码。
+    pub code: String,
+    /// 已由 Runtime 解析的用户可读失败说明。
+    pub message: String,
 }
 
 /// 等待节点 future，同时把 unwind panic 转换为可进入执行事件流的错误摘要。

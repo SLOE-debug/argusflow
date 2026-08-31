@@ -40,7 +40,7 @@ function createExecutionEvent(
 }
 
 describe('workflow model', () => {
-  it('maps the empty canvas to the schema v8 Rust contract', () => {
+  it('maps the empty canvas to the schema v9 Rust contract', () => {
     const workflow = toWorkflowDefinition(
       '6d7d7a91-4e19-42c9-b1d8-011d4cf94330',
       'Demo',
@@ -50,7 +50,7 @@ describe('workflow model', () => {
       [],
       [],
     );
-    expect(workflow.schema_version).toBe(8);
+    expect(workflow.schema_version).toBe(9);
     expect(workflow.variables).toEqual({ enabled: true });
     expect(workflow.nodes).toEqual([]);
   });
@@ -80,7 +80,7 @@ describe('workflow model', () => {
 
     expect(workflow.nodes[0]).toMatchObject({
       type_id: 'argus.ui',
-      version: 4,
+      version: 5,
       payload: {
         operation: {
           type: 'click',
@@ -88,7 +88,7 @@ describe('workflow model', () => {
             scope: { type: 'current' },
             locator: {
               type: 'query',
-              query: { language_version: 1 },
+              query: { language_version: 3, bindings: {} },
             },
             backend_policy: { allow: [], deny: [], prefer: [] },
           },
@@ -99,19 +99,13 @@ describe('workflow model', () => {
             timeout_ms: 5_000,
             poll_interval_ms: 100,
           },
-          postcondition_wait: {
-            mode: 'bounded',
-            timeout_ms: 5_000,
-            poll_interval_ms: 150,
-          },
-          postcondition: null,
         },
       },
     });
     vi.unstubAllGlobals();
   });
 
-  it('uses a WeChat contact search and message workflow as the default template', () => {
+  it('uses the expanded WeChat send-message workflow as the default template', () => {
     const workflow = toWorkflowDefinition(
       '6d7d7a91-4e19-42c9-b1d8-011d4cf94330',
       DEFAULT_WORKFLOW_NAME,
@@ -122,193 +116,24 @@ describe('workflow model', () => {
       DEFAULT_EDGES,
     );
 
-    expect(workflow.name).toBe('搜索微信联系人并发送测试消息');
+    expect(workflow.name).toBe('微信：搜索联系人并发送消息');
     expect(workflow.inputs).toEqual([
-      { key: 'contact_name', value_type: 'text' },
-      { key: 'message', value_type: 'text' },
+      { key: '联系人', value_type: 'text' },
+      { key: '消息内容', value_type: 'text' },
     ]);
     expect(DEFAULT_RUN_INPUT_VALUES).toEqual({
-      contact_name: '崽崽',
-      message: '今日天气',
+      联系人: '文件传输助手',
+      消息内容: 'ArgusFlow 测试消息',
     });
-    expect(workflow.nodes.some((node) => node.type_id === 'argus.condition')).toBe(false);
-    expect(workflow.nodes.filter((node) => node.type_id === 'argus.delay')).toHaveLength(0);
-    expect(workflow.nodes.filter((node) => node.type_id === 'argus.ui')).toHaveLength(7);
-    expect(workflow.edges).toHaveLength(9);
-    expect(workflow.edges.every((edge) => edge.branch === null)).toBe(true);
-    expect(workflow.nodes).toContainEqual(expect.objectContaining({
-      id: 'wechat_application_1',
-      type_id: 'argus.application',
-      payload: {
-        spec: expect.objectContaining({
-          executable_path: 'C:\\Program Files\\Tencent\\Weixin\\Weixin.exe',
-          acquire_policy: 'attach_or_start',
-          activation_policy: 'required',
-        }),
-      },
-    }));
-    expect(workflow.nodes).toContainEqual(expect.objectContaining({
-      id: 'wechat_open_search_1',
-      type_id: 'argus.ui',
-      payload: {
-        operation: {
-          type: 'press_key',
-          target: {
-            scope: {
-              type: 'application',
-              resource: {
-                producer_node_id: 'wechat_application_1',
-                output_name: 'session',
-              },
-            },
-            locator: { type: 'focused' },
-            backend_policy: {
-              allow: ['send_input'],
-              deny: [],
-              prefer: ['send_input'],
-            },
-          },
-          chord: {
-            key: { type: 'character', value: 'f' },
-            modifiers: ['control'],
-          },
-        },
-        execution: {
-          target_wait: {
-            mode: 'none',
-            timeout_ms: 0,
-            poll_interval_ms: 0,
-          },
-          postcondition_wait: { mode: 'none', timeout_ms: 0, poll_interval_ms: 0 },
-          postcondition: null,
-        },
-      },
-    }));
-    expect(workflow.nodes).toContainEqual(expect.objectContaining({
-      id: 'wechat_verify_search_1',
-      type_id: 'argus.ui',
-      payload: expect.objectContaining({
-        operation: expect.objectContaining({
-          type: 'get_text',
-          target: expect.objectContaining({
-            locator: {
-              type: 'query',
-              query: {
-                language_version: 2,
-                source: 'text(name contains "网络结果")',
-                bindings: {},
-              },
-            },
-          }),
-        }),
-      }),
-    }));
-    expect(workflow.nodes).toContainEqual(expect.objectContaining({
-      id: 'wechat_type_contact_name_1',
-      type_id: 'argus.ui',
-      payload: {
-        operation: expect.objectContaining({
-          type: 'type_text',
-          value: {
-            type: 'ref',
-            source: { type: 'workflow_input', key: 'contact_name' },
-            pointer: '',
-          },
-        }),
-        execution: expect.any(Object),
-      },
-    }));
-    expect(workflow.nodes).toContainEqual(expect.objectContaining({
-      id: 'wechat_click_contact_1',
-      type_id: 'argus.ui',
-      payload: expect.objectContaining({
-        operation: expect.objectContaining({
-          type: 'click',
-          target: expect.objectContaining({
-            locator: {
-              type: 'query',
-              query: {
-                language_version: 2,
-                source: 'nearest(anchor = text(name = "最常使用"), target = text(name = $contact_name), direction = below, index = 1)',
-                bindings: {
-                  contact_name: {
-                    type: 'ref',
-                    source: { type: 'workflow_input', key: 'contact_name' },
-                    pointer: '',
-                  },
-                },
-              },
-            },
-          }),
-        }),
-        execution: expect.objectContaining({
-          postcondition: {
-            type: 'match_present',
-            query: {
-              language_version: 2,
-              source: 'nearest(anchor = text(name = "搜索"), target = text(name = $contact_name), direction = any, index = 2)',
-              bindings: {
-                contact_name: {
-                  type: 'ref',
-                  source: { type: 'workflow_input', key: 'contact_name' },
-                  pointer: '',
-                },
-              },
-            },
-          },
-        }),
-      }),
-    }));
-    expect(workflow.nodes).toContainEqual(expect.objectContaining({
-      id: 'wechat_type_message_1',
-      type_id: 'argus.ui',
-      payload: {
-        operation: expect.objectContaining({
-          type: 'type_text',
-          value: {
-            type: 'ref',
-            source: { type: 'workflow_input', key: 'message' },
-            pointer: '',
-          },
-        }),
-        execution: expect.any(Object),
-      },
-    }));
-    expect(workflow.nodes).toContainEqual(expect.objectContaining({
-      id: 'wechat_send_message_1',
-      type_id: 'argus.ui',
-      payload: {
-        operation: expect.objectContaining({
-          type: 'press_key',
-          chord: {
-            key: { type: 'enter' },
-            modifiers: [],
-          },
-        }),
-        execution: expect.any(Object),
-      },
-    }));
-    expect(workflow.nodes).toContainEqual(expect.objectContaining({
-      id: 'wechat_send_message_1',
-      payload: expect.objectContaining({
-        execution: expect.objectContaining({
-          postcondition_wait: {
-            mode: 'bounded',
-            timeout_ms: 5_000,
-            poll_interval_ms: 150,
-          },
-          postcondition: expect.objectContaining({
-            type: 'match_removed',
-            query: expect.objectContaining({
-              source: 'nearest(anchor = viewport_edge(side = bottom), target = text(name = $message), direction = any, index = 1)',
-            }),
-            stable_context: [expect.objectContaining({
-              source: 'nearest(anchor = text(name = "搜索"), target = text(name = $contact_name), direction = any, index = 2)',
-            })],
-          }),
-        }),
-      }),
-    }));
+    expect(workflow.permissions.allow).toContain('process.application.launch');
+    expect(workflow.nodes).toHaveLength(19);
+    expect(workflow.nodes.filter((node) => node.type_id === 'argus.ui')).toHaveLength(6);
+    expect(workflow.nodes.filter((node) => node.type_id === 'argus.observe')).toHaveLength(3);
+    expect(workflow.nodes.filter((node) => node.type_id === 'argus.loop')).toHaveLength(3);
+    expect(workflow.nodes.filter((node) => node.type_id === 'argus.fail')).toHaveLength(3);
+    expect(workflow.edges).toHaveLength(24);
+    expect(workflow.nodes[0]?.id).toBe('start');
+    expect(workflow.nodes.at(-1)?.id).toBe('end');
   });
 
   it('uses one compact size contract for workflow models', () => {
@@ -353,9 +178,6 @@ describe('workflow model', () => {
     const previewRoutes = DEFAULT_EDGES.map((edge) => (
       previewEdgeRoute(edge, DEFAULT_NODES)?.route ?? null
     ));
-    const contactNameClickEdgeIndex = DEFAULT_EDGES.findIndex(
-      (edge) => edge.id === 'edge_contact_name_click',
-    );
     const routeGroups = [
       ['exact', exactRoutes],
       ['preview', previewRoutes],
@@ -378,10 +200,6 @@ describe('workflow model', () => {
     expect(exactRoutes.every((route) => route !== null)).toBe(true);
     expect(previewRoutes.every((route) => route !== null)).toBe(true);
     expect(nodeCrossings).toEqual([]);
-    expect(exactRoutes[contactNameClickEdgeIndex]).toMatchObject({
-      sourceSide: 'bottom',
-      targetSide: 'right',
-    });
   });
 
   it('applies the complete execution state lifecycle', () => {

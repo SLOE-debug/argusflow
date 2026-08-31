@@ -8,6 +8,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::{
     validation_graph::{build_graph, validate_graph_shape, validate_node_degrees},
+    validation_loops::validate_structured_loops,
     validation_references::validate_data_references,
 };
 use crate::{
@@ -122,6 +123,9 @@ validation_issue_codes! {
     NoPathToEnd => "no_path_to_end",
     EmptyLogMessage => "empty_log_message",
     InvalidDelay => "invalid_delay",
+    InvalidObservationPolicy => "invalid_observation_policy",
+    InvalidLoop => "invalid_loop",
+    InvalidFailure => "invalid_failure",
     InvalidAqlQuery => "invalid_aql_query",
     InvalidApplicationSpec => "invalid_application_spec",
     InvalidBrowserSpec => "invalid_browser_spec",
@@ -157,10 +161,11 @@ pub(crate) struct PreparedWorkflow {
     pub(crate) source_map: ComponentSourceMap,
 }
 
-/// 使用内置节点注册表校验 schema v8 工作流。
+/// 使用内置节点注册表校验 schema v9 工作流。
 pub fn validate_workflow(workflow: &WorkflowDefinition) -> ValidationReport {
     let registry = builtin_nodes::registry(
         Arc::new(UnavailableActionDispatcher),
+        Arc::new(crate::UnavailableObservationDispatcher),
         Arc::new(UnavailableApplicationSessionProvider),
         Arc::new(UnavailableBrowserSessionProvider),
     );
@@ -300,7 +305,7 @@ fn validate_and_compile(
                 match prepared.flow() {
                     NodeFlow::Start => start_ids.push(node.id.clone()),
                     NodeFlow::End => end_ids.push(node.id.clone()),
-                    NodeFlow::Linear | NodeFlow::Branch { .. } => {}
+                    NodeFlow::Linear | NodeFlow::Branch { .. } | NodeFlow::Loop { .. } => {}
                 }
                 issues.extend(prepared.validate(&NodeValidationContext {
                     workflow,
@@ -332,6 +337,7 @@ fn validate_and_compile(
 
     let graph = build_graph(workflow, &node_ids, &mut issues);
     validate_node_degrees(workflow, &prepared_nodes, &graph, &mut issues);
+    validate_structured_loops(workflow, &prepared_nodes, &graph, &mut issues);
     validate_graph_shape(&node_ids, &start_ids, &end_ids, &graph, &mut issues);
     if start_ids.len() == 1 {
         validate_data_references(
@@ -391,10 +397,10 @@ fn compile_value_plan(
 
 /// 校验工作流级契约。
 fn validate_workflow_metadata(workflow: &WorkflowDefinition, issues: &mut Vec<ValidationIssue>) {
-    if workflow.schema_version != 8 {
+    if workflow.schema_version != 9 {
         issues.push(issue(
             ValidationIssueCode::UnsupportedSchemaVersion,
-            "schema_version 必须为 8",
+            "schema_version 必须为 9",
             None,
             None,
         ));
@@ -442,10 +448,10 @@ fn validate_terminal_counts(
             None,
         ));
     }
-    if end_ids.len() != 1 {
+    if end_ids.is_empty() {
         issues.push(issue(
             ValidationIssueCode::InvalidEndCount,
-            "工作流必须且只能包含一个 End 节点",
+            "工作流至少需要一个 End 或 Fail 终点",
             None,
             None,
         ));

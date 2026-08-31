@@ -5,6 +5,7 @@ import { useStore } from 'zustand';
 import { createFlowStore } from '../../../flow';
 import type { FlowAnchorSide, FlowPoint } from '../../../flow';
 import type {
+  ControlPortId,
   ExecutionEvent,
   JsonObject,
   ValidationReport,
@@ -405,7 +406,7 @@ export function useWorkflowStudio() {
     }
   }, [flowStore, updateNodeById]);
 
-  const updateEdgeBranch = useCallback((branch: 'true' | 'false') => {
+  const updateEdgeBranch = useCallback((branch: ControlPortId) => {
     const state = flowStore.getState();
     const selectedEdge = state.edges.find(
       (edge) => edge.id === state.selectedEdgeId,

@@ -1,6 +1,7 @@
 //! 工作流结构、图形和数据引用校验。
 
 mod validation_graph;
+mod validation_loops;
 mod validation_references;
 pub(crate) mod validator;
 

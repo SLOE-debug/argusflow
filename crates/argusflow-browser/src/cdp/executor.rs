@@ -2,13 +2,16 @@
 
 use std::collections::BTreeMap;
 
-use argusflow_core::{ActionOutcome, AutomationAction, AutomationError, BackendKind};
+use argusflow_core::{
+    ActionOutcome, AutomationAction, AutomationError, BackendKind, EntityObservation,
+};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use thiserror::Error;
 
 use super::{
-    CdpPageSession, CdpPlanExpr, failure::CdpProtocolError, page_script::build_page_action_script,
+    CdpPageSession, CdpPlanExpr, failure::CdpProtocolError,
+    page_observation_script::build_page_observation_script, page_script::build_page_action_script,
 };
 
 /// 执行一次 CSS fast path；目标未出现时立即交回 PreparedPlan 决定是否等待。
@@ -33,18 +36,12 @@ pub(crate) async fn execute_cdp_action(
             details: String::new(),
         }),
         "ok" => {
-            action
-                .output_contract()
-                .validate(&result.outputs)
-                .map_err(|error| {
-                    CdpExecutionError::InvalidExecutorResponse {
-                        message: format!(
-                            "output contract mismatch: expected {:?}, got {:?}",
-                            error.expected, error.actual
-                        ),
-                    }
-                    .into_automation_error()
-                })?;
+            if !result.outputs.is_empty() {
+                return Err(CdpExecutionError::InvalidExecutorResponse {
+                    message: "write-only CDP actions must not return values".to_owned(),
+                }
+                .into_automation_error());
+            }
             Ok(ActionOutcome {
                 backend: BackendKind::BrowserCdp,
                 message: result.message,
@@ -57,6 +54,37 @@ pub(crate) async fn execute_cdp_action(
         }
         .into_automation_error()),
     }
+}
+
+/// 在单次页面求值中执行全部 selector 并返回统一实体事实。
+pub(crate) async fn execute_cdp_observation(
+    session: &CdpPageSession,
+    expressions: &[Vec<CdpPlanExpr>],
+) -> Result<Vec<EntityObservation>, AutomationError> {
+    let script = build_page_observation_script(expressions)?;
+    let response = session
+        .command(
+            "Runtime.evaluate",
+            json!({
+                "expression": script,
+                "awaitPromise": true,
+                "returnByValue": true,
+            }),
+        )
+        .await
+        .map_err(|error| CdpExecutionError::Protocol(error).into_automation_error())?;
+    let value = response.pointer("/result/value").cloned().ok_or_else(|| {
+        CdpExecutionError::InvalidExecutorResponse {
+            message: "Runtime.evaluate did not return observation values".to_owned(),
+        }
+        .into_automation_error()
+    })?;
+    serde_json::from_value(value).map_err(|error| {
+        CdpExecutionError::InvalidExecutorResponse {
+            message: format!("invalid page observation result: {error}"),
+        }
+        .into_automation_error()
+    })
 }
 
 /// 单次 `Runtime.evaluate` 往返完成查询、动作适配和输出投影。

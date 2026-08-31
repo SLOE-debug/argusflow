@@ -32,6 +32,14 @@ pub enum RuntimeError {
         /// 不包含敏感 payload、但可以交付给事件消费者的失败原因。
         message: String,
     },
+    /// Fail 节点以强类型错误码结束当前运行。
+    #[error("workflow failed with {code}: {message}")]
+    WorkflowFailure {
+        /// 工作流作者声明的稳定失败码。
+        code: String,
+        /// 已解析且允许进入执行事件的失败说明。
+        message: String,
+    },
     /// ValueExpr 引用的输入、变量或节点输出尚不可用。
     #[error("runtime value is unavailable: {description}")]
     ValueUnavailable {

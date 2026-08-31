@@ -10,6 +10,7 @@ import GitBranch from 'lucide-react/dist/esm/icons/git-branch.mjs';
 import Globe2 from 'lucide-react/dist/esm/icons/earth.mjs';
 import Navigation from 'lucide-react/dist/esm/icons/navigation.mjs';
 import MousePointerClick from 'lucide-react/dist/esm/icons/mouse-pointer-click.mjs';
+import ScanSearch from 'lucide-react/dist/esm/icons/scan-search.mjs';
 import PlayCircle from 'lucide-react/dist/esm/icons/circle-play.mjs';
 import Repeat2 from 'lucide-react/dist/esm/icons/repeat-2.mjs';
 import Shuffle from 'lucide-react/dist/esm/icons/shuffle.mjs';
@@ -100,9 +101,17 @@ export const PALETTE_ITEMS = [
     iconClassName: 'bg-violet-50 text-violet-700',
   },
   {
+    kind: 'loop',
+    title: '重复执行',
+    description: '重复一段流程，达到次数或时间上限后停止',
+    group: 'control',
+    icon: Repeat2,
+    iconClassName: 'bg-violet-50 text-violet-700',
+  },
+  {
     kind: 'delay',
-    title: '固定暂停',
-    description: '暂停固定时长，不检测目标是否就绪',
+    title: '等待一段时间',
+    description: '等待指定时长后继续',
     group: 'control',
     icon: Clock3,
     iconClassName: 'bg-amber-50 text-amber-700',
@@ -116,19 +125,19 @@ export const PALETTE_ITEMS = [
     iconClassName: 'bg-rose-50 text-rose-700',
   },
   {
+    kind: 'fail',
+    title: '停止并报错',
+    description: '停止流程，并说明原因和解决办法',
+    group: 'control',
+    icon: Square,
+    iconClassName: 'bg-rose-50 text-rose-700',
+  },
+  {
     kind: null,
     title: '并行执行',
     description: '同时运行多条路径',
     group: 'control',
     icon: Workflow,
-    iconClassName: 'bg-violet-50 text-violet-700',
-  },
-  {
-    kind: null,
-    title: '循环执行',
-    description: '重复运行一段流程',
-    group: 'control',
-    icon: Repeat2,
     iconClassName: 'bg-violet-50 text-violet-700',
   },
   {
@@ -150,9 +159,17 @@ export const PALETTE_ITEMS = [
   {
     kind: 'ui',
     title: '操作界面',
-    description: '点击、输入或读取界面内容',
+    description: '点击、输入或发送按键',
     group: 'interface',
     icon: MousePointerClick,
+    iconClassName: 'bg-cyan-50 text-cyan-700',
+  },
+  {
+    kind: 'observe',
+    title: '检查界面',
+    description: '检查界面内容，并根据结果选择下一步',
+    group: 'interface',
+    icon: ScanSearch,
     iconClassName: 'bg-cyan-50 text-cyan-700',
   },
   {

@@ -2,7 +2,10 @@
 
 use argusflow_agent::PlanningReport;
 use argusflow_core::{AutomationAction, AutomationTarget, TargetLocator};
-use argusflow_query::{Diagnostic, QueryPortability, analyze_query, parse_document};
+use argusflow_query::{
+    Diagnostic, QueryPortability, analyze_query, canonicalize_observation, observation_selectors,
+    parse_document,
+};
 use serde::Serialize;
 use tauri::State;
 
@@ -52,14 +55,39 @@ fn inspect_with_router(state: &AppState, target: AutomationTarget) -> AqlInspect
             diagnostics: document.diagnostics,
         };
     };
-    let analysis = analyze_query(&parsed);
+    let analyses = observation_selectors(&parsed)
+        .into_iter()
+        .map(analyze_query)
+        .collect::<Vec<_>>();
+    let portability = combined_portability(&analyses);
+    let diagnostics = analyses
+        .iter()
+        .flat_map(|analysis| analysis.diagnostics().iter().cloned())
+        .collect();
     let action = AutomationAction::Click { target };
     let planning = state.router.inspect_current(&action);
 
     AqlInspection::Valid {
-        canonical_source: analysis.canonical_source().to_owned(),
-        portability: analysis.portability().clone(),
-        diagnostics: analysis.diagnostics().to_vec(),
+        canonical_source: canonicalize_observation(&parsed),
+        portability,
+        diagnostics,
         planning,
+    }
+}
+
+/// 合并全部 selector 的后端依赖，不把一个复合观察误标为可移植查询。
+fn combined_portability(analyses: &[argusflow_query::QueryAnalysis]) -> QueryPortability {
+    let mut backends = std::collections::BTreeSet::new();
+    for analysis in analyses {
+        if let QueryPortability::BackendSpecific { backends: required } = analysis.portability() {
+            backends.extend(required.iter().copied());
+        }
+    }
+    if backends.is_empty() {
+        QueryPortability::Portable
+    } else {
+        QueryPortability::BackendSpecific {
+            backends: backends.into_iter().collect(),
+        }
     }
 }

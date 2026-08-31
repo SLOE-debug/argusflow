@@ -43,6 +43,10 @@ export const EXECUTION_EVENT_LABELS = {
   backend_selected: '已选择执行方式',
   command_exited: '命令已完成',
   diagnostic_evidence_captured: '已保存诊断信息',
+  observation_evaluated: '检查完成',
+  loop_iteration: '开始下一轮',
+  loop_exhausted: '已停止重复',
+  workflow_failure_declared: '流程已停止',
   node_succeeded: '执行完成',
   edge_traversed: '进入下一步',
   node_failed: '执行失败',
@@ -52,10 +56,10 @@ export const EXECUTION_EVENT_LABELS = {
 
 /** Runtime Planner 后端枚举对应的产品名称。 */
 export const BACKEND_LABELS = {
-  windows_uia: 'Windows UI 自动化',
-  browser_cdp: '浏览器自动化',
-  ocr_small: '桌面文字识别',
-  send_input: '模拟输入',
+  windows_uia: 'Windows 控件',
+  browser_cdp: '网页元素',
+  ocr_small: '屏幕文字识别',
+  send_input: '模拟键盘输入',
 } as const satisfies Readonly<Record<BackendKind, string>>;
 
 /** 将单条稳定协议事件转换为不泄漏内部枚举的产品展示模型。 */
@@ -111,6 +115,15 @@ function resolveExecutionDetail(event: ExecutionEvent): string {
     case 'resource_acquired':
       return event.message
         ?? '已准备好运行所需资源';
+    case 'observation_evaluated':
+      return event.message ?? (event.payload.known ? '已获得结果' : '暂时无法判断');
+    case 'loop_iteration':
+      return event.message
+        ?? `第 ${event.payload.iteration} / ${event.payload.max_iterations} 轮`;
+    case 'loop_exhausted':
+      return event.message ?? `达到设置的上限，共重复 ${event.payload.iterations} 次`;
+    case 'workflow_failure_declared':
+      return event.message ?? `错误标识：${event.payload.code}`;
     case 'diagnostic_evidence_captured':
       return event.message
         ?? '已保存失败诊断信息';
@@ -144,8 +157,10 @@ function resolveExecutionSeverity(
     case 'workflow_completed':
       return 'success';
     case 'diagnostic_evidence_captured':
+    case 'loop_exhausted':
       return 'warning';
     case 'node_failed':
+    case 'workflow_failure_declared':
     case 'workflow_failed':
       return 'error';
     default:

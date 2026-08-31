@@ -58,19 +58,19 @@ describe('NodePalette', () => {
       'title',
       '操作界面',
     );
-    expect(screen.getByText('点击、输入或读取界面内容')).toHaveAttribute(
+    expect(screen.getByText('点击、输入或发送按键')).toHaveAttribute(
       'title',
-      '点击、输入或读取界面内容',
+      '点击、输入或发送按键',
     );
     fireEvent.click(screen.getByRole('button', { name: '收起左侧面板' }));
     expect(onCollapse).toHaveBeenCalledOnce();
 
-    fireEvent.click(screen.getByRole('button', { name: '预设' }));
-    expect(screen.getByRole('button', { name: '发送微信联系人消息' })).toHaveAttribute(
-      'draggable',
-      'true',
-    );
-    expect(screen.getByText('流程组件', { selector: 'h3' })).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '快捷步骤' }));
+    expect(screen.getByRole('button', { name: '点击' })).toHaveAttribute('draggable', 'true');
+    expect(screen.getByRole('button', { name: '输入文字' })).toHaveAttribute('draggable', 'true');
+    expect(screen.queryByRole('button', { name: /微信/ })).not.toBeInTheDocument();
+    expect(screen.getByText('组合步骤', { selector: 'h3' })).toBeVisible();
+    expect(screen.getByText('没有找到匹配的组合步骤')).toBeVisible();
 
     fireEvent.click(screen.getByRole('button', { name: '资源' }));
     expect(screen.getByText('管理流程要用的数据和凭据。')).toBeVisible();

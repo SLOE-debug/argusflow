@@ -4,6 +4,8 @@ use argusflow_core::{
 };
 use async_trait::async_trait;
 
+use argusflow_core::{ObservationRequest, ObservationResult, ObservationUnknownReason};
+
 /// 将核心动作委托给具体自动化后端的异步接口。
 #[async_trait]
 pub trait ActionDispatcher: Send + Sync {
@@ -41,5 +43,35 @@ impl ActionDispatcher for UnavailableActionDispatcher {
             backend: BackendKind::WindowsUia,
             message: "no automation backend has been configured".to_owned(),
         })
+    }
+}
+
+/// 将一次冻结观察请求交给单一事实源路由器的异步边界。
+#[async_trait]
+pub trait ObservationDispatcher: Send + Sync {
+    /// 执行一次观察；后端 fallback 与 Known 空结果权威语义由实现负责。
+    async fn observe(
+        &self,
+        request: &ObservationRequest,
+        scope: AutomationExecutionScope,
+    ) -> ObservationResult;
+}
+
+/// 未装配观察后端时返回显式 Unknown 的占位实现。
+#[derive(Debug, Default)]
+pub struct UnavailableObservationDispatcher;
+
+#[async_trait]
+impl ObservationDispatcher for UnavailableObservationDispatcher {
+    async fn observe(
+        &self,
+        _request: &ObservationRequest,
+        _scope: AutomationExecutionScope,
+    ) -> ObservationResult {
+        ObservationResult::Unknown {
+            backend: None,
+            reason: ObservationUnknownReason::BackendUnavailable,
+            retryable: false,
+        }
     }
 }

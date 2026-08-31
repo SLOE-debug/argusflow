@@ -12,6 +12,7 @@ export type ValueExprLocation =
   | { type: 'ui_type_text' }
   | { type: 'navigate_url' }
   | { type: 'format_items' }
+  | { type: 'fail_message' }
   | { type: 'component_input'; name: string }
   | {
       type: 'command_field';
@@ -50,6 +51,8 @@ export function readNodeValueExpr(
       return data.kind === 'navigate' ? data.operation.url : null;
     case 'format_items':
       return data.kind === 'format' ? data.operation.items : null;
+    case 'fail_message':
+      return data.kind === 'fail' ? data.message : null;
     case 'component_input':
       return data.kind === 'component'
         ? data.component.inputs[location.name] ?? null
@@ -118,6 +121,8 @@ export function updateNodeValueExpr(
       return data.kind === 'format'
         ? { ...data, operation: { ...data.operation, items: value }, invalid: false }
         : data;
+    case 'fail_message':
+      return data.kind === 'fail' ? { ...data, message: value, invalid: false } : data;
     case 'component_input':
       if (data.kind !== 'component' || !data.component.inputs[location.name]) return data;
       return {

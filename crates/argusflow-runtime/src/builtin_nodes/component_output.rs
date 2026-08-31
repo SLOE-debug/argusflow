@@ -67,6 +67,7 @@ impl PreparedNode for ComponentOutputNode {
         Ok(NodeExecution {
             outcome: NodeOutcome::values(outputs),
             events: Vec::new(),
+            ..NodeExecution::default()
         })
     }
 }

@@ -257,9 +257,7 @@ async fn execute_with_wait(
             AutomationExecutionScope::Current,
             ActionExecutionOptions {
                 target_wait: TargetWaitPolicy::bounded(timeout_ms, poll_interval_ms),
-                postcondition_wait: TargetWaitPolicy::default(),
                 prepared_target: None,
-                postcondition: None,
                 trace_context: None,
             },
         )
@@ -279,6 +277,6 @@ fn success_outcome() -> Result<ActionOutcome, AutomationError> {
 /// 构造默认自动规划的 portable AQL 点击动作。
 fn portable_click() -> AutomationAction {
     AutomationAction::Click {
-        target: AutomationTarget::query(AqlQuery::v1("button(name = \"保存\")")),
+        target: AutomationTarget::query(AqlQuery::v3("button(name = \"保存\")")),
     }
 }

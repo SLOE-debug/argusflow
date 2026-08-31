@@ -14,7 +14,7 @@ describe('ActionNodeFields', () => {
         scope: { type: 'current' },
         locator: {
           type: 'query',
-          query: { language_version: 1, source: 'button(name = "保存")' },
+          query: { language_version: 3 as const, bindings: {}, source: 'button(name = "保存")' },
         },
         backend_policy: {
           allow: ['windows_uia'],
@@ -30,8 +30,6 @@ describe('ActionNodeFields', () => {
         operation={operation}
         execution={{
           target_wait: { mode: 'bounded', timeout_ms: 5_000, poll_interval_ms: 100 },
-          postcondition_wait: { mode: 'none', timeout_ms: 0, poll_interval_ms: 0 },
-          postcondition: null,
         }}
         onChange={onChange}
         onExecutionChange={vi.fn()}
@@ -60,7 +58,7 @@ describe('ActionNodeFields', () => {
         scope: { type: 'current' },
         locator: {
           type: 'query',
-          query: { language_version: 1, source: 'button(name = "继续")' },
+          query: { language_version: 3 as const, bindings: {}, source: 'button(name = "继续")' },
         },
         backend_policy: { allow: [], deny: [], prefer: [] },
       },
@@ -72,8 +70,6 @@ describe('ActionNodeFields', () => {
         operation={operation}
         execution={{
           target_wait: { mode: 'bounded', timeout_ms: 5_000, poll_interval_ms: 100 },
-          postcondition_wait: { mode: 'none', timeout_ms: 0, poll_interval_ms: 0 },
-          postcondition: null,
         }}
         onChange={vi.fn()}
         onExecutionChange={onExecutionChange}
@@ -82,20 +78,16 @@ describe('ActionNodeFields', () => {
     );
 
     fireEvent.click(screen.getByText('等待目标'));
-    fireEvent.change(screen.getByRole('spinbutton', { name: '目标等待超时时间' }), {
+    fireEvent.change(screen.getByRole('spinbutton', { name: '最长等待目标时间' }), {
       target: { value: '8000' },
     });
     expect(onExecutionChange).toHaveBeenCalledWith({
       target_wait: { mode: 'bounded', timeout_ms: 8_000, poll_interval_ms: 100 },
-      postcondition_wait: { mode: 'none', timeout_ms: 0, poll_interval_ms: 0 },
-      postcondition: null,
     });
 
     fireEvent.click(screen.getByRole('checkbox', { name: '找不到目标时自动等待' }));
     expect(onExecutionChange).toHaveBeenLastCalledWith({
       target_wait: { mode: 'none', timeout_ms: 0, poll_interval_ms: 0 },
-      postcondition_wait: { mode: 'none', timeout_ms: 0, poll_interval_ms: 0 },
-      postcondition: null,
     });
     expect(screen.getAllByText('button(name = "继续")')).toHaveLength(1);
   });

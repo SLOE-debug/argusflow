@@ -21,7 +21,6 @@ mod scope;
 mod source;
 mod stability;
 mod trace;
-mod verification;
 mod window;
 mod worker;
 
@@ -60,7 +59,6 @@ pub use source::{
 };
 pub use stability::{StabilityConfig, StabilityState, StableFrameGate};
 pub use trace::{VisionSelectionOutcome, VisionTraceSink};
-pub use verification::VisionPostconditionVerifier;
 pub use window::{WindowDescriptor, WindowInventory};
 #[cfg(target_os = "windows")]
 pub use worker::NamedPipeOcrEngine;

@@ -25,7 +25,6 @@ import {
 } from '../InspectorControls';
 import { AqlFieldSummary } from '../common/AqlFieldSummary';
 import { ValueExprFields } from './ValueExprFields';
-import { ExtractNodeFields } from './ExtractNodeFields';
 import { KeyboardChordFields } from './KeyboardChordFields';
 import type { StructuredEditorTarget } from '../../workspace/dock/structuredEditorTarget';
 
@@ -49,13 +48,10 @@ const OPERATION_KIND_OPTIONS = [
   { value: 'set_value', label: '输入文字' },
   { value: 'press_key', label: '按键' },
   { value: 'type_text', label: '物理输入文字' },
-  { value: 'get_text', label: '读取文字' },
-  { value: 'get_value', label: '读取控件值' },
-  { value: 'extract', label: '读取数据' },
 ] as const;
 
 const LOCATOR_KIND_OPTIONS = [
-  { value: 'query', label: 'AQL 查询' },
+  { value: 'query', label: '按界面内容查找' },
   { value: 'coordinate', label: '屏幕坐标' },
   { value: 'focused', label: '当前焦点' },
 ] as const;
@@ -68,16 +64,11 @@ const SCOPE_OPTIONS = [
 
 const BACKEND_OPTIONS = [
   { value: 'auto', label: '自动选择（推荐）' },
-  { value: 'windows_uia', label: 'Windows UI 自动化' },
-  { value: 'browser_cdp', label: '浏览器自动化' },
-  { value: 'ocr_small', label: '画面文字（OCR）' },
-  { value: 'send_input', label: '键盘输入' },
+  { value: 'windows_uia', label: 'Windows 控件' },
+  { value: 'browser_cdp', label: '网页元素' },
+  { value: 'ocr_small', label: '屏幕文字（OCR）' },
+  { value: 'send_input', label: '模拟键盘输入' },
 ] as const;
-
-/** 只有会改变界面的物理输入动作才允许保留视觉新事实后置条件。 */
-function acceptsVisualPostcondition(operation: UiOperation): boolean {
-  return operation.type === 'press_key' || operation.type === 'type_text';
-}
 
 /** 编辑 UI 操作、资源作用域、定位方式和后端偏好。 */
 export function ActionNodeFields({
@@ -109,15 +100,10 @@ export function ActionNodeFields({
             const nextOperation = changeUiOperationKind(operation, kind);
             onChange(nextOperation);
             const locatorChanged = nextOperation.target.locator.type !== operation.target.locator.type;
-            if (locatorChanged || !acceptsVisualPostcondition(nextOperation)) {
+            if (locatorChanged) {
               onExecutionChange({
                 ...execution,
-                target_wait: locatorChanged
-                  ? createTargetWaitPolicy(nextOperation.target.locator.type)
-                  : execution.target_wait,
-                postcondition: acceptsVisualPostcondition(nextOperation)
-                  ? execution.postcondition
-                  : null,
+                target_wait: createTargetWaitPolicy(nextOperation.target.locator.type),
               });
             }
           }}
@@ -143,12 +129,6 @@ export function ActionNodeFields({
         <KeyboardChordFields
           chord={operation.chord}
           onChange={(chord) => onChange(changeKeyChord(operation, chord))}
-        />
-      ) : null}
-      {operation.type === 'extract' ? (
-        <ExtractNodeFields
-          operation={operation}
-          onChange={onChange}
         />
       ) : null}
       <InspectorField label="操作范围">
@@ -187,7 +167,7 @@ export function ActionNodeFields({
       ) : null}
       {usesKeyboardFocus ? (
         <p className={INSPECTOR_HELP_CLASS_NAME}>
-          输入会发送到指定应用窗口的当前焦点；系统会先核对并激活该窗口。
+          文字或按键会发送到当前选中的输入位置。系统会先切换到指定应用。
         </p>
       ) : (
         <InspectorField label="查找方式">
@@ -228,66 +208,6 @@ export function ActionNodeFields({
           onChange={onExecutionChange}
         />
       ) : null}
-      {execution.postcondition !== null ? (
-        <PostconditionWaitFields
-          execution={execution}
-          onChange={onExecutionChange}
-        />
-      ) : null}
-    </div>
-  );
-}
-
-/** 编辑视觉后置条件自己的观察预算，避免与动作前目标等待共享截止时间。 */
-function PostconditionWaitFields({
-  execution,
-  onChange,
-}: Readonly<{
-  execution: UiExecutionPolicy;
-  onChange: (execution: UiExecutionPolicy) => void;
-}>) {
-  const policy = execution.postcondition_wait;
-  return (
-    <div className="rounded-md border border-amber-200 bg-amber-50/60 px-2.5 py-2">
-      <InspectorField label="发送后观察超时（毫秒）">
-        <Input
-          aria-label="后置条件观察超时时间"
-          type="number"
-          min={1}
-          max={600_000}
-          value={policy.timeout_ms}
-          containerClassName="border-slate-300 bg-white"
-          onChange={(event) => onChange({
-            ...execution,
-            postcondition_wait: {
-              ...policy,
-              mode: 'bounded',
-              timeout_ms: Number(event.target.value),
-            },
-          })}
-        />
-      </InspectorField>
-      <InspectorField label="发送后检查间隔（毫秒）">
-        <Input
-          aria-label="后置条件观察轮询间隔"
-          type="number"
-          min={1}
-          max={60_000}
-          value={policy.poll_interval_ms}
-          containerClassName="border-slate-300 bg-white"
-          onChange={(event) => onChange({
-            ...execution,
-            postcondition_wait: {
-              ...policy,
-              mode: 'bounded',
-              poll_interval_ms: Number(event.target.value),
-            },
-          })}
-        />
-      </InspectorField>
-      <p className={INSPECTOR_HELP_CLASS_NAME}>
-        发送后会在此预算内重复观察，未确认时不会自动重发。
-      </p>
     </div>
   );
 }
@@ -325,9 +245,9 @@ function TargetWaitFields({
         </label>
         {enabled ? (
           <>
-            <InspectorField label="等待超时（毫秒）">
+          <InspectorField label="最长等待（毫秒）">
               <Input
-                aria-label="目标等待超时时间"
+                aria-label="最长等待目标时间"
                 type="number"
                 min={1}
                 max={600_000}
@@ -344,7 +264,7 @@ function TargetWaitFields({
             </InspectorField>
             <InspectorField label="检查间隔（毫秒）">
               <Input
-                aria-label="目标等待轮询间隔"
+                aria-label="检查目标间隔"
                 type="number"
                 min={1}
                 max={60_000}
@@ -362,7 +282,7 @@ function TargetWaitFields({
           </>
         ) : null}
         <p className={INSPECTOR_HELP_CLASS_NAME}>
-          只在暂时找不到目标时等待；目标不明确或无法执行时会立即停止。
+          系统只会等待目标出现。找到多个目标或无法操作时会立即停止并说明原因。
         </p>
       </div>
     </details>
@@ -397,12 +317,8 @@ function QueryTargetFields({
   onChange: (operation: UiOperation) => void;
   onOpenEditor: (target: StructuredEditorTarget) => void;
 }>) {
-  /** OCR 只暴露文字事实；其它操作不展示无法执行的后端选项。 */
-  const acceptsOcr = operation.type === 'click'
-    || operation.type === 'get_text'
-    || operation.type === 'extract' && operation.fields.every((field) => (
-      field.source.type === 'text' || field.source.type === 'name'
-    ));
+  /** OCR 只负责为点击物化文字目标。 */
+  const acceptsOcr = operation.type === 'click';
   /** 当前后端预设只计算一次，保证选择器与帮助文案使用同一状态。 */
   const backendPreset = resolveBackendPolicyPreset(operation.target.backend_policy);
   return (
@@ -417,7 +333,7 @@ function QueryTargetFields({
           更多设置
         </summary>
         <div className="mt-2">
-          <InspectorField label="执行方式">
+          <InspectorField label="操作方式">
             <Select<BackendPolicyPreset>
               value={backendPreset}
               options={acceptsOcr
@@ -431,7 +347,7 @@ function QueryTargetFields({
           </InspectorField>
           {backendPreset === 'ocr_small' ? (
             <p className={`${INSPECTOR_HELP_CLASS_NAME} mt-1`}>
-              OCR 仅查询 text(...) 文字节点；点击会使用命中边界内的安全点。
+              文字识别只查找可见文字，并点击文字所在区域。
             </p>
           ) : null}
         </div>

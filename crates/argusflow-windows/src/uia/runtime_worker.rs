@@ -9,7 +9,7 @@ use std::{
 };
 
 use argusflow_agent::{EvidenceBundle, EvidenceCaptureError};
-use argusflow_core::{ActionOutcome, AutomationError, BackendKind};
+use argusflow_core::{ActionOutcome, AutomationError, BackendKind, EntityObservation};
 use tokio::sync::oneshot;
 use windows::Win32::{
     System::Com::{
@@ -24,7 +24,10 @@ use super::{
     error::{UiaError, UiaOperation},
     evidence::UiaEvidenceCollector,
     executor::UiaExecutor,
-    runtime::{UiaEvidenceRequest, UiaExecuteRequest, UiaRuntimeConfig, UiaRuntimeHealth},
+    runtime::{
+        UiaEvidenceRequest, UiaExecuteRequest, UiaObserveRequest, UiaRuntimeConfig,
+        UiaRuntimeHealth,
+    },
 };
 
 /// 当前 runtime 唯一接收新请求的 worker generation。
@@ -119,6 +122,22 @@ impl UiaWorkerGeneration {
             .map_err(|_| ())
     }
 
+    /// 提交一次包含全部 selector 叶节点的观察请求。
+    pub(super) fn send_observe(
+        &self,
+        request: UiaObserveRequest,
+        budget: UiaExecutionBudget,
+        response: oneshot::Sender<Result<Vec<EntityObservation>, AutomationError>>,
+    ) -> Result<(), ()> {
+        self.sender
+            .send(UiaWorkerMessage::Observe {
+                request,
+                budget,
+                response,
+            })
+            .map_err(|_| ())
+    }
+
     /// 请求在创建 apartment 的线程退出；仍卡住的 provider 线程不会阻塞调用方。
     pub(super) fn shutdown(&mut self) {
         let _ = self.sender.send(UiaWorkerMessage::Shutdown);
@@ -140,6 +159,15 @@ enum UiaWorkerMessage {
         budget: UiaExecutionBudget,
         /// 唯一响应 channel。
         response: oneshot::Sender<Result<ActionOutcome, AutomationError>>,
+    },
+    /// 在同一窗口与 worker 状态中执行一批只读 selector。
+    Observe {
+        /// 冻结的窗口和 selector 计划。
+        request: UiaObserveRequest,
+        /// 本次批量观察共享的资源预算。
+        budget: UiaExecutionBudget,
+        /// 唯一响应 channel。
+        response: oneshot::Sender<Result<Vec<EntityObservation>, AutomationError>>,
     },
     /// 在当前 apartment 内采集 snapshot DTO。
     Capture {
@@ -224,6 +252,21 @@ fn worker_main(
                     )
                 } else {
                     Err(EvidenceCaptureError::SourceUnavailable {
+                        message: "UI Automation worker generation was superseded".to_owned(),
+                    })
+                };
+                let _ = response.send(result);
+            }
+            UiaWorkerMessage::Observe {
+                request,
+                budget,
+                response,
+            } => {
+                let result = if health.is_ready_generation(generation) {
+                    executor.observe(request, budget)
+                } else {
+                    Err(AutomationError::BackendUnavailable {
+                        backend: BackendKind::WindowsUia,
                         message: "UI Automation worker generation was superseded".to_owned(),
                     })
                 };

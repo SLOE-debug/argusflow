@@ -177,6 +177,7 @@ impl PreparedNode for CommandNode {
                 message: Some(format!("命令执行完成，退出代码 {exit_code}")),
                 payload: Some(ExecutionEventPayload::CommandExited { exit_code }),
             }],
+            ..NodeExecution::default()
         })
     }
 }

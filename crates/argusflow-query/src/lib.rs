@@ -11,6 +11,9 @@ mod formatter;
 mod language;
 mod lexer;
 mod normalize;
+mod observation_eval;
+mod observation_formatter;
+mod observation_resolve;
 mod parser;
 mod protocol;
 mod resolve;
@@ -31,7 +34,14 @@ pub use language::{
     parse_document,
 };
 pub use normalize::normalize_query;
-pub use parser::{parse_query, parse_stored_query};
+pub use observation_eval::{evaluate_observation, observation_selectors};
+pub use observation_formatter::{canonicalize_observation, format_observation};
+pub use observation_resolve::{
+    ObservationParameterError, observation_parameter_types, resolve_observation_parameters,
+};
+pub use parser::{
+    parse_observation_query, parse_query, parse_stored_observation, parse_stored_query,
+};
 pub use protocol::{
     CompletionItem, CompletionItemKind, EditorPosition, EditorRange, Hover, SyntaxToken,
     SyntaxTokenKind, TextEdit, byte_range_to_editor_range,

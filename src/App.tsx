@@ -1,4 +1,8 @@
-import { useEffect, useState, type CSSProperties } from 'react';
+import {
+  useEffect,
+  useState,
+  type CSSProperties,
+} from 'react';
 
 import { WindowTitleBar } from './components/shell/WindowTitleBar';
 import {
@@ -19,7 +23,10 @@ import {
 import type { StructuredEditorTarget } from './components/workflow';
 import { PanelResizeHandle } from './components/ui';
 import type { StartupSnapshot } from './features/startup';
-import { useWorkflowStudio, type WorkflowCanvasNode } from './features/workflow';
+import {
+  useWorkflowStudio,
+  type WorkflowCanvasNode,
+} from './features/workflow';
 
 /** 左侧节点库的默认与可调整宽度边界。 */
 const LIBRARY_PANEL_WIDTH = {
@@ -86,6 +93,9 @@ export default function App({ startupStatus, executionEnabled }: AppProps) {
     setWorkflowDataRequest((current) => current + 1);
     setDockOpen(true);
   };
+  const openWorkflowEditor = () => {
+    setAppView('editor');
+  };
   const workflowData = (
     <WorkflowDataPanel
       inputs={studio.inputDefinitions}
@@ -137,7 +147,7 @@ export default function App({ startupStatus, executionEnabled }: AppProps) {
         errorMessage={studio.errorMessage}
         homeActive={appView === 'home'}
         onOpenHome={() => setAppView('home')}
-        onOpenWorkflow={() => setAppView('editor')}
+        onOpenWorkflow={openWorkflowEditor}
         editorCommands={appView === 'editor' ? (
           <EditorToolbarControls
             store={studio.flowStore}
@@ -165,7 +175,7 @@ export default function App({ startupStatus, executionEnabled }: AppProps) {
             workflowName={studio.workflowName}
             events={studio.events}
             report={studio.report}
-            onOpenEditor={() => setAppView('editor')}
+            onOpenEditor={openWorkflowEditor}
           />
           <WorkspaceStatusBar
             store={studio.flowStore}

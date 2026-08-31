@@ -87,6 +87,8 @@ pub enum CommandErrorCode {
     BrowserFailed,
     /// 命令节点准备或执行失败。
     CommandFailed,
+    /// 工作流通过 Fail 节点显式声明业务失败。
+    WorkflowFailed,
     /// 节点的数据或资源引用在执行期不可用。
     RuntimeDataFailed,
 }
@@ -193,6 +195,11 @@ impl From<RuntimeError> for CommandError {
             RuntimeError::Command(error) => Self {
                 code: CommandErrorCode::CommandFailed,
                 message: error.to_string(),
+                issues: Vec::new(),
+            },
+            RuntimeError::WorkflowFailure { code, message } => Self {
+                code: CommandErrorCode::WorkflowFailed,
+                message: format!("{code}：{message}"),
                 issues: Vec::new(),
             },
             RuntimeError::Automation(error) => Self {

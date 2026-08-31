@@ -14,7 +14,7 @@ mod error;
 mod execution;
 mod input;
 mod keyboard;
-mod output;
+mod observation;
 mod prepared;
 mod query;
 mod resource;
@@ -23,14 +23,12 @@ mod workflow;
 
 pub use action_options::{
     ActionExecutionOptions, RunTraceContext, TargetWaitMode, TargetWaitPolicy, UiExecutionPolicy,
-    UiPostcondition,
 };
 pub use application::{AcquirePolicy, ActivationPolicy, ApplicationSpec, CleanupPolicy};
 pub use automation::{
     ActionOutcome, AutomationAction, AutomationExecutionScope, AutomationTarget, BackendKind,
-    BackendPolicy, DiagnosticEvidenceReference, ExtractCardinality, FieldProjection,
-    FieldProjectionSource, ScreenPoint, TargetLocator, TargetScope, UiOperation,
-    WindowTitleMatcher,
+    BackendPolicy, DiagnosticEvidenceReference, ScreenPoint, TargetLocator, TargetScope,
+    UiOperation, WindowTitleMatcher,
 };
 pub use browser::{
     AcquireBrowserSpec, BrowserAcquireMode, BrowserCleanupPolicy, BrowserOperation, BrowserSpec,
@@ -51,10 +49,13 @@ pub use execution::{
 };
 pub use input::{RunInputs, WorkflowInputDefinition, WorkflowInputType};
 pub use keyboard::{KeyChord, KeyboardKey, KeyboardModifier};
-pub use output::{ActionOutputContract, ActionOutputKey, OutputContractError};
-pub use prepared::{
-    PreparedAqlQuery, PreparedAutomationTarget, PreparedTargetLocator, PreparedVisualPostcondition,
+pub use observation::{
+    CoordinateSpace, EntityBounds, EntityField, EntityObservation, EntitySnapshot, EntitySource,
+    NumberComparison, NumberOperand, ObservationExpr, ObservationPolicy, ObservationQuery,
+    ObservationRequest, ObservationResult, ObservationUnknownReason, ObservationValue,
+    ObservationValueType, ObserveSpec,
 };
+pub use prepared::{PreparedAqlQuery, PreparedAutomationTarget, PreparedTargetLocator};
 pub use query::{
     AqlQuery, DistanceMetric, DomAttribute, ElementMatcher, ElementRole, MatchOperator,
     PredicateValue, PropertyPredicate, QueryExpr, QueryLanguageVersion, QueryParameter,

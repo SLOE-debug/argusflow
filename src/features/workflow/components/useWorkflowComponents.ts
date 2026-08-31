@@ -50,7 +50,7 @@ export function useWorkflowComponents(
     } catch (error) {
       setErrorMessage(error instanceof ComponentCreationError
         ? error.message
-        : '创建流程组件失败');
+        : '没有保存组合步骤，请稍后重试。');
       return false;
     }
   }, [flowStore, setErrorMessage, setValidationReport]);

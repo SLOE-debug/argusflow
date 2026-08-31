@@ -38,14 +38,14 @@ export function createComponentFromSelection(
   version: string,
 ): ComponentCreationResult {
   const normalizedName = name.trim();
-  if (!normalizedName) throw new ComponentCreationError('组件名称不能为空。');
+  if (!normalizedName) throw new ComponentCreationError('请填写组合步骤名称。');
   if (!/^\d+\.\d+\.\d+$/.test(version)) {
     throw new ComponentCreationError('版本号请使用“主版本.次版本.修订号”格式。');
   }
   const selectedNodes = nodes.filter((node) => selectedNodeIds.has(node.id));
-  if (selectedNodes.length === 0) throw new ComponentCreationError('请先选择要保存为组件的节点。');
+  if (selectedNodes.length === 0) throw new ComponentCreationError('请先选择要保存的节点。');
   if (selectedNodes.some((node) => node.kind === 'start' || node.kind === 'end')) {
-    throw new ComponentCreationError('不能把主流程的开始或结束节点保存为组件。');
+    throw new ComponentCreationError('请选择开始和结束之间的步骤。');
   }
   const incomingEdges = edges.filter((edge) => (
     !selectedNodeIds.has(edge.source.nodeId) && selectedNodeIds.has(edge.target.nodeId)
@@ -54,7 +54,7 @@ export function createComponentFromSelection(
     selectedNodeIds.has(edge.source.nodeId) && !selectedNodeIds.has(edge.target.nodeId)
   ));
   if (incomingEdges.length !== 1 || outgoingEdges.length !== 1) {
-    throw new ComponentCreationError('组件需要有且只有一个入口和一个出口。');
+    throw new ComponentCreationError('所选步骤需要一个入口和一个出口。请调整选择范围。');
   }
   assertNoExternalResourceReferences(selectedNodes, selectedNodeIds);
 
@@ -142,7 +142,7 @@ export function createComponentFromSelection(
   return {
     catalogItem: {
       title: normalizedName,
-      description: `工作区组件 · ${version}`,
+      description: `保存的组合步骤 · ${version}`,
       definition,
       defaultInputs: componentData.component.inputs,
       valueOutputs: definition.outputs.map((output) => ({
@@ -309,7 +309,7 @@ function assertNoExternalResourceReferences(
     visitObject(serializedNodeInputs(node), (object) => {
       const producerNodeId = object.producer_node_id;
       if (typeof producerNodeId === 'string' && !selectedNodeIds.has(producerNodeId)) {
-        throw new ComponentCreationError('组件不能引用选择范围外的资源。');
+        throw new ComponentCreationError('所选步骤使用了范围外的应用或浏览器。请把对应节点一起选中。');
       }
     });
   }

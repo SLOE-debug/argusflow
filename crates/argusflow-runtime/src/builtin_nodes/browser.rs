@@ -166,6 +166,10 @@ impl PreparedNode for BrowserNode {
         (name == "session").then_some(&self.resource_type)
     }
 
+    fn acquires_resources(&self) -> bool {
+        true
+    }
+
     async fn execute(
         &self,
         node_id: &str,
@@ -210,6 +214,7 @@ impl PreparedNode for BrowserNode {
                     resource_type: self.resource_type.as_str().to_owned(),
                 }),
             }],
+            ..NodeExecution::default()
         })
     }
 }

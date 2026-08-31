@@ -5,12 +5,12 @@ use std::{
     time::{Duration, Instant},
 };
 
-use argusflow_agent::{ActionBackend, ActionRouter};
+use argusflow_agent::{ActionBackend, ActionRouter, ObservationBackend, ObservationRouter};
 use argusflow_browser::{CdpBackend, CdpRuntime};
 use argusflow_runtime::{FileRunTraceStore, RunTraceLevel, WorkflowEngine};
 use argusflow_vision::{
-    NamedPipeOcrEngine, OcrEngine, UnavailableOcrEngine, VisionBackend, VisionError,
-    VisionPostconditionVerifier, VisionRuntime, VisionWorkerClient,
+    NamedPipeOcrEngine, OcrEngine, UnavailableOcrEngine, VisionBackend, VisionError, VisionRuntime,
+    VisionWorkerClient,
 };
 use argusflow_windows::{
     capture::{WindowsCaptureService, WindowsWindowRegistry},
@@ -70,26 +70,32 @@ impl AppState {
             vision_runtime.clone(),
             window_registry.clone(),
         ));
-        let visual_verification =
-            Arc::new(VisionPostconditionVerifier::new(vision_runtime.clone()));
+        let uia_backend = Arc::new(UiaBackend::new(uia_runtime.clone()));
+        let cdp_backend = Arc::new(CdpBackend::new(&cdp_runtime));
+        let vision_backend = Arc::new(VisionBackend::new(vision_runtime.clone(), window_registry));
         // 注册顺序不决定执行优先级；ActionRouter 会比较支持等级、成本与用户偏好。
         let backends: Vec<Arc<dyn ActionBackend>> = vec![
-            Arc::new(UiaBackend::new(uia_runtime.clone())),
-            Arc::new(CdpBackend::new(&cdp_runtime)),
-            Arc::new(VisionBackend::new(vision_runtime.clone(), window_registry)),
+            uia_backend.clone(),
+            cdp_backend.clone(),
             Arc::new(SendInputBackend::with_target_validator(
                 visual_materializer.clone(),
             )),
         ];
         let context_provider = Arc::new(WindowsExecutionContextProvider::new(uia_runtime.health()));
         let router = Arc::new(
-            ActionRouter::with_context_provider(backends, context_provider)
-                .with_target_materializer(visual_materializer)
-                .with_visual_verification(visual_verification),
+            ActionRouter::with_context_provider(backends, context_provider.clone())
+                .with_target_materializer(visual_materializer),
         );
+        let observation_backends: Vec<Arc<dyn ObservationBackend>> =
+            vec![uia_backend, cdp_backend, vision_backend];
+        let observations = Arc::new(ObservationRouter::with_context_provider(
+            observation_backends,
+            context_provider,
+        ));
 
-        let engine = WorkflowEngine::with_resource_providers(
+        let engine = WorkflowEngine::with_dispatchers(
             router.clone(),
+            observations,
             Arc::new(WindowsApplicationSessionProvider),
             cdp_runtime,
         )

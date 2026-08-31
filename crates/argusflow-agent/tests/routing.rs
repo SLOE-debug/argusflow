@@ -484,6 +484,6 @@ fn context_fitness(kind: BackendKind, context: &ExecutionContext) -> ContextFitn
 /// 构造默认自动规划的 portable AQL 点击动作。
 fn portable_click() -> AutomationAction {
     AutomationAction::Click {
-        target: AutomationTarget::query(AqlQuery::v1("button(name = \"保存\")")),
+        target: AutomationTarget::query(AqlQuery::v3("button(name = \"保存\")")),
     }
 }

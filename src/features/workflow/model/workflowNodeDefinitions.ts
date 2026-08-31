@@ -6,7 +6,6 @@ import type {
 import { createDefaultApplicationSpec } from '../nodes/workflowApplication';
 import { createDefaultBrowserSpec } from '../nodes/workflowBrowser';
 import { createDefaultCommandOperation } from '../nodes/workflowCommand';
-import { FLOW_COMPONENT_CATALOG } from '../components/componentCatalog';
 import {
   createDefaultUiExecutionPolicy,
   createDefaultUiOperation,
@@ -104,7 +103,7 @@ export const WORKFLOW_NODE_DEFINITIONS = {
     version: 1,
     create: () => ({
       kind: 'delay',
-      label: '固定暂停',
+      label: '等待一段时间',
       outputBindings: {},
       milliseconds: 500,
       runState: 'idle',
@@ -131,6 +130,47 @@ export const WORKFLOW_NODE_DEFINITIONS = {
       left: data.left,
       operator: data.operator,
       right: isUnaryCondition(data.operator) ? null : data.right,
+    }),
+  }),
+  observe: defineNode('observe', {
+    typeId: 'argus.observe',
+    version: 1,
+    create: () => ({
+      kind: 'observe',
+      label: '检查界面',
+      outputBindings: {},
+      resultType: 'boolean',
+      observation: {
+        scope: { type: 'current' },
+        query: {
+          language_version: 3,
+          source: 'exists(button())',
+          bindings: {},
+        },
+        backend_policy: { allow: [], deny: [], prefer: [] },
+        policy: { mode: 'once' },
+      },
+      runState: 'idle',
+    }),
+    encode: (data) => ({ observation: data.observation }),
+    outputs: () => [{ name: 'result', valueType: 'json', label: '检查结果' }],
+  }),
+  loop: defineNode('loop', {
+    typeId: 'argus.loop',
+    version: 1,
+    create: () => ({
+      kind: 'loop',
+      label: '重复执行',
+      outputBindings: {},
+      maxIterations: 10,
+      timeoutMs: 30_000,
+      intervalMs: 500,
+      runState: 'idle',
+    }),
+    encode: (data) => ({
+      max_iterations: data.maxIterations,
+      timeout_ms: data.timeoutMs,
+      interval_ms: data.intervalMs,
     }),
   }),
   variable: defineNode('variable', {
@@ -179,7 +219,7 @@ export const WORKFLOW_NODE_DEFINITIONS = {
       operation: {
         type: 'navigate',
         browser: { producer_node_id: '', output_name: 'session' },
-        url: { type: 'literal', value: 'https://www.baidu.com/' },
+        url: { type: 'literal', value: '' },
       },
       runState: 'idle',
     }),
@@ -187,7 +227,7 @@ export const WORKFLOW_NODE_DEFINITIONS = {
   }),
   ui: defineNode('ui', {
     typeId: 'argus.ui',
-    version: 4,
+    version: 5,
     create: () => ({
       kind: 'ui',
       label: '操作界面',
@@ -200,33 +240,7 @@ export const WORKFLOW_NODE_DEFINITIONS = {
       operation: data.operation,
       execution: data.execution,
     }),
-    outputs: (data) => {
-      switch (data.operation.type) {
-        case 'get_text':
-          return [{ name: 'text', valueType: 'text', label: '文本' }];
-        case 'get_value':
-          return [{ name: 'value', valueType: 'text', label: '值' }];
-        case 'extract':
-          return [{
-            name: data.operation.cardinality === 'one' ? 'item' : 'items',
-            valueType: 'json',
-            label: data.operation.cardinality === 'one' ? '提取对象' : '提取对象数组',
-          }];
-        case 'collect_links':
-          return [
-            { name: 'text', valueType: 'text', label: '链接文本' },
-            { name: 'links', valueType: 'json', label: '链接数组' },
-          ];
-        case 'click':
-        case 'set_value':
-          return [];
-        case 'press_key':
-        case 'type_text':
-          return data.execution.postcondition === null
-            ? []
-            : [{ name: 'confirmed', valueType: 'json', label: '已确认' }];
-      }
-    },
+    outputs: () => [],
   }),
   command: defineNode('command', {
     typeId: 'argus.command',
@@ -268,19 +282,29 @@ export const WORKFLOW_NODE_DEFINITIONS = {
     typeId: 'argus.component',
     version: 1,
     create: () => {
-      const catalogItem = FLOW_COMPONENT_CATALOG[0];
       return {
         kind: 'component',
-        label: catalogItem.title,
+        label: '组合步骤',
         outputBindings: {},
         component: {
-          component_id: catalogItem.definition.id,
-          component_version: catalogItem.definition.version,
-          inputs: catalogItem.defaultInputs,
+          component_id: '00000000-0000-0000-0000-000000000000',
+          component_version: '0.0.0',
+          inputs: {},
         },
-        componentName: catalogItem.definition.name,
-        componentOutputs: catalogItem.definition.outputs,
-        componentDefinition: catalogItem.definition,
+        componentName: '尚未选择',
+        componentOutputs: [],
+        componentDefinition: {
+          schema_version: 1,
+          id: '00000000-0000-0000-0000-000000000000',
+          version: '0.0.0',
+          name: '尚未选择',
+          inputs: [],
+          outputs: [],
+          nodes: [],
+          edges: [],
+          entry_node_id: '',
+          exit_node_id: '',
+        },
         runState: 'idle',
       };
     },
@@ -290,6 +314,19 @@ export const WORKFLOW_NODE_DEFINITIONS = {
       valueType: 'json',
       label: output.name,
     })),
+  }),
+  fail: defineNode('fail', {
+    typeId: 'argus.fail',
+    version: 1,
+    create: () => ({
+      kind: 'fail',
+      label: '停止并报错',
+      outputBindings: {},
+      code: 'workflow_failed',
+      message: { type: 'literal', value: '流程没有达到预期结果。请检查前面的步骤后重试。' },
+      runState: 'idle',
+    }),
+    encode: (data) => ({ code: data.code, message: data.message }),
   }),
   end: defineNode('end', {
     typeId: 'argus.end',

@@ -14,10 +14,10 @@ import type { AqlInspectionState } from '../../workflow';
 import { diagnosticLabel } from '../language/messages';
 
 const BACKEND_LABELS: Readonly<Record<BackendKind, string>> = {
-  windows_uia: 'Windows UI 自动化',
-  browser_cdp: '浏览器自动化',
-  ocr_small: '桌面文字识别',
-  send_input: '模拟输入',
+  windows_uia: 'Windows 控件',
+  browser_cdp: '网页元素',
+  ocr_small: '屏幕文字识别',
+  send_input: '模拟键盘输入',
 };
 
 const SUPPORT_LABELS: Readonly<Record<QuerySupportLevel, string>> = {

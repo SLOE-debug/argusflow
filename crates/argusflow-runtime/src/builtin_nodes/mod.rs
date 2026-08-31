@@ -5,6 +5,7 @@ mod command;
 mod component_output;
 mod control;
 mod data_format;
+mod observe;
 mod ui;
 mod utility;
 mod variable;
@@ -21,6 +22,7 @@ use crate::{ActionDispatcher, NodeCompileError, NodeCompiler, NodeTypeRegistry, 
 /// 为运行时装配全部内置节点编译器；每项编译器只拥有自己的依赖和 payload 类型。
 pub(crate) fn registry(
     dispatcher: Arc<dyn ActionDispatcher>,
+    observations: Arc<dyn crate::ObservationDispatcher>,
     applications: Arc<dyn ApplicationSessionProvider>,
     browsers: Arc<dyn BrowserSessionProvider>,
 ) -> NodeTypeRegistry {
@@ -31,6 +33,7 @@ pub(crate) fn registry(
         typed_compiler::<utility::DebugPayload>("argus.debug", utility::prepare_debug),
         typed_compiler::<utility::DelayPayload>("argus.delay", utility::prepare_delay),
         typed_compiler::<control::ConditionPayload>("argus.condition", control::prepare_condition),
+        typed_compiler::<control::LoopPayload>("argus.loop", control::prepare_loop),
         typed_compiler::<variable::SetVariablesPayload>("argus.variable.set", variable::prepare),
         typed_compiler::<component_output::ComponentOutputPayload>(
             "argus.component.output",
@@ -40,8 +43,10 @@ pub(crate) fn registry(
         application::compiler(applications),
         browser::compiler(browsers),
         browser_operation::compiler(browser_operations),
+        observe::compiler(observations),
         ui::compiler(dispatcher),
         command::compiler(),
+        typed_compiler::<control::FailPayload>("argus.fail", control::prepare_fail),
         typed_compiler::<control::EndPayload>("argus.end", control::prepare_end),
     ])
 }

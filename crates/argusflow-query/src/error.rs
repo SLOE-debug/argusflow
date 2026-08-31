@@ -24,15 +24,15 @@ pub enum AqlErrorKind {
     InvalidToken,
     /// 当前位置的语法结构与 grammar 不符。
     UnexpectedToken,
-    /// 使用了 AQL v1 不支持的元素角色。
+    /// 使用了 AQL v3 不支持的元素角色。
     UnknownRole,
-    /// 使用了 AQL v1 不支持的属性。
+    /// 使用了 AQL v3 不支持的属性。
     UnknownProperty,
     /// 使用了未知或 CSS 风格运算符。
     UnknownOperator,
     /// 属性、运算符和右值的类型组合无效。
     InvalidPredicate,
-    /// 正则表达式无法由 AQL v1 正则引擎编译。
+    /// 正则表达式无法由 AQL v3 正则引擎编译。
     InvalidRegex,
     /// 查询组合器的参数数量或取值无效。
     InvalidArgument,

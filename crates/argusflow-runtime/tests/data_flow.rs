@@ -1,15 +1,19 @@
-//! ValueExpr 驱动的 UI Read → SetValue 运行时数据流验收。
+//! Observe 事实输出驱动 Action 输入的运行时数据流验收。
 
 use std::{collections::BTreeMap, sync::Arc};
 
 use argusflow_core::{
     ActionExecutionOptions, ActionOutcome, AqlQuery, AutomationAction, AutomationError,
-    AutomationExecutionScope, AutomationTarget, BackendKind, DiagnosticEvidenceReference,
-    ExecutionEvent, ExecutionEventKind, ExecutionEventPayload, NodeEnvelope, Position, RunInputs,
-    TargetWaitPolicy, UiOperation, ValueExpr, WorkflowDefinition, WorkflowEdge, WorkflowNode,
-    WorkflowPermissions,
+    AutomationExecutionScope, AutomationTarget, BackendKind, ControlPortId,
+    DiagnosticEvidenceReference, ExecutionEvent, ExecutionEventKind, ExecutionEventPayload,
+    NodeEnvelope, ObservationPolicy, ObservationRequest, ObservationResult, ObservationValue,
+    ObserveSpec, Position, RunInputs, TargetScope, TargetWaitPolicy, UiExecutionPolicy,
+    UiOperation, ValueExpr, WorkflowDefinition, WorkflowEdge, WorkflowNode, WorkflowPermissions,
 };
-use argusflow_runtime::{ActionDispatcher, ExecutionEventSink, WorkflowEngine};
+use argusflow_runtime::{
+    ActionDispatcher, ExecutionEventSink, ObservationDispatcher,
+    UnavailableApplicationSessionProvider, UnavailableBrowserSessionProvider, WorkflowEngine,
+};
 use async_trait::async_trait;
 use serde_json::{Value, json};
 use tokio::sync::{Mutex, mpsc};
@@ -18,8 +22,10 @@ use uuid::Uuid;
 /// 测试 fixture 使用的内置节点构造器。
 enum WorkflowNodeKind {
     Start,
+    Observe { observation: ObserveSpec },
     Ui { operation: UiOperation },
     Debug { value: ValueExpr },
+    Fail,
     End,
 }
 
@@ -27,18 +33,36 @@ impl From<WorkflowNodeKind> for NodeEnvelope {
     fn from(kind: WorkflowNodeKind) -> Self {
         match kind {
             WorkflowNodeKind::Start => Self::new("argus.start", 1, json!({})),
-            WorkflowNodeKind::Ui { operation } => {
-                Self::new("argus.ui", 1, json!({ "operation": operation }))
+            WorkflowNodeKind::Observe { observation } => {
+                Self::new("argus.observe", 1, json!({ "observation": observation }))
             }
+            WorkflowNodeKind::Ui { operation } => Self::new(
+                "argus.ui",
+                5,
+                json!({
+                    "operation": operation,
+                    "execution": UiExecutionPolicy {
+                        target_wait: TargetWaitPolicy::bounded(5_000, 100),
+                    },
+                }),
+            ),
             WorkflowNodeKind::Debug { value } => {
                 Self::new("argus.debug", 1, json!({ "value": value }))
             }
+            WorkflowNodeKind::Fail => Self::new(
+                "argus.fail",
+                1,
+                json!({
+                    "code": "observation_unknown",
+                    "message": ValueExpr::text("观察结果未知"),
+                }),
+            ),
             WorkflowNodeKind::End => Self::new("argus.end", 1, json!({})),
         }
     }
 }
 
-/// 记录 Runtime 交付的已解析动作，并为读取动作返回固定文本端口。
+/// 记录 Runtime 交付的已解析动作；Action 不再承担事实读取。
 #[derive(Default)]
 struct CapturingDispatcher {
     /// 按真实执行顺序保存动作，供测试验证 SetValue 不再携带 ValueExpr。
@@ -55,27 +79,16 @@ impl ActionDispatcher for CapturingDispatcher {
         _scope: AutomationExecutionScope,
     ) -> Result<ActionOutcome, AutomationError> {
         self.actions.lock().await.push(action.clone());
-        let outputs = match action {
-            AutomationAction::GetText { .. } => {
-                BTreeMap::from([("text".to_owned(), Value::String("ACME-10086".to_owned()))])
-            }
+        match action {
             AutomationAction::Click { .. }
             | AutomationAction::SetValue { .. }
             | AutomationAction::PressKey { .. }
-            | AutomationAction::TypeText { .. }
-            | AutomationAction::GetValue { .. } => BTreeMap::new(),
-            AutomationAction::Extract { .. } => {
-                BTreeMap::from([("items".to_owned(), Value::Array(Vec::new()))])
-            }
-            AutomationAction::CollectLinks { .. } => BTreeMap::from([
-                ("text".to_owned(), Value::String(String::new())),
-                ("links".to_owned(), Value::Array(Vec::new())),
-            ]),
-        };
+            | AutomationAction::TypeText { .. } => {}
+        }
         Ok(ActionOutcome {
             backend: BackendKind::WindowsUia,
             message: "captured".to_owned(),
-            outputs,
+            outputs: BTreeMap::new(),
             diagnostic_evidence: vec![DiagnosticEvidenceReference {
                 evidence_id: Uuid::nil(),
                 backend: BackendKind::WindowsUia,
@@ -96,6 +109,30 @@ impl ActionDispatcher for CapturingDispatcher {
     }
 }
 
+/// 为 Observe 返回固定的完整记录事实，并保留冻结请求供断言。
+#[derive(Default)]
+struct CapturingObservationDispatcher {
+    requests: Mutex<Vec<ObservationRequest>>,
+}
+
+#[async_trait]
+impl ObservationDispatcher for CapturingObservationDispatcher {
+    async fn observe(
+        &self,
+        request: &ObservationRequest,
+        _scope: AutomationExecutionScope,
+    ) -> ObservationResult {
+        self.requests.lock().await.push(request.clone());
+        ObservationResult::Known {
+            backend: BackendKind::WindowsUia,
+            value: ObservationValue::Records(vec![BTreeMap::from([(
+                "text".to_owned(),
+                Value::String("ACME-10086".to_owned()),
+            )])]),
+        }
+    }
+}
+
 /// 将事件转发给测试任务，避免依赖 Tauri 事件桥接。
 struct ChannelSink(mpsc::UnboundedSender<ExecutionEvent>);
 
@@ -106,14 +143,20 @@ impl ExecutionEventSink for ChannelSink {
 }
 
 #[tokio::test]
-async fn read_output_is_resolved_for_debug_and_the_following_set_value() {
-    let dispatcher = Arc::new(CapturingDispatcher::default());
-    let engine = Arc::new(WorkflowEngine::new(dispatcher.clone()));
+async fn observation_output_is_resolved_for_debug_and_the_following_set_value() {
+    let actions = Arc::new(CapturingDispatcher::default());
+    let observations = Arc::new(CapturingObservationDispatcher::default());
+    let engine = Arc::new(WorkflowEngine::with_dispatchers(
+        actions.clone(),
+        observations.clone(),
+        Arc::new(UnavailableApplicationSessionProvider),
+        Arc::new(UnavailableBrowserSessionProvider),
+    ));
     let (sender, mut receiver) = mpsc::unbounded_channel();
 
     engine
         .start(
-            read_then_write_workflow(),
+            observe_then_write_workflow(),
             RunInputs::default(),
             Arc::new(ChannelSink(sender)),
         )
@@ -129,29 +172,24 @@ async fn read_output_is_resolved_for_debug_and_the_following_set_value() {
         }
     }
 
-    let actions = dispatcher.actions.lock().await;
+    let captured_actions = actions.actions.lock().await;
     assert!(matches!(
-        actions.first(),
-        Some(AutomationAction::GetText { .. })
-    ));
-    assert!(matches!(
-        actions.get(1),
+        captured_actions.first(),
         Some(AutomationAction::SetValue { value, .. }) if value == "ACME-10086"
     ));
-    drop(actions);
-    let options = dispatcher.options.lock().await;
-    assert_eq!(options.len(), 2);
+    drop(captured_actions);
+    assert_eq!(observations.requests.lock().await.len(), 1);
+    let options = actions.options.lock().await;
+    assert_eq!(options.len(), 1);
     assert!(options.iter().all(|option| {
         option.target_wait == TargetWaitPolicy::bounded(5_000, 100)
-            && option.postcondition_wait == TargetWaitPolicy::default()
             && option.prepared_target.is_some()
-            && option.postcondition.is_none()
     }));
     assert!(events.iter().any(|event| {
         event.kind == ExecutionEventKind::NodeOutputProduced
             && event.payload
                 == Some(ExecutionEventPayload::NodeOutputsProduced {
-                    output_names: vec!["text".to_owned()],
+                    output_names: vec!["result".to_owned()],
                 })
     }));
     assert!(events.iter().any(|event| {
@@ -171,10 +209,10 @@ async fn read_output_is_resolved_for_debug_and_the_following_set_value() {
     }));
 }
 
-/// 构造 Start → GetText → Debug/SetValue(NodeOutput) → End 的最小数据流。
-fn read_then_write_workflow() -> WorkflowDefinition {
+/// 构造 Start → Observe → Debug → SetValue(NodeOutput) → End 的最小数据流。
+fn observe_then_write_workflow() -> WorkflowDefinition {
     WorkflowDefinition {
-        schema_version: 8,
+        schema_version: 9,
         id: Uuid::new_v4(),
         name: "Read then write".to_owned(),
         inputs: Vec::new(),
@@ -183,13 +221,16 @@ fn read_then_write_workflow() -> WorkflowDefinition {
         nodes: vec![
             node("start", 0.0, WorkflowNodeKind::Start),
             node(
-                "read",
+                "observe",
                 180.0,
-                WorkflowNodeKind::Ui {
-                    operation: UiOperation::GetText {
-                        target: AutomationTarget::query(AqlQuery::v1(
-                            "first(textbox(name = \"订单号\"))",
-                        )),
+                WorkflowNodeKind::Observe {
+                    observation: ObserveSpec {
+                        scope: TargetScope::Current,
+                        query: AqlQuery::v3(
+                            "project(first(textbox(name = \"订单号\")), fields = [text])",
+                        ),
+                        backend_policy: Default::default(),
+                        policy: ObservationPolicy::Once,
                     },
                 },
             ),
@@ -197,7 +238,7 @@ fn read_then_write_workflow() -> WorkflowDefinition {
                 "debug",
                 360.0,
                 WorkflowNodeKind::Debug {
-                    value: ValueExpr::node("read", "/text"),
+                    value: ValueExpr::node("observe", "/result/value/value/0/text"),
                 },
             ),
             node(
@@ -205,20 +246,22 @@ fn read_then_write_workflow() -> WorkflowDefinition {
                 540.0,
                 WorkflowNodeKind::Ui {
                     operation: UiOperation::SetValue {
-                        target: AutomationTarget::query(AqlQuery::v1(
+                        target: AutomationTarget::query(AqlQuery::v3(
                             "first(textbox(name = \"订单编号\"))",
                         )),
-                        value: ValueExpr::node("read", "/text"),
+                        value: ValueExpr::node("observe", "/result/value/value/0/text"),
                     },
                 },
             ),
             node("end", 720.0, WorkflowNodeKind::End),
+            node("fail", 720.0, WorkflowNodeKind::Fail),
         ],
         edges: vec![
-            edge("start", "read"),
-            edge("read", "debug"),
-            edge("debug", "write"),
-            edge("write", "end"),
+            edge("start", "observe", None),
+            edge("observe", "debug", Some("known")),
+            edge("observe", "fail", Some("unknown")),
+            edge("debug", "write", None),
+            edge("write", "end", None),
         ],
     }
 }
@@ -234,11 +277,11 @@ fn node(id: &str, x: f64, kind: WorkflowNodeKind) -> WorkflowNode {
 }
 
 /// 创建线性测试边。
-fn edge(source: &str, target: &str) -> WorkflowEdge {
+fn edge(source: &str, target: &str, branch: Option<&str>) -> WorkflowEdge {
     WorkflowEdge {
         id: format!("{source}-{target}"),
         source: source.to_owned(),
         target: target.to_owned(),
-        branch: None,
+        branch: branch.map(ControlPortId::new),
     }
 }

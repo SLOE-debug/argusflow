@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{AqlQuery, PreparedAutomationTarget};
+use crate::PreparedAutomationTarget;
 
 /// UI 节点为了满足当前动作前置条件而采用的目标等待模式。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -53,55 +53,11 @@ impl Default for TargetWaitPolicy {
 }
 
 /// UI 节点除动作语义以外的执行策略。
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct UiExecutionPolicy {
     /// 等待当前 operation 自身目标满足动作要求的策略。
     pub target_wait: TargetWaitPolicy,
-    /// 动作完成后观察视觉后置条件的独立截止策略。
-    pub postcondition_wait: TargetWaitPolicy,
-    /// 高风险输入动作完成后必须满足的视觉新事实。
-    #[serde(default)]
-    pub postcondition: Option<UiPostcondition>,
-}
-
-impl Default for UiExecutionPolicy {
-    fn default() -> Self {
-        Self {
-            target_wait: TargetWaitPolicy::none(),
-            postcondition_wait: default_postcondition_wait(),
-            postcondition: None,
-        }
-    }
-}
-
-/// 为需要视觉确认的输入动作提供一个有限且独立的观察预算。
-fn default_postcondition_wait() -> TargetWaitPolicy {
-    TargetWaitPolicy::bounded(5_000, 150)
-}
-
-/// UI 输入动作的可验证后置条件；查询统一使用可组合的 AQL 语义。
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum UiPostcondition {
-    /// 要求动作前后保持同一视觉上下文，且出现一个不与旧实例重叠的新匹配。
-    MatchAdded {
-        /// 需要在动作前后做 scene delta 比较的 AQL 查询。
-        query: AqlQuery,
-        /// 动作前后都必须唯一命中且保持在原位置的上下文查询。
-        stable_context: Vec<AqlQuery>,
-    },
-    /// 要求动作前后保持同一视觉上下文，且动作前的一个空间匹配实例已经消失。
-    MatchRemoved {
-        /// 需要在动作前后做 scene delta 比较的 AQL 查询。
-        query: AqlQuery,
-        /// 动作前后都必须唯一命中且保持在原位置的上下文查询。
-        stable_context: Vec<AqlQuery>,
-    },
-    /// 要求动作完成后的新鲜画面中唯一存在目标匹配。
-    MatchPresent {
-        /// 只在动作完成后求值的 AQL 查询。
-        query: AqlQuery,
-    },
 }
 
 /// Runtime 传给动作分发器的节点级执行选项。
@@ -109,12 +65,8 @@ pub enum UiPostcondition {
 pub struct ActionExecutionOptions {
     /// 只对 `TargetNotFound` 生效的统一目标等待策略。
     pub target_wait: TargetWaitPolicy,
-    /// 视觉后置条件自己的观察等待策略，不占用目标物化预算。
-    pub postcondition_wait: TargetWaitPolicy,
     /// Runtime 已冻结的目标；后端不得重新解析原始表达式或自行物化视觉目标。
     pub prepared_target: Option<PreparedAutomationTarget>,
-    /// 由 Runtime 解析的不可持久化动作后置条件。
-    pub postcondition: Option<crate::PreparedVisualPostcondition>,
     /// 仅用于关联诊断 artifact 的 Run/Node 身份，不改变动作执行语义。
     pub trace_context: Option<RunTraceContext>,
 }

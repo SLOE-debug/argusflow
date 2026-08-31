@@ -32,6 +32,13 @@ export function WorkflowOverview({
     : report.valid
       ? { label: '检查通过', tone: 'bg-emerald-50 text-emerald-700' }
       : { label: `${report.issues.length} 个问题`, tone: 'bg-rose-50 text-rose-700' };
+  /** 保留单条入口日志，便于桌面 WebView 中确认列表点击事件已经送达。 */
+  const handleOpenEditor = () => {
+    console.info('[ArgusFlow] 正在打开工作流', {
+      workflowName,
+    });
+    onOpenEditor();
+  };
 
   return (
     <section className="h-full min-h-0 overflow-y-auto bg-slate-50 p-5">
@@ -79,7 +86,7 @@ export function WorkflowOverview({
               type="button"
               aria-label={`打开 ${workflowName}`}
               className="flex size-7 items-center justify-center rounded-md text-blue-600 hover:bg-blue-50"
-              onClick={onOpenEditor}
+              onClick={handleOpenEditor}
               title="打开工作流"
             >
               <ArrowRight className="size-4 shrink-0" aria-hidden="true" />

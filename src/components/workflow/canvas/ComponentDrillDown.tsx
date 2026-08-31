@@ -140,7 +140,7 @@ export function ComponentDrillDown({
           );
         })}
         <aside className="absolute right-4 top-4 w-52 rounded-lg border border-slate-200 bg-white/95 p-3 shadow-sm">
-          <strong className="text-[10px] text-slate-700">组件数据</strong>
+          <strong className="text-[10px] text-slate-700">组合步骤</strong>
           <p className="mt-2 text-[9px] font-semibold text-slate-500">输入</p>
           <p className="mt-0.5 font-mono text-[9px] text-slate-600">
             {activeDefinition.inputs.map((input) => input.key).join(', ') || '暂无'}
@@ -212,11 +212,16 @@ function componentNodeLabel(typeId: string): string {
   const labels: Readonly<Record<string, string>> = {
     'argus.start': '开始',
     'argus.end': '结束',
+    'argus.application': '打开应用',
     'argus.browser': '打开浏览器',
     'argus.browser.operation': '打开网页',
     'argus.ui': '操作界面',
+    'argus.observe': '检查界面',
+    'argus.loop': '重复执行',
+    'argus.delay': '等待一段时间',
+    'argus.fail': '停止并报错',
     'argus.data.format': '整理文本',
-    'argus.component': '嵌套组件',
+    'argus.component': '组合步骤',
   };
-  return labels[typeId] ?? '未识别节点';
+  return labels[typeId] ?? '自定义步骤';
 }

@@ -31,19 +31,12 @@ describe('workflow UI operation transformations', () => {
     });
   });
 
-  it('forces collect links onto a semantic CDP query', () => {
+  it('keeps coordinate clicks on their explicit coordinate target', () => {
     const click = createDefaultUiOperation();
-    const visual = changeTargetLocatorKind(click, 'coordinate');
+    const coordinateClick = changeTargetLocatorKind(click, 'coordinate');
 
-    const collectLinks = changeUiOperationKind(visual, 'collect_links');
-
-    expect(collectLinks.type).toBe('collect_links');
-    expect(collectLinks.target.locator.type).toBe('query');
-    expect(collectLinks.target.backend_policy).toEqual({
-      allow: ['browser_cdp'],
-      deny: [],
-      prefer: ['browser_cdp'],
-    });
+    expect(coordinateClick.type).toBe('click');
+    expect(coordinateClick.target.locator.type).toBe('coordinate');
   });
 
   it('forces keyboard actions onto the focused SendInput target', () => {

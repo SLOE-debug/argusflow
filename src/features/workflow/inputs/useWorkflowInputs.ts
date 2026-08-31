@@ -284,7 +284,7 @@ function parseInputDefinitions(value: unknown): WorkflowInputDefinition[] {
   return value.map(({ key }) => ({ key, value_type: 'text' }));
 }
 
-/** 收窄单个结构化输入声明，并拒绝超出当前 schema v8 的输入类型。 */
+/** 收窄单个结构化输入声明，并拒绝超出当前 schema v9 的输入类型。 */
 function normalizeInputDefinition(
   value: WorkflowInputDefinitionInput,
 ): WorkflowInputDefinition {

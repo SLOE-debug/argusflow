@@ -3,12 +3,12 @@
 //! 通过 JSON 往返确认开放节点 envelope、资源引用和强类型 payload 能无损持久化。
 
 use argusflow_core::{
-    AcquirePolicy, ActionOutputContract, ActionOutputKey, ActivationPolicy, ApplicationSpec,
-    AqlQuery, AutomationTarget, BackendKind, BackendPolicy, CleanupPolicy, CommandOperation,
-    CommandRunner, KeyChord, KeyboardKey, KeyboardModifier, NodeEnvelope, Position, ResourceRef,
-    TargetLocator, TargetScope, UiOperation, ValueExpr, WindowTitleMatcher, WorkflowCapabilityId,
-    WorkflowDefinition, WorkflowEdge, WorkflowInputDefinition, WorkflowInputType, WorkflowNode,
-    WorkflowPermissions,
+    AcquirePolicy, ActivationPolicy, ApplicationSpec, AqlQuery, AutomationTarget, BackendKind,
+    BackendPolicy, CleanupPolicy, CommandOperation, CommandRunner, KeyChord, KeyboardKey,
+    KeyboardModifier, NodeEnvelope, ObservationPolicy, ObservationResult, ObservationUnknownReason,
+    ObserveSpec, Position, TargetLocator, TargetScope, UiOperation, ValueExpr, WindowTitleMatcher,
+    WorkflowCapabilityId, WorkflowDefinition, WorkflowEdge, WorkflowInputDefinition,
+    WorkflowInputType, WorkflowNode, WorkflowPermissions,
 };
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -16,7 +16,7 @@ use uuid::Uuid;
 #[test]
 fn workflow_contract_round_trips_through_json() {
     let workflow = WorkflowDefinition {
-        schema_version: 8,
+        schema_version: 9,
         id: Uuid::new_v4(),
         name: "契约测试".to_owned(),
         inputs: Vec::new(),
@@ -30,7 +30,7 @@ fn workflow_contract_round_trips_through_json() {
                 "argus.ui",
                 json!({
                     "operation": UiOperation::Click {
-                        target: AutomationTarget::query(AqlQuery::v1(
+                        target: AutomationTarget::query(AqlQuery::v3(
                             "button(name = \"保存\")",
                         )),
                     },
@@ -46,13 +46,13 @@ fn workflow_contract_round_trips_through_json() {
         serde_json::from_str(&serialized).expect("workflow should deserialize");
 
     assert!(serialized.contains("\"type_id\":\"argus.ui\""));
-    assert!(serialized.contains("\"language_version\":1"));
+    assert!(serialized.contains("\"language_version\":3"));
     assert!(serialized.contains("button(name = \\\"保存\\\")"));
     assert_eq!(decoded, workflow);
 }
 
 #[test]
-fn schema_v8_inputs_resources_values_and_commands_round_trip_through_json() {
+fn schema_v9_inputs_resources_values_and_commands_round_trip_through_json() {
     let application_spec = ApplicationSpec {
         executable_path: r"C:\Program Files\Example\example.exe".to_owned(),
         arguments: vec!["--automation".to_owned()],
@@ -64,19 +64,11 @@ fn schema_v8_inputs_resources_values_and_commands_round_trip_through_json() {
         cleanup_policy: CleanupPolicy::CloseIfStartedByWorkflow,
         activation_policy: ActivationPolicy::BestEffort,
     };
-    let read_operation = UiOperation::GetText {
-        target: AutomationTarget {
-            scope: TargetScope::Application {
-                resource: ResourceRef {
-                    producer_node_id: "application".to_owned(),
-                    output_name: "session".to_owned(),
-                },
-            },
-            locator: TargetLocator::Query {
-                query: AqlQuery::v1("first(text(name = \"订单号\"))"),
-            },
-            backend_policy: BackendPolicy::only(BackendKind::WindowsUia),
-        },
+    let observation = ObserveSpec {
+        scope: TargetScope::Current,
+        query: AqlQuery::v3("project(first(text()), fields = [text])"),
+        backend_policy: BackendPolicy::only(BackendKind::WindowsUia),
+        policy: ObservationPolicy::Once,
     };
     let command_operation = CommandOperation {
         runner: CommandRunner::Direct,
@@ -92,7 +84,7 @@ fn schema_v8_inputs_resources_values_and_commands_round_trip_through_json() {
         max_stderr_bytes: 1_048_576,
     };
     let workflow = WorkflowDefinition {
-        schema_version: 8,
+        schema_version: 9,
         id: Uuid::new_v4(),
         name: "资源与数据契约".to_owned(),
         inputs: vec![WorkflowInputDefinition {
@@ -113,10 +105,10 @@ fn schema_v8_inputs_resources_values_and_commands_round_trip_through_json() {
                 json!({ "spec": application_spec }),
             ),
             node(
-                "read",
+                "observe",
                 360.0,
-                "argus.ui",
-                json!({ "operation": read_operation }),
+                "argus.observe",
+                json!({ "observation": observation }),
             ),
             node(
                 "command",
@@ -128,17 +120,17 @@ fn schema_v8_inputs_resources_values_and_commands_round_trip_through_json() {
         ],
         edges: vec![
             edge("start", "application"),
-            edge("application", "read"),
-            edge("read", "command"),
+            edge("application", "observe"),
+            edge("observe", "command"),
             edge("command", "end"),
         ],
     };
 
-    let serialized = serde_json::to_string(&workflow).expect("schema v8 should serialize");
+    let serialized = serde_json::to_string(&workflow).expect("schema v9 should serialize");
     let decoded: WorkflowDefinition =
-        serde_json::from_str(&serialized).expect("schema v8 should deserialize");
+        serde_json::from_str(&serialized).expect("schema v9 should deserialize");
 
-    assert!(serialized.contains("\"producer_node_id\":\"application\""));
+    assert!(serialized.contains("\"type_id\":\"argus.observe\""));
     assert!(serialized.contains("\"type\":\"ref\""));
     assert!(serialized.contains("\"pointer\":\"/text\""));
     assert!(serialized.contains("\"runner\":\"direct\""));
@@ -174,45 +166,19 @@ fn focused_keyboard_operation_round_trips_through_json() {
 }
 
 #[test]
-fn action_output_contract_uses_operation_semantics() {
-    let target = AutomationTarget::query(AqlQuery::v1("button(name = \"保存\")"));
-    let get_text = UiOperation::GetText {
-        target: target.clone(),
+fn unknown_observation_round_trips_without_becoming_a_false_value() {
+    let result = ObservationResult::Unknown {
+        backend: Some(BackendKind::WindowsUia),
+        reason: ObservationUnknownReason::IncompleteCoverage,
+        retryable: true,
     };
-    let get_value = UiOperation::GetValue {
-        target: target.clone(),
-    };
-    let extract_one = UiOperation::Extract {
-        target: target.clone(),
-        cardinality: argusflow_core::ExtractCardinality::One,
-        fields: vec![],
-    };
-    let extract_many = UiOperation::Extract {
-        target,
-        cardinality: argusflow_core::ExtractCardinality::Many,
-        fields: vec![],
-    };
+    let serialized = serde_json::to_string(&result).expect("observation should serialize");
+    let decoded: ObservationResult =
+        serde_json::from_str(&serialized).expect("observation should deserialize");
 
-    assert_eq!(get_text.output_contract(), ActionOutputContract::Text);
-    assert_eq!(get_value.output_contract(), ActionOutputContract::Value);
-    assert_eq!(extract_one.output_contract(), ActionOutputContract::Item);
-    assert_eq!(extract_many.output_contract(), ActionOutputContract::Items);
-    assert_eq!(ActionOutputKey::Text.as_str(), "text");
-    assert_eq!(ActionOutputKey::Value.as_str(), "value");
-    assert_eq!(ActionOutputKey::Item.as_str(), "item");
-    assert_eq!(ActionOutputKey::Items.as_str(), "items");
-}
-
-#[test]
-fn output_contract_compares_btree_keys_as_a_set() {
-    let outputs = std::collections::BTreeMap::from([
-        (ActionOutputKey::Text.as_str().to_owned(), json!("标题")),
-        (ActionOutputKey::Links.as_str().to_owned(), json!([])),
-    ]);
-
-    ActionOutputContract::TextAndLinks
-        .validate(&outputs)
-        .expect("BTreeMap key order must not change the output contract");
+    assert!(serialized.contains("\"status\":\"unknown\""));
+    assert!(!serialized.contains("\"value\":false"));
+    assert_eq!(decoded, result);
 }
 
 #[test]
@@ -224,7 +190,7 @@ fn runtime_only_visual_locator_is_not_a_persisted_variant() {
     assert!(result.is_err());
 }
 
-/// 以稳定布局构造 schema v8 开放节点。
+/// 以稳定布局构造 schema v9 开放节点。
 fn node(id: &str, x: f64, type_id: &str, payload: Value) -> WorkflowNode {
     WorkflowNode {
         id: id.to_owned(),

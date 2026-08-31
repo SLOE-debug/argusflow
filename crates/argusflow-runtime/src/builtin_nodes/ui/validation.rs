@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 
 use argusflow_core::{
-    AqlQuery, BackendKind, FieldProjectionSource, KeyboardKey, TargetLocator, TargetScope,
-    TargetWaitMode, TargetWaitPolicy, UiExecutionPolicy, UiOperation, UiPostcondition,
+    AqlQuery, BackendKind, KeyboardKey, TargetLocator, TargetScope, TargetWaitMode,
+    TargetWaitPolicy, UiExecutionPolicy, UiOperation,
 };
 use argusflow_query::{parse_stored_query, query_parameter_names};
 
@@ -18,10 +18,7 @@ pub(super) fn validate_ui_node(
     let mut issues = Vec::new();
     validate_backend_policy(operation, context, &mut issues);
     validate_input_operation(operation, context, &mut issues);
-    validate_extract(operation, context, &mut issues);
     validate_wait_policy(target, execution, context, &mut issues);
-    validate_postcondition_wait(execution, context, &mut issues);
-    validate_postcondition(operation, execution, context, &mut issues);
     validate_locator(operation, context, &mut issues);
     issues
 }
@@ -38,20 +35,13 @@ fn validate_backend_policy(
         && target.backend_policy.allow.contains(&BackendKind::OcrSmall)
         && !target.backend_policy.allows(BackendKind::WindowsUia);
     if explicitly_uses_ocr {
-        // Vision 只提供文字事实；物理点击还必须由 SendInput 提交。
-        let supported = matches!(operation, UiOperation::GetText { .. })
-            || matches!(operation, UiOperation::Click { .. })
-                && target.backend_policy.allows(BackendKind::SendInput)
-            || matches!(operation, UiOperation::Extract { fields, .. } if fields.iter().all(
-                |field| matches!(
-                    field.source,
-                    FieldProjectionSource::Text | FieldProjectionSource::Name
-                )
-            ));
+        // Vision 只负责物化文字目标；实际点击仍由 SendInput 提交。
+        let supported = matches!(operation, UiOperation::Click { .. })
+            && target.backend_policy.allows(BackendKind::SendInput);
         if !supported {
             issues.push(context.issue(
                 ValidationIssueCode::InvalidBackendPolicy,
-                "OCR AQL 仅支持读取文字、文字字段提取，以及配合键鼠输入的点击",
+                "画面文字识别只能用于点击可见文字。要读取界面内容，请使用“检查界面”节点",
             ));
         }
         return;
@@ -66,7 +56,7 @@ fn validate_backend_policy(
     {
         issues.push(context.issue(
             ValidationIssueCode::InvalidBackendPolicy,
-            format!("应用资源的后端策略必须允许 {application_backend:?}"),
+            format!("当前操作方式无法用于所选应用，请允许 {application_backend:?} 或更换操作方式"),
         ));
     }
     if matches!(&target.scope, TargetScope::Browser { .. })
@@ -74,15 +64,7 @@ fn validate_backend_policy(
     {
         issues.push(context.issue(
             ValidationIssueCode::InvalidBackendPolicy,
-            "浏览器资源的后端策略必须允许 browser_cdp",
-        ));
-    }
-    if matches!(operation, UiOperation::CollectLinks { .. })
-        && !target.backend_policy.allows(BackendKind::BrowserCdp)
-    {
-        issues.push(context.issue(
-            ValidationIssueCode::InvalidBackendPolicy,
-            "批量链接读取的后端策略必须允许 browser_cdp",
+            "当前操作方式无法用于所选浏览器，请改用浏览器自动化",
         ));
     }
 }
@@ -110,7 +92,7 @@ fn validate_input_operation(
         if !target.backend_policy.allows(BackendKind::SendInput) {
             issues.push(context.issue(
                 ValidationIssueCode::InvalidBackendPolicy,
-                "按键和物理文本输入的后端策略必须允许 send_input",
+                "按键和文字输入需要使用“模拟键盘输入”方式",
             ));
         }
     }
@@ -136,43 +118,6 @@ fn validate_input_operation(
     }
 }
 
-/// 校验 Extract 字段集合及原生属性名称。
-fn validate_extract(
-    operation: &UiOperation,
-    context: &NodeValidationContext<'_>,
-    issues: &mut Vec<ValidationIssue>,
-) {
-    let UiOperation::Extract { fields, .. } = operation else {
-        return;
-    };
-    let mut names = HashSet::new();
-    if fields.is_empty() {
-        issues.push(context.issue(
-            ValidationIssueCode::InvalidExtract,
-            "Extract 至少需要一个字段投影",
-        ));
-    }
-    for field in fields {
-        if field.name.trim().is_empty() || !names.insert(field.name.as_str()) {
-            issues.push(context.issue(
-                ValidationIssueCode::InvalidExtract,
-                "Extract 字段名称必须非空且唯一",
-            ));
-        }
-        if matches!(
-            &field.source,
-            FieldProjectionSource::Property { name }
-                | FieldProjectionSource::Attribute { name }
-                if name.trim().is_empty()
-        ) {
-            issues.push(context.issue(
-                ValidationIssueCode::InvalidExtract,
-                "Extract 属性名称不能为空",
-            ));
-        }
-    }
-}
-
 /// 校验当前定位类别是否允许配置目标等待。
 fn validate_wait_policy(
     target: &argusflow_core::AutomationTarget,
@@ -191,7 +136,7 @@ fn validate_wait_policy(
             ..
         } => issues.push(context.issue(
             ValidationIssueCode::InvalidTargetWaitPolicy,
-            "关闭目标等待时，超时和轮询间隔必须为 0",
+            "已关闭自动等待，请把最长等待和检查间隔都设为 0",
         )),
         TargetWaitPolicy {
             mode: TargetWaitMode::Bounded,
@@ -200,7 +145,7 @@ fn validate_wait_policy(
         } if !(1..=600_000).contains(&timeout_ms) || !(1..=60_000).contains(&poll_interval_ms) => {
             issues.push(context.issue(
                 ValidationIssueCode::InvalidTargetWaitPolicy,
-                "目标等待超时必须在 1 到 600000 毫秒之间，轮询间隔必须在 1 到 60000 毫秒之间",
+                "最长等待应为 1 到 600000 毫秒，检查间隔应为 1 到 60000 毫秒",
             ));
         }
         TargetWaitPolicy {
@@ -220,54 +165,6 @@ fn validate_wait_policy(
             mode: TargetWaitMode::Bounded,
             ..
         } => {}
-    }
-}
-
-/// 校验视觉后置条件只附着在需要确认结果的物理输入动作上。
-fn validate_postcondition(
-    operation: &UiOperation,
-    execution: &UiExecutionPolicy,
-    context: &NodeValidationContext<'_>,
-    issues: &mut Vec<ValidationIssue>,
-) {
-    let Some(postcondition) = &execution.postcondition else {
-        return;
-    };
-    match postcondition {
-        UiPostcondition::MatchAdded {
-            query,
-            stable_context,
-        }
-        | UiPostcondition::MatchRemoved {
-            query,
-            stable_context,
-        } => {
-            if !is_input_operation(operation) {
-                issues.push(context.issue(
-                    ValidationIssueCode::InvalidNodeDefinition,
-                    "视觉匹配变化后置条件只能用于按键或物理文本输入动作",
-                ));
-            }
-            validate_aql_query(query, "视觉匹配变化", context, issues);
-            if stable_context.is_empty() {
-                issues.push(context.issue(
-                    ValidationIssueCode::InvalidNodeDefinition,
-                    "视觉匹配变化后置条件必须至少绑定一条稳定上下文查询",
-                ));
-            }
-            for query in stable_context {
-                validate_aql_query(query, "视觉稳定上下文", context, issues);
-            }
-        }
-        UiPostcondition::MatchPresent { query } => {
-            if !matches!(operation, UiOperation::Click { .. }) && !is_input_operation(operation) {
-                issues.push(context.issue(
-                    ValidationIssueCode::InvalidNodeDefinition,
-                    "视觉匹配存在后置条件只能用于点击、按键或物理文本输入动作",
-                ));
-            }
-            validate_aql_query(query, "视觉匹配存在", context, issues);
-        }
     }
 }
 
@@ -302,28 +199,6 @@ fn validate_aql_query(
                 ));
             }
         }
-    }
-}
-
-/// 校验发送后观察预算，确保后置条件不会退化成无界等待或无等待。
-fn validate_postcondition_wait(
-    execution: &UiExecutionPolicy,
-    context: &NodeValidationContext<'_>,
-    issues: &mut Vec<ValidationIssue>,
-) {
-    if execution.postcondition.is_none() {
-        return;
-    }
-    match execution.postcondition_wait {
-        TargetWaitPolicy {
-            mode: TargetWaitMode::Bounded,
-            timeout_ms,
-            poll_interval_ms,
-        } if (1..=600_000).contains(&timeout_ms) && (1..=60_000).contains(&poll_interval_ms) => {}
-        _ => issues.push(context.issue(
-            ValidationIssueCode::InvalidTargetWaitPolicy,
-            "视觉后置条件必须配置 1 到 600000 毫秒的观察超时和 1 到 60000 毫秒的轮询间隔",
-        )),
     }
 }
 

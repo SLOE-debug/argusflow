@@ -8,13 +8,12 @@ export type {
   TargetWaitMode,
   TargetWaitPolicy,
   UiExecutionPolicy,
-  UiPostcondition,
 } from './uiExecutionContracts';
 
-/** 与 Rust 后端交换的 schema v8 工作流。 */
+/** 与 Rust 后端交换的 schema v9 工作流。 */
 export type WorkflowDefinition = {
   /** 当前契约固定版本。 */
-  schema_version: 8;
+  schema_version: 9;
   /** 工作流稳定 ID。 */
   id: string;
   /** 面向用户的名称。 */
@@ -55,33 +54,7 @@ export type UiOperation =
   | { type: 'click'; target: AutomationTarget }
   | { type: 'set_value'; target: AutomationTarget; value: ValueExpr }
   | { type: 'press_key'; target: AutomationTarget; chord: KeyChord }
-  | { type: 'type_text'; target: AutomationTarget; value: ValueExpr }
-  | { type: 'get_text'; target: AutomationTarget }
-  | { type: 'get_value'; target: AutomationTarget }
-  | {
-      type: 'extract';
-      target: AutomationTarget;
-      cardinality: ExtractCardinality;
-      fields: FieldProjection[];
-    }
-  | { type: 'collect_links'; target: AutomationTarget };
-
-/** Extract 操作返回唯一对象还是对象数组。 */
-export type ExtractCardinality = 'one' | 'many';
-
-/** Extract 字段读取来源。 */
-export type FieldProjectionSource =
-  | { type: 'text' }
-  | { type: 'value' }
-  | { type: 'name' }
-  | { type: 'property'; name: string }
-  | { type: 'attribute'; name: string };
-
-/** Extract 输出对象中的一个具名字段。 */
-export type FieldProjection = Readonly<{
-  name: string;
-  source: FieldProjectionSource;
-}>;
+  | { type: 'type_text'; target: AutomationTarget; value: ValueExpr };
 
 /** UI 节点允许选择的强类型操作类别。 */
 export type UiOperationKind = UiOperation['type'];
@@ -160,11 +133,27 @@ export type BackendPolicy = {
 
 /** 与 workflow schema 独立演进的持久化 AQL 源码。 */
 export type AqlQuery = {
-  language_version: 1 | 2;
+  language_version: 3;
   source: string;
-  /** 参数值独立于源码保存，Runtime prepare 时按文本类型冻结。 */
-  bindings?: Readonly<Record<string, ValueExpr>>;
+  /** 参数值独立于源码保存，Runtime prepare 时按推导类型冻结。 */
+  bindings: Readonly<Record<string, ValueExpr>>;
 };
+
+/** Observe 结果的静态顶层类型。 */
+export type ObservationValueType = 'entities' | 'records' | 'number' | 'boolean';
+
+/** Unknown 只允许在明确总预算内重试。 */
+export type ObservationPolicy =
+  | { mode: 'once' }
+  | { mode: 'bounded'; timeout_ms: number; poll_interval_ms: number };
+
+/** 通用观察节点保存的事实来源、AQL v3 与有限等待策略。 */
+export type ObserveSpec = Readonly<{
+  scope: TargetScope;
+  query: AqlQuery;
+  backend_policy: BackendPolicy;
+  policy: ObservationPolicy;
+}>;
 
 /** AQL、物理坐标或当前键盘焦点组成的目标判别联合。 */
 export type TargetLocator =
@@ -270,12 +259,17 @@ export type BuiltinValidationIssueCode =
   | 'no_path_to_end'
   | 'empty_log_message'
   | 'invalid_delay'
+  | 'invalid_observation_policy'
+  | 'invalid_loop'
+  | 'invalid_failure'
   | 'invalid_aql_query'
   | 'invalid_application_spec'
   | 'invalid_browser_spec'
   | 'application_permission_denied'
   | 'invalid_backend_policy'
   | 'invalid_target_wait_policy'
+  | 'invalid_extract'
+  | 'invalid_data_format'
   | 'invalid_command'
   | 'command_permission_denied'
   | 'invalid_value_reference'
@@ -421,7 +415,8 @@ export type RunNodeTrace = {
 export type ExecutionEventKind =
   | 'workflow_started' | 'node_started' | 'log' | 'node_output_produced'
   | 'resource_acquired' | 'backend_selected' | 'command_exited'
-  | 'diagnostic_evidence_captured' | 'node_succeeded'
+  | 'diagnostic_evidence_captured' | 'observation_evaluated'
+  | 'loop_iteration' | 'loop_exhausted' | 'workflow_failure_declared' | 'node_succeeded'
   | 'edge_traversed' | 'node_failed' | 'workflow_completed' | 'workflow_failed';
 
 export type ExecutionEvent = {
@@ -461,6 +456,15 @@ export type ExecutionEventPayload =
   | { type: 'backend_selected'; backend: BackendKind }
   | { type: 'command_exited'; exit_code: number }
   | {
+      type: 'observation_evaluated';
+      value_type: ObservationValueType;
+      backend: BackendKind | null;
+      known: boolean;
+    }
+  | { type: 'loop_iteration'; iteration: number; max_iterations: number }
+  | { type: 'loop_exhausted'; iterations: number }
+  | { type: 'workflow_failure_declared'; code: string }
+  | {
       type: 'diagnostic_evidence_captured';
       evidence_id: string;
       backend: BackendKind;
@@ -477,6 +481,7 @@ export const COMMAND_ERROR_CODES = [
   'application_failed',
   'browser_failed',
   'command_failed',
+  'workflow_failed',
   'runtime_data_failed',
 ] as const;
 

@@ -54,15 +54,14 @@ export function WorkspaceStructuredEditor({
 
   switch (target.type) {
     case 'aql': {
-      const operation = node.data.kind === 'ui' ? node.data.operation : null;
-      if (!operation || operation.target.locator.type !== 'query') {
+      const queryTarget = resolveAqlTarget(node);
+      if (!queryTarget) {
         return <UnavailableEditor message="此节点已改用其他查找方式，请关闭此编辑器。" />;
       }
-      const locator = operation.target.locator;
       return (
         <AqlEditor
-          query={locator.query}
-          target={operation.target}
+          query={queryTarget.query}
+          target={queryTarget.target}
           modelUri={`inmemory://argusflow/workflow/${encodeURIComponent(node.id)}/locator-aql`}
           onChange={(query) => onUpdateNode(node.id, (current) => (
             updateAqlQuery(current, query)
@@ -131,9 +130,14 @@ function updateAqlQuery(
   current: WorkflowCanvasNode['data'],
   query: AqlQuery,
 ): WorkflowCanvasNode['data'] {
-  if (current.kind !== 'ui' || current.operation.target.locator.type !== 'query') {
-    return current;
+  if (current.kind === 'observe') {
+    return {
+      ...current,
+      observation: { ...current.observation, query },
+      invalid: false,
+    };
   }
+  if (current.kind !== 'ui' || current.operation.target.locator.type !== 'query') return current;
   return {
     ...current,
     operation: changeTargetLocator(
@@ -141,6 +145,28 @@ function updateAqlQuery(
       { ...current.operation.target.locator, query },
     ),
     invalid: false,
+  };
+}
+
+/** 将 Action 目标和 Observe 事实范围统一投影为 AQL 编辑器契约。 */
+function resolveAqlTarget(node: WorkflowCanvasNode): Readonly<{
+  query: AqlQuery;
+  target: Extract<WorkflowCanvasNode['data'], { kind: 'ui' }>['operation']['target'];
+}> | null {
+  if (node.data.kind === 'observe') {
+    return {
+      query: node.data.observation.query,
+      target: {
+        scope: node.data.observation.scope,
+        locator: { type: 'query', query: node.data.observation.query },
+        backend_policy: node.data.observation.backend_policy,
+      },
+    };
+  }
+  if (node.data.kind !== 'ui' || node.data.operation.target.locator.type !== 'query') return null;
+  return {
+    query: node.data.operation.target.locator.query,
+    target: node.data.operation.target,
   };
 }
 

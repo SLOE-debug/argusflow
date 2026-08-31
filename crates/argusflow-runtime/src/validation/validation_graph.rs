@@ -15,9 +15,16 @@ pub(crate) struct WorkflowGraph<'workflow> {
     /// 每个节点按文档顺序排列的出边。
     outgoing: HashMap<String, Vec<&'workflow WorkflowEdge>>,
     /// 从节点到后继节点 ID 的邻接表。
-    adjacency: HashMap<String, Vec<String>>,
+    pub(super) adjacency: HashMap<String, Vec<String>>,
     /// 从节点到前驱节点 ID 的反向邻接表。
     pub(crate) predecessors: HashMap<String, Vec<String>>,
+}
+
+impl WorkflowGraph<'_> {
+    /// 返回结构化循环校验使用的只读邻接表。
+    pub(super) const fn adjacency(&self) -> &HashMap<String, Vec<String>> {
+        &self.adjacency
+    }
 }
 
 /// 校验连线身份和端点并建立图索引。
@@ -108,13 +115,15 @@ pub(crate) fn validate_node_degrees(
         let valid_degree = match &flow {
             NodeFlow::Start => incoming_count == 0 && node_edges.len() == 1,
             NodeFlow::End => incoming_count >= 1 && node_edges.is_empty(),
-            NodeFlow::Branch { ports } => incoming_count >= 1 && node_edges.len() == ports.len(),
+            NodeFlow::Branch { ports } | NodeFlow::Loop { ports } => {
+                incoming_count >= 1 && node_edges.len() == ports.len()
+            }
             NodeFlow::Linear => incoming_count >= 1 && node_edges.len() == 1,
         };
         if !valid_degree {
             issues.push(issue(
                 ValidationIssueCode::InvalidNodeDegree,
-                "节点入度或出度不符合条件 DAG 约束",
+                "这个节点的连接数量不正确。请检查进入和离开节点的连线",
                 Some(node.id.clone()),
                 None,
             ));
@@ -130,7 +139,7 @@ fn validate_branches(
     edges: &[&WorkflowEdge],
     issues: &mut Vec<ValidationIssue>,
 ) {
-    if let NodeFlow::Branch { ports } = flow {
+    if let NodeFlow::Branch { ports } | NodeFlow::Loop { ports } = flow {
         let branches: HashSet<_> = edges
             .iter()
             .filter_map(|edge| edge.branch.as_ref().cloned())
@@ -139,7 +148,7 @@ fn validate_branches(
         if branches != expected || branches.len() != edges.len() {
             issues.push(issue(
                 ValidationIssueCode::InvalidBranch,
-                "分支节点必须为每个注册控制流端口提供唯一连线",
+                "请为这个节点的每一种结果各连接一个下一步",
                 Some(node.id.clone()),
                 None,
             ));
@@ -148,7 +157,7 @@ fn validate_branches(
         for edge in edges.iter().filter(|edge| edge.branch.is_some()) {
             issues.push(issue(
                 ValidationIssueCode::InvalidBranch,
-                "只有分支节点的连线可以包含 branch",
+                "这条连线不需要选择结果，请清除它的分支设置",
                 Some(node.id.clone()),
                 Some(edge.id.clone()),
             ));
@@ -164,68 +173,50 @@ pub(crate) fn validate_graph_shape(
     graph: &WorkflowGraph<'_>,
     issues: &mut Vec<ValidationIssue>,
 ) {
-    if has_cycle(node_ids, &graph.incoming, &graph.adjacency) {
-        issues.push(issue(
-            ValidationIssueCode::CycleDetected,
-            "工作流不能包含环路",
-            None,
-            None,
-        ));
-    }
     if let [start_id] = start_ids {
         let reachable = reachable_nodes(start_id, &graph.adjacency);
         for id in node_ids.difference(&reachable) {
             issues.push(issue(
                 ValidationIssueCode::UnreachableNode,
-                format!("节点 '{id}' 无法从 Start 到达"),
+                format!("节点“{id}”不会被运行。请把它连接到开始节点后的流程中"),
                 Some(id.clone()),
                 None,
             ));
         }
     }
-    if let [end_id] = end_ids {
-        let reaches_end = reachable_nodes(end_id, &graph.predecessors);
+    if !end_ids.is_empty() {
+        let reaches_end = reachable_from_many(end_ids, &graph.predecessors);
         for id in node_ids.difference(&reaches_end) {
             issues.push(issue(
                 ValidationIssueCode::NoPathToEnd,
-                format!("节点 '{id}' 无法到达 End"),
+                format!("节点“{id}”之后没有可到达的结束节点。请补全后续连线"),
                 Some(id.clone()),
                 None,
             ));
         }
     }
-}
-
-/// 使用 Kahn 算法判断已知节点子图是否含环。
-fn has_cycle(
-    node_ids: &HashSet<String>,
-    incoming: &HashMap<String, usize>,
-    adjacency: &HashMap<String, Vec<String>>,
-) -> bool {
-    let mut counts = incoming.clone();
-    let mut queue: VecDeque<_> = node_ids
-        .iter()
-        .filter(|id| counts.get(*id).copied().unwrap_or_default() == 0)
-        .cloned()
-        .collect();
-    let mut processed = 0;
-    while let Some(id) = queue.pop_front() {
-        processed += 1;
-        for target in adjacency.get(&id).into_iter().flatten() {
-            let count = counts.entry(target.clone()).or_default();
-            *count = count.saturating_sub(1);
-            if *count == 0 {
-                queue.push_back(target.clone());
-            }
-        }
-    }
-    processed != node_ids.len()
 }
 
 /// 沿指定邻接关系返回包括起点在内的全部可达节点。
 fn reachable_nodes(start: &str, adjacency: &HashMap<String, Vec<String>>) -> HashSet<String> {
     let mut reached = HashSet::new();
     let mut queue = VecDeque::from([start.to_owned()]);
+    while let Some(id) = queue.pop_front() {
+        if !reached.insert(id.clone()) {
+            continue;
+        }
+        queue.extend(adjacency.get(&id).into_iter().flatten().cloned());
+    }
+    reached
+}
+
+/// 从多个终点沿反向图一次性计算可达集合。
+fn reachable_from_many(
+    starts: &[String],
+    adjacency: &HashMap<String, Vec<String>>,
+) -> HashSet<String> {
+    let mut reached = HashSet::new();
+    let mut queue = VecDeque::from(starts.to_vec());
     while let Some(id) = queue.pop_front() {
         if !reached.insert(id.clone()) {
             continue;

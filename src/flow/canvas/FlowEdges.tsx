@@ -233,6 +233,10 @@ function readBranchLabel(data: unknown): string | null {
   if (typeof data !== 'object' || data === null || !('branch' in data)) return null;
   if (data.branch === 'true') return '满足条件';
   if (data.branch === 'false') return '不满足条件';
+  if (data.branch === 'unknown') return '无法判断';
+  if (data.branch === 'known') return '已获得结果';
+  if (data.branch === 'iterate') return '继续重复';
+  if (data.branch === 'exhausted') return '停止重复';
   return null;
 }
 

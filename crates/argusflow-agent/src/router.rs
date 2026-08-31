@@ -11,15 +11,12 @@ use argusflow_query::{
 use argusflow_runtime::ActionDispatcher;
 use async_trait::async_trait;
 
-#[path = "router/visual_postcondition.rs"]
-mod visual_postcondition;
-
 use crate::visual_materialization;
 use crate::{
     ActionBackend, ContextFitness, EvidenceSettings, ExecutionContext, ExecutionContextProvider,
     MaterializedTarget, PlanExplain, PlanRejection, PlanningReport, PreparedCandidate,
     PreparedPlan, PreparedTargetMaterializer, RuntimeAvailability, StaticExecutionContext,
-    VisualVerificationProvider, WindowContext,
+    WindowContext,
 };
 
 /// 能力、可用性、上下文和成本相同时使用的稳定兜底顺序。
@@ -38,8 +35,6 @@ pub struct ActionRouter {
     context_provider: Arc<dyn ExecutionContextProvider>,
     /// PreparedPlan 使用的失败证据策略与 sink。
     evidence: EvidenceSettings,
-    /// 非幂等输入动作使用的视觉基线/新事实 provider。
-    visual_verification: Option<Arc<dyn VisualVerificationProvider>>,
     /// Planner 统一调用的视觉目标物化器；物理输入后端不再持有该依赖。
     target_materializer: Option<Arc<dyn PreparedTargetMaterializer>>,
 }
@@ -51,7 +46,6 @@ impl ActionRouter {
             backends,
             context_provider: Arc::new(StaticExecutionContext::default()),
             evidence: EvidenceSettings::default(),
-            visual_verification: None,
             target_materializer: None,
         }
     }
@@ -65,7 +59,6 @@ impl ActionRouter {
             backends,
             context_provider,
             evidence: EvidenceSettings::default(),
-            visual_verification: None,
             target_materializer: None,
         }
     }
@@ -73,15 +66,6 @@ impl ActionRouter {
     /// 为随后生成的 PreparedPlan 注入证据策略与宿主持久化边界。
     pub fn with_evidence(mut self, evidence: EvidenceSettings) -> Self {
         self.evidence = evidence;
-        self
-    }
-
-    /// 注入与 SendInput 共用 VisionRuntime 的发送后验证 provider。
-    pub fn with_visual_verification(
-        mut self,
-        provider: Arc<dyn VisualVerificationProvider>,
-    ) -> Self {
-        self.visual_verification = Some(provider);
         self
     }
 
@@ -240,16 +224,8 @@ impl ActionDispatcher for ActionRouter {
             options.trace_context.as_ref(),
         )
         .await?;
-        let postcondition = options.postcondition;
-        let mut baseline = visual_postcondition::capture_baseline(
-            self.visual_verification.as_deref(),
-            postcondition.as_ref(),
-            context.foreground_window.as_ref(),
-            options.trace_context.clone(),
-        )
-        .await?;
         let is_visual_click = materialized_target.is_some();
-        let mut outcome = loop {
+        let outcome = loop {
             let prepared = match self.prepare_candidates(
                 action,
                 &context,
@@ -257,14 +233,7 @@ impl ActionDispatcher for ActionRouter {
                 materialized_target.as_ref(),
             ) {
                 Ok(prepared) => prepared,
-                Err(error) => {
-                    visual_postcondition::discard_baseline(
-                        self.visual_verification.as_deref(),
-                        &mut baseline,
-                    )
-                    .await;
-                    return Err(error);
-                }
+                Err(error) => return Err(error),
             };
             let execution_wait = if materialized_target.is_some() {
                 TargetWaitPolicy::none()
@@ -290,35 +259,13 @@ impl ActionDispatcher for ActionRouter {
                         Ok(target) => {
                             materialized_target = target;
                         }
-                        Err(error) => {
-                            visual_postcondition::discard_baseline(
-                                self.visual_verification.as_deref(),
-                                &mut baseline,
-                            )
-                            .await;
-                            return Err(error);
-                        }
+                        Err(error) => return Err(error),
                     }
                     let _ = message;
                 }
-                Err(error) => {
-                    visual_postcondition::discard_baseline(
-                        self.visual_verification.as_deref(),
-                        &mut baseline,
-                    )
-                    .await;
-                    return Err(error);
-                }
+                Err(error) => return Err(error),
             }
         };
-        visual_postcondition::verify(
-            self.visual_verification.as_deref(),
-            postcondition.as_ref(),
-            &mut baseline,
-            options.postcondition_wait,
-            &mut outcome,
-        )
-        .await?;
         Ok(outcome)
     }
 }

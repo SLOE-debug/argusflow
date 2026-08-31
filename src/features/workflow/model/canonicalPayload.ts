@@ -7,15 +7,12 @@ import type {
   BackendKind,
   BackendPolicy,
   CleanupPolicy,
-  FieldProjection,
-  FieldProjectionSource,
   JsonObject,
   JsonValue,
   TargetLocator,
   TargetScope,
   UiExecutionPolicy,
   UiOperation,
-  UiPostcondition,
   ValueExpr,
   ValueSource,
   WindowTitleMatcher,
@@ -26,25 +23,25 @@ import { isJsonObject } from './contracts';
 /** 从 canonical JSON payload 建立对象边界；缺失或错误类型立即终止模板初始化。 */
 export function asObject(value: JsonValue | undefined, label = 'payload'): JsonObject {
   if (isJsonObject(value)) return value;
-  throw new Error(`canonical payload field '${label}' must be an object`);
+  throw new Error(`模板中的“${label}”格式不正确，需要填写一组设置。`);
 }
 
 /** 读取必填字符串字段。 */
 function asString(value: JsonValue | undefined, label: string): string {
   if (typeof value === 'string') return value;
-  throw new Error(`canonical payload field '${label}' must be a string`);
+  throw new Error(`模板中的“${label}”格式不正确，需要填写文字。`);
 }
 
 /** 读取有限数值字段。 */
 function asNumber(value: JsonValue | undefined, label: string): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
-  throw new Error(`canonical payload field '${label}' must be a finite number`);
+  throw new Error(`模板中的“${label}”格式不正确，需要填写有效数字。`);
 }
 
 /** 读取必填数组字段。 */
 function asArray(value: JsonValue | undefined, label: string): JsonValue[] {
   if (Array.isArray(value)) return value;
-  throw new Error(`canonical payload field '${label}' must be an array`);
+  throw new Error(`模板中的“${label}”格式不正确，需要填写列表。`);
 }
 
 /** 读取一个有固定字符串集合的协议枚举。 */
@@ -56,7 +53,7 @@ function asEnum<const Values extends readonly string[]>(
   const candidate = asString(value, label);
   const supported = values.find((value) => value === candidate);
   if (supported !== undefined) return supported;
-  throw new Error(`canonical payload field '${label}' has unsupported value '${candidate}'`);
+  throw new Error(`模板中的“${label}”使用了不支持的值“${candidate}”。`);
 }
 
 /** 读取工作流中的结构化值表达式。 */
@@ -66,7 +63,7 @@ function asValueExpr(value: JsonValue | undefined): ValueExpr {
   switch (type) {
     case 'literal':
       if (!Object.prototype.hasOwnProperty.call(object, 'value')) {
-        throw new Error("canonical payload field 'value_expr.value' is required");
+        throw new Error('模板中的固定值不能为空。');
       }
       return { type, value: object.value };
     case 'ref':
@@ -78,7 +75,7 @@ function asValueExpr(value: JsonValue | undefined): ValueExpr {
     case 'expression':
       return { type, source: asString(object.source, 'value_expr.source') };
     default:
-      throw new Error(`canonical value expression type '${type}' is unsupported`);
+      throw new Error(`模板使用了不支持的取值方式“${type}”。`);
   }
 }
 
@@ -94,7 +91,7 @@ function asValueSource(value: JsonValue | undefined): ValueSource {
     case 'node':
       return { type, node_id: asString(object.node_id, 'value_expr.source.node_id') };
     default:
-      throw new Error(`canonical value source type '${type}' is unsupported`);
+      throw new Error(`模板使用了不支持的数据来源“${type}”。`);
   }
 }
 
@@ -115,7 +112,7 @@ function asTargetScope(value: JsonValue | undefined): TargetScope {
   if (type === 'application' || type === 'browser') {
     return { type, resource: asResourceRef(object.resource) };
   }
-  throw new Error(`canonical target scope '${type}' is unsupported`);
+  throw new Error(`模板使用了不支持的操作范围“${type}”。`);
 }
 
 const BACKEND_KINDS = [
@@ -148,7 +145,7 @@ function asKeyboardKey(value: JsonValue | undefined): KeyboardKey {
   const type = asString(object.type, 'key_chord.key.type');
   if (type === 'character') return { type, value: asString(object.value, 'key_chord.key.value') };
   if (type === 'enter' || type === 'escape' || type === 'tab') return { type };
-  throw new Error(`canonical keyboard key '${type}' is unsupported`);
+  throw new Error(`模板使用了不支持的按键“${type}”。`);
 }
 
 /** 读取组合键。 */
@@ -185,7 +182,7 @@ function asTargetLocator(value: JsonValue | undefined): TargetLocator {
     case 'focused':
       return { type };
     default:
-      throw new Error(`canonical target locator '${type}' is unsupported`);
+      throw new Error(`模板使用了不支持的查找方式“${type}”。`);
   }
 }
 
@@ -193,14 +190,14 @@ function asTargetLocator(value: JsonValue | undefined): TargetLocator {
 function asAqlQuery(value: JsonValue | undefined, label: string): AqlQuery {
   const query = asObject(value, label);
   const languageVersion = asNumber(query.language_version, `${label}.language_version`);
-  if (languageVersion !== 1 && languageVersion !== 2) {
-    throw new Error("canonical AQL language_version must be 1 or 2");
+  if (languageVersion !== 3) {
+    throw new Error('模板中的界面查找规则需要使用 AQL v3。');
   }
   const bindingsObject = query.bindings === undefined
     ? {}
     : asObject(query.bindings, `${label}.bindings`);
   return {
-    language_version: languageVersion,
+    language_version: 3,
     source: asString(query.source, `${label}.source`),
     bindings: Object.fromEntries(
       Object.entries(bindingsObject).map(([name, expression]) => [
@@ -221,28 +218,6 @@ function asAutomationTarget(value: JsonValue | undefined): AutomationTarget {
   };
 }
 
-/** 读取 Extract 字段来源。 */
-function asFieldSource(value: JsonValue | undefined): FieldProjectionSource {
-  const object = asObject(value, 'operation.fields.source');
-  const type = asString(object.type, 'operation.fields.source.type');
-  if (type === 'text' || type === 'value' || type === 'name') return { type };
-  if (type === 'property' || type === 'attribute') {
-    return { type, name: asString(object.name, `operation.fields.source.${type}.name`) };
-  }
-  throw new Error(`canonical field source '${type}' is unsupported`);
-}
-
-/** 读取 Extract 字段投影。 */
-function asFields(value: JsonValue | undefined): FieldProjection[] {
-  return asArray(value, 'operation.fields').map((item) => {
-    const object = asObject(item, 'operation.fields[]');
-    return {
-      name: asString(object.name, 'operation.fields[].name'),
-      source: asFieldSource(object.source),
-    };
-  });
-}
-
 /** 读取 UI 操作判别联合。 */
 export function asUiOperation(value: JsonValue): UiOperation {
   const object = asObject(value, 'operation');
@@ -250,24 +225,14 @@ export function asUiOperation(value: JsonValue): UiOperation {
   const target = asAutomationTarget(object.target);
   switch (type) {
     case 'click':
-    case 'get_text':
-    case 'get_value':
-    case 'collect_links':
       return { type, target };
     case 'set_value':
     case 'type_text':
       return { type, target, value: asValueExpr(object.value) };
     case 'press_key':
       return { type, target, chord: asKeyChord(object.chord) };
-    case 'extract':
-      return {
-        type,
-        target,
-        cardinality: asEnum(object.cardinality, ['one', 'many'] as const, 'operation.cardinality'),
-        fields: asFields(object.fields),
-      };
     default:
-      throw new Error(`canonical UI operation '${type}' is unsupported`);
+      throw new Error(`模板使用了不支持的界面操作“${type}”。`);
   }
 }
 
@@ -282,40 +247,11 @@ function asWaitPolicy(value: JsonValue | undefined, label: string): UiExecutionP
   };
 }
 
-/** 读取 UI 后置条件。 */
-function asPostcondition(value: JsonValue | undefined): UiPostcondition | null {
-  if (value === null) return null;
-  const object = asObject(value, 'execution.postcondition');
-  const type = asString(object.type, 'execution.postcondition.type');
-  if (type === 'match_added' || type === 'match_removed') {
-    return {
-      type,
-      query: asAqlQuery(object.query, 'execution.postcondition.query'),
-      stable_context: asArray(
-        object.stable_context,
-        'execution.postcondition.stable_context',
-      ).map((query, index) => asAqlQuery(
-        query,
-        `execution.postcondition.stable_context[${index}]`,
-      )),
-    };
-  }
-  if (type === 'match_present') {
-    return {
-      type,
-      query: asAqlQuery(object.query, 'execution.postcondition.query'),
-    };
-  }
-  throw new Error(`canonical postcondition '${type}' is unsupported`);
-}
-
 /** 读取完整 UI 执行策略。 */
 export function asUiExecutionPolicy(value: JsonValue | undefined): UiExecutionPolicy {
   const object = asObject(value, 'execution');
   return {
     target_wait: asWaitPolicy(object.target_wait, 'execution.target_wait'),
-    postcondition_wait: asWaitPolicy(object.postcondition_wait, 'execution.postcondition_wait'),
-    postcondition: asPostcondition(object.postcondition),
   };
 }
 
@@ -349,30 +285,5 @@ export function asApplicationSpec(value: JsonValue | undefined): ApplicationSpec
       ['none', 'best_effort', 'required'] as const satisfies ReadonlyArray<ActivationPolicy>,
       'application.spec.activation_policy',
     ),
-  };
-}
-
-/** 只改写 operation.target.scope.resource 的资源生产节点，不扫描业务字符串。 */
-export function rewriteCanonicalOperationReferences(
-  value: JsonValue,
-  applicationNodeId: string,
-): UiOperation {
-  const operation = asUiOperation(value);
-  const scope = operation.target.scope;
-  if (scope.type !== 'application' || scope.resource.producer_node_id !== 'wechat_application') {
-    return operation;
-  }
-  return {
-    ...operation,
-    target: {
-      ...operation.target,
-      scope: {
-        ...scope,
-        resource: {
-          ...scope.resource,
-          producer_node_id: applicationNodeId,
-        },
-      },
-    },
   };
 }

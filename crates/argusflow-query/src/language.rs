@@ -1,11 +1,12 @@
-use argusflow_core::UiQuery;
+use argusflow_core::ObservationQuery;
 use serde::{Deserialize, Serialize};
 
 use crate::{
     AqlError, AqlErrorKind, CompletionItem, CompletionItemKind, Diagnostic, DiagnosticCode,
     DiagnosticParams, DiagnosticSeverity, EditorPosition, EditorRange, Hover, RawToken,
-    RawTokenKind, SyntaxToken, SyntaxTokenKind, SyntaxTree, TextEdit, analyze_query,
-    build_recovery_tree, byte_range_to_editor_range, format_query, lex_lossless, parse_query,
+    RawTokenKind, SyntaxToken, SyntaxTokenKind, SyntaxTree, TextEdit, build_recovery_tree,
+    byte_range_to_editor_range, canonicalize_observation, format_observation, lex_lossless,
+    parse_observation_query,
 };
 
 /// 对完整或不完整源码的一次容错语言分析结果。
@@ -16,7 +17,7 @@ pub struct ParsedDocument {
     /// 所有可恢复的词法、结构与 HIR 诊断。
     pub diagnostics: Vec<Diagnostic>,
     /// 只有语法和语义完整有效时才存在的 HIR。
-    pub hir: Option<UiQuery>,
+    pub hir: Option<ObservationQuery>,
     /// 由 Rust 语言引擎分类的高亮 token。
     pub semantic_tokens: Vec<SyntaxToken>,
 }
@@ -38,7 +39,7 @@ pub fn parse_document(source: &str) -> ParsedDocument {
     let semantic_tokens = raw_tokens.iter().map(classify_token).collect::<Vec<_>>();
     let (syntax, mut diagnostics) = build_recovery_tree(raw_tokens, lexical_diagnostics);
 
-    let hir = match parse_query(source) {
+    let hir = match parse_observation_query(source) {
         Ok(query) if !diagnostics.iter().any(is_error) => Some(query),
         Ok(_) => None,
         Err(error) => {
@@ -69,10 +70,9 @@ pub fn parse_document(source: &str) -> ParsedDocument {
 pub fn inspect_document(source: &str) -> LanguageDocument {
     let parsed = parse_document(source);
     let (formatted_source, canonical_source) = parsed.hir.as_ref().map_or((None, None), |query| {
-        let analysis = analyze_query(query);
         (
-            Some(format_query(query)),
-            Some(analysis.canonical_source().to_owned()),
+            Some(format_observation(query)),
+            Some(canonicalize_observation(query)),
         )
     });
     LanguageDocument {
@@ -292,9 +292,11 @@ fn classify_token(token: &RawToken) -> SyntaxToken {
         RawTokenKind::Integer => SyntaxTokenKind::Integer,
         RawTokenKind::Parameter => SyntaxTokenKind::Parameter,
         RawTokenKind::Boolean => SyntaxTokenKind::Boolean,
-        RawTokenKind::LeftParen | RawTokenKind::RightParen | RawTokenKind::Comma => {
-            SyntaxTokenKind::Punctuation
-        }
+        RawTokenKind::LeftParen
+        | RawTokenKind::RightParen
+        | RawTokenKind::LeftBracket
+        | RawTokenKind::RightBracket
+        | RawTokenKind::Comma => SyntaxTokenKind::Punctuation,
         RawTokenKind::Operator => SyntaxTokenKind::Operator,
         RawTokenKind::Error if token.text.starts_with('"') => SyntaxTokenKind::String,
         RawTokenKind::Error if token.text.starts_with('/') => SyntaxTokenKind::Regex,
@@ -311,7 +313,19 @@ fn classify_token(token: &RawToken) -> SyntaxToken {
 fn classify_identifier(identifier: &str) -> SyntaxTokenKind {
     if matches!(
         identifier,
-        "any" | "not" | "first" | "nth" | "nearest" | "viewport_corner" | "viewport_edge" | "css"
+        "any"
+            | "not"
+            | "first"
+            | "nth"
+            | "nearest"
+            | "viewport_corner"
+            | "viewport_edge"
+            | "css"
+            | "project"
+            | "count"
+            | "exists"
+            | "all_of"
+            | "any_of"
     ) {
         SyntaxTokenKind::Function
     } else if matches!(
@@ -347,7 +361,7 @@ fn classify_identifier(identifier: &str) -> SyntaxTokenKind {
     }
 }
 
-/// 判断标识符是否属于 AQL v1 角色清单。
+/// 判断标识符是否属于 AQL v3 角色清单。
 fn is_role(identifier: &str) -> bool {
     matches!(
         identifier,

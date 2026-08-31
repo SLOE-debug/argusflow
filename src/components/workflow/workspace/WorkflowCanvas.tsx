@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import type { StoreApi } from 'zustand';
 
 import {
@@ -56,7 +57,11 @@ export function WorkflowCanvas({
   onNodeDoubleClick,
   componentCatalog = FLOW_COMPONENT_CATALOG,
 }: WorkflowCanvasProps) {
-  const workflowCreationRegistry = createWorkflowCreationRegistry(componentCatalog);
+  /** 创建目录不变时复用注册表，保持画布键盘监听和节点定义引用稳定。 */
+  const workflowCreationRegistry = useMemo(
+    () => createWorkflowCreationRegistry(componentCatalog),
+    [componentCatalog],
+  );
   const addWorkflowNode = (kind: string, position: FlowPoint) => {
     if (isWorkflowCreationKey(kind)) onAddNode(kind, position);
   };

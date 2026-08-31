@@ -121,6 +121,7 @@ impl PreparedNode for DataFormatNode {
                 Value::String(text),
             )])),
             events: Vec::new(),
+            ..NodeExecution::default()
         })
     }
 }
