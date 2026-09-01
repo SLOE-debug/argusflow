@@ -8,6 +8,12 @@ export type RunStatus = 'starting' | 'running' | 'completed' | 'failed' | 'crash
 /** 单次运行保存的诊断详细程度。 */
 export type RunTraceLevel = 'off' | 'basic' | 'diagnostics' | 'forensics';
 
+/** 工作流 schema 之外、在运行启动时冻结的最小展示快照。 */
+export type RunPresentationSnapshot = {
+  schema_version: 1;
+  node_labels: Readonly<Record<string, string>>;
+};
+
 /** Run List 无需扫描 JSONL 即可展示的轻量索引。 */
 export type RunManifest = {
   schema_version: 1;
@@ -28,6 +34,7 @@ export type RunManifest = {
 export type RunDetails = {
   manifest: RunManifest;
   workflow: WorkflowDefinition;
+  presentation: RunPresentationSnapshot;
   nodes: RunNodeTrace[];
   artifacts: RunArtifactSummary[];
   query_traces: VisualQueryTrace[];
@@ -41,20 +48,22 @@ export type RunArtifactSummary = {
   width: number | null;
   height: number | null;
   request_id: string | null;
+  node_sequence: number;
+  window_handle: string;
   frame_id: number;
 };
 
 export type VisualSelectionOutcome =
   | 'not_found' | 'unique' | 'multiple' | 'ambiguous' | 'rejected_confidence';
 export type VisualQueryTrace = {
+  schema_version: 2;
   run_id: string;
   node_id: string;
-  scene_id: number;
-  frame_id: number;
+  node_sequence: number;
   query: string;
   outcome: VisualSelectionOutcome;
-  candidate_node_ids: string[];
-  selected_node_id: string | null;
+  candidate_nodes: SceneNodeRef[];
+  selected_node: SceneNodeRef | null;
   metrics: {
     elapsed_us: number;
     exact_index_hits: number;
@@ -62,20 +71,36 @@ export type VisualQueryTrace = {
     spatial_candidates: number;
   };
   projection: {
-    schema_version: 1;
-    spatial_text: string;
+    schema_version: 2;
+    windows: SceneWindowProjection[];
     nodes: SceneNodeProjection[];
   };
+};
+
+export type PixelRect = { x: number; y: number; width: number; height: number };
+export type SceneNodeRef = {
+  window_handle: string;
+  scene_id: number;
+  node_id: string;
+};
+export type SceneWindowProjection = {
+  window_handle: string;
+  scene_id: number;
+  frame_id: number;
+  z_order: number;
+  foreground: boolean;
+  screen_bounds: PixelRect;
+  frame_bounds: PixelRect;
 };
 
 export type SceneNodeProjection = {
   node_id: string;
   scene_id: number;
   frame_id: number;
-  window_handle: number;
+  window_handle: string;
   text: string;
-  frame_bbox: { x: number; y: number; width: number; height: number };
-  screen_bbox: { x: number; y: number; width: number; height: number };
+  frame_bbox: PixelRect;
+  screen_bbox: PixelRect;
   polygon: Array<{ x: number; y: number }>;
   confidence: number;
   source: string;

@@ -9,7 +9,7 @@ export const MAX_CANVAS_ZOOM = 2.5;
 
 /** 计算一组节点在世界坐标中的最小轴对齐包围盒。 */
 export function getNodesBounds(
-  nodes: ReadonlyArray<FlowNode>,
+  nodes: ReadonlyArray<Pick<FlowNode, 'position' | 'size'>>,
 ): FlowRect | null {
   if (nodes.length === 0) return null;
 
@@ -54,6 +54,58 @@ type FitBoundsOptions = Readonly<{
   /** 自动适应允许的最大缩放倍率。 */
   maxZoom?: number;
 }>;
+
+/** 自动跟随内容时各方向保留的屏幕像素，避免节点被浮动工具遮挡。 */
+export type ViewportSafePadding = Readonly<{
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}>;
+
+/**
+ * 仅在目标越出安全可视区时平移视口，并保留用户当前缩放。
+ *
+ * 四个方向分别计算最小位移；目标比安全区更大时改为沿该轴居中，避免左右或上下
+ * 约束互相覆盖后产生方向偏置。
+ */
+export function ensureBoundsVisibleInViewport(
+  bounds: FlowRect,
+  viewportSize: Readonly<{ width: number; height: number }>,
+  viewport: ViewportTransform,
+  padding: ViewportSafePadding,
+): ViewportTransform {
+  const safeWidth = Math.max(1, viewportSize.width - padding.left - padding.right);
+  const safeHeight = Math.max(1, viewportSize.height - padding.top - padding.bottom);
+  const screenLeft = bounds.x * viewport.zoom + viewport.x;
+  const screenTop = bounds.y * viewport.zoom + viewport.y;
+  const screenWidth = bounds.width * viewport.zoom;
+  const screenHeight = bounds.height * viewport.zoom;
+  const screenRight = screenLeft + screenWidth;
+  const screenBottom = screenTop + screenHeight;
+  let x = viewport.x;
+  let y = viewport.y;
+
+  if (screenWidth > safeWidth) {
+    x += padding.left + safeWidth / 2 - (screenLeft + screenWidth / 2);
+  } else if (screenLeft < padding.left) {
+    x += padding.left - screenLeft;
+  } else if (screenRight > viewportSize.width - padding.right) {
+    x -= screenRight - (viewportSize.width - padding.right);
+  }
+
+  if (screenHeight > safeHeight) {
+    y += padding.top + safeHeight / 2 - (screenTop + screenHeight / 2);
+  } else if (screenTop < padding.top) {
+    y += padding.top - screenTop;
+  } else if (screenBottom > viewportSize.height - padding.bottom) {
+    y -= screenBottom - (viewportSize.height - padding.bottom);
+  }
+
+  return x === viewport.x && y === viewport.y
+    ? viewport
+    : { x, y, zoom: viewport.zoom };
+}
 
 /** 计算完整容纳指定世界坐标包围盒的居中视口。 */
 export function fitBoundsToViewport(

@@ -17,14 +17,16 @@ use crate::{
 /// 记录冻结输入并发出节点开始事件。
 pub(super) fn record_node_started(
     environment: NodeExecutionEnvironment<'_>,
-    context: &RunContext,
+    context: &mut RunContext,
     sequence: &mut u64,
     node: &WorkflowNode,
     prepared: &Arc<dyn PreparedNode>,
     loop_stack: &[LoopFrame],
 ) -> Result<(), RuntimeError> {
+    let node_sequence = *sequence;
+    context.set_current_node_sequence(node_sequence);
     if let Some(trace) = environment.trace {
-        trace.record_resolved_inputs(*sequence, &node.id, prepared.as_ref(), context);
+        trace.record_resolved_inputs(node_sequence, &node.id, prepared.as_ref(), context);
     }
     let event = super::execution_events::build_event(
         context.run_id,
@@ -88,7 +90,8 @@ pub(super) fn publish_node_result(
         };
     let output_names = published.outputs.keys().cloned().collect::<Vec<_>>();
     if let Some(trace) = environment.trace {
-        trace.record_outputs(*sequence, &node.id, &published);
+        let node_sequence = context.current_node_sequence().unwrap_or(*sequence);
+        trace.record_outputs(node_sequence, &node.id, &published);
     }
     context.record_outcome(node.id.clone(), published);
     for node_event in execution.events {

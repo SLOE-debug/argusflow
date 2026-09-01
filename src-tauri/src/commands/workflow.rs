@@ -6,7 +6,7 @@ use argusflow_core::{
     ExecutionEvent, FlowComponentDefinition, RunInputs, RunStarted, WorkflowDefinition,
 };
 use argusflow_runtime::{
-    ExecutionEventSink, RuntimeError, ValidationIssue, ValidationReport,
+    ExecutionEventSink, RunPresentationSnapshot, RuntimeError, ValidationIssue, ValidationReport,
     validate_workflow_with_components as validate,
 };
 use serde::Serialize;
@@ -36,12 +36,13 @@ pub async fn run_workflow(
     workflow: WorkflowDefinition,
     components: Vec<FlowComponentDefinition>,
     inputs: RunInputs,
+    presentation: RunPresentationSnapshot,
 ) -> Result<RunStarted, CommandError> {
     // 将运行时事件桥接到当前 Tauri 应用，供前端实时订阅执行进度。
     let sink = Arc::new(TauriEventSink { app });
     state
         .engine
-        .start_with_components(workflow, components, inputs, sink)
+        .start_with_presentation(workflow, components, inputs, presentation, sink)
         .await
         .map_err(CommandError::from)
 }

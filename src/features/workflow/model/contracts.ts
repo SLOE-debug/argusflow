@@ -340,7 +340,8 @@ export type {
   BackendCommandErrorCode, CommandErrorCode, ExecutionEvent, ExecutionEventKind,
   ExecutionEventPayload, ResolvedInputField, ResolvedInputSource, ResolvedNodeInputs,
   RunArtifactKind, RunArtifactSummary, RunDetails, RunManifest, RunNodeTrace, RunStatus,
-  RunTraceEvent, RunTraceLevel, SceneNodeProjection, VisualQueryTrace,
+  RunPresentationSnapshot, RunTraceEvent, RunTraceLevel, SceneNodeProjection, SceneNodeRef,
+  SceneWindowProjection, PixelRect, VisualQueryTrace,
   VisualSelectionOutcome,
 } from './runtimeContracts';
 export type CommandError = import('./runtimeContracts').CommandError<ValidationIssue>;

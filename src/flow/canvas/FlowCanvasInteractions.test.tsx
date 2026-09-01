@@ -313,6 +313,39 @@ describe('FlowCanvas interactions', () => {
     expect(store.getState().past).toHaveLength(0);
   });
 
+  it('preserves native copy for selected text without disabling canvas copy', () => {
+    const store = createFlowStore({ nodes: [createNode('a', 20)], edges: [] });
+    store.getState().selectNodes(['a']);
+    const { container } = render(
+      <FlowProvider store={store}>
+        <FlowCanvas
+          registry={registry}
+          onAddNode={vi.fn()}
+          onAddConnectedNode={() => true}
+          onConnect={() => true}
+          onReconnect={() => true}
+        />
+      </FlowProvider>,
+    );
+    /** 模拟用户在底部运行日志中框选了一段可复制文本。 */
+    const selectableText = document.createElement('p');
+    selectableText.textContent = '可复制的运行日志';
+    container.append(selectableText);
+    const selection = window.getSelection();
+    const textRange = document.createRange();
+    textRange.selectNodeContents(selectableText);
+    selection?.removeAllRanges();
+    selection?.addRange(textRange);
+
+    expect(selection?.isCollapsed).toBe(false);
+    expect(fireEvent.keyDown(selectableText, { key: 'c', ctrlKey: true })).toBe(true);
+    expect(store.getState().clipboard).toBeNull();
+
+    selection?.removeAllRanges();
+    expect(fireEvent.keyDown(window, { key: 'c', ctrlKey: true })).toBe(false);
+    expect(store.getState().clipboard?.nodes.map((node) => node.id)).toEqual(['a']);
+  });
+
   it('lets the transparent edge path receive hover and selection events', () => {
     const nodes = [createNode('a', 0), createNode('b', 120)];
     const store = createFlowStore({

@@ -199,6 +199,11 @@ impl PreparedNode for UiNode {
                     trace_context: Some(argusflow_core::RunTraceContext {
                         run_id: context.run_id,
                         node_id: node_id.to_owned(),
+                        node_sequence: context.current_node_sequence().ok_or_else(|| {
+                            RuntimeError::ExecutionInvariant(
+                                "UI 节点执行时缺少节点执行序号".to_owned(),
+                            )
+                        })?,
                     }),
                 },
             )

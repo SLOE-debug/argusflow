@@ -16,7 +16,8 @@ use super::{
     index::{read_artifact_summaries, read_node_traces, read_query_traces},
     model::{
         RUN_TRACE_SCHEMA_VERSION, ResolvedInputField, ResolvedInputSource, ResolvedNodeInputs,
-        RunDetails, RunManifest, RunNodeOutputs, RunStatus, RunTraceEvent, RunTraceLevel,
+        RunDetails, RunManifest, RunNodeOutputs, RunPresentationSnapshot, RunStatus, RunTraceEvent,
+        RunTraceLevel, RunVisualQueryTrace,
     },
     session_helpers::{node_directory, resolved_source},
 };
@@ -32,6 +33,7 @@ pub trait RunTraceStore: Send + Sync + 'static {
         expanded_workflow: &WorkflowDefinition,
         components: &[FlowComponentDefinition],
         inputs: &RunInputs,
+        presentation: &RunPresentationSnapshot,
     ) -> Result<Arc<dyn RunTraceSession>, String>;
 }
 
@@ -97,6 +99,8 @@ impl FileRunTraceStore {
         Ok(RunDetails {
             manifest: read_json(&directory.join("manifest.json"))?,
             workflow: read_json(&directory.join("workflow/definition.json"))?,
+            presentation: read_json(&directory.join("workflow/presentation.json"))
+                .unwrap_or_default(),
             nodes: read_node_traces(&directory.join("nodes")),
             artifacts: read_artifact_summaries(&directory),
             query_traces: read_query_traces(&directory.join("vision/queries")),
@@ -119,6 +123,7 @@ impl FileRunTraceStore {
     pub fn persist_ocr_artifacts(
         &self,
         run_id: Uuid,
+        window_handle: u64,
         frame_id: u64,
         request_id: Uuid,
         frame_bmp: &[u8],
@@ -130,6 +135,7 @@ impl FileRunTraceStore {
         let run_directory = self.run_directory(run_id)?;
         let frame_directory = run_directory
             .join("vision/frames")
+            .join(window_handle.to_string())
             .join(frame_id.to_string());
         fs::create_dir_all(&frame_directory).map_err(|error| error.to_string())?;
         write_bytes_atomic(&frame_directory.join("frame.bmp"), frame_bmp)?;
@@ -151,12 +157,16 @@ impl FileRunTraceStore {
         let run_directory = self.run_directory(run_id)?;
         let parts = artifact_id.split(':').collect::<Vec<_>>();
         let path = match parts.as_slice() {
-            ["frame", frame_id] => {
+            ["frame", window_handle, frame_id] => {
+                let window_handle = window_handle
+                    .parse::<u64>()
+                    .map_err(|_| "无效的窗口 artifact ID")?;
                 let frame_id = frame_id
                     .parse::<u64>()
                     .map_err(|_| "无效的帧 artifact ID")?;
                 run_directory
                     .join("vision/frames")
+                    .join(window_handle.to_string())
                     .join(frame_id.to_string())
                     .join("frame.bmp")
             }
@@ -186,8 +196,8 @@ impl FileRunTraceStore {
         &self,
         run_id: Uuid,
         node_id: &str,
-        scene_id: u64,
-        trace: &Value,
+        node_sequence: u64,
+        trace: &RunVisualQueryTrace,
     ) -> Result<(), String> {
         let safe_node_id = node_id
             .chars()
@@ -204,7 +214,17 @@ impl FileRunTraceStore {
             .join("vision/queries")
             .join(safe_node_id);
         fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
-        write_json_atomic(&directory.join(format!("{scene_id}.json")), trace)
+        let scene_sequence = trace
+            .projection
+            .windows
+            .iter()
+            .map(|window| window.scene_id)
+            .max()
+            .unwrap_or(0);
+        write_json_atomic(
+            &directory.join(format!("{node_sequence:020}-{scene_sequence:020}.json")),
+            trace,
+        )
     }
 
     /// 仅允许 UUID 映射到 Store 自己的子目录，调用方不能注入磁盘路径。
@@ -245,6 +265,7 @@ impl RunTraceStore for FileRunTraceStore {
         expanded_workflow: &WorkflowDefinition,
         components: &[FlowComponentDefinition],
         inputs: &RunInputs,
+        presentation: &RunPresentationSnapshot,
     ) -> Result<Arc<dyn RunTraceSession>, String> {
         if self.trace_level == RunTraceLevel::Off {
             return Ok(Arc::new(DisabledRunTraceSession));
@@ -255,6 +276,7 @@ impl RunTraceStore for FileRunTraceStore {
         fs::create_dir_all(directory.join("nodes")).map_err(|error| error.to_string())?;
 
         write_json_atomic(&directory.join("workflow/definition.json"), workflow)?;
+        write_json_atomic(&directory.join("workflow/presentation.json"), presentation)?;
         write_json_atomic(
             &directory.join("workflow/expanded-definition.json"),
             expanded_workflow,
@@ -461,9 +483,7 @@ impl RunTraceSession for FileRunTraceSession {
         });
     }
 }
-
 struct DisabledRunTraceSession;
-
 impl RunTraceSession for DisabledRunTraceSession {
     fn record_event(&self, _event: &ExecutionEvent) {}
     fn record_resolved_inputs(

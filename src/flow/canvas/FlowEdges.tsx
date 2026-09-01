@@ -13,6 +13,7 @@ import type {
   RoutedEdge,
   ViewportTransform,
 } from '../types';
+import type { FlowCanvasInteractionMode } from './FlowCanvas';
 import { useEdgeRoutes } from '../useEdgeRoutes';
 
 type FlowEdgesProps = Readonly<{
@@ -29,6 +30,7 @@ type FlowEdgesProps = Readonly<{
     point: FlowPoint,
     event: ReactPointerEvent,
   ) => void;
+  interactionMode?: FlowCanvasInteractionMode;
 }>;
 
 type VisibleRoute = Readonly<{
@@ -43,6 +45,7 @@ export const FlowEdges = memo(function FlowEdges({
   edgeLabelResolver,
   onReconnectStart,
   panActive,
+  interactionMode = 'editable',
 }: FlowEdgesProps) {
   const nodes = useFlowStore((state) => state.nodes);
   const edges = useFlowStore((state) => state.edges);
@@ -86,6 +89,7 @@ export const FlowEdges = memo(function FlowEdges({
             route={route}
             selected={edge.id === selectedEdgeId}
             zoom={viewport.zoom}
+            interactionMode={interactionMode}
           />
         ))}
       </g>
@@ -129,6 +133,7 @@ type FlowEdgePathProps = Readonly<{
   route: RoutedEdge;
   selected: boolean;
   zoom: ViewportTransform['zoom'];
+  interactionMode: FlowCanvasInteractionMode;
 }>;
 
 /** 渲染单条边及其命中区、标签、运行脉冲和重连锚点。 */
@@ -145,6 +150,7 @@ const FlowEdgePath = memo(function FlowEdgePath({
   route,
   selected,
   zoom,
+  interactionMode,
 }: FlowEdgePathProps) {
   const sourceNode = nodesById.get(edge.source.nodeId);
   const targetNode = nodesById.get(edge.target.nodeId);
@@ -222,7 +228,7 @@ const FlowEdgePath = memo(function FlowEdgePath({
       {active ? (
         <ActiveEdgePulse edgeId={edge.id} path={route.path} />
       ) : null}
-      {(hovered || selected) && !panActive ? (
+      {(hovered || selected) && !panActive && interactionMode === 'editable' ? (
         <ReconnectAnchors
           edgeId={edge.id}
           onReconnectStart={onReconnectStart}

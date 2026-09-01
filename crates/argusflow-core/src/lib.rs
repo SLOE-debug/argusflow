@@ -22,7 +22,8 @@ mod value;
 mod workflow;
 
 pub use action_options::{
-    ActionExecutionOptions, RunTraceContext, TargetWaitMode, TargetWaitPolicy, UiExecutionPolicy,
+    ActionExecutionOptions, ObservationExecutionOptions, RunTraceContext, TargetWaitMode,
+    TargetWaitPolicy, UiExecutionPolicy,
 };
 pub use application::{AcquirePolicy, ActivationPolicy, ApplicationSpec, CleanupPolicy};
 pub use automation::{

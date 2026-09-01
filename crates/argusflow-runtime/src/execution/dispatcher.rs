@@ -4,7 +4,9 @@ use argusflow_core::{
 };
 use async_trait::async_trait;
 
-use argusflow_core::{ObservationRequest, ObservationResult, ObservationUnknownReason};
+use argusflow_core::{
+    ObservationExecutionOptions, ObservationRequest, ObservationResult, ObservationUnknownReason,
+};
 
 /// 将核心动作委托给具体自动化后端的异步接口。
 #[async_trait]
@@ -55,6 +57,16 @@ pub trait ObservationDispatcher: Send + Sync {
         request: &ObservationRequest,
         scope: AutomationExecutionScope,
     ) -> ObservationResult;
+
+    /// 使用节点关联身份执行观察；不支持 Trace 的实现保持原有单次观察语义。
+    async fn observe_with_options(
+        &self,
+        request: &ObservationRequest,
+        scope: AutomationExecutionScope,
+        _options: ObservationExecutionOptions,
+    ) -> ObservationResult {
+        self.observe(request, scope).await
+    }
 }
 
 /// 未装配观察后端时返回显式 Unknown 的占位实现。

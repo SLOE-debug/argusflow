@@ -1,6 +1,8 @@
 //! Vision Runtime 到宿主 Run Artifact Store 的可选诊断边界。
 
-use crate::{AppScene, CapturedFrame, OcrRequest, OcrResponse, VisionQueryMetrics, VisualNodeId};
+use crate::{
+    AppScene, CapturedFrame, OcrRequest, OcrResponse, SceneNodeIdentity, VisionQueryMetrics,
+};
 use argusflow_core::RunTraceContext;
 
 /// 一次视觉查询的严格选择结果。
@@ -35,8 +37,8 @@ pub trait VisionTraceSink: std::fmt::Debug + Send + Sync + 'static {
         context: &RunTraceContext,
         scene: &AppScene,
         query_source: &str,
-        candidate_ids: &[VisualNodeId],
-        selected_id: Option<VisualNodeId>,
+        candidates: &[SceneNodeIdentity],
+        selected: Option<&SceneNodeIdentity>,
         outcome: VisionSelectionOutcome,
         metrics: VisionQueryMetrics,
     );

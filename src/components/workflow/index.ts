@@ -11,6 +11,7 @@ export { WorkflowOverview } from './overview/WorkflowOverview';
 export { resolveWorkflowStatus, type WorkflowStatusPresentation } from './overview/workflowStatus';
 export { WorkflowDataPanel } from './data/WorkflowDataPanel';
 export { RunInputsDialog } from './data/RunInputsDialog';
+export { RunExecutionWorkbench } from './execution/RunExecutionWorkbench';
 export { ValueField } from './value-editor/ValueField';
 export { ValuePicker } from './value-editor/ValuePicker';
 export { ValueReferencePreview } from './value-editor/ValueReferencePreview';

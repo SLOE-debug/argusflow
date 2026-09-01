@@ -6,6 +6,7 @@ import { WorkspaceDockPanel } from './WorkspaceDockPanel';
 describe('WorkspaceDockPanel', () => {
   it('keeps utility tabs distinct and hosts a non-modal structured document tab', () => {
     const onEditorModeChange = vi.fn();
+    const onOpenRunWorkbench = vi.fn();
     render(
       <WorkspaceDockPanel
         open
@@ -47,6 +48,7 @@ describe('WorkspaceDockPanel', () => {
         onDockHeightChange={vi.fn()}
         onEditorModeChange={onEditorModeChange}
         onCloseEditor={vi.fn()}
+        onOpenRunWorkbench={onOpenRunWorkbench}
       />,
     );
 
@@ -56,10 +58,8 @@ describe('WorkspaceDockPanel', () => {
     expect(onEditorModeChange).toHaveBeenCalledWith('maximized');
 
     fireEvent.click(screen.getByRole('button', { name: '运行记录' }));
-    expect(screen.getByRole('heading', { name: '运行记录' })).toBeVisible();
-    expect(screen.getByRole('heading', { name: '时间线' })).toBeVisible();
-    expect(screen.getByRole('heading', { name: '详情' })).toBeVisible();
-    fireEvent.click(screen.getByRole('button', { name: '运行日志' }));
-    expect(screen.getByRole('heading', { name: '运行日志' })).toBeVisible();
+    expect(onOpenRunWorkbench).toHaveBeenCalledOnce();
+    expect(screen.getByRole('heading', { name: '运行记录已在执行台打开' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: '运行日志' })).not.toBeInTheDocument();
   });
 });

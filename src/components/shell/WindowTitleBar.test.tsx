@@ -137,7 +137,7 @@ describe('WindowTitleBar', () => {
     expect(onOpenWorkflow).toHaveBeenCalledOnce();
   });
 
-  it('hosts editor commands without turning button clicks into window drags', () => {
+  it('hosts editor commands without turning icon clicks into window drags', () => {
     const onRun = vi.fn();
     render(
       <WindowTitleBar
@@ -146,14 +146,19 @@ describe('WindowTitleBar', () => {
         report={null}
         errorMessage={null}
         homeActive={false}
-        editorCommands={<button type="button">撤销</button>}
+        editorCommands={(
+          <button type="button" aria-label="撤销">
+            <svg data-testid="undo-icon" />
+          </button>
+        )}
         editorActions={<button type="button" onClick={onRun}>运行</button>}
         onOpenHome={vi.fn()}
         onOpenWorkflow={vi.fn()}
       />,
     );
 
-    fireEvent.mouseDown(screen.getByRole('button', { name: '运行' }), {
+    const undoIcon = screen.getByTestId('undo-icon');
+    fireEvent.mouseDown(undoIcon, {
       button: 0,
       detail: 1,
     });

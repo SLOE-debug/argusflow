@@ -71,17 +71,59 @@ impl ObservationBackend for VisionBackend {
             .await
             .map_err(|_| ObservationBackendError::Unavailable { retryable: true })?;
 
-        plans
+        let results = plans
             .iter()
             .map(|plan| {
-                let result =
-                    evaluate_vision_query(&scene, plan, &request.source).map_err(|_| {
-                        ObservationBackendError::Unknown {
-                            reason: ObservationUnknownReason::InvalidResponse,
-                            retryable: false,
-                        }
-                    })?;
-                let entities = result
+                evaluate_vision_query(&scene, plan, &request.source).map_err(|_| {
+                    ObservationBackendError::Unknown {
+                        reason: ObservationUnknownReason::InvalidResponse,
+                        retryable: false,
+                    }
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        // 一条复杂观察可能拆成多个 selector；Trace 必须合并保存，不能用同一文件名互相覆盖。
+        let candidates = results
+            .iter()
+            .flat_map(|result| result.matches.iter().copied())
+            .collect::<Vec<_>>();
+        let metrics =
+            results
+                .iter()
+                .fold(crate::VisionQueryMetrics::default(), |mut total, result| {
+                    total.elapsed_us = total.elapsed_us.saturating_add(result.metrics.elapsed_us);
+                    total.exact_index_hits = total
+                        .exact_index_hits
+                        .saturating_add(result.metrics.exact_index_hits);
+                    total.scanned_nodes = total
+                        .scanned_nodes
+                        .saturating_add(result.metrics.scanned_nodes);
+                    total.spatial_candidates = total
+                        .spatial_candidates
+                        .saturating_add(result.metrics.spatial_candidates);
+                    total
+                });
+        let (selected_id, outcome) = match candidates.as_slice() {
+            [] => (None, crate::VisionSelectionOutcome::NotFound),
+            [candidate] => (
+                Some(candidate.node.id),
+                crate::VisionSelectionOutcome::Unique,
+            ),
+            _ => (None, crate::VisionSelectionOutcome::Multiple),
+        };
+        self.runtime.record_query_trace(
+            context.trace_context.as_ref(),
+            &scene,
+            &request.source,
+            &candidates,
+            selected_id,
+            outcome,
+            metrics,
+        );
+        Ok(results
+            .into_iter()
+            .map(|result| EntityObservation {
+                entities: result
                     .matches
                     .into_iter()
                     .map(|candidate| {
@@ -102,12 +144,9 @@ impl ObservationBackend for VisionBackend {
                             source: EntitySource::Ocr,
                         }
                     })
-                    .collect();
-                Ok(EntityObservation {
-                    entities,
-                    complete: true,
-                })
+                    .collect(),
+                complete: true,
             })
-            .collect()
+            .collect())
     }
 }

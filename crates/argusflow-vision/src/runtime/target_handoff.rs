@@ -217,6 +217,7 @@ mod tests {
         RunTraceContext {
             run_id,
             node_id: node_id.to_owned(),
+            node_sequence: 0,
         }
     }
 

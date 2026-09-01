@@ -84,6 +84,22 @@ export function resolveExecutionLogEntry(
   };
 }
 
+/** 运行快照只有冻结名称映射时构造同一叙事日志模型。 */
+export function resolveSnapshotExecutionLogEntry(
+  event: ExecutionEvent,
+  nodeLabels: Readonly<Record<string, string>>,
+): ExecutionLogEntry {
+  return {
+    sequence: event.sequence,
+    nodeId: event.node_id,
+    nodeLabel: event.node_id ? nodeLabels[event.node_id] ?? null : null,
+    nodeKind: null,
+    eventLabel: EXECUTION_EVENT_LABELS[event.kind],
+    detail: resolveExecutionDetail(event),
+    severity: resolveExecutionSeverity(event.kind),
+  };
+}
+
 /** 把展示模型格式化为默认复制到剪贴板的人类可读文本。 */
 export function formatExecutionLogEntry(entry: ExecutionLogEntry): string {
   const sequence = String(entry.sequence).padStart(2, '0');

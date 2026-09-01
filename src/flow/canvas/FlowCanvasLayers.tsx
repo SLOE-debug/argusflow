@@ -5,6 +5,7 @@ import { FlowEdges } from './FlowEdges';
 import { FlowNodeView } from './FlowNodeView';
 import { findFlowNode } from '../selection/nodeLookup';
 import type { CanvasToolMode } from './FlowCanvasTools';
+import type { FlowCanvasInteractionMode } from './FlowCanvas';
 import type { AlignmentGuide } from '../geometry/snapping';
 import { useFlowStore, type ConnectionDraft, type SelectionBox } from '../store/store';
 import type {
@@ -41,6 +42,7 @@ type FlowCanvasLayersProps = Readonly<{
   registry: Readonly<NodeRegistry>;
   size: CanvasSize;
   toolMode: CanvasToolMode;
+  interactionMode: FlowCanvasInteractionMode;
 }>;
 
 /** 框选覆盖层样式。 */
@@ -72,6 +74,7 @@ export function FlowCanvasLayers({
   registry,
   size,
   toolMode,
+  interactionMode,
 }: FlowCanvasLayersProps) {
   const nodes = useFlowStore((state) => state.nodes);
   const viewport = useFlowStore((state) => state.viewport);
@@ -93,6 +96,7 @@ export function FlowCanvasLayers({
         height={size.height}
         onReconnectStart={onReconnectStart}
         panActive={panActive}
+        interactionMode={interactionMode}
         width={size.width}
       />
       <div
@@ -109,6 +113,7 @@ export function FlowCanvasLayers({
             panActive={panActive}
             registry={registry}
             toolMode={toolMode}
+            interactionMode={interactionMode}
           />
         ))}
         <AlignmentGuides guides={guides} />

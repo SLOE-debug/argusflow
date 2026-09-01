@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { useFlowStoreApi } from '../store/store';
 import type { FlowPoint, NodeRegistry } from '../types';
+import type { FlowCanvasInteractionMode } from '../canvas/FlowCanvas';
 
 /** 连续方向键微调共用历史分组，一次长按只需一次撤销。 */
 const KEYBOARD_NUDGE_HISTORY_GROUP = 'flow.keyboard-nudge';
@@ -26,6 +27,12 @@ type NudgeKey = keyof typeof NUDGE_DIRECTIONS;
 function isEditable(target: EventTarget | null): boolean {
   return target instanceof HTMLElement
     && (target.matches('input, textarea, select') || target.isContentEditable);
+}
+
+/** 页面已有文字选区时，复制操作应交还给 WebView 的原生剪贴板。 */
+function hasNativeTextSelection(): boolean {
+  const selection = window.getSelection();
+  return selection !== null && selection.rangeCount > 0 && !selection.isCollapsed;
 }
 
 /** 判断目标是否需要自行处理方向键导航。 */
@@ -73,6 +80,7 @@ export function useCanvasKeyboard(
   registry: Readonly<NodeRegistry>,
   onActivateNode?: (nodeId: string) => void,
   onDeleteSelection?: () => void,
+  interactionMode: FlowCanvasInteractionMode = 'editable',
 ): boolean {
   const store = useFlowStoreApi();
   const [spacePressed, setSpacePressed] = useState(false);
@@ -93,6 +101,14 @@ export function useCanvasKeyboard(
       const modifierPressed = event.ctrlKey || event.metaKey;
       const normalizedKey = event.key.toLowerCase();
 
+      if (interactionMode === 'readonly') {
+        if (event.key === 'Enter' && state.selectedNodeIds.size === 1) {
+          const selectedNodeId = state.selectedNodeIds.values().next().value;
+          if (selectedNodeId) onActivateNode?.(selectedNodeId);
+        }
+        return;
+      }
+
       if (modifierPressed && normalizedKey === 'z') {
         event.preventDefault();
         if (event.shiftKey) state.redo();
@@ -107,6 +123,7 @@ export function useCanvasKeyboard(
       }
 
       if (modifierPressed && normalizedKey === 'c') {
+        if (hasNativeTextSelection()) return;
         event.preventDefault();
         if ([...state.selectedNodeIds].some((nodeId) => {
           const node = state.nodes.find((candidate) => candidate.id === nodeId);
@@ -179,7 +196,7 @@ export function useCanvasKeyboard(
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [onActivateNode, onDeleteSelection, registry, singletonKinds, store]);
+  }, [interactionMode, onActivateNode, onDeleteSelection, registry, singletonKinds, store]);
 
   return spacePressed;
 }

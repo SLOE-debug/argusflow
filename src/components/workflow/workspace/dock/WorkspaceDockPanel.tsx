@@ -1,4 +1,5 @@
 import BellRing from 'lucide-react/dist/esm/icons/bell-ring.mjs';
+import History from 'lucide-react/dist/esm/icons/history.mjs';
 import ChevronDown from 'lucide-react/dist/esm/icons/chevron-down.mjs';
 import ChevronUp from 'lucide-react/dist/esm/icons/chevron-up.mjs';
 import type { LucideIcon } from 'lucide-react';
@@ -10,8 +11,6 @@ import type {
 } from '../../../../features/workflow';
 import type { WorkflowCanvasNode } from '../../../../features/workflow';
 import { IconButton } from '../../../ui';
-import { ExecutionLog } from '../../execution/ExecutionLog';
-import { RunHistoryPanel } from '../../execution/RunHistoryPanel';
 import type {
   StructuredEditorTarget,
   WorkspaceEditorMode,
@@ -55,9 +54,11 @@ type WorkspaceDockPanelProps = Readonly<{
   onEditorModeChange: (mode: WorkspaceEditorMode) => void;
   /** 关闭当前结构化文档。 */
   onCloseEditor: () => void;
+  /** 打开覆盖工作区的统一运行执行台。 */
+  onOpenRunWorkbench?: () => void;
 }>;
 
-type UtilityTab = 'data' | 'tasks' | 'runs' | 'logs' | 'alerts';
+type UtilityTab = 'data' | 'tasks' | 'runs' | 'alerts';
 type DockTab = 'structured_editor' | UtilityTab;
 
 /** Utility Tabs 的稳定顺序与产品名称。 */
@@ -65,7 +66,6 @@ const UTILITY_TABS = [
   { id: 'data', label: '工作流数据' },
   { id: 'tasks', label: '任务' },
   { id: 'runs', label: '运行记录' },
-  { id: 'logs', label: '运行日志' },
   { id: 'alerts', label: '问题' },
 ] as const satisfies ReadonlyArray<Readonly<{ id: UtilityTab; label: string }>>;
 
@@ -88,6 +88,7 @@ export function WorkspaceDockPanel({
   onDockHeightChange,
   onEditorModeChange,
   onCloseEditor,
+  onOpenRunWorkbench,
 }: WorkspaceDockPanelProps) {
   const [activeTab, setActiveTab] = useState<DockTab>(() => (
     editorTarget ? 'structured_editor' : 'tasks'
@@ -110,6 +111,7 @@ export function WorkspaceDockPanel({
       hasWorkflowData={Boolean(workflowData)}
       onActivate={(tab) => {
         setActiveTab(tab);
+        if (tab === 'runs') onOpenRunWorkbench?.();
         if (editorMode === 'maximized') {
           onEditorModeChange('docked');
         }
@@ -166,7 +168,7 @@ export function WorkspaceDockPanel({
         </header>
       )}
       {open
-        ? resolveDockContent(activeTab, structuredEditor, workflowData, events, nodes, report)
+        ? resolveDockContent(activeTab, structuredEditor, workflowData, events.length, report)
         : null}
     </section>
   );
@@ -205,8 +207,7 @@ function resolveDockContent(
   activeTab: DockTab,
   structuredEditor: ReactNode,
   workflowData: ReactNode,
-  events: ReadonlyArray<ExecutionEvent>,
-  nodes: ReadonlyArray<WorkflowCanvasNode>,
+  currentEventCount: number,
   report: ValidationReport | null,
 ) {
   switch (activeTab) {
@@ -222,10 +223,16 @@ function resolveDockContent(
       return <div className="min-h-0 flex-1">{structuredEditor}</div>;
     case 'tasks':
       return <WorkflowTaskTable />;
-    case 'logs':
-      return <ExecutionLog events={events} nodes={nodes} report={report} />;
     case 'runs':
-      return <RunHistoryPanel liveEvents={events} />;
+      return (
+        <DockPlaceholder
+          icon={History}
+          title="运行记录已在执行台打开"
+          description={currentEventCount > 0
+            ? `当前运行已产生 ${currentEventCount} 个事件。`
+            : '运行和历史复盘使用同一个沉浸式执行台。'}
+        />
+      );
     case 'alerts':
       return report?.issues.length ? (
         <div className="min-h-0 flex-1 overflow-y-auto p-3">

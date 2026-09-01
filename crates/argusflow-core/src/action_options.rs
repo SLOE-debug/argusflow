@@ -71,6 +71,13 @@ pub struct ActionExecutionOptions {
     pub trace_context: Option<RunTraceContext>,
 }
 
+/// Runtime 传给观察分发器的最小执行选项。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ObservationExecutionOptions {
+    /// 关联本次检查产生的 OCR、Scene 和查询 Trace，不改变观察语义。
+    pub trace_context: Option<RunTraceContext>,
+}
+
 /// 跨 Runtime、Agent、Vision 传递的最小 Run Trace 关联身份。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunTraceContext {
@@ -78,4 +85,6 @@ pub struct RunTraceContext {
     pub run_id: Uuid,
     /// 当前扁平执行节点 ID。
     pub node_id: String,
+    /// 当前节点在本次运行中的执行序号，循环重复执行时不会复用。
+    pub node_sequence: u64,
 }

@@ -9,6 +9,7 @@ import {
 
 import { rectFromPoints, rectsIntersect, screenToWorld } from '../geometry/geometry';
 import type { CanvasToolMode } from '../canvas/FlowCanvasTools';
+import type { FlowCanvasInteractionMode } from '../canvas/FlowCanvas';
 import { findFlowNode } from '../selection/nodeLookup';
 import {
   bindPointerGesture,
@@ -47,6 +48,7 @@ type UseCanvasPointerInteractionsOptions = Readonly<{
   onSemanticZoomIn?: (worldPoint: FlowPoint, nextZoom: number) => boolean;
   /** 业务层可在缩小越过阈值后返回结构容器所在的父作用域。 */
   onSemanticZoomOut?: (nextZoom: number) => boolean;
+  interactionMode: FlowCanvasInteractionMode;
 }>;
 
 /** 画布右键菜单的屏幕位置、世界坐标和二级菜单方向。 */
@@ -110,6 +112,7 @@ export function useCanvasPointerInteractions({
   toolMode,
   onSemanticZoomIn,
   onSemanticZoomOut,
+  interactionMode,
 }: UseCanvasPointerInteractionsOptions): CanvasPointerInteractions {
   const store = useFlowStoreApi();
   const [guides, setGuides] = useState<ReadonlyArray<AlignmentGuide>>([]);
@@ -168,6 +171,7 @@ export function useCanvasPointerInteractions({
   }, [containerRef, pointerWorld]);
 
   const handleNodeDragStart = useCallback((nodeId: string, event: ReactPointerEvent) => {
+    if (interactionMode === 'readonly') return;
     if (event.button !== 0) return;
 
     const dragStart = pointerWorld(event.nativeEvent);
@@ -276,7 +280,7 @@ export function useCanvasPointerInteractions({
         store.getState().setRoutingInteraction({ kind: 'idle' });
       },
     });
-  }, [pointerWorld, store]);
+  }, [interactionMode, pointerWorld, store]);
 
   const handleConnectionStart = useCallback((
     nodeId: string,
@@ -285,6 +289,7 @@ export function useCanvasPointerInteractions({
     event: ReactPointerEvent,
     reconnect?: ReconnectTarget,
   ) => {
+    if (interactionMode === 'readonly') return;
     event.stopPropagation();
     event.preventDefault();
     store.getState().setConnectionDraft({ nodeId, side, point, ...reconnect });
@@ -338,7 +343,7 @@ export function useCanvasPointerInteractions({
         store.getState().setConnectionDraft(null);
       },
     });
-  }, [onConnect, onReconnect, openContextMenu, pointerWorld, store]);
+  }, [interactionMode, onConnect, onReconnect, openContextMenu, pointerWorld, store]);
 
   const handleReconnectStart = useCallback((
     edgeId: string,
@@ -367,7 +372,7 @@ export function useCanvasPointerInteractions({
     event.preventDefault();
     window.getSelection()?.removeAllRanges();
 
-    if (spacePressed || toolMode === 'pan') {
+    if (spacePressed || toolMode === 'pan' || interactionMode === 'readonly') {
       /** 手势起点的屏幕坐标，用于稳定计算总平移量。 */
       const startPoint: FlowPoint = {
         x: event.clientX,
@@ -441,12 +446,13 @@ export function useCanvasPointerInteractions({
         store.getState().setSelectionBox(null);
       },
     });
-  }, [pointerWorld, spacePressed, store, toolMode]);
+  }, [interactionMode, pointerWorld, spacePressed, store, toolMode]);
 
   const handleContextMenu = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
     event.preventDefault();
+    if (interactionMode === 'readonly') return;
     openContextMenu(event.nativeEvent);
-  }, [openContextMenu]);
+  }, [interactionMode, openContextMenu]);
 
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
 

@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use argusflow_core::{
-    AutomationExecutionScope, BackendKind, ObservationRequest, ObservationResult,
-    ObservationUnknownReason,
+    AutomationExecutionScope, BackendKind, ObservationExecutionOptions, ObservationRequest,
+    ObservationResult, ObservationUnknownReason,
 };
 use argusflow_query::evaluate_observation;
 use argusflow_runtime::ObservationDispatcher;
@@ -60,7 +60,18 @@ impl ObservationDispatcher for ObservationRouter {
         request: &ObservationRequest,
         scope: AutomationExecutionScope,
     ) -> ObservationResult {
+        self.observe_with_options(request, scope, ObservationExecutionOptions::default())
+            .await
+    }
+
+    async fn observe_with_options(
+        &self,
+        request: &ObservationRequest,
+        scope: AutomationExecutionScope,
+        options: ObservationExecutionOptions,
+    ) -> ObservationResult {
         let mut context = self.context_provider.snapshot();
+        context.trace_context = options.trace_context;
         apply_scope(&mut context, scope);
         let mut backends = self
             .backends

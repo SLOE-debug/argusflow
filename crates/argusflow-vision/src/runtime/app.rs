@@ -222,16 +222,30 @@ impl VisionRuntime {
         let (Some(context), Some(sink)) = (context, self.trace_sink.as_ref()) else {
             return;
         };
-        let candidate_ids = candidates
+        let candidate_nodes = candidates
             .iter()
-            .map(|candidate| candidate.node.id)
+            .map(|candidate| crate::SceneNodeIdentity {
+                window_handle: candidate.window.identity.handle,
+                scene_id: candidate.scene.scene_id.get(),
+                node_id: candidate.node.id.get().to_string(),
+            })
             .collect::<Vec<_>>();
+        let selected_node = selected_id.and_then(|selected_id| {
+            candidates
+                .iter()
+                .find(|candidate| candidate.node.id == selected_id)
+                .map(|candidate| crate::SceneNodeIdentity {
+                    window_handle: candidate.window.identity.handle,
+                    scene_id: candidate.scene.scene_id.get(),
+                    node_id: candidate.node.id.get().to_string(),
+                })
+        });
         sink.record_query(
             context,
             scene,
             query_source,
-            &candidate_ids,
-            selected_id,
+            &candidate_nodes,
+            selected_node.as_ref(),
             outcome,
             metrics,
         );

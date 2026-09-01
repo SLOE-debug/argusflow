@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use argusflow_core::{ExecutionEvent, WorkflowDefinition};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -5,6 +7,34 @@ use uuid::Uuid;
 
 /// Run Trace 持久化协议版本。
 pub const RUN_TRACE_SCHEMA_VERSION: u32 = 1;
+
+/// Scene 投影协议版本；v1 的 ASCII 投影不会被新执行台读取。
+pub const RUN_SCENE_PROJECTION_SCHEMA_VERSION: u16 = 2;
+
+/// 启动运行时冻结的最小展示信息，不改变可执行工作流 schema。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunPresentationSnapshot {
+    /// 展示快照协议版本。
+    pub schema_version: u16,
+    /// 工作流节点 ID 到用户可见名称的只读映射。
+    pub node_labels: BTreeMap<String, String>,
+}
+
+impl RunPresentationSnapshot {
+    /// 创建当前版本的展示快照。
+    pub fn new(node_labels: BTreeMap<String, String>) -> Self {
+        Self {
+            schema_version: 1,
+            node_labels,
+        }
+    }
+}
+
+impl Default for RunPresentationSnapshot {
+    fn default() -> Self {
+        Self::new(BTreeMap::new())
+    }
+}
 
 /// 单次运行保存诊断事实的详细程度。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -158,12 +188,112 @@ pub struct RunDetails {
     pub manifest: RunManifest,
     /// 执行时的原始工作流定义，不读取当前编辑器状态。
     pub workflow: WorkflowDefinition,
+    /// 运行开始时冻结的用户可见节点名称。
+    pub presentation: RunPresentationSnapshot,
     /// 按执行序号排列的节点诊断摘要。
     pub nodes: Vec<RunNodeTrace>,
     /// 只暴露 artifact_id 的安全媒体索引，不返回磁盘路径。
     pub artifacts: Vec<RunArtifactSummary>,
     /// Vision crate 写入的结构化查询/候选/选择事实。
-    pub query_traces: Vec<Value>,
+    pub query_traces: Vec<RunVisualQueryTrace>,
+}
+
+/// 前端可直接绘制的物理像素矩形。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunPixelRect {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// OCR polygon 中的帧内浮点坐标。
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct RunPixelPoint {
+    pub x: f32,
+    pub y: f32,
+}
+
+/// 一次进程 Scene 中的窗口投影。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunSceneWindowProjection {
+    /// HWND 以字符串保存，避免 JavaScript 丢失 64 位整数精度。
+    pub window_handle: String,
+    pub scene_id: u64,
+    pub frame_id: u64,
+    pub z_order: usize,
+    pub foreground: bool,
+    /// 窗口在虚拟屏幕中的真实物理像素边界。
+    pub screen_bounds: RunPixelRect,
+    /// 捕获帧本地坐标范围。
+    pub frame_bounds: RunPixelRect,
+}
+
+/// 一个 OCR 文本节点的精确帧坐标、屏幕坐标与质量事实。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunSceneNodeProjection {
+    pub node_id: String,
+    pub scene_id: u64,
+    pub frame_id: u64,
+    pub window_handle: String,
+    pub text: String,
+    pub frame_bbox: RunPixelRect,
+    pub screen_bbox: RunPixelRect,
+    pub polygon: Vec<RunPixelPoint>,
+    pub confidence: f32,
+    pub source: String,
+}
+
+/// 结构化候选身份，窗口和 Scene 共同消除节点 ID 的跨窗口碰撞。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunSceneNodeRef {
+    pub window_handle: String,
+    pub scene_id: u64,
+    pub node_id: String,
+}
+
+/// 一次查询看到的真实坐标 Scene 投影。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunSceneProjection {
+    pub schema_version: u16,
+    pub windows: Vec<RunSceneWindowProjection>,
+    pub nodes: Vec<RunSceneNodeProjection>,
+}
+
+/// 查询选择的稳定结果类别。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RunVisualSelectionOutcome {
+    NotFound,
+    Unique,
+    Multiple,
+    Ambiguous,
+    RejectedConfidence,
+}
+
+/// AQL 查询性能计数器。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunVisualQueryMetrics {
+    pub elapsed_us: u64,
+    pub exact_index_hits: usize,
+    pub scanned_nodes: usize,
+    pub spatial_candidates: usize,
+}
+
+/// 运行执行台读取的一次强类型视觉查询事实。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunVisualQueryTrace {
+    pub schema_version: u16,
+    pub run_id: Uuid,
+    pub node_id: String,
+    /// 节点执行序号用于区分循环中的同一节点。
+    pub node_sequence: u64,
+    pub query: String,
+    pub outcome: RunVisualSelectionOutcome,
+    pub candidate_nodes: Vec<RunSceneNodeRef>,
+    pub selected_node: Option<RunSceneNodeRef>,
+    pub metrics: RunVisualQueryMetrics,
+    pub projection: RunSceneProjection,
 }
 
 /// Run Inspector 可读取的一张诊断图片。
@@ -181,6 +311,10 @@ pub struct RunArtifactSummary {
     pub height: Option<u32>,
     /// OCR artifact 的 request ID；捕获帧为空。
     pub request_id: Option<Uuid>,
+    /// 触发捕获或 OCR 的节点执行序号。
+    pub node_sequence: u64,
+    /// 捕获来源 HWND 的十进制字符串。
+    pub window_handle: String,
     /// 关联捕获帧 ID。
     pub frame_id: u64,
 }

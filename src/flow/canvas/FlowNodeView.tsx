@@ -2,6 +2,7 @@ import { memo, type PointerEvent as ReactPointerEvent } from 'react';
 
 import { anchorPoint } from '../geometry/geometry';
 import type { CanvasToolMode } from './FlowCanvasTools';
+import type { FlowCanvasInteractionMode } from './FlowCanvas';
 import { findFlowNode } from '../selection/nodeLookup';
 import { useFlowStore } from '../store/store';
 import type { FlowAnchorSide, FlowNode, FlowPoint, NodeRegistry } from '../types';
@@ -50,6 +51,7 @@ type FlowNodeViewProps = Readonly<{
   ) => void;
   /** 业务层可选择响应节点双击，例如进入嵌套流程。 */
   onDoubleClick?: (nodeId: string) => void;
+  interactionMode: FlowCanvasInteractionMode;
 }>;
 
 /** 单节点订阅组件，节点变化不会触发其他节点 React 重渲染。 */
@@ -61,6 +63,7 @@ export const FlowNodeView = memo(function FlowNodeView({
   onDragStart,
   onConnectionStart,
   onDoubleClick,
+  interactionMode,
 }: FlowNodeViewProps) {
   const node = useFlowStore((state) => findFlowNode(state.nodes, nodeId));
   const selected = useFlowStore((state) => state.selectedNodeIds.has(nodeId));
@@ -94,12 +97,15 @@ export const FlowNodeView = memo(function FlowNodeView({
         ? 'add'
         : 'replace';
     selectNodes([node.id], selectionMode);
-    onDragStart(node.id, event);
+    if (interactionMode === 'editable') onDragStart(node.id, event);
   };
 
   return (
     <div
-      className={`pointer-events-auto absolute select-none ${panActive ? 'cursor-grab' : 'cursor-move'}`}
+      className={
+        'pointer-events-auto absolute select-none ' +
+        (panActive ? 'cursor-grab' : interactionMode === 'readonly' ? 'cursor-default' : 'cursor-move')
+      }
       data-flow-node-id={node.id}
       style={{
         height: node.size.height,
@@ -119,7 +125,7 @@ export const FlowNodeView = memo(function FlowNodeView({
         selected={selected}
       />
       {selected ? <NodeSelectionOutline /> : null}
-      {selected && definition.resizable && !panActive ? (
+      {selected && interactionMode === 'editable' && definition.resizable && !panActive ? (
         <button
           type="button"
           aria-label={`调整 ${node.id} 大小`}
@@ -130,6 +136,7 @@ export const FlowNodeView = memo(function FlowNodeView({
       ) : null}
       {hovered
       && toolMode === 'select'
+      && interactionMode === 'editable'
       && !panActive
       && definition.canStartConnection !== false ? (
         <NodeAnchors

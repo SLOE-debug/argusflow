@@ -108,7 +108,7 @@ export function WindowTitleBar({
   const handleDragMouseDown = (event: MouseEvent<HTMLDivElement>) => {
     if (event.button !== 0 || !appWindow) return;
     const target = event.target;
-    if (target instanceof HTMLElement && target.closest('button, input, select')) return;
+    if (target instanceof Element && target.closest('button, input, select')) return;
     if (event.detail === 2) {
       void toggleMaximized();
       return;

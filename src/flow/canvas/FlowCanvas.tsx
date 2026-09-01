@@ -1,4 +1,4 @@
-import { useRef, useState, type DragEvent as ReactDragEvent } from 'react';
+import { useEffect, useRef, useState, type DragEvent as ReactDragEvent } from 'react';
 
 import {
   readFlowNodeKindDragData,
@@ -15,9 +15,14 @@ import type {
   FlowAnchorSide,
   FlowEdgeLabelResolver,
   FlowPoint,
+  FlowRect,
   NodeRegistry,
 } from '../types';
-import { MAX_CANVAS_ZOOM } from '../viewport/viewport';
+import {
+  MAX_CANVAS_ZOOM,
+  ensureBoundsVisibleInViewport,
+  type ViewportSafePadding,
+} from '../viewport/viewport';
 
 type FlowCanvasProps = Readonly<{
   registry: Readonly<NodeRegistry>;
@@ -51,7 +56,16 @@ type FlowCanvasProps = Readonly<{
   onSemanticZoomOut?: (nextZoom: number) => boolean;
   /** 业务层可接管删除，以同时维护结构容器拥有的外部文档。 */
   onDeleteSelection?: () => void;
+  /** 编辑画布或仅允许选择、平移和缩放的运行快照。 */
+  interactionMode?: FlowCanvasInteractionMode;
+  /** 目标变化时自动以最小位移保证该世界坐标区域仍在安全可视区内。 */
+  followBounds?: FlowRect | null;
+  /** 自动跟随需要避开的浮层和边缘空间。 */
+  followPadding?: ViewportSafePadding;
 }>;
+
+/** 通用 FlowCanvas 明确支持的交互能力集合。 */
+export type FlowCanvasInteractionMode = 'editable' | 'readonly';
 
 /** 自研 Flow 画布入口，仅装配交互、渲染图层与顶部浮层工具。 */
 export function FlowCanvas({
@@ -65,6 +79,9 @@ export function FlowCanvas({
   onSemanticZoomIn,
   onSemanticZoomOut,
   onDeleteSelection,
+  interactionMode = 'editable',
+  followBounds = null,
+  followPadding = { top: 48, right: 48, bottom: 48, left: 48 },
 }: FlowCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const store = useFlowStoreApi();
@@ -74,6 +91,7 @@ export function FlowCanvas({
     registry,
     onNodeDoubleClick,
     onDeleteSelection,
+    interactionMode,
   );
   const interactions = useCanvasPointerInteractions({
     containerRef,
@@ -84,7 +102,38 @@ export function FlowCanvas({
     toolMode,
     onSemanticZoomIn,
     onSemanticZoomOut,
+    interactionMode,
   });
+  useEffect(() => {
+    if (
+      !followBounds
+      || canvasSize.width <= followPadding.left + followPadding.right
+      || canvasSize.height <= followPadding.top + followPadding.bottom
+    ) return;
+    const state = store.getState();
+    const nextViewport = ensureBoundsVisibleInViewport(
+      followBounds,
+      canvasSize,
+      state.viewport,
+      followPadding,
+    );
+    if (
+      nextViewport.x !== state.viewport.x
+      || nextViewport.y !== state.viewport.y
+    ) state.setViewport(nextViewport);
+  }, [
+    canvasSize.height,
+    canvasSize.width,
+    followBounds?.height,
+    followBounds?.width,
+    followBounds?.x,
+    followBounds?.y,
+    followPadding.bottom,
+    followPadding.left,
+    followPadding.right,
+    followPadding.top,
+    store,
+  ]);
   /** 空格与平移工具都必须覆盖节点自身的拖拽手势。 */
   const panActive = spacePressed || toolMode === 'pan';
   const cursorClassName = panActive
@@ -120,9 +169,9 @@ export function FlowCanvas({
       ref={containerRef}
       className={`absolute inset-0 touch-none select-none overflow-hidden bg-white ${cursorClassName}`}
       onContextMenu={interactions.handleContextMenu}
-      onDragEnter={handleDragOver}
-      onDragOver={handleDragOver}
-      onDrop={handleDrop}
+      onDragEnter={interactionMode === 'editable' ? handleDragOver : undefined}
+      onDragOver={interactionMode === 'editable' ? handleDragOver : undefined}
+      onDrop={interactionMode === 'editable' ? handleDrop : undefined}
       onPointerDown={interactions.handlePanePointerDown}
     >
       <FlowCanvasLayers
@@ -136,13 +185,15 @@ export function FlowCanvas({
         registry={registry}
         size={canvasSize}
         toolMode={toolMode}
+        interactionMode={interactionMode}
       />
       <FlowCanvasTools
         canvasSize={canvasSize}
         mode={toolMode}
         onModeChange={setToolMode}
+        interactionMode={interactionMode}
       />
-      {interactions.contextMenu ? (
+      {interactionMode === 'editable' && interactions.contextMenu ? (
         <FlowContextMenu
           context={interactions.contextMenu}
           nodes={store.getState().nodes}

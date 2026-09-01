@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { getRun, isDesktopRuntime, listRuns, readRunEvents } from '../api/workflowApi';
 import type {
@@ -30,9 +30,12 @@ export function useRunHistory(
   const [traceEvents, setTraceEvents] = useState<RunTraceEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** 只有最后一次选择请求可以提交，避免快速切换历史记录时旧响应覆盖新记录。 */
+  const selectionRequest = useRef(0);
 
   const selectRun = useCallback(async (runId: string) => {
     if (!isDesktopRuntime()) return;
+    const request = ++selectionRequest.current;
     setSelectedRunId(runId);
     setLoading(true);
     setError(null);
@@ -41,12 +44,14 @@ export function useRunHistory(
         getRun(runId),
         readRunEvents(runId),
       ]);
+      if (request !== selectionRequest.current) return;
       setSelectedRun(details);
       setTraceEvents(events);
     } catch (cause) {
+      if (request !== selectionRequest.current) return;
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
-      setLoading(false);
+      if (request === selectionRequest.current) setLoading(false);
     }
   }, []);
 

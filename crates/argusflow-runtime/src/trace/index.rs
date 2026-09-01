@@ -9,6 +9,7 @@ use super::{
     files::read_json,
     model::{
         ResolvedNodeInputs, RunArtifactKind, RunArtifactSummary, RunNodeOutputs, RunNodeTrace,
+        RunVisualQueryTrace,
     },
 };
 
@@ -61,6 +62,15 @@ fn append_source_artifacts(
     request: &Value,
 ) {
     let frame_id = request.get("frame_id").and_then(Value::as_u64).unwrap_or(0);
+    let node_sequence = request
+        .get("node_sequence")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let window_handle = request
+        .pointer("/window/handle")
+        .and_then(Value::as_u64)
+        .unwrap_or(0)
+        .to_string();
     let dimension = |name: &str| {
         request
             .get(name)
@@ -68,12 +78,14 @@ fn append_source_artifacts(
             .and_then(|value| u32::try_from(value).ok())
     };
     summaries.push(RunArtifactSummary {
-        artifact_id: format!("frame:{frame_id}"),
+        artifact_id: format!("frame:{window_handle}:{frame_id}"),
         kind: RunArtifactKind::CapturedFrame,
         mime_type: "image/bmp".to_owned(),
         width: dimension("frame_width"),
         height: dimension("frame_height"),
         request_id: None,
+        node_sequence,
+        window_handle: window_handle.clone(),
         frame_id,
     });
     summaries.push(RunArtifactSummary {
@@ -83,6 +95,8 @@ fn append_source_artifacts(
         width: dimension("source_width"),
         height: dimension("source_height"),
         request_id: Some(request_id),
+        node_sequence,
+        window_handle,
         frame_id,
     });
 }
@@ -111,11 +125,20 @@ fn append_model_input_artifact(
         width: dimension("/preprocessing/output_width"),
         height: dimension("/preprocessing/output_height"),
         request_id: Some(request_id),
+        node_sequence: request
+            .get("node_sequence")
+            .and_then(Value::as_u64)
+            .unwrap_or(0),
+        window_handle: request
+            .pointer("/window/handle")
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+            .to_string(),
         frame_id: request.get("frame_id").and_then(Value::as_u64).unwrap_or(0),
     });
 }
 
-pub(super) fn read_query_traces(root: &Path) -> Vec<Value> {
+pub(super) fn read_query_traces(root: &Path) -> Vec<RunVisualQueryTrace> {
     let Ok(node_entries) = fs::read_dir(root) else {
         return Vec::new();
     };
@@ -126,10 +149,21 @@ pub(super) fn read_query_traces(root: &Path) -> Vec<Value> {
                 .into_iter()
                 .flatten()
                 .flatten()
-                .filter_map(|entry| read_json::<Value>(&entry.path()).ok())
+                .filter_map(|entry| read_json::<RunVisualQueryTrace>(&entry.path()).ok())
                 .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
-    traces.sort_by_key(|trace| trace.get("scene_id").and_then(Value::as_u64).unwrap_or(0));
+    traces.sort_by_key(|trace| {
+        (
+            trace.node_sequence,
+            trace
+                .projection
+                .windows
+                .iter()
+                .map(|window| window.scene_id)
+                .max()
+                .unwrap_or(0),
+        )
+    });
     traces
 }

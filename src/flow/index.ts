@@ -1,9 +1,11 @@
-export { FlowCanvas } from './canvas/FlowCanvas';
+export { FlowCanvas, type FlowCanvasInteractionMode } from './canvas/FlowCanvas';
 export {
   MAX_CANVAS_ZOOM,
   centerBoundsInViewport,
+  ensureBoundsVisibleInViewport,
   fitBoundsToViewport,
   getNodesBounds,
+  type ViewportSafePadding,
 } from './viewport/viewport';
 export {
   FLOW_NODE_KIND_DRAG_TYPE,

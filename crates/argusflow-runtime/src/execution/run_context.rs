@@ -49,6 +49,8 @@ pub struct RunContext {
     variables: Map<String, Value>,
     /// prepare 阶段编译、所有运行只读共享的表达式计划。
     value_plan: Arc<RuntimeValuePlan>,
+    /// 已开始、正在执行的节点序号；由路径执行器在调用节点前设置。
+    current_node_sequence: Option<u64>,
 }
 
 impl RunContext {
@@ -80,6 +82,7 @@ impl RunContext {
             resources: ResourceTable::default(),
             variables,
             value_plan,
+            current_node_sequence: None,
         }
     }
 
@@ -91,6 +94,16 @@ impl RunContext {
     /// 返回当前资源表的可变视图，仅供资源节点绑定输出。
     pub const fn resources_mut(&mut self) -> &mut ResourceTable {
         &mut self.resources
+    }
+
+    /// 设置当前 PreparedNode 的执行序号，供下游诊断链精确关联循环实例。
+    pub(crate) fn set_current_node_sequence(&mut self, sequence: u64) {
+        self.current_node_sequence = Some(sequence);
+    }
+
+    /// 返回正在执行的节点序号；正常节点执行阶段始终存在。
+    pub const fn current_node_sequence(&self) -> Option<u64> {
+        self.current_node_sequence
     }
 
     /// 保存一个成功节点的结果，覆盖同一节点的旧结果以支持重试语义。

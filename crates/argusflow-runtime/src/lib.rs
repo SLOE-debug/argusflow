@@ -42,9 +42,12 @@ pub use node_registry::{
 };
 pub use resource::{ResourceCleanup, ResourceEntry, ResourceTable};
 pub use trace::{
-    FileRunTraceStore, ResolvedInputField, ResolvedInputSource, ResolvedNodeInputs,
-    RunArtifactKind, RunArtifactSummary, RunDetails, RunManifest, RunNodeOutputs, RunNodeTrace,
-    RunStatus, RunTraceEvent, RunTraceLevel, RunTraceSession, RunTraceStore,
+    FileRunTraceStore, RUN_SCENE_PROJECTION_SCHEMA_VERSION, ResolvedInputField,
+    ResolvedInputSource, ResolvedNodeInputs, RunArtifactKind, RunArtifactSummary, RunDetails,
+    RunManifest, RunNodeOutputs, RunNodeTrace, RunPixelPoint, RunPixelRect,
+    RunPresentationSnapshot, RunSceneNodeProjection, RunSceneNodeRef, RunSceneProjection,
+    RunSceneWindowProjection, RunStatus, RunTraceEvent, RunTraceLevel, RunTraceSession,
+    RunTraceStore, RunVisualQueryMetrics, RunVisualQueryTrace, RunVisualSelectionOutcome,
 };
 pub use validation::{
     ValidationIssue, ValidationIssueCode, ValidationReport, validate_workflow,

@@ -3,10 +3,15 @@
 use std::sync::Arc;
 
 use argusflow_core::RunTraceContext;
-use argusflow_runtime::FileRunTraceStore;
+use argusflow_runtime::{
+    FileRunTraceStore, RunPixelPoint, RunPixelRect, RunSceneNodeProjection, RunSceneNodeRef,
+    RunSceneProjection, RunSceneWindowProjection, RunVisualQueryMetrics, RunVisualQueryTrace,
+    RunVisualSelectionOutcome,
+};
 use argusflow_vision::{
-    AppScene, CapturedFrame, OcrRequest, OcrResponse, VisionQueryMetrics, VisionSelectionOutcome,
-    VisionTraceSink, VisualNodeId, encode_bgra_as_bmp, project_app_scene,
+    AppScene, CapturedFrame, OcrRequest, OcrResponse, SceneNodeIdentity, SceneProjection,
+    VisionQueryMetrics, VisionSelectionOutcome, VisionTraceSink, VisualNodeSource,
+    encode_bgra_as_bmp, project_app_scene,
 };
 use serde_json::json;
 
@@ -41,9 +46,10 @@ impl VisionTraceSink for RunVisionTraceSink {
             return;
         };
         let request_metadata = json!({
-            "schema_version": 1,
+            "schema_version": 2,
             "run_id": context.run_id,
             "node_id": context.node_id,
+            "node_sequence": context.node_sequence,
             "request_id": request.request_id.as_uuid(),
             "frame_id": request.frame_id.get(),
             "topology_generation": request.topology_generation.get(),
@@ -66,6 +72,7 @@ impl VisionTraceSink for RunVisionTraceSink {
             .map(|artifact| artifact.bytes.as_slice());
         let _ = self.store.persist_ocr_artifacts(
             context.run_id,
+            request.window.handle,
             request.frame_id.get(),
             request.request_id.as_uuid(),
             &frame_bmp,
@@ -81,50 +88,110 @@ impl VisionTraceSink for RunVisionTraceSink {
         context: &RunTraceContext,
         scene: &AppScene,
         query_source: &str,
-        candidate_ids: &[VisualNodeId],
-        selected_id: Option<VisualNodeId>,
+        candidates: &[SceneNodeIdentity],
+        selected: Option<&SceneNodeIdentity>,
         outcome: VisionSelectionOutcome,
         metrics: VisionQueryMetrics,
     ) {
-        let projection = project_app_scene(scene);
-        let scene_id = scene
-            .windows
-            .iter()
-            .map(|window| window.scene.scene_id.get())
-            .max()
-            .unwrap_or(0);
-        let frame_id = scene
-            .windows
-            .iter()
-            .map(|window| window.scene.frame_id.get())
-            .max()
-            .unwrap_or(0);
-        let outcome = match outcome {
-            VisionSelectionOutcome::NotFound => "not_found",
-            VisionSelectionOutcome::Unique => "unique",
-            VisionSelectionOutcome::Multiple => "multiple",
-            VisionSelectionOutcome::Ambiguous => "ambiguous",
-            VisionSelectionOutcome::RejectedConfidence => "rejected_confidence",
+        let trace = RunVisualQueryTrace {
+            schema_version: 2,
+            run_id: context.run_id,
+            node_id: context.node_id.clone(),
+            node_sequence: context.node_sequence,
+            query: query_source.to_owned(),
+            outcome: map_outcome(outcome),
+            candidate_nodes: candidates.iter().map(map_node_ref).collect(),
+            selected_node: selected.map(map_node_ref),
+            metrics: map_metrics(metrics),
+            projection: map_projection(project_app_scene(scene)),
         };
-        let candidate_node_ids = candidate_ids
-            .iter()
-            .map(|node_id| node_id.get().to_string())
-            .collect::<Vec<_>>();
-        let selected_node_id = selected_id.map(|node_id| node_id.get().to_string());
-        let trace = json!({
-            "run_id": context.run_id,
-            "node_id": context.node_id,
-            "scene_id": scene_id,
-            "frame_id": frame_id,
-            "query": query_source,
-            "outcome": outcome,
-            "candidate_node_ids": candidate_node_ids,
-            "selected_node_id": selected_node_id,
-            "metrics": metrics,
-            "projection": projection,
-        });
-        let _ = self
-            .store
-            .persist_query_trace(context.run_id, &context.node_id, scene_id, &trace);
+        let _ = self.store.persist_query_trace(
+            context.run_id,
+            &context.node_id,
+            context.node_sequence,
+            &trace,
+        );
+    }
+}
+
+fn map_node_ref(identity: &SceneNodeIdentity) -> RunSceneNodeRef {
+    RunSceneNodeRef {
+        window_handle: identity.window_handle.to_string(),
+        scene_id: identity.scene_id,
+        node_id: identity.node_id.clone(),
+    }
+}
+
+fn map_outcome(outcome: VisionSelectionOutcome) -> RunVisualSelectionOutcome {
+    match outcome {
+        VisionSelectionOutcome::NotFound => RunVisualSelectionOutcome::NotFound,
+        VisionSelectionOutcome::Unique => RunVisualSelectionOutcome::Unique,
+        VisionSelectionOutcome::Multiple => RunVisualSelectionOutcome::Multiple,
+        VisionSelectionOutcome::Ambiguous => RunVisualSelectionOutcome::Ambiguous,
+        VisionSelectionOutcome::RejectedConfidence => RunVisualSelectionOutcome::RejectedConfidence,
+    }
+}
+
+fn map_metrics(metrics: VisionQueryMetrics) -> RunVisualQueryMetrics {
+    RunVisualQueryMetrics {
+        elapsed_us: metrics.elapsed_us,
+        exact_index_hits: metrics.exact_index_hits,
+        scanned_nodes: metrics.scanned_nodes,
+        spatial_candidates: metrics.spatial_candidates,
+    }
+}
+
+fn map_projection(projection: SceneProjection) -> RunSceneProjection {
+    RunSceneProjection {
+        schema_version: projection.schema_version,
+        windows: projection
+            .windows
+            .into_iter()
+            .map(|window| RunSceneWindowProjection {
+                window_handle: window.window_handle.to_string(),
+                scene_id: window.scene_id,
+                frame_id: window.frame_id,
+                z_order: window.z_order,
+                foreground: window.foreground,
+                screen_bounds: map_rect(window.screen_bounds),
+                frame_bounds: map_rect(window.frame_bounds),
+            })
+            .collect(),
+        nodes: projection
+            .nodes
+            .into_iter()
+            .map(|node| RunSceneNodeProjection {
+                node_id: node.node_id,
+                scene_id: node.scene_id,
+                frame_id: node.frame_id,
+                window_handle: node.window_handle.to_string(),
+                text: node.text,
+                frame_bbox: map_rect(node.frame_bbox),
+                screen_bbox: map_rect(node.screen_bbox),
+                polygon: node
+                    .polygon
+                    .into_iter()
+                    .map(|point| RunPixelPoint {
+                        x: point.x,
+                        y: point.y,
+                    })
+                    .collect(),
+                confidence: node.confidence,
+                source: match node.source {
+                    VisualNodeSource::OcrSmall => "ocr_small",
+                    VisualNodeSource::OcrMedium => "ocr_medium",
+                }
+                .to_owned(),
+            })
+            .collect(),
+    }
+}
+
+fn map_rect(rect: argusflow_vision::PhysicalRect) -> RunPixelRect {
+    RunPixelRect {
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
     }
 }

@@ -199,7 +199,7 @@ impl PreparedNode for ObserveNode {
 
     async fn execute(
         &self,
-        _node_id: &str,
+        node_id: &str,
         _permissions: &WorkflowPermissions,
         context: &mut RunContext,
     ) -> Result<NodeExecution, RuntimeError> {
@@ -225,7 +225,16 @@ impl PreparedNode for ObserveNode {
             source: self.spec.query.source.clone(),
             backend_policy: self.spec.backend_policy.clone(),
         };
-        let result = self.observe_with_policy(&request, scope).await;
+        let trace_context = argusflow_core::RunTraceContext {
+            run_id: context.run_id,
+            node_id: node_id.to_owned(),
+            node_sequence: context.current_node_sequence().ok_or_else(|| {
+                RuntimeError::ExecutionInvariant("检查节点执行时缺少节点执行序号".to_owned())
+            })?,
+        };
+        let result = self
+            .observe_with_policy(&request, scope, &trace_context)
+            .await;
         let branch = branch_for(&result);
         let (backend, known) = match &result {
             ObservationResult::Known { backend, .. } => (Some(*backend), true),
@@ -265,17 +274,36 @@ impl ObserveNode {
         &self,
         request: &ObservationRequest,
         scope: argusflow_core::AutomationExecutionScope,
+        trace_context: &argusflow_core::RunTraceContext,
     ) -> ObservationResult {
         let ObservationPolicy::Bounded {
             timeout_ms,
             poll_interval_ms,
         } = self.spec.policy
         else {
-            return self.dispatcher.observe(request, scope).await;
+            return self
+                .dispatcher
+                .observe_with_options(
+                    request,
+                    scope,
+                    argusflow_core::ObservationExecutionOptions {
+                        trace_context: Some(trace_context.clone()),
+                    },
+                )
+                .await;
         };
         let deadline = tokio::time::Instant::now() + Duration::from_millis(timeout_ms);
         loop {
-            let result = self.dispatcher.observe(request, scope.clone()).await;
+            let result = self
+                .dispatcher
+                .observe_with_options(
+                    request,
+                    scope.clone(),
+                    argusflow_core::ObservationExecutionOptions {
+                        trace_context: Some(trace_context.clone()),
+                    },
+                )
+                .await;
             let backend = match result {
                 known @ ObservationResult::Known { .. } => return known,
                 unknown @ ObservationResult::Unknown {

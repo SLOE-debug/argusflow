@@ -39,7 +39,10 @@ pub use ocr::{
     OcrModelInputArtifact, OcrOptions, OcrPreprocessingSummary, OcrProfile, OcrRequest,
     OcrRequestId, OcrResponse, OcrTimingSummary, PolygonPoint, normalize_text,
 };
-pub use projection::{SceneNodeProjection, SceneProjection, project_app_scene};
+pub use projection::{
+    SceneNodeIdentity, SceneNodeProjection, SceneProjection, SceneWindowProjection,
+    project_app_scene,
+};
 pub use query::{
     VisionQueryCompileError, VisionQueryMetrics, VisionQueryPlan, VisionQueryResult,
     compile_vision_query, evaluate_vision_query, require_unique,

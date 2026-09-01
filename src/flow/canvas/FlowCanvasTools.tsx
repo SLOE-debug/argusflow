@@ -8,6 +8,7 @@ import type {
   ReactNode,
 } from 'react';
 import { useState } from 'react';
+import type { FlowCanvasInteractionMode } from './FlowCanvas';
 
 import { useFlowStore } from '../store/store';
 import {
@@ -27,6 +28,7 @@ type FlowCanvasToolsProps = Readonly<{
   mode: CanvasToolMode;
   /** 请求切换画布指针工具。 */
   onModeChange: (mode: CanvasToolMode) => void;
+  interactionMode?: FlowCanvasInteractionMode;
 }>;
 
 /** 浮动工具组的统一外观。 */
@@ -47,6 +49,7 @@ export function FlowCanvasTools({
   canvasSize,
   mode,
   onModeChange,
+  interactionMode = 'editable',
 }: FlowCanvasToolsProps) {
   const nodes = useFlowStore((state) => state.nodes);
   const selectedNodeIds = useFlowStore((state) => state.selectedNodeIds);
@@ -105,15 +108,17 @@ export function FlowCanvasTools({
         <ToolButton label="显示全部" onClick={fitContent}>
           <Maximize2 />
         </ToolButton>
-        <ToolButton
-          label="画布设置"
-          pressed={settingsOpen}
-          onClick={() => setSettingsOpen((open) => !open)}
-        >
-          <SlidersHorizontal />
-        </ToolButton>
+        {interactionMode === 'editable' ? (
+          <ToolButton
+            label="画布设置"
+            pressed={settingsOpen}
+            onClick={() => setSettingsOpen((open) => !open)}
+          >
+            <SlidersHorizontal />
+          </ToolButton>
+        ) : null}
       </div>
-      {settingsOpen ? <CanvasShortcutPanel /> : null}
+      {interactionMode === 'editable' && settingsOpen ? <CanvasShortcutPanel /> : null}
     </div>
   );
 }

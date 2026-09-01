@@ -144,13 +144,14 @@ impl StableFrameGate {
 
     /// 使用同一窗口上一张已确认稳定的帧作为刷新基线。
     ///
-    /// 基线不会直接结束等待；门控仍会观察完整 timeout。若期间没有新帧且 topology
-    /// 未变化，捕获流的静默证明该基线仍是当前画面。
+    /// 基线只用于判断后续画面是否变化，不计作本轮新鲜帧。WGC 的有界池可能在 UI
+    /// 动作期间积压旧帧；若把基线计为第一张稳定帧，紧接着读到的一张旧尾帧就会错误
+    /// 结束刷新，永远不给缓冲释放后的新画面到达机会。
     pub fn seed(&mut self, frame: Arc<CapturedFrame>) {
         self.previous = Some(frame);
-        self.consecutive_frames = 1;
+        self.consecutive_frames = 0;
         self.state = StabilityState::Collecting {
-            consecutive_frames: 1,
+            consecutive_frames: 0,
             changed_ratio: 0.0,
         };
     }
@@ -267,6 +268,36 @@ mod tests {
                 consecutive_frames: 0,
                 changed_ratio: 1.0,
             }
+        );
+    }
+
+    /// 已缓存场景只能作为比较基线；第一张积压旧帧不得提前结束强制刷新。
+    #[test]
+    fn seeded_baseline_requires_fresh_frames_before_refresh_completes() {
+        let old = frame(1, 0);
+        let updated = frame(3, 255);
+        let mut gate = StableFrameGate::default_gate();
+        gate.seed(old.clone());
+
+        assert!(
+            gate.observe(frame(2, 0))
+                .expect("queued old frame")
+                .is_none()
+        );
+        assert!(
+            gate.observe(updated)
+                .expect("first updated frame")
+                .is_none()
+        );
+        assert!(
+            gate.observe(frame(4, 255))
+                .expect("first low-change updated frame")
+                .is_none()
+        );
+        assert!(
+            gate.observe(frame(5, 255))
+                .expect("settled updated frame")
+                .is_some()
         );
     }
 

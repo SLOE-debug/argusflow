@@ -10,6 +10,8 @@ import type {
   ValidationReport,
   WorkflowInputDefinition,
   WorkflowPermissions,
+  WorkflowDefinition,
+  RunPresentationSnapshot,
 } from '../model/contracts';
 import {
   canConnect,
@@ -82,6 +84,10 @@ export function useWorkflowStudio() {
   const [events, setEvents] = useState<ExecutionEvent[]>([]);
   const [running, setRunning] = useState(false);
   const [runId, setRunId] = useState<string | null>(null);
+  const [runSnapshot, setRunSnapshot] = useState<Readonly<{
+    workflow: WorkflowDefinition;
+    presentation: RunPresentationSnapshot;
+  }> | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const { componentCatalog, createComponent } = useWorkflowComponents(
     flowStore,
@@ -205,13 +211,25 @@ export function useWorkflowStudio() {
       workflowInputs.replaceRunInputValues(runInputValues);
     }
 
+    /** 运行画布必须与启动 IPC 使用完全相同的冻结定义和展示名称。 */
+    const workflowSnapshot = currentWorkflow();
+    const presentationSnapshot: RunPresentationSnapshot = {
+      schema_version: 1,
+      node_labels: Object.fromEntries(
+        Object.values(flowStore.getState().documents)
+          .flatMap((document) => document.nodes)
+          .map((node) => [node.id, node.data.label]),
+      ),
+    };
+    setRunSnapshot({ workflow: workflowSnapshot, presentation: presentationSnapshot });
     setAllNodeRunStates(flowStore, 'pending', true);
     setRunning(true);
     try {
       const started = await runWorkflow(
-        currentWorkflow(),
+        workflowSnapshot,
         componentCatalog.map((item) => item.definition),
         { values: runInputValues },
+        presentationSnapshot,
       );
       setRunId(started.run_id);
     } catch (error) {
@@ -454,6 +472,7 @@ export function useWorkflowStudio() {
     events,
     running,
     runId,
+    runSnapshot,
     errorMessage,
     validate,
     run,

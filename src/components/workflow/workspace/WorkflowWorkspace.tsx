@@ -59,6 +59,8 @@ type WorkflowWorkspaceProps = Readonly<{
   onCloseEditor: () => void;
   /** 按打开目标的节点 ID 写回文档。 */
   onUpdateNode: (nodeId: string, updater: WorkflowNodeUpdater) => void;
+  /** 从 Dock 的单一运行入口打开沉浸式执行台。 */
+  onOpenRunWorkbench?: () => void;
 }>;
 
 /** 中央工作区负责 Canvas 与统一、可调尺寸 Dock 的纵向编排。 */
@@ -79,6 +81,7 @@ export function WorkflowWorkspace({
   onEditorModeChange,
   onCloseEditor,
   onUpdateNode,
+  onOpenRunWorkbench,
 }: WorkflowWorkspaceProps) {
   const workspaceRef = useRef<HTMLElement>(null);
   const [workspaceHeight, setWorkspaceHeight] = useState(800);
@@ -154,6 +157,7 @@ export function WorkflowWorkspace({
         onDockHeightChange={onDockHeightChange}
         onEditorModeChange={onEditorModeChange}
         onCloseEditor={onCloseEditor}
+        onOpenRunWorkbench={onOpenRunWorkbench}
       />
     </section>
   );

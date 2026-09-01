@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useRef,
   useState,
   type CSSProperties,
 } from 'react';
@@ -16,6 +17,7 @@ import {
   WorkflowCanvas,
   WorkflowDataPanel,
   RunInputsDialog,
+  RunExecutionWorkbench,
   WorkflowOverview,
   WorkflowWorkspace,
   WorkspaceStatusBar,
@@ -25,6 +27,7 @@ import { PanelResizeHandle } from './components/ui';
 import type { StartupSnapshot } from './features/startup';
 import {
   useWorkflowStudio,
+  type RunWorkbenchSource,
   type WorkflowCanvasNode,
 } from './features/workflow';
 
@@ -66,17 +69,30 @@ export default function App({ startupStatus, executionEnabled }: AppProps) {
   const [drillDownComponentId, setDrillDownComponentId] = useState<string | null>(null);
   const [workflowDataRequest, setWorkflowDataRequest] = useState(0);
   const [runInputsOpen, setRunInputsOpen] = useState(false);
+  const [runWorkbenchOpen, setRunWorkbenchOpen] = useState(false);
+  const [runWorkbenchSource, setRunWorkbenchSource] = useState<RunWorkbenchSource>('current');
+  /** 关闭执行台后恢复到用户打开前的交互位置。 */
+  const runWorkbenchReturnFocus = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     const hasConsoleContent =
-      studio.events.length > 0 ||
       (studio.report !== null && !studio.report.valid) ||
       studio.errorMessage !== null;
 
     if (hasConsoleContent) {
       setDockOpen(true);
     }
-  }, [studio.errorMessage, studio.events.length, studio.report]);
+  }, [studio.errorMessage, studio.report]);
+
+  /** 只有后端返回真实 Run ID 后才自动进入当前运行执行台。 */
+  useEffect(() => {
+    if (!studio.runId) return;
+    runWorkbenchReturnFocus.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    setRunWorkbenchSource('current');
+    setRunWorkbenchOpen(true);
+  }, [studio.runId]);
 
   /** 根据左右面板的当前拖拽宽度组装工作区网格。 */
   const mainGridStyle: CSSProperties = {
@@ -95,6 +111,17 @@ export default function App({ startupStatus, executionEnabled }: AppProps) {
   };
   const openWorkflowEditor = () => {
     setAppView('editor');
+  };
+  const openRunWorkbench = (source: RunWorkbenchSource) => {
+    runWorkbenchReturnFocus.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    setRunWorkbenchSource(source);
+    setRunWorkbenchOpen(true);
+  };
+  const closeRunWorkbench = () => {
+    setRunWorkbenchOpen(false);
+    requestAnimationFrame(() => runWorkbenchReturnFocus.current?.focus());
   };
   const workflowData = (
     <WorkflowDataPanel
@@ -187,10 +214,16 @@ export default function App({ startupStatus, executionEnabled }: AppProps) {
         </>
       ) : (
         <>
-          <div
-            className="grid h-full min-h-0"
-            style={mainGridStyle}
-          >
+          {runWorkbenchOpen ? (
+            <RunExecutionWorkbench
+              initialSource={runWorkbenchSource}
+              liveEvents={studio.events}
+              liveRunId={studio.runId}
+              liveSnapshot={studio.runSnapshot}
+              onClose={closeRunWorkbench}
+            />
+          ) : (
+          <div className="grid h-full min-h-0" style={mainGridStyle}>
             {libraryOpen ? (
               <div className="relative min-h-0 min-w-0">
                 <NodePalette
@@ -226,6 +259,7 @@ export default function App({ startupStatus, executionEnabled }: AppProps) {
               onEditorModeChange={workspaceEditor.setMode}
               onCloseEditor={workspaceEditor.closeEditor}
               onUpdateNode={studio.updateNodeById}
+              onOpenRunWorkbench={() => openRunWorkbench('history')}
               canvas={(
                 <>
                   <WorkflowCanvas
@@ -285,6 +319,7 @@ export default function App({ startupStatus, executionEnabled }: AppProps) {
               <div aria-hidden="true" />
             )}
           </div>
+          )}
           <WorkspaceStatusBar
             store={studio.flowStore}
             status={workflowStatus}

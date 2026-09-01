@@ -43,7 +43,7 @@ export type WorkflowLoopDocuments = Readonly<Record<
  * 位置原点会在预览中归一化，因此负坐标和远离原点的子图都只按实际跨度占用空间。
  */
 export function resolveWorkflowLoopLayout(
-  nodes: ReadonlyArray<FlowNode<WorkflowNodeData>>,
+  nodes: ReadonlyArray<FlowNode>,
 ): WorkflowLoopLayout {
   const bounds = getNodesBounds(nodes);
   if (!bounds) {

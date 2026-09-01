@@ -55,7 +55,11 @@ export function SceneQueryInspector({ trace }: SceneQueryInspectorProps) {
             布局用于查看大致位置；点击坐标来自精确边界。
           </p>
           <pre className="max-h-72 overflow-auto rounded bg-slate-950 p-2 font-mono text-[10px] leading-4 text-slate-100">
-            {trace.projection.spatial_text || '本次查询没有保存场景数据。'}
+            {trace.projection.nodes.length > 0
+              ? trace.projection.nodes.map((node) => (
+                  `${node.window_handle} · ${node.screen_bbox.x},${node.screen_bbox.y} · ${node.text}`
+                )).join('\n')
+              : '本次查询没有保存场景数据。'}
           </pre>
         </div>
       ) : null}

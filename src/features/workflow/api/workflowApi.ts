@@ -7,6 +7,7 @@ import type {
   CommandError,
   FlowComponentDefinition,
   RunInputs,
+  RunPresentationSnapshot,
   RunDetails,
   RunManifest,
   RunStarted,
@@ -45,8 +46,9 @@ export function runWorkflow(
   workflow: WorkflowDefinition,
   components: ReadonlyArray<FlowComponentDefinition>,
   inputs: RunInputs,
+  presentation: RunPresentationSnapshot,
 ): Promise<RunStarted> {
-  return invoke<RunStarted>('run_workflow', { workflow, components, inputs });
+  return invoke<RunStarted>('run_workflow', { workflow, components, inputs, presentation });
 }
 
 /** 按开始时间倒序读取本地运行索引。 */

@@ -12,7 +12,10 @@ use tokio::sync::Notify;
 use windows::{
     Foundation::TypedEventHandler,
     Graphics::{
-        Capture::{Direct3D11CaptureFramePool, GraphicsCaptureItem, GraphicsCaptureSession},
+        Capture::{
+            Direct3D11CaptureFrame, Direct3D11CaptureFramePool, GraphicsCaptureItem,
+            GraphicsCaptureSession,
+        },
         DirectX::DirectXPixelFormat,
         SizeInt32,
     },
@@ -104,7 +107,11 @@ impl WindowCaptureSurface {
         })
     }
 
-    /// 读取下一张已经到达的帧；resize 时重建 pool 并等待后续新尺寸帧。
+    /// 读取当前积压队列中最新的一张帧；resize 时重建 pool 并等待后续新尺寸帧。
+    ///
+    /// WGC frame pool 是一个有界队列。工作流在 Delay 或 UI 输入期间不会持续消费它，
+    /// 因此一次普通的 `TryGetNextFrame` 很可能拿到动作前的旧帧。场景读取关心的是“当前
+    /// 画面”而非逐帧回放，所以必须先排空队列并只对最新帧执行昂贵的 GPU readback。
     pub(super) fn poll(
         &mut self,
         graphics: &GraphicsDevice,
@@ -114,9 +121,8 @@ impl WindowCaptureSurface {
         deadline: Instant,
         timeout: Duration,
     ) -> Result<Option<Arc<CapturedFrame>>, VisionError> {
-        let frame = match self.pool.TryGetNextFrame() {
-            Ok(frame) => frame,
-            Err(_) => return Ok(None),
+        let Some(frame) = self.take_latest_pending_frame()? else {
+            return Ok(None);
         };
         let content_size = frame
             .ContentSize()
@@ -150,6 +156,18 @@ impl WindowCaptureSurface {
         ))))
     }
 
+    /// 排空 WGC 的有界待处理队列，并确定性关闭被更新帧替代的旧资源。
+    fn take_latest_pending_frame(&self) -> Result<Option<Direct3D11CaptureFrame>, VisionError> {
+        drain_latest_available(
+            || self.pool.TryGetNextFrame().ok(),
+            |frame| {
+                frame
+                    .Close()
+                    .map_err(|error| capture_error("failed to close superseded WGC frame", error))
+            },
+        )
+    }
+
     /// 返回当前 DWM 可见物理边界，供调用方维护窗口 generation。
     pub(super) fn bounds(&self) -> Result<PhysicalRect, VisionError> {
         window_bounds(native_window(self.window.handle))
@@ -175,6 +193,21 @@ impl WindowCaptureSurface {
         readback.clear();
         Ok(())
     }
+}
+
+/// 从有界积压队列保留最新项目，并通过调用方提供的资源释放函数丢弃更旧项目。
+fn drain_latest_available<T>(
+    mut next: impl FnMut() -> Option<T>,
+    mut discard: impl FnMut(T) -> Result<(), VisionError>,
+) -> Result<Option<T>, VisionError> {
+    let Some(mut latest) = next() else {
+        return Ok(None);
+    };
+    while let Some(newer) = next() {
+        discard(latest)?;
+        latest = newer;
+    }
+    Ok(Some(latest))
 }
 
 impl Drop for WindowCaptureSurface {
@@ -240,4 +273,30 @@ fn close_resources(
     }
     let _ = session.Close();
     let _ = pool.Close();
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::VecDeque;
+
+    use super::*;
+
+    /// 场景捕获必须跳过动作前的积压帧，只把最新画面交给稳定门控和 OCR。
+    #[test]
+    fn pending_capture_frames_are_drained_to_the_latest_image() {
+        let mut pending = VecDeque::from(["17:31", "17:31-caret", "19:44"]);
+        let mut discarded = Vec::new();
+
+        let latest = drain_latest_available(
+            || pending.pop_front(),
+            |frame| {
+                discarded.push(frame);
+                Ok(())
+            },
+        )
+        .expect("pending frame drain should succeed");
+
+        assert_eq!(latest, Some("19:44"));
+        assert_eq!(discarded, ["17:31", "17:31-caret"]);
+    }
 }

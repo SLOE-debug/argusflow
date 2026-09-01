@@ -84,11 +84,30 @@ export {
 export {
   formatExecutionLogEntry,
   resolveExecutionLogEntry,
+  resolveSnapshotExecutionLogEntry,
   type ExecutionLogEntry,
   type ExecutionLogSeverity,
 } from './execution/executionEventPresentation';
 export { useAqlInspection, type AqlInspectionState } from './execution/useAqlInspection';
 export { useRunHistory, type RunHistoryState } from './execution/useRunHistory';
+export {
+  useRunExecutionWorkbench,
+  type LiveRunSnapshot,
+  type RunWorkbenchSource,
+  type RunWorkbenchView,
+} from './execution/useRunExecutionWorkbench';
+export { deriveRunPlayback, type RunPlaybackState } from './execution/runPlayback';
+export {
+  selectRunSceneTrace,
+  type RunSceneSelection,
+} from './execution/scenePlayback';
+export {
+  createRunSnapshotDocuments,
+  findRunNodeDisplayBounds,
+  type RunSnapshotDocuments,
+  type RunSnapshotEdgeData,
+  type RunSnapshotNodeData,
+} from './execution/runSnapshotFlow';
 export {
   deriveFocusSelection,
   type FocusCandidate,
@@ -195,6 +214,7 @@ export type {
   RunManifest,
   RunArtifactKind,
   RunArtifactSummary,
+  RunPresentationSnapshot,
   VisualQueryTrace,
   VisualSelectionOutcome,
   RunNodeTrace,
@@ -205,6 +225,10 @@ export type {
   ResolvedInputField,
   ResolvedInputSource,
   ResolvedNodeInputs,
+  PixelRect,
+  SceneNodeProjection,
+  SceneNodeRef,
+  SceneWindowProjection,
   RuntimeAvailability,
   TargetLocator,
   TargetLocatorKind,

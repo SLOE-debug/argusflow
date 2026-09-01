@@ -161,6 +161,25 @@ impl WorkflowEngine {
         inputs: RunInputs,
         sink: Arc<dyn ExecutionEventSink>,
     ) -> Result<RunStarted, RuntimeError> {
+        self.start_with_presentation(
+            workflow,
+            components,
+            inputs,
+            crate::RunPresentationSnapshot::default(),
+            sink,
+        )
+        .await
+    }
+
+    /// 使用运行开始时冻结的展示名称解析组件、编译并异步启动工作流。
+    pub async fn start_with_presentation(
+        self: &Arc<Self>,
+        workflow: argusflow_core::WorkflowDefinition,
+        components: Vec<FlowComponentDefinition>,
+        inputs: RunInputs,
+        presentation: crate::RunPresentationSnapshot,
+        sink: Arc<dyn ExecutionEventSink>,
+    ) -> Result<RunStarted, RuntimeError> {
         let original_workflow = workflow.clone();
         let component_snapshot = components.clone();
         let component_registry =
@@ -187,6 +206,7 @@ impl WorkflowEngine {
                     &workflow.definition,
                     &component_snapshot,
                     &inputs,
+                    &presentation,
                 )
                 .ok()
         });

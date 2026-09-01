@@ -4,6 +4,7 @@ import type { FlowNode } from '../types';
 import {
   MAX_CANVAS_ZOOM,
   centerBoundsInViewport,
+  ensureBoundsVisibleInViewport,
   fitBoundsToViewport,
   getNodesBounds,
 } from './viewport';
@@ -80,5 +81,35 @@ describe('flow viewport', () => {
     expect(screenBounds.top).toBeGreaterThanOrEqual(72 - Number.EPSILON * 512);
     expect(screenBounds.right).toBeLessThanOrEqual(800 - 72 + Number.EPSILON * 512);
     expect(screenBounds.bottom).toBeLessThanOrEqual(600 - 72 + Number.EPSILON * 512);
+  });
+
+  it('follows targets outside each side with the minimum translation', () => {
+    const size = { width: 800, height: 600 };
+    const padding = { top: 60, right: 70, bottom: 80, left: 50 };
+    const viewport = { x: 0, y: 0, zoom: 1 };
+
+    expect(ensureBoundsVisibleInViewport(
+      { x: -30, y: 100, width: 80, height: 50 }, size, viewport, padding,
+    )).toEqual({ x: 80, y: 0, zoom: 1 });
+    expect(ensureBoundsVisibleInViewport(
+      { x: 760, y: 100, width: 80, height: 50 }, size, viewport, padding,
+    )).toEqual({ x: -110, y: 0, zoom: 1 });
+    expect(ensureBoundsVisibleInViewport(
+      { x: 100, y: 20, width: 80, height: 50 }, size, viewport, padding,
+    )).toEqual({ x: 0, y: 40, zoom: 1 });
+    expect(ensureBoundsVisibleInViewport(
+      { x: 100, y: 570, width: 80, height: 50 }, size, viewport, padding,
+    )).toEqual({ x: 0, y: -100, zoom: 1 });
+  });
+
+  it('does not disturb a target already inside the safe visible area', () => {
+    const viewport = { x: -120, y: 30, zoom: 1.25 };
+
+    expect(ensureBoundsVisibleInViewport(
+      { x: 200, y: 100, width: 160, height: 64 },
+      { width: 800, height: 600 },
+      viewport,
+      { top: 60, right: 70, bottom: 80, left: 50 },
+    )).toBe(viewport);
   });
 });

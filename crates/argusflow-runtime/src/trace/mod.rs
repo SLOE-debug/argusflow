@@ -5,10 +5,15 @@ mod index;
 mod model;
 mod session_helpers;
 mod store;
+#[cfg(test)]
+mod store_tests;
 
 pub use model::{
-    ResolvedInputField, ResolvedInputSource, ResolvedNodeInputs, RunArtifactKind,
-    RunArtifactSummary, RunDetails, RunManifest, RunNodeOutputs, RunNodeTrace, RunStatus,
-    RunTraceEvent, RunTraceLevel,
+    RUN_SCENE_PROJECTION_SCHEMA_VERSION, ResolvedInputField, ResolvedInputSource,
+    ResolvedNodeInputs, RunArtifactKind, RunArtifactSummary, RunDetails, RunManifest,
+    RunNodeOutputs, RunNodeTrace, RunPixelPoint, RunPixelRect, RunPresentationSnapshot,
+    RunSceneNodeProjection, RunSceneNodeRef, RunSceneProjection, RunSceneWindowProjection,
+    RunStatus, RunTraceEvent, RunTraceLevel, RunVisualQueryMetrics, RunVisualQueryTrace,
+    RunVisualSelectionOutcome,
 };
 pub use store::{FileRunTraceStore, RunTraceSession, RunTraceStore};

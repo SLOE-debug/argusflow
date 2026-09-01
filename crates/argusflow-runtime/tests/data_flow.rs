@@ -6,9 +6,10 @@ use argusflow_core::{
     ActionExecutionOptions, ActionOutcome, AqlQuery, AutomationAction, AutomationError,
     AutomationExecutionScope, AutomationTarget, BackendKind, ControlPortId,
     DiagnosticEvidenceReference, ExecutionEvent, ExecutionEventKind, ExecutionEventPayload,
-    NodeEnvelope, ObservationPolicy, ObservationRequest, ObservationResult, ObservationValue,
-    ObserveSpec, Position, RunInputs, TargetScope, TargetWaitPolicy, UiExecutionPolicy,
-    UiOperation, ValueExpr, WorkflowDefinition, WorkflowEdge, WorkflowNode,
+    NodeEnvelope, ObservationExecutionOptions, ObservationPolicy, ObservationRequest,
+    ObservationResult, ObservationValue, ObserveSpec, Position, RunInputs, TargetScope,
+    TargetWaitPolicy, UiExecutionPolicy, UiOperation, ValueExpr, WorkflowDefinition, WorkflowEdge,
+    WorkflowNode,
 };
 use argusflow_runtime::{
     ActionDispatcher, ExecutionEventSink, ObservationDispatcher,
@@ -115,6 +116,8 @@ impl ActionDispatcher for CapturingDispatcher {
 #[derive(Default)]
 struct CapturingObservationDispatcher {
     requests: Mutex<Vec<ObservationRequest>>,
+    /// Observe 节点交付的运行关联身份。
+    options: Mutex<Vec<ObservationExecutionOptions>>,
 }
 
 #[async_trait]
@@ -132,6 +135,16 @@ impl ObservationDispatcher for CapturingObservationDispatcher {
                 Value::String("ACME-10086".to_owned()),
             )])]),
         }
+    }
+
+    async fn observe_with_options(
+        &self,
+        request: &ObservationRequest,
+        scope: AutomationExecutionScope,
+        options: ObservationExecutionOptions,
+    ) -> ObservationResult {
+        self.options.lock().await.push(options);
+        self.observe(request, scope).await
     }
 }
 
@@ -181,6 +194,15 @@ async fn observation_output_is_resolved_for_debug_and_the_following_set_value() 
     ));
     drop(captured_actions);
     assert_eq!(observations.requests.lock().await.len(), 1);
+    let observation_options = observations.options.lock().await;
+    assert_eq!(observation_options.len(), 1);
+    let trace_context = observation_options[0]
+        .trace_context
+        .as_ref()
+        .expect("observe should receive run trace context");
+    assert_eq!(trace_context.node_id, "observe");
+    assert!(trace_context.node_sequence > 0);
+    drop(observation_options);
     let options = actions.options.lock().await;
     assert_eq!(options.len(), 1);
     assert!(options.iter().all(|option| {
