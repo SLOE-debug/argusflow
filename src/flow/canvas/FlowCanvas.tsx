@@ -124,7 +124,6 @@ export function FlowCanvas({
       onDragOver={handleDragOver}
       onDrop={handleDrop}
       onPointerDown={interactions.handlePanePointerDown}
-      onWheel={interactions.handleWheel}
     >
       <FlowCanvasLayers
         edgeLabelResolver={edgeLabelResolver}

@@ -1,8 +1,7 @@
 import { listen } from '@tauri-apps/api/event';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { useStore } from 'zustand';
 
-import { createFlowStore } from '../../../flow';
 import type { FlowAnchorSide, FlowPoint } from '../../../flow';
 import type {
   ControlPortId,
@@ -12,18 +11,6 @@ import type {
   WorkflowInputDefinition,
   WorkflowPermissions,
 } from '../model/contracts';
-import {
-  DEFAULT_EDGES,
-  DEFAULT_NODES,
-  DEFAULT_SELECTED_NODE_ID,
-  DEFAULT_SCOPE_METADATA,
-  DEFAULT_WORKFLOW_DOCUMENTS,
-  DEFAULT_ROOT_SCOPE_ID,
-  DEFAULT_WORKFLOW_INPUTS,
-  DEFAULT_WORKFLOW_NAME,
-  DEFAULT_WORKFLOW_PERMISSIONS,
-  DEFAULT_WORKFLOW_VARIABLES,
-} from '../model/defaultWorkflowTemplate';
 import {
   canConnect,
   createEdge,
@@ -59,31 +46,15 @@ import {
   setInvalidNodeIds,
   updateAllWorkflowDocuments,
 } from './workflowDocumentRuntime';
+import { bindWorkflowLoopAutoSize } from './workflowLoopAutoSize';
+import { createWorkflowStudioStore } from './workflowStudioStore';
 
 const WORKFLOW_EVENT_NAME = 'argusflow://workflow-event';
 
 /** 编排自研 Flow store、工作流设置和后端运行事件。 */
 export function useWorkflowStudio() {
   const workflowId = useMemo(() => crypto.randomUUID(), []);
-  const flowStore = useMemo(() => {
-    /** 带参考工作流的独立画布 Store。 */
-    const store = createFlowStore<WorkflowNodeData, WorkflowEdgeData>({
-      metadata: {
-        workflowName: DEFAULT_WORKFLOW_NAME,
-        inputs: DEFAULT_WORKFLOW_INPUTS,
-        variables: DEFAULT_WORKFLOW_VARIABLES,
-        permissions: DEFAULT_WORKFLOW_PERMISSIONS,
-        rootScopeId: DEFAULT_ROOT_SCOPE_ID,
-        scopeMetadata: DEFAULT_SCOPE_METADATA,
-      },
-      nodes: DEFAULT_NODES,
-      edges: DEFAULT_EDGES,
-      activeDocumentId: DEFAULT_ROOT_SCOPE_ID,
-      documents: DEFAULT_WORKFLOW_DOCUMENTS,
-    });
-    store.getState().selectNodes([DEFAULT_SELECTED_NODE_ID]);
-    return store;
-  }, []);
+  const flowStore = useMemo(createWorkflowStudioStore, []);
   const workflowName = useStore(
     flowStore,
     (state) => state.metadata.workflowName as string,
@@ -117,6 +88,9 @@ export function useWorkflowStudio() {
     setErrorMessage,
     setReport,
   );
+
+  /** While 尺寸属于多作用域文档的派生状态，在浏览器绘制前完成首次同步。 */
+  useLayoutEffect(() => bindWorkflowLoopAutoSize(flowStore), [flowStore]);
 
   const setWorkflowName = useCallback((name: string) => {
     flowStore.getState().setMetadata(

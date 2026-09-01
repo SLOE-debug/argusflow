@@ -73,14 +73,14 @@ const WECHAT_WORKFLOW_ALL_NODES = [
     outputBindings: {},
     runState: 'idle',
   }),
-  workflowNode(WECHAT_APPLICATION_NODE_ID, 'application', 220, 100, {
+  workflowNode(WECHAT_APPLICATION_NODE_ID, 'application', 180, 100, {
     kind: 'application',
     label: '打开微信',
     outputBindings: {},
     spec: createWechatApplicationSpec(),
     runState: 'idle',
   }),
-  workflowNode('open_search', 'ui', 430, 100, {
+  workflowNode('open_search', 'ui', 370, 100, {
     kind: 'ui',
     label: '打开联系人搜索',
     outputBindings: {},
@@ -92,7 +92,7 @@ const WECHAT_WORKFLOW_ALL_NODES = [
     execution: createWechatInputExecution(),
     runState: 'idle',
   }),
-  workflowNode('wait_for_search', 'loop', 640, 100, {
+  workflowNode('wait_for_search', 'loop', 560, 100, {
     kind: 'loop',
     label: '等待搜索页打开',
     outputBindings: {},
@@ -114,7 +114,7 @@ const WECHAT_WORKFLOW_ALL_NODES = [
     resultType: 'boolean',
     runState: 'idle',
   }),
-  workflowNode('search_not_ready', 'fail', 779, 460, {
+  workflowNode('search_not_ready', 'fail', 705, 310, {
     kind: 'fail',
     label: '搜索页未打开',
     outputBindings: {},
@@ -125,7 +125,7 @@ const WECHAT_WORKFLOW_ALL_NODES = [
     },
     runState: 'idle',
   }),
-  workflowNode('select_search_text', 'ui', 1_160, 100, {
+  workflowNode('select_search_text', 'ui', 1_010, 100, {
     kind: 'ui',
     label: '清空搜索框',
     outputBindings: {},
@@ -137,7 +137,7 @@ const WECHAT_WORKFLOW_ALL_NODES = [
     execution: createWechatInputExecution(),
     runState: 'idle',
   }),
-  workflowNode('type_contact', 'ui', 1_370, 100, {
+  workflowNode('type_contact', 'ui', 1_220, 100, {
     kind: 'ui',
     label: '输入联系人',
     outputBindings: {},
@@ -145,7 +145,7 @@ const WECHAT_WORKFLOW_ALL_NODES = [
     execution: createWechatInputExecution(),
     runState: 'idle',
   }),
-  workflowNode('select_contact', 'ui', 1_580, 100, {
+  workflowNode('select_contact', 'ui', 1_430, 100, {
     kind: 'ui',
     label: '选择联系人',
     outputBindings: {},
@@ -153,7 +153,7 @@ const WECHAT_WORKFLOW_ALL_NODES = [
     execution: createWechatContactClickExecution(),
     runState: 'idle',
   }),
-  workflowNode('wait_for_conversation', 'loop', 1_790, 100, {
+  workflowNode('wait_for_conversation', 'loop', 1_640, 100, {
     kind: 'loop',
     label: '等待会话打开',
     outputBindings: {},
@@ -175,7 +175,7 @@ const WECHAT_WORKFLOW_ALL_NODES = [
     resultType: 'boolean',
     runState: 'idle',
   }),
-  workflowNode('conversation_not_ready', 'fail', 1_929, 460, {
+  workflowNode('conversation_not_ready', 'fail', 1_785, 310, {
     kind: 'fail',
     label: '联系人会话未打开',
     outputBindings: {},
@@ -186,7 +186,7 @@ const WECHAT_WORKFLOW_ALL_NODES = [
     },
     runState: 'idle',
   }),
-  workflowNode('type_message', 'ui', 2_310, 100, {
+  workflowNode('type_message', 'ui', 1_640, 600, {
     kind: 'ui',
     label: '输入消息',
     outputBindings: {},
@@ -194,7 +194,7 @@ const WECHAT_WORKFLOW_ALL_NODES = [
     execution: createWechatInputExecution(),
     runState: 'idle',
   }),
-  workflowNode('send_message', 'ui', 2_520, 100, {
+  workflowNode('send_message', 'ui', 1_430, 600, {
     kind: 'ui',
     label: '发送消息',
     outputBindings: {},
@@ -206,14 +206,14 @@ const WECHAT_WORKFLOW_ALL_NODES = [
     execution: createWechatInputExecution(),
     runState: 'idle',
   }),
-  workflowNode('wait_for_wechat_update', 'delay', 2_730, 100, {
+  workflowNode('wait_for_wechat_update', 'delay', 1_220, 600, {
     kind: 'delay',
     label: '等待微信更新',
     outputBindings: {},
     milliseconds: 800,
     runState: 'idle',
   }),
-  workflowNode('wait_for_send_result', 'loop', 2_940, 100, {
+  workflowNode('wait_for_send_result', 'loop', 760, 600, {
     kind: 'loop',
     label: '等待发送结果',
     outputBindings: {},
@@ -238,7 +238,7 @@ const WECHAT_WORKFLOW_ALL_NODES = [
     resultType: 'boolean',
     runState: 'idle',
   }),
-  workflowNode('send_result_unknown', 'fail', 3_079, 460, {
+  workflowNode('send_result_unknown', 'fail', 905, 810, {
     kind: 'fail',
     label: '无法确认发送结果',
     outputBindings: {},
@@ -249,7 +249,7 @@ const WECHAT_WORKFLOW_ALL_NODES = [
     },
     runState: 'idle',
   }),
-  workflowNode('end', 'end', 3_460, 100, {
+  workflowNode('end', 'end', 590, 600, {
     kind: 'end',
     label: '消息已发送',
     outputBindings: {},

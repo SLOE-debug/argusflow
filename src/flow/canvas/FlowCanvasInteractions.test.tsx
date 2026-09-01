@@ -268,7 +268,11 @@ describe('FlowCanvas interactions', () => {
     );
     const canvas = container.querySelector('.touch-none');
 
-    fireEvent.wheel(canvas!, { clientX: 40, clientY: 40, deltaY: -1_000 });
+    expect(fireEvent.wheel(canvas!, {
+      clientX: 40,
+      clientY: 40,
+      deltaY: -1_000,
+    })).toBe(false);
     wheelFrame?.(0);
     expect(onSemanticZoomIn).toHaveBeenCalled();
     expect(onSemanticZoomOut).not.toHaveBeenCalled();

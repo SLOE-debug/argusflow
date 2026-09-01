@@ -86,7 +86,6 @@ type CanvasPointerInteractions = Readonly<{
     point: FlowPoint,
     event: ReactPointerEvent,
   ) => void;
-  handleWheel: ReturnType<typeof useCanvasWheelZoom>;
 }>;
 
 const FLOW_ANCHOR_SIDES: ReadonlySet<string> = new Set([
@@ -117,7 +116,8 @@ export function useCanvasPointerInteractions({
   const [contextMenu, setContextMenu] = useState<CanvasContextMenu | null>(null);
   /** 节点拖拽交互使用的单调递增标识。 */
   const routingInteractionId = useRef(0);
-  const handleWheel = useCanvasWheelZoom({
+  useCanvasWheelZoom({
+    containerRef,
     maxZoom,
     onSemanticZoomIn,
     onSemanticZoomOut,
@@ -459,6 +459,5 @@ export function useCanvasPointerInteractions({
     handleNodeDragStart,
     handlePanePointerDown,
     handleReconnectStart,
-    handleWheel,
   };
 }

@@ -181,19 +181,17 @@ fn validate_boundary(
     }
 }
 
-/// 节点尺寸属于 v10 必需契约；While 容器还必须满足可编辑最小尺寸。
+/// 节点尺寸属于 v10 必需契约；具体节点的编辑器视觉下限不参与运行时校验。
 fn validate_node_sizes(scope: &FlowScope, issues: &mut Vec<ValidationIssue>) {
     for node in &scope.nodes {
         let finite_positive = node.size.width.is_finite()
             && node.size.height.is_finite()
             && node.size.width > 0.0
             && node.size.height > 0.0;
-        let loop_minimum = node.definition.type_id.as_str() != "argus.loop"
-            || (node.size.width >= 300.0 && node.size.height >= 180.0);
-        if !finite_positive || !loop_minimum {
+        if !finite_positive {
             issues.push(issue(
                 ValidationIssueCode::InvalidNodeSize,
-                "节点尺寸必须为有限正数，While 容器不得小于 300×180",
+                "节点尺寸必须为有限正数",
                 Some(node.id.clone()),
                 None,
             ));

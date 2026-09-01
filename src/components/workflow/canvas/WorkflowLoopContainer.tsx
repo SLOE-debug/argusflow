@@ -1,26 +1,41 @@
-import CircleCheck from 'lucide-react/dist/esm/icons/circle-check.mjs';
-import PlayCircle from 'lucide-react/dist/esm/icons/circle-play.mjs';
 import Repeat2 from 'lucide-react/dist/esm/icons/repeat-2.mjs';
+import {
+  useMemo,
+  type ComponentType,
+} from 'react';
 
 import {
+  routeEdge,
   useFlowStore,
-  type FlowNode,
+  type FlowDocument,
   type FlowNodeRendererProps,
 } from '../../../flow';
-import type { WorkflowNodeData } from '../../../features/workflow';
+import {
+  resolveWorkflowLoopLayout,
+  WORKFLOW_LOOP_BODY_PADDING,
+  WORKFLOW_LOOP_BODY_TOP_INSET,
+  WORKFLOW_LOOP_PREVIEW_SCALE,
+  type WorkflowEdgeData,
+  type WorkflowNodeData,
+} from '../../../features/workflow';
 
-/** While 父层预览最多展示的直接子节点数量，避免复杂正文挤成不可读缩略图。 */
-const MAX_PREVIEW_NODES = 7;
+type WorkflowLoopContainerProps = FlowNodeRendererProps<WorkflowNodeData> & Readonly<{
+  /** 普通子节点使用主画布的同一渲染器，保证字段和运行态实时一致。 */
+  nodeRenderer: ComponentType<FlowNodeRendererProps<WorkflowNodeData>>;
+}>;
 
-/** While 在父画布中渲染为可缩放进入的结构容器和一层只读预览。 */
+type WorkflowLoopBodyDocument = FlowDocument<WorkflowNodeData, WorkflowEdgeData>;
+
+/** While 在父画布中渲染为自动包裹真实子图的只读结构容器。 */
 export function WorkflowLoopContainer({
   node,
+  nodeRenderer,
   selected,
-}: FlowNodeRendererProps<WorkflowNodeData>) {
-  /** 渲染器由 loop 注册项调用；保留判别检查保证错误注册不会读取不存在字段。 */
+}: WorkflowLoopContainerProps) {
+  /** 渲染器由 loop 注册项调用；判别检查避免错误注册读取不存在字段。 */
   const bodyScopeId = node.data.kind === 'loop' ? node.data.bodyScopeId : '';
-  const bodyNodes = useFlowStore((state) => (
-    state.documents[bodyScopeId]?.nodes as ReadonlyArray<FlowNode<WorkflowNodeData>> | undefined
+  const bodyDocument = useFlowStore((state) => (
+    state.documents[bodyScopeId] as WorkflowLoopBodyDocument | undefined
   ));
   if (node.data.kind !== 'loop') return null;
 
@@ -29,72 +44,133 @@ export function WorkflowLoopContainer({
     : 'border-violet-300 bg-violet-50/60 shadow-[0_8px_24px_rgba(124,58,237,.10)]';
   return (
     <div
-      className={`relative h-full w-full overflow-hidden rounded-2xl border-2 ${surfaceTone}`}
+      className={`relative h-full w-full overflow-visible rounded-xl border-2 ${surfaceTone}`}
       data-loop-scope-id={node.data.bodyScopeId}
     >
-      <div className="flex h-12 items-center justify-between border-b border-violet-200 bg-white/85 px-4">
-        <div className="flex min-w-0 items-center gap-2 text-violet-900">
-          <span className="flex size-7 items-center justify-center rounded-lg bg-violet-100">
-            <Repeat2 className="size-4" aria-hidden="true" />
-          </span>
-          <div className="min-w-0">
-            <strong className="block truncate text-xs font-semibold">{node.data.label}</strong>
-            <span className="block text-[10px] text-violet-500">
-              最多 {node.data.maxIterations} 轮 · 双击或继续放大进入
-            </span>
-          </div>
-        </div>
-        <span className="rounded-full bg-violet-100 px-2 py-1 text-[10px] font-medium text-violet-700">
-          While
+      <div
+        className="absolute top-1 left-2 z-20 flex max-w-[calc(50%_-_18px)] items-center gap-1 overflow-hidden rounded-md border border-violet-200/80 bg-white/90 px-1.5 py-0.5 text-violet-700 shadow-sm"
+        data-loop-label={node.id}
+      >
+        <Repeat2
+          className="size-3 shrink-0"
+          aria-hidden="true"
+        />
+        <strong className="min-w-0 flex-1 truncate text-[10px] leading-3 font-semibold text-violet-900">
+          {node.data.label}
+        </strong>
+        <span className="shrink-0 text-[9px] leading-3 text-violet-500">
+          {node.data.maxIterations} 轮
         </span>
       </div>
-      <LoopBodyPreview nodes={bodyNodes ?? []} />
+      <LoopBodyGraph
+        document={bodyDocument}
+        nodeRenderer={nodeRenderer}
+        scopeId={node.data.bodyScopeId}
+      />
     </div>
   );
 }
 
-/** 按子图位置顺序展示直接子节点；嵌套 While 只显示为单个摘要容器。 */
-function LoopBodyPreview({
-  nodes,
-}: Readonly<{ nodes: ReadonlyArray<FlowNode<WorkflowNodeData>> }>) {
-  const visibleNodes = [...nodes]
-    .sort((left, right) => left.position.x - right.position.x || left.position.y - right.position.y)
-    .slice(0, MAX_PREVIEW_NODES);
-  return (
-    <div className="absolute inset-x-4 top-16 bottom-4 overflow-hidden rounded-xl border border-dashed border-violet-300 bg-white/55 p-3">
-      <div className="flex h-full items-center gap-2 overflow-hidden">
-        {visibleNodes.map((child, index) => (
-          <div key={child.id} className="contents">
-            {index > 0 ? <span className="h-px min-w-2 flex-1 bg-violet-200" aria-hidden="true" /> : null}
-            <PreviewNode node={child} />
-          </div>
-        ))}
-        {nodes.length > MAX_PREVIEW_NODES ? (
-          <span className="shrink-0 text-[10px] font-medium text-violet-500">
-            +{nodes.length - MAX_PREVIEW_NODES}
-          </span>
-        ) : null}
-      </div>
-    </div>
-  );
-}
+type LoopBodyGraphProps = Readonly<{
+  document: WorkflowLoopBodyDocument | undefined;
+  nodeRenderer: ComponentType<FlowNodeRendererProps<WorkflowNodeData>>;
+  scopeId: string;
+}>;
 
-/** 为固定边界、普通步骤与嵌套 While 选择简短且可辨认的一层预览。 */
-function PreviewNode({ node }: Readonly<{ node: FlowNode<WorkflowNodeData> }>) {
-  const Icon = node.data.kind === 'loopEntry'
-    ? PlayCircle
-    : node.data.kind === 'loopComplete'
-      ? CircleCheck
-      : Repeat2;
-  const tone = node.data.kind === 'loopComplete'
-    ? 'border-emerald-200 text-emerald-700'
-    : node.data.kind === 'loopContinue'
-      ? 'border-amber-200 text-amber-700'
-      : 'border-violet-200 text-violet-700';
+/** 按子作用域真实位置、真实节点组件和实际连线渲染一层实时只读子图。 */
+function LoopBodyGraph({
+  document,
+  nodeRenderer: NodeRenderer,
+  scopeId,
+}: LoopBodyGraphProps) {
+  const nodes = document?.nodes ?? [];
+  const edges = document?.edges ?? [];
+  const layout = resolveWorkflowLoopLayout(nodes);
+  const routes = useMemo(() => edges.flatMap((edge) => {
+    const result = routeEdge(edge, nodes);
+    return result ? [result.route] : [];
+  }), [edges, nodes]);
+  const bounds = layout.bounds;
+  if (!bounds) return null;
+
+  /** 每个作用域拥有独立 SVG marker，避免嵌套预览复用错误的文档内 ID。 */
+  const markerId = `workflow-loop-arrow-${scopeId.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+  const bodyTransform = `scale(${WORKFLOW_LOOP_PREVIEW_SCALE})`;
   return (
-    <span className={`flex min-w-0 max-w-24 shrink items-center gap-1 rounded-md border bg-white px-2 py-1.5 ${tone}`}>
-      <Icon className="size-3 shrink-0" aria-hidden="true" />
-      <span className="truncate text-[9px] font-medium">{node.data.label}</span>
-    </span>
+    <div
+      className="pointer-events-none absolute origin-top-left"
+      data-loop-body-graph={scopeId}
+      style={{
+        height: bounds.height,
+        left: WORKFLOW_LOOP_BODY_PADDING,
+        top: WORKFLOW_LOOP_BODY_TOP_INSET,
+        transform: bodyTransform,
+        width: bounds.width,
+      }}
+    >
+      <svg
+        className="absolute inset-0 overflow-visible"
+        height={bounds.height}
+        width={bounds.width}
+      >
+        <defs>
+          <marker
+            id={markerId}
+            markerHeight="7"
+            markerUnits="userSpaceOnUse"
+            markerWidth="7"
+            orient="auto-start-reverse"
+            refX="9"
+            refY="5"
+            viewBox="0 0 10 10"
+          >
+            <path
+              d="M 0 0 L 10 5 L 0 10 z"
+              fill="#8b5cf6"
+            />
+          </marker>
+        </defs>
+        <g transform={`translate(${-bounds.x} ${-bounds.y})`}>
+          {routes.map((route) => (
+            <path
+              key={route.edgeId}
+              data-loop-edge-id={route.edgeId}
+              d={route.path}
+              fill="none"
+              markerEnd={`url(#${markerId})`}
+              stroke="#8b5cf6"
+              strokeOpacity="0.65"
+              strokeWidth="1.7"
+              vectorEffect="non-scaling-stroke"
+            />
+          ))}
+        </g>
+      </svg>
+      {nodes.map((child) => (
+        <div
+          key={child.id}
+          className="absolute"
+          data-loop-child-node-id={child.id}
+          style={{
+            height: child.size.height,
+            transform: `translate(${child.position.x - bounds.x}px, ${child.position.y - bounds.y}px)`,
+            width: child.size.width,
+          }}
+        >
+          {child.data.kind === 'loop' ? (
+            <WorkflowLoopContainer
+              node={child}
+              nodeRenderer={NodeRenderer}
+              selected={false}
+            />
+          ) : (
+            <NodeRenderer
+              node={child}
+              selected={false}
+            />
+          )}
+        </div>
+      ))}
+    </div>
   );
 }

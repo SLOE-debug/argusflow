@@ -31,8 +31,8 @@ fn validation_accepts_one_level_bounded_loop_and_rejects_an_unbounded_cycle() {
     }
     .into();
     workflow.graph.scopes[0].nodes[2].size = Size {
-        width: 420.0,
-        height: 240.0,
+        width: 220.0,
+        height: 120.0,
     };
     workflow.graph.scopes[0]
         .nodes

@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { previewEdgeRoute, routeEdge } from '../../../flow';
+import { getNodesBounds, previewEdgeRoute, routeEdge } from '../../../flow';
 import type { FlowNode, FlowPoint } from '../../../flow';
 import {
   DEFAULT_EDGES,
   DEFAULT_NODES,
   DEFAULT_RUN_INPUT_VALUES,
+  DEFAULT_ROOT_SCOPE_ID,
+  DEFAULT_WORKFLOW_DOCUMENTS,
   DEFAULT_WORKFLOW_NAME,
   DEFAULT_WORKFLOW_INPUTS,
   DEFAULT_WORKFLOW_PERMISSIONS,
@@ -21,6 +23,7 @@ import {
   type EditableNodeKind,
   type NodeRunState,
 } from './workflowModel';
+import { synchronizeWorkflowLoopContainerSizes } from './workflowLoopLayout';
 
 /** 测试用单作用域构造器，显式生成当前 v10 契约。 */
 function toWorkflowDefinition(
@@ -194,11 +197,15 @@ describe('workflow model', () => {
   });
 
   it('keeps every default workflow connection visible', () => {
-    const exactRoutes = DEFAULT_EDGES.map((edge) => (
-      routeEdge(edge, DEFAULT_NODES)?.route ?? null
+    /** 路由断言使用 Studio 实际呈现的自动 While 尺寸，而不是注册表初始最小值。 */
+    const documents = synchronizeWorkflowLoopContainerSizes(DEFAULT_WORKFLOW_DOCUMENTS);
+    const rootDocument = documents[DEFAULT_ROOT_SCOPE_ID];
+    if (!rootDocument) throw new Error('expected default root document');
+    const exactRoutes = rootDocument.edges.map((edge) => (
+      routeEdge(edge, rootDocument.nodes)?.route ?? null
     ));
-    const previewRoutes = DEFAULT_EDGES.map((edge) => (
-      previewEdgeRoute(edge, DEFAULT_NODES)?.route ?? null
+    const previewRoutes = rootDocument.edges.map((edge) => (
+      previewEdgeRoute(edge, rootDocument.nodes)?.route ?? null
     ));
     const routeGroups = [
       ['exact', exactRoutes],
@@ -207,13 +214,13 @@ describe('workflow model', () => {
     const nodeCrossings = routeGroups.flatMap(([routeKind, routes]) => (
       routes.flatMap((route, routeIndex) => {
         if (!route) {
-          return [`${routeKind}:${DEFAULT_EDGES[routeIndex].id}:missing`];
+          return [`${routeKind}:${rootDocument.edges[routeIndex]?.id ?? 'unknown'}:missing`];
         }
-        return DEFAULT_NODES.flatMap((node) => (
+        return rootDocument.nodes.flatMap((node) => (
           route.points.slice(1).some((point, pointIndex) => (
             segmentCrossesNodeInterior(route.points[pointIndex], point, node)
           ))
-            ? [`${routeKind}:${DEFAULT_EDGES[routeIndex].id}:${node.id}`]
+            ? [`${routeKind}:${rootDocument.edges[routeIndex]?.id ?? 'unknown'}:${node.id}`]
             : []
         ));
       })
@@ -222,6 +229,13 @@ describe('workflow model', () => {
     expect(exactRoutes.every((route) => route !== null)).toBe(true);
     expect(previewRoutes.every((route) => route !== null)).toBe(true);
     expect(nodeCrossings).toEqual([]);
+  });
+
+  it('keeps the default root workflow in a compact multi-row aspect ratio', () => {
+    const documents = synchronizeWorkflowLoopContainerSizes(DEFAULT_WORKFLOW_DOCUMENTS);
+    const bounds = getNodesBounds(documents[DEFAULT_ROOT_SCOPE_ID]?.nodes ?? []);
+    expect(bounds).not.toBeNull();
+    expect(bounds!.width / bounds!.height).toBeLessThan(3);
   });
 
   it('applies the complete execution state lifecycle', () => {

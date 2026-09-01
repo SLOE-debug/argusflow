@@ -2,7 +2,7 @@ import {
   useCallback,
   useEffect,
   useRef,
-  type WheelEvent as ReactWheelEvent,
+  type RefObject,
 } from 'react';
 
 import { screenToWorld, zoomAt } from '../geometry/geometry';
@@ -10,6 +10,8 @@ import { useFlowStoreApi } from '../store/store';
 import type { FlowPoint } from '../types';
 
 type CanvasWheelZoomOptions = Readonly<{
+  /** 原生 wheel 监听绑定到画布根元素，以显式关闭 passive 模式。 */
+  containerRef: RefObject<HTMLDivElement | null>;
   maxZoom: number;
   /** 达到业务语义阈值时，可用指针所在结构替换当前画布文档。 */
   onSemanticZoomIn?: (worldPoint: FlowPoint, nextZoom: number) => boolean;
@@ -19,6 +21,7 @@ type CanvasWheelZoomOptions = Readonly<{
 
 /** 合并同帧滚轮增量，并在普通缩放与业务作用域切换之间建立明确边界。 */
 export function useCanvasWheelZoom({
+  containerRef,
   maxZoom,
   onSemanticZoomIn,
   onSemanticZoomOut,
@@ -31,9 +34,12 @@ export function useCanvasWheelZoom({
   /** 等待应用滚轮缩放的动画帧 ID。 */
   const wheelFrame = useRef<number | null>(null);
 
-  const handleWheel = useCallback((event: ReactWheelEvent<HTMLDivElement>) => {
+  const handleWheel = useCallback((event: WheelEvent) => {
     event.preventDefault();
-    const bounds = event.currentTarget.getBoundingClientRect();
+    const element = containerRef.current;
+    if (!element) return;
+
+    const bounds = element.getBoundingClientRect();
     wheelDelta.current += event.deltaY;
     wheelPoint.current = {
       x: event.clientX - bounds.left,
@@ -59,11 +65,16 @@ export function useCanvasWheelZoom({
       if (onSemanticZoomOut?.(nextZoom)) return;
       store.getState().setViewport(zoomAt(viewport, screenPoint, nextZoom));
     });
-  }, [maxZoom, onSemanticZoomIn, onSemanticZoomOut, store]);
+  }, [containerRef, maxZoom, onSemanticZoomIn, onSemanticZoomOut, store]);
 
-  useEffect(() => () => {
-    if (wheelFrame.current !== null) cancelAnimationFrame(wheelFrame.current);
-  }, []);
+  useEffect(() => {
+    const element = containerRef.current;
+    if (!element) return undefined;
 
-  return handleWheel;
+    element.addEventListener('wheel', handleWheel, { passive: false });
+    return () => {
+      element.removeEventListener('wheel', handleWheel);
+      if (wheelFrame.current !== null) cancelAnimationFrame(wheelFrame.current);
+    };
+  }, [containerRef, handleWheel]);
 }

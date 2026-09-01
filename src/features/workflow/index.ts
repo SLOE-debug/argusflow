@@ -61,6 +61,16 @@ export {
   type WorkflowScopeMetadataMap,
 } from './model/workflowModel';
 export {
+  resolveWorkflowLoopLayout,
+  synchronizeWorkflowLoopContainerSizes,
+  WORKFLOW_LOOP_BODY_PADDING,
+  WORKFLOW_LOOP_BODY_TOP_INSET,
+  WORKFLOW_LOOP_MIN_SIZE,
+  WORKFLOW_LOOP_PREVIEW_SCALE,
+  type WorkflowLoopDocuments,
+  type WorkflowLoopLayout,
+} from './model/workflowLoopLayout';
+export {
   getNativeNodeValueOutputs,
   getNodeValueOutputs,
   WORKFLOW_NODE_DEFINITIONS,

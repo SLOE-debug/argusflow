@@ -33,6 +33,7 @@ import {
   type FlowComponentCatalogItem,
 } from '../components/componentCatalog';
 import { findNodePreset } from '../nodes/nodePresetCatalog';
+import { WORKFLOW_LOOP_MIN_SIZE } from './workflowLoopLayout';
 
 /** 节点在单次工作流运行中的展示状态。 */
 export type NodeRunState =
@@ -128,7 +129,7 @@ export const WORKFLOW_NODE_SIZES = {
   delay: { width: 136, height: 52 },
   condition: { width: 132, height: 52 },
   observe: { width: 158, height: 52 },
-  loop: { width: 420, height: 240 },
+  loop: { ...WORKFLOW_LOOP_MIN_SIZE },
   loopEntry: { width: 118, height: 52 },
   loopContinue: { width: 142, height: 52 },
   loopComplete: { width: 142, height: 52 },

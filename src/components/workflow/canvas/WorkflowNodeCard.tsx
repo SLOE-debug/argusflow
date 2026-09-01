@@ -216,9 +216,7 @@ export const workflowNodeRegistry = {
   observe: createDefinition('observe', '检查界面', WORKFLOW_NODE_SIZES.observe),
   loop: {
     ...createDefinition('loop', 'While', WORKFLOW_NODE_SIZES.loop),
-    component: WorkflowLoopContainer,
-    resizable: true,
-    minSize: { width: 300, height: 180 },
+    component: WorkflowLoopNodeRenderer,
     copyable: false,
   },
   loopEntry: {
@@ -268,6 +266,18 @@ function createDefinition(
     singleton,
     component: WorkflowNodeCard,
   };
+}
+
+/** 给结构容器注入普通节点的主画布渲染器，子图因此不再维护摘要卡片分支。 */
+function WorkflowLoopNodeRenderer(
+  props: FlowNodeRendererProps<WorkflowNodeData>,
+) {
+  return (
+    <WorkflowLoopContainer
+      {...props}
+      nodeRenderer={WorkflowNodeCard}
+    />
+  );
 }
 
 /** 根据节点类型渲染带左侧强调色条和完整选中状态的紧凑业务卡片。 */
