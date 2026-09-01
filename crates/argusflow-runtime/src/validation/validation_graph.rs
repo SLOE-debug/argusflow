@@ -3,7 +3,7 @@ use std::{
     sync::Arc,
 };
 
-use argusflow_core::{ControlPortId, WorkflowDefinition, WorkflowEdge, WorkflowNode};
+use argusflow_core::{ControlPortId, FlowScope, WorkflowEdge, WorkflowNode};
 
 use super::validator::{ValidationIssue, ValidationIssueCode, issue};
 use crate::node_registry::{NodeFlow, PreparedNode};
@@ -20,16 +20,9 @@ pub(crate) struct WorkflowGraph<'workflow> {
     pub(crate) predecessors: HashMap<String, Vec<String>>,
 }
 
-impl WorkflowGraph<'_> {
-    /// 返回结构化循环校验使用的只读邻接表。
-    pub(super) const fn adjacency(&self) -> &HashMap<String, Vec<String>> {
-        &self.adjacency
-    }
-}
-
 /// 校验连线身份和端点并建立图索引。
 pub(crate) fn build_graph<'workflow>(
-    workflow: &'workflow WorkflowDefinition,
+    scope: &'workflow FlowScope,
     node_ids: &HashSet<String>,
     issues: &mut Vec<ValidationIssue>,
 ) -> WorkflowGraph<'workflow> {
@@ -40,7 +33,7 @@ pub(crate) fn build_graph<'workflow>(
         adjacency: node_ids.iter().map(|id| (id.clone(), Vec::new())).collect(),
         predecessors: node_ids.iter().map(|id| (id.clone(), Vec::new())).collect(),
     };
-    for edge in &workflow.edges {
+    for edge in &scope.edges {
         if edge.id.trim().is_empty() {
             issues.push(issue(
                 ValidationIssueCode::EmptyEdgeId,
@@ -96,12 +89,12 @@ pub(crate) fn build_graph<'workflow>(
 
 /// 校验各类节点的入度、出度和分支标签。
 pub(crate) fn validate_node_degrees(
-    workflow: &WorkflowDefinition,
+    scope: &FlowScope,
     prepared_nodes: &HashMap<String, Arc<dyn PreparedNode>>,
     graph: &WorkflowGraph<'_>,
     issues: &mut Vec<ValidationIssue>,
 ) {
-    for node in &workflow.nodes {
+    for node in &scope.nodes {
         let incoming_count = graph.incoming.get(&node.id).copied().unwrap_or_default();
         let node_edges = graph
             .outgoing
@@ -115,10 +108,13 @@ pub(crate) fn validate_node_degrees(
         let valid_degree = match &flow {
             NodeFlow::Start => incoming_count == 0 && node_edges.len() == 1,
             NodeFlow::End => incoming_count >= 1 && node_edges.is_empty(),
-            NodeFlow::Branch { ports } | NodeFlow::Loop { ports } => {
+            NodeFlow::Branch { ports } | NodeFlow::Loop { ports, .. } => {
                 incoming_count >= 1 && node_edges.len() == ports.len()
             }
             NodeFlow::Linear => incoming_count >= 1 && node_edges.len() == 1,
+            NodeFlow::LoopEntry => incoming_count == 0 && node_edges.len() == 1,
+            // While 的两个出口都固定存在，但允许流程只使用其中一个出口。
+            NodeFlow::LoopContinue | NodeFlow::LoopComplete => node_edges.is_empty(),
         };
         if !valid_degree {
             issues.push(issue(
@@ -139,7 +135,7 @@ fn validate_branches(
     edges: &[&WorkflowEdge],
     issues: &mut Vec<ValidationIssue>,
 ) {
-    if let NodeFlow::Branch { ports } | NodeFlow::Loop { ports } = flow {
+    if let NodeFlow::Branch { ports } | NodeFlow::Loop { ports, .. } = flow {
         let branches: HashSet<_> = edges
             .iter()
             .filter_map(|edge| edge.branch.as_ref().cloned())
@@ -170,12 +166,24 @@ pub(crate) fn validate_graph_shape(
     node_ids: &HashSet<String>,
     start_ids: &[String],
     end_ids: &[String],
+    optional_node_ids: &HashSet<String>,
     graph: &WorkflowGraph<'_>,
     issues: &mut Vec<ValidationIssue>,
 ) {
+    if contains_cycle(node_ids, &graph.adjacency) {
+        issues.push(issue(
+            ValidationIssueCode::CycleDetected,
+            "作用域内部不能包含回边；请使用 While 容器和“继续下一轮”边界",
+            None,
+            None,
+        ));
+    }
     if let [start_id] = start_ids {
         let reachable = reachable_nodes(start_id, &graph.adjacency);
         for id in node_ids.difference(&reachable) {
+            if optional_node_ids.contains(id) {
+                continue;
+            }
             issues.push(issue(
                 ValidationIssueCode::UnreachableNode,
                 format!("节点“{id}”不会被运行。请把它连接到开始节点后的流程中"),
@@ -195,6 +203,36 @@ pub(crate) fn validate_graph_shape(
             ));
         }
     }
+}
+
+/// 使用 Kahn 算法检查当前作用域是否仍含手写回边。
+fn contains_cycle(node_ids: &HashSet<String>, adjacency: &HashMap<String, Vec<String>>) -> bool {
+    let mut incoming = node_ids
+        .iter()
+        .map(|id| (id.clone(), 0usize))
+        .collect::<HashMap<_, _>>();
+    for targets in adjacency.values() {
+        for target in targets {
+            *incoming.entry(target.clone()).or_default() += 1;
+        }
+    }
+    let mut queue = incoming
+        .iter()
+        .filter_map(|(id, count)| (*count == 0).then_some(id.clone()))
+        .collect::<VecDeque<_>>();
+    let mut visited = 0usize;
+    while let Some(id) = queue.pop_front() {
+        visited += 1;
+        for target in adjacency.get(&id).into_iter().flatten() {
+            if let Some(count) = incoming.get_mut(target) {
+                *count -= 1;
+                if *count == 0 {
+                    queue.push_back(target.clone());
+                }
+            }
+        }
+    }
+    visited != node_ids.len()
 }
 
 /// 沿指定邻接关系返回包括起点在内的全部可达节点。

@@ -47,6 +47,9 @@ export function createComponentFromSelection(
   if (selectedNodes.some((node) => node.kind === 'start' || node.kind === 'end')) {
     throw new ComponentCreationError('请选择开始和结束之间的步骤。');
   }
+  if (selectedNodes.some((node) => node.kind === 'loop')) {
+    throw new ComponentCreationError('请先进入 While，再分别保存其中的普通步骤。');
+  }
   const incomingEdges = edges.filter((edge) => (
     !selectedNodeIds.has(edge.source.nodeId) && selectedNodeIds.has(edge.target.nodeId)
   ));
@@ -76,7 +79,7 @@ export function createComponentFromSelection(
   internalNodes.push(boundaryNode(entryNodeId, 0, incomingEdges[0].target.nodeId, internalNodes));
   internalNodes.push(boundaryNode(exitNodeId, maxX - minX + 220, null, internalNodes));
   const definition: FlowComponentDefinition = {
-    schema_version: 1,
+    schema_version: 2,
     id: componentId,
     version,
     name: normalizedName,
@@ -88,17 +91,27 @@ export function createComponentFromSelection(
       name: outputName,
       value: original,
     } satisfies ComponentValueOutput)),
-    nodes: internalNodes,
-    edges: buildInternalEdges(
-      edges,
-      selectedNodeIds,
-      incomingEdges[0].target.nodeId,
-      outgoingEdges[0].source.nodeId,
-      entryNodeId,
-      exitNodeId,
-    ),
-    entry_node_id: entryNodeId,
-    exit_node_id: exitNodeId,
+    graph: {
+      root_scope_id: 'component_root',
+      scopes: [{
+        id: 'component_root',
+        parent: null,
+        boundary: {
+          type: 'component',
+          entry_node_id: entryNodeId,
+          exit_node_id: exitNodeId,
+        },
+        nodes: internalNodes,
+        edges: buildInternalEdges(
+          edges,
+          selectedNodeIds,
+          incomingEdges[0].target.nodeId,
+          outgoingEdges[0].source.nodeId,
+          entryNodeId,
+          exitNodeId,
+        ),
+      }],
+    },
   };
   const componentData: Extract<WorkflowNodeData, { kind: 'component' }> = {
     kind: 'component',
@@ -183,6 +196,7 @@ function encodeInternalNode(
       x: node.position.x - minX + 180,
       y: node.position.y - minY + 80,
     },
+    size: node.size,
     output_bindings: node.data.outputBindings,
     ...definition,
   };
@@ -212,6 +226,9 @@ function boundaryNode(
   return {
     id,
     position: { x, y: target?.position.y ?? 80 },
+    size: entryTargetId
+      ? { ...WORKFLOW_NODE_SIZES.start }
+      : { ...WORKFLOW_NODE_SIZES.end },
     type_id: entryTargetId ? 'argus.start' : 'argus.end',
     version: 1,
     payload: {},
@@ -227,7 +244,7 @@ function buildInternalEdges(
   exitSourceId: string,
   entryNodeId: string,
   exitNodeId: string,
-): FlowComponentDefinition['edges'] {
+): import('../model/contracts').WorkflowEdgeContract[] {
   const internal = edges
     .filter((edge) => (
       selectedNodeIds.has(edge.source.nodeId)

@@ -8,7 +8,7 @@ use argusflow_core::{
     DiagnosticEvidenceReference, ExecutionEvent, ExecutionEventKind, ExecutionEventPayload,
     NodeEnvelope, ObservationPolicy, ObservationRequest, ObservationResult, ObservationValue,
     ObserveSpec, Position, RunInputs, TargetScope, TargetWaitPolicy, UiExecutionPolicy,
-    UiOperation, ValueExpr, WorkflowDefinition, WorkflowEdge, WorkflowNode, WorkflowPermissions,
+    UiOperation, ValueExpr, WorkflowDefinition, WorkflowEdge, WorkflowNode,
 };
 use argusflow_runtime::{
     ActionDispatcher, ExecutionEventSink, ObservationDispatcher,
@@ -18,6 +18,8 @@ use async_trait::async_trait;
 use serde_json::{Value, json};
 use tokio::sync::{Mutex, mpsc};
 use uuid::Uuid;
+mod workflow_fixture;
+use workflow_fixture::workflow_definition;
 
 /// 测试 fixture 使用的内置节点构造器。
 enum WorkflowNodeKind {
@@ -211,14 +213,9 @@ async fn observation_output_is_resolved_for_debug_and_the_following_set_value() 
 
 /// 构造 Start → Observe → Debug → SetValue(NodeOutput) → End 的最小数据流。
 fn observe_then_write_workflow() -> WorkflowDefinition {
-    WorkflowDefinition {
-        schema_version: 9,
-        id: Uuid::new_v4(),
-        name: "Read then write".to_owned(),
-        inputs: Vec::new(),
-        variables: json!({}),
-        permissions: WorkflowPermissions::default(),
-        nodes: vec![
+    workflow_definition(
+        "Read then write",
+        vec![
             node("start", 0.0, WorkflowNodeKind::Start),
             node(
                 "observe",
@@ -256,14 +253,14 @@ fn observe_then_write_workflow() -> WorkflowDefinition {
             node("end", 720.0, WorkflowNodeKind::End),
             node("fail", 720.0, WorkflowNodeKind::Fail),
         ],
-        edges: vec![
+        vec![
             edge("start", "observe", None),
             edge("observe", "debug", Some("known")),
             edge("observe", "fail", Some("unknown")),
             edge("debug", "write", None),
             edge("write", "end", None),
         ],
-    }
+    )
 }
 
 /// 创建固定纵坐标的测试节点。
@@ -271,6 +268,10 @@ fn node(id: &str, x: f64, kind: WorkflowNodeKind) -> WorkflowNode {
     WorkflowNode {
         id: id.to_owned(),
         position: Position { x, y: 0.0 },
+        size: argusflow_core::Size {
+            width: 142.0,
+            height: 52.0,
+        },
         definition: kind.into(),
         output_bindings: Default::default(),
     }

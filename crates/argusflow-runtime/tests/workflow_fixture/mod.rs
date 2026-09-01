@@ -1,13 +1,13 @@
-//! 工作流 Runtime 集成测试共享的强类型 schema v9 fixture。
+//! 工作流 Runtime 集成测试共享的强类型 schema v10 fixture。
 
 // 每个集成测试会独立编译该模块，因此只使用共享 fixture 的一个职责子集。
 #![allow(dead_code)]
 
 use argusflow_core::{
     AcquirePolicy, ActivationPolicy, ApplicationSpec, CleanupPolicy, CommandOperation,
-    ConditionOperator, ControlPortId, NodeEnvelope, Position, UiExecutionPolicy, UiOperation,
-    ValueExpr, ValueSource, WindowTitleMatcher, WorkflowDefinition, WorkflowEdge, WorkflowNode,
-    WorkflowPermissions,
+    ConditionOperator, ControlPortId, FlowScope, FlowScopeBoundary, NodeEnvelope, Position,
+    ScopedFlowGraph, Size, UiExecutionPolicy, UiOperation, ValueExpr, ValueSource,
+    WindowTitleMatcher, WorkflowDefinition, WorkflowEdge, WorkflowNode, WorkflowPermissions,
 };
 use serde_json::json;
 use uuid::Uuid;
@@ -40,6 +40,7 @@ pub(crate) enum WorkflowNodeKind {
         operation: UiOperation,
     },
     Loop {
+        body_scope_id: String,
         max_iterations: u32,
         timeout_ms: u64,
         interval_ms: u64,
@@ -97,13 +98,15 @@ impl From<WorkflowNodeKind> for NodeEnvelope {
                 }),
             ),
             WorkflowNodeKind::Loop {
+                body_scope_id,
                 max_iterations,
                 timeout_ms,
                 interval_ms,
             } => Self::new(
                 "argus.loop",
-                1,
+                2,
                 json!({
+                    "body_scope_id": body_scope_id,
                     "max_iterations": max_iterations,
                     "timeout_ms": timeout_ms,
                     "interval_ms": interval_ms,
@@ -122,14 +125,9 @@ impl From<WorkflowNodeKind> for NodeEnvelope {
 
 /// 在测试中构造一条可执行的 Start -> Log -> Delay -> End 线性链。
 pub(crate) fn demo_workflow(milliseconds: u64) -> WorkflowDefinition {
-    WorkflowDefinition {
-        schema_version: 9,
-        id: Uuid::new_v4(),
-        name: "Demo".to_owned(),
-        inputs: Vec::new(),
-        variables: json!({}),
-        permissions: no_permissions(),
-        nodes: vec![
+    workflow_definition(
+        "Demo",
+        vec![
             node("start", 0.0, WorkflowNodeKind::Start),
             node(
                 "log",
@@ -141,12 +139,12 @@ pub(crate) fn demo_workflow(milliseconds: u64) -> WorkflowDefinition {
             node("delay", 440.0, WorkflowNodeKind::Delay { milliseconds }),
             node("end", 660.0, WorkflowNodeKind::End),
         ],
-        edges: vec![
+        vec![
             edge("start", "log"),
             edge("log", "delay"),
             edge("delay", "end"),
         ],
-    }
+    )
 }
 
 /// 使用给定横坐标创建测试节点，统一 fixture 的画布布局。
@@ -154,6 +152,10 @@ pub(crate) fn node(id: &str, x: f64, kind: WorkflowNodeKind) -> WorkflowNode {
     WorkflowNode {
         id: id.to_owned(),
         position: Position { x, y: 0.0 },
+        size: Size {
+            width: 142.0,
+            height: 52.0,
+        },
         definition: kind.into(),
         output_bindings: Default::default(),
     }
@@ -171,14 +173,9 @@ pub(crate) fn edge(source: &str, target: &str) -> WorkflowEdge {
 
 /// 构造两条分支最终汇合到 End 的条件 DAG。
 pub(crate) fn condition_workflow(enabled: bool) -> WorkflowDefinition {
-    WorkflowDefinition {
-        schema_version: 9,
-        id: Uuid::new_v4(),
-        name: "Condition".to_owned(),
-        inputs: Vec::new(),
-        variables: json!({ "enabled": enabled }),
-        permissions: no_permissions(),
-        nodes: vec![
+    let mut workflow = workflow_definition(
+        "Condition",
+        vec![
             node("start", 0.0, WorkflowNodeKind::Start),
             node(
                 "condition",
@@ -210,7 +207,7 @@ pub(crate) fn condition_workflow(enabled: bool) -> WorkflowDefinition {
             ),
             node("end", 520.0, WorkflowNodeKind::End),
         ],
-        edges: vec![
+        vec![
             edge("start", "condition"),
             WorkflowEdge {
                 id: "condition-true".to_owned(),
@@ -227,6 +224,36 @@ pub(crate) fn condition_workflow(enabled: bool) -> WorkflowDefinition {
             edge("true-log", "end"),
             edge("false-log", "end"),
         ],
+    );
+    workflow.variables = json!({ "enabled": enabled });
+    workflow
+}
+
+/// 把测试节点与边包装为 schema v10 单根作用域工作流。
+pub(crate) fn workflow_definition(
+    name: &str,
+    nodes: Vec<WorkflowNode>,
+    edges: Vec<WorkflowEdge>,
+) -> WorkflowDefinition {
+    WorkflowDefinition {
+        schema_version: 10,
+        id: Uuid::new_v4(),
+        name: name.to_owned(),
+        inputs: Vec::new(),
+        variables: json!({}),
+        permissions: no_permissions(),
+        graph: ScopedFlowGraph {
+            root_scope_id: "root".to_owned(),
+            scopes: vec![FlowScope {
+                id: "root".to_owned(),
+                parent: None,
+                boundary: FlowScopeBoundary::Workflow {
+                    entry_node_id: "start".to_owned(),
+                },
+                nodes,
+                edges,
+            }],
+        },
     }
 }
 

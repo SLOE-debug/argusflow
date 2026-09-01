@@ -16,13 +16,15 @@ import {
   DEFAULT_EDGES,
   DEFAULT_NODES,
   DEFAULT_SELECTED_NODE_ID,
+  DEFAULT_SCOPE_METADATA,
+  DEFAULT_WORKFLOW_DOCUMENTS,
+  DEFAULT_ROOT_SCOPE_ID,
   DEFAULT_WORKFLOW_INPUTS,
   DEFAULT_WORKFLOW_NAME,
   DEFAULT_WORKFLOW_PERMISSIONS,
   DEFAULT_WORKFLOW_VARIABLES,
 } from '../model/defaultWorkflowTemplate';
 import {
-  applyExecutionEventToNodes,
   canConnect,
   createEdge,
   createNodeFromCreationKey,
@@ -47,6 +49,16 @@ import {
   bindConnectedResourceScope,
   oppositeAnchorSide,
 } from '../values/workflowResourceBinding';
+import {
+  appendWorkflowNode,
+  removeSelectedWorkflowContent,
+} from './workflowScopes';
+import {
+  applyExecutionEventToDocuments,
+  setAllNodeRunStates,
+  setInvalidNodeIds,
+  updateAllWorkflowDocuments,
+} from './workflowDocumentRuntime';
 
 const WORKFLOW_EVENT_NAME = 'argusflow://workflow-event';
 
@@ -61,9 +73,13 @@ export function useWorkflowStudio() {
         inputs: DEFAULT_WORKFLOW_INPUTS,
         variables: DEFAULT_WORKFLOW_VARIABLES,
         permissions: DEFAULT_WORKFLOW_PERMISSIONS,
+        rootScopeId: DEFAULT_ROOT_SCOPE_ID,
+        scopeMetadata: DEFAULT_SCOPE_METADATA,
       },
       nodes: DEFAULT_NODES,
       edges: DEFAULT_EDGES,
+      activeDocumentId: DEFAULT_ROOT_SCOPE_ID,
+      documents: DEFAULT_WORKFLOW_DOCUMENTS,
     });
     store.getState().selectNodes([DEFAULT_SELECTED_NODE_ID]);
     return store;
@@ -128,7 +144,7 @@ export function useWorkflowStudio() {
     void listen<ExecutionEvent>(WORKFLOW_EVENT_NAME, ({ payload }) => {
       setEvents((current) => [...current, payload]);
       const state = flowStore.getState();
-      state.setNodes(applyExecutionEventToNodes(state.nodes, payload), false);
+      applyExecutionEventToDocuments(flowStore, payload);
       if (payload.kind === 'edge_traversed' && payload.edge_id) {
         state.activateEdge(payload.edge_id);
       }
@@ -157,8 +173,9 @@ export function useWorkflowStudio() {
       state.metadata.inputs as WorkflowInputDefinition[],
       state.metadata.variables as JsonObject,
       state.metadata.permissions as WorkflowPermissions,
-      state.nodes,
-      state.edges,
+      state.metadata.rootScopeId as string,
+      state.documents,
+      state.metadata.scopeMetadata as import('../model/workflowModel').WorkflowScopeMetadataMap,
     );
   }, [flowStore, workflowId]);
 
@@ -179,11 +196,7 @@ export function useWorkflowStudio() {
       const invalidIds = new Set(nextReport.issues.flatMap((issue) => (
         issue.node_id ? [issue.node_id] : []
       )));
-      const state = flowStore.getState();
-      state.setNodes(state.nodes.map((node) => ({
-        ...node,
-        data: { ...node.data, invalid: invalidIds.has(node.id) },
-      })), false);
+      setInvalidNodeIds(flowStore, invalidIds);
       return nextReport;
     } catch (error) {
       setErrorMessage(normalizeCommandError(error).message);
@@ -195,11 +208,7 @@ export function useWorkflowStudio() {
     setEvents([]);
     setRunId(null);
     setErrorMessage(null);
-    const state = flowStore.getState();
-    state.setNodes(state.nodes.map((node) => ({
-      ...node,
-      data: { ...node.data, runState: 'idle', invalid: false },
-    })), false);
+    setAllNodeRunStates(flowStore, 'idle', true);
     const nextReport = await validate();
     if (!nextReport?.valid) return;
     if (submittedValues === undefined && workflowInputs.runInputValuesError) {
@@ -222,11 +231,7 @@ export function useWorkflowStudio() {
       workflowInputs.replaceRunInputValues(runInputValues);
     }
 
-    const validatedState = flowStore.getState();
-    validatedState.setNodes(validatedState.nodes.map((node) => ({
-      ...node,
-      data: { ...node.data, runState: 'pending', invalid: false },
-    })), false);
+    setAllNodeRunStates(flowStore, 'pending', true);
     setRunning(true);
     try {
       const started = await runWorkflow(
@@ -239,16 +244,13 @@ export function useWorkflowStudio() {
       const commandError = normalizeCommandError(error);
       setErrorMessage(commandError.message);
       setRunning(false);
-      const failedState = flowStore.getState();
-      failedState.setNodes(failedState.nodes.map((node) => ({
+      updateAllWorkflowDocuments(flowStore, (documentNodes) => documentNodes.map((node) => ({
         ...node,
         data: {
           ...node.data,
-          runState: node.data.runState === 'pending'
-            ? 'skipped'
-            : node.data.runState,
+          runState: node.data.runState === 'pending' ? 'skipped' : node.data.runState,
         },
-      })), false);
+      })));
     }
   }, [componentCatalog, currentWorkflow, flowStore, validate, workflowInputs]);
 
@@ -257,16 +259,16 @@ export function useWorkflowStudio() {
     const node = createNodeFromCreationKey(creationKey, position, componentCatalog);
     if (!node) return;
     const kind = node.kind as EditableNodeKind;
+    if (kind === 'loopEntry' || kind === 'loopContinue' || kind === 'loopComplete') return;
+    const editingRootScope = state.activeDocumentId === state.metadata.rootScopeId;
+    if (!editingRootScope && (kind === 'start' || kind === 'end')) return;
     if (
       (kind === 'start' || kind === 'end')
       && state.nodes.some((node) => node.kind === kind)
     ) {
       return;
     }
-    state.transact((document) => ({
-      ...document,
-      nodes: [...document.nodes, node],
-    }));
+    state.transact((document) => appendWorkflowNode(document, node));
     flowStore.getState().selectNodes([node.id]);
     setReport(null);
   }, [componentCatalog, flowStore]);
@@ -282,6 +284,9 @@ export function useWorkflowStudio() {
     const createdNode = createNodeFromCreationKey(creationKey, position, componentCatalog);
     if (!createdNode) return false;
     const kind = createdNode.kind as EditableNodeKind;
+    if (kind === 'loopEntry' || kind === 'loopContinue' || kind === 'loopComplete') return false;
+    const editingRootScope = state.activeDocumentId === state.metadata.rootScopeId;
+    if (!editingRootScope && (kind === 'start' || kind === 'end')) return false;
     if (
       (kind === 'start' || kind === 'end')
       && state.nodes.some((node) => node.kind === kind)
@@ -305,11 +310,11 @@ export function useWorkflowStudio() {
       sourceSide,
       targetSide,
     );
-    state.transact((document) => ({
-      ...document,
-      nodes: [...document.nodes, node],
-      edges: [...document.edges, edge],
-    }));
+    state.transact((document) => appendWorkflowNode(
+      document,
+      node,
+      [...document.edges, edge],
+    ));
     flowStore.getState().selectNodes([node.id]);
     setReport(null);
     return true;
@@ -430,8 +435,28 @@ export function useWorkflowStudio() {
   }, [flowStore]);
 
   const deleteSelection = useCallback(() => {
-    flowStore.getState().deleteSelection();
+    const state = flowStore.getState();
+    state.transact((document) => removeSelectedWorkflowContent(
+      document,
+      state.selectedNodeIds,
+      state.selectedEdgeId,
+    ));
+    flowStore.getState().clearSelection();
   }, [flowStore]);
+
+  /** 进入 While 子作用域并恢复该层独立视口。 */
+  const enterLoop = useCallback((nodeId: string) => {
+    const state = flowStore.getState();
+    const node = state.nodes.find((candidate) => candidate.id === nodeId);
+    return node?.data.kind === 'loop'
+      ? state.switchDocument(node.data.bodyScopeId)
+      : false;
+  }, [flowStore]);
+
+  /** 通过面包屑直接返回任意祖先作用域。 */
+  const openScope = useCallback((scopeId: string) => (
+    flowStore.getState().switchDocument(scopeId)
+  ), [flowStore]);
 
   return {
     flowStore,
@@ -466,6 +491,8 @@ export function useWorkflowStudio() {
     updateNodeById,
     updateEdgeBranch,
     deleteSelection,
+    enterLoop,
+    openScope,
     componentCatalog,
     createComponent,
   };

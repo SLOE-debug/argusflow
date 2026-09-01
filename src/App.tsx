@@ -235,9 +235,13 @@ export default function App({ startupStatus, executionEnabled }: AppProps) {
                     onAddConnectedNode={studio.addConnectedNode}
                     onConnect={studio.connect}
                     onReconnect={studio.reconnect}
+                    onDeleteSelection={studio.deleteSelection}
+                    onEnterLoop={studio.enterLoop}
+                    onOpenScope={studio.openScope}
                     onNodeDoubleClick={(nodeId) => {
                       const node = studio.nodes.find((candidate) => candidate.id === nodeId);
                       if (node?.data.kind === 'component') setDrillDownComponentId(nodeId);
+                      if (node?.data.kind === 'loop') studio.enterLoop(nodeId);
                     }}
                   />
                   {drillDownDefinition ? (

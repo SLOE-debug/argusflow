@@ -17,10 +17,32 @@ import {
   canConnect,
   createEdge,
   createNode,
-  toWorkflowDefinition,
+  toWorkflowDefinition as encodeWorkflowDefinition,
   type EditableNodeKind,
   type NodeRunState,
 } from './workflowModel';
+
+/** 测试用单作用域构造器，显式生成当前 v10 契约。 */
+function toWorkflowDefinition(
+  id: string,
+  name: string,
+  inputs: Parameters<typeof encodeWorkflowDefinition>[2],
+  variables: Parameters<typeof encodeWorkflowDefinition>[3],
+  permissions: Parameters<typeof encodeWorkflowDefinition>[4],
+  nodes: Parameters<typeof encodeWorkflowDefinition>[6][string]['nodes'],
+  edges: Parameters<typeof encodeWorkflowDefinition>[6][string]['edges'],
+) {
+  return encodeWorkflowDefinition(
+    id,
+    name,
+    inputs,
+    variables,
+    permissions,
+    'root',
+    { root: { nodes, edges } },
+    { root: { parent: null, boundary: { type: 'workflow', entry_node_id: nodes[0]?.id ?? '' } } },
+  );
+}
 
 /** 创建状态转换测试所需的最小执行事件。 */
 function createExecutionEvent(
@@ -40,7 +62,7 @@ function createExecutionEvent(
 }
 
 describe('workflow model', () => {
-  it('maps the empty canvas to the schema v9 Rust contract', () => {
+  it('maps the empty canvas to the schema v10 Rust contract', () => {
     const workflow = toWorkflowDefinition(
       '6d7d7a91-4e19-42c9-b1d8-011d4cf94330',
       'Demo',
@@ -50,9 +72,9 @@ describe('workflow model', () => {
       [],
       [],
     );
-    expect(workflow.schema_version).toBe(9);
+    expect(workflow.schema_version).toBe(10);
     expect(workflow.variables).toEqual({ enabled: true });
-    expect(workflow.nodes).toEqual([]);
+    expect(workflow.graph.scopes[0]?.nodes).toEqual([]);
   });
 
   it('creates a condition node with a JSON predicate', () => {
@@ -78,7 +100,8 @@ describe('workflow model', () => {
       [],
     );
 
-    expect(workflow.nodes[0]).toMatchObject({
+    const rootNodes = workflow.graph.scopes[0]?.nodes ?? [];
+    expect(rootNodes[0]).toMatchObject({
       type_id: 'argus.ui',
       version: 5,
       payload: {
@@ -106,14 +129,15 @@ describe('workflow model', () => {
   });
 
   it('uses the expanded WeChat send-message workflow as the default template', () => {
-    const workflow = toWorkflowDefinition(
+    const workflow = encodeWorkflowDefinition(
       '6d7d7a91-4e19-42c9-b1d8-011d4cf94330',
       DEFAULT_WORKFLOW_NAME,
       DEFAULT_WORKFLOW_INPUTS,
       DEFAULT_WORKFLOW_VARIABLES,
       DEFAULT_WORKFLOW_PERMISSIONS,
-      DEFAULT_NODES,
-      DEFAULT_EDGES,
+      'root',
+      { root: { nodes: DEFAULT_NODES, edges: DEFAULT_EDGES } },
+      { root: { parent: null, boundary: { type: 'workflow', entry_node_id: 'start' } } },
     );
 
     expect(workflow.name).toBe('微信：搜索联系人并发送消息');
@@ -126,14 +150,12 @@ describe('workflow model', () => {
       消息内容: 'ArgusFlow 测试消息',
     });
     expect(workflow.permissions.allow).toContain('process.application.launch');
-    expect(workflow.nodes).toHaveLength(19);
-    expect(workflow.nodes.filter((node) => node.type_id === 'argus.ui')).toHaveLength(6);
-    expect(workflow.nodes.filter((node) => node.type_id === 'argus.observe')).toHaveLength(3);
-    expect(workflow.nodes.filter((node) => node.type_id === 'argus.loop')).toHaveLength(3);
-    expect(workflow.nodes.filter((node) => node.type_id === 'argus.fail')).toHaveLength(3);
-    expect(workflow.edges).toHaveLength(24);
-    expect(workflow.nodes[0]?.id).toBe('start');
-    expect(workflow.nodes.at(-1)?.id).toBe('end');
+    const root = workflow.graph.scopes[0];
+    expect(root?.nodes.filter((node) => node.type_id === 'argus.ui')).toHaveLength(6);
+    expect(root?.nodes.filter((node) => node.type_id === 'argus.loop')).toHaveLength(3);
+    expect(root?.nodes.filter((node) => node.type_id === 'argus.fail')).toHaveLength(3);
+    expect(root?.nodes[0]?.id).toBe('start');
+    expect(root?.nodes.at(-1)?.id).toBe('end');
   });
 
   it('uses one compact size contract for workflow models', () => {

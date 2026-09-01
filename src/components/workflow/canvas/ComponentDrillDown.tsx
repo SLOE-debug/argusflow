@@ -40,8 +40,9 @@ export function ComponentDrillDown({
   }]);
   useEffect(() => setComponentPath([{ definition, viaNodeId: null }]), [definition]);
   const activeDefinition = componentPath.at(-1)?.definition ?? definition;
-  const minX = Math.min(...activeDefinition.nodes.map((node) => node.position.x));
-  const minY = Math.min(...activeDefinition.nodes.map((node) => node.position.y));
+  const activeScope = componentRootScope(activeDefinition);
+  const minX = Math.min(...activeScope.nodes.map((node) => node.position.x));
+  const minY = Math.min(...activeScope.nodes.map((node) => node.position.y));
   return (
     <section className="absolute inset-0 z-40 flex min-h-0 flex-col bg-white">
       <header className="flex h-10 shrink-0 items-center border-b border-slate-200 bg-slate-50 px-3">
@@ -85,9 +86,9 @@ export function ComponentDrillDown({
       </header>
       <div className="relative min-h-0 flex-1 overflow-auto bg-[radial-gradient(#dbe3ee_1px,transparent_1px)] bg-[size:24px_24px]">
         <svg className="pointer-events-none absolute inset-0 size-full overflow-visible">
-          {activeDefinition.edges.map((edge) => {
-            const source = activeDefinition.nodes.find((node) => node.id === edge.source);
-            const target = activeDefinition.nodes.find((node) => node.id === edge.target);
+          {activeScope.edges.map((edge) => {
+            const source = activeScope.nodes.find((node) => node.id === edge.source);
+            const target = activeScope.nodes.find((node) => node.id === edge.target);
             if (!source || !target) return null;
             return (
               <line
@@ -102,7 +103,7 @@ export function ComponentDrillDown({
             );
           })}
         </svg>
-        {activeDefinition.nodes.map((node) => {
+        {activeScope.nodes.map((node) => {
           const runState = resolveInternalRunState(events, componentPath, node.id);
           return (
             <article
@@ -176,7 +177,9 @@ function resolveInternalRunState(
 ): 'idle' | 'running' | 'success' | 'error' {
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index];
-    const sourcePath = event.component_path;
+    const sourcePath = event.structure_path?.flatMap((frame) => (
+      frame.type === 'component' ? [frame] : []
+    ));
     if (!sourcePath || sourcePath.length < componentPath.length) continue;
     const pathMatches = componentPath.every((level, depth) => {
       const frame = sourcePath[depth];
@@ -191,6 +194,12 @@ function resolveInternalRunState(
     if (event.kind === 'node_started') return 'running';
   }
   return 'idle';
+}
+
+/** 组件审计视图当前展示其 Component 根作用域。 */
+function componentRootScope(definition: FlowComponentDefinition) {
+  return definition.graph.scopes.find((scope) => scope.id === definition.graph.root_scope_id)
+    ?? { id: '', parent: null, boundary: { type: 'component' as const, entry_node_id: '', exit_node_id: '' }, nodes: [], edges: [] };
 }
 
 /** 将内部节点执行状态映射为可审计的卡片颜色。 */

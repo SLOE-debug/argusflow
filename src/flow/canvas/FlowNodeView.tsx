@@ -5,6 +5,7 @@ import type { CanvasToolMode } from './FlowCanvasTools';
 import { findFlowNode } from '../selection/nodeLookup';
 import { useFlowStore } from '../store/store';
 import type { FlowAnchorSide, FlowNode, FlowPoint, NodeRegistry } from '../types';
+import { useNodeResizeGesture } from '../interaction/useNodeResizeGesture';
 
 const ANCHOR_SIDES = [
   'top',
@@ -67,10 +68,12 @@ export const FlowNodeView = memo(function FlowNodeView({
   const selectNodes = useFlowStore((state) => state.selectNodes);
   const setHoveredNode = useFlowStore((state) => state.setHoveredNode);
 
-  if (!node) return null;
-
-  const definition = registry[node.kind];
-  if (!definition) return null;
+  const definition = node ? registry[node.kind] : undefined;
+  const startResize = useNodeResizeGesture({
+    node,
+    minSize: definition?.minSize ?? definition?.defaultSize ?? { width: 1, height: 1 },
+  });
+  if (!node || !definition) return null;
 
   const NodeComponent = definition.component;
   const handlePointerEnter = () => setHoveredNode(node.id);
@@ -79,7 +82,10 @@ export const FlowNodeView = memo(function FlowNodeView({
     if (panActive) return;
 
     const target = event.target;
-    if (target instanceof HTMLElement && target.closest('[data-flow-anchor]')) return;
+    if (
+      target instanceof HTMLElement
+      && target.closest('[data-flow-anchor], [data-flow-resize]')
+    ) return;
 
     event.stopPropagation();
     const selectionMode = event.ctrlKey || event.metaKey
@@ -113,6 +119,15 @@ export const FlowNodeView = memo(function FlowNodeView({
         selected={selected}
       />
       {selected ? <NodeSelectionOutline /> : null}
+      {selected && definition.resizable && !panActive ? (
+        <button
+          type="button"
+          aria-label={`调整 ${node.id} 大小`}
+          className="absolute right-0 bottom-0 z-40 size-4 translate-x-1/2 translate-y-1/2 cursor-nwse-resize rounded-sm border border-violet-500 bg-white shadow-sm hover:bg-violet-50"
+          data-flow-resize="true"
+          onPointerDown={startResize}
+        />
+      ) : null}
       {hovered
       && toolMode === 'select'
       && !panActive

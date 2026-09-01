@@ -29,7 +29,7 @@ fn workflow_definition() -> Value {
     let message_sent = "all_of(exists(nearest(anchor = text(name = \"搜索\"), target = text(name = $contact_name), direction = any, index = 2)), exists(nearest(anchor = viewport_edge(side = bottom), target = text(name = $message), direction = any, index = 1)), not(exists(text(name contains \"重新发送\"))))";
 
     json!({
-        "schema_version": 9,
+        "schema_version": 10,
         "id": "22222222-2222-4222-8222-222222222222",
         "name": "微信：搜索联系人并发送消息",
         "inputs": [
@@ -38,7 +38,13 @@ fn workflow_definition() -> Value {
         ],
         "variables": {},
         "permissions": { "allow": ["process.application.launch"] },
-        "nodes": [
+        "graph": {
+          "root_scope_id": "root",
+          "scopes": [{
+            "id": "root",
+            "parent": null,
+            "boundary": { "type": "workflow", "entry_node_id": "start" },
+            "nodes": [
             node("start", "argus.start", 1, json!({})),
             node(application_id, "argus.application", 1, json!({
                 "spec": {
@@ -52,8 +58,7 @@ fn workflow_definition() -> Value {
                 }
             })),
             ui_node("open_search", key_operation(&application_scope, "f", &["control"])),
-            loop_node("wait_for_search"),
-            observe_node("check_search", &application_scope, search_ready, json!({})),
+            loop_node("wait_for_search", "wait_for_search_body"),
             fail_node(
                 "search_not_ready",
                 "wechat_search_not_ready",
@@ -85,13 +90,7 @@ fn workflow_definition() -> Value {
                     "target_wait": { "mode": "bounded", "timeout_ms": 5000, "poll_interval_ms": 200 }
                 }
             })),
-            loop_node("wait_for_conversation"),
-            observe_node(
-                "check_conversation",
-                &application_scope,
-                conversation_ready,
-                json!({ "contact_name": contact_input.clone() }),
-            ),
+            loop_node("wait_for_conversation", "wait_for_conversation_body"),
             fail_node(
                 "conversation_not_ready",
                 "wechat_conversation_not_ready",
@@ -105,49 +104,58 @@ fn workflow_definition() -> Value {
                 1,
                 json!({ "milliseconds": 800 }),
             ),
-            loop_node("wait_for_send_result"),
-            observe_node(
-                "check_send_result",
-                &application_scope,
-                message_sent,
-                json!({
-                    "contact_name": contact_input,
-                    "message": message_input
-                }),
-            ),
+            loop_node("wait_for_send_result", "wait_for_send_result_body"),
             fail_node(
                 "send_result_unknown",
                 "wechat_send_result_unknown",
                 "未能确认消息已发送。请打开微信检查当前会话后重试。",
             ),
             node("end", "argus.end", 1, json!({}))
-        ],
-        "edges": [
+            ],
+            "edges": [
             edge("start", application_id, None),
             edge(application_id, "open_search", None),
             edge("open_search", "wait_for_search", None),
-            edge("wait_for_search", "check_search", Some("iterate")),
+            edge("wait_for_search", "select_search_text", Some("completed")),
             edge("wait_for_search", "search_not_ready", Some("exhausted")),
-            edge("check_search", "select_search_text", Some("true")),
-            edge("check_search", "wait_for_search", Some("false")),
-            edge("check_search", "wait_for_search", Some("unknown")),
             edge("select_search_text", "type_contact", None),
             edge("type_contact", "select_contact", None),
             edge("select_contact", "wait_for_conversation", None),
-            edge("wait_for_conversation", "check_conversation", Some("iterate")),
+            edge("wait_for_conversation", "type_message", Some("completed")),
             edge("wait_for_conversation", "conversation_not_ready", Some("exhausted")),
-            edge("check_conversation", "type_message", Some("true")),
-            edge("check_conversation", "wait_for_conversation", Some("false")),
-            edge("check_conversation", "wait_for_conversation", Some("unknown")),
             edge("type_message", "send_message", None),
             edge("send_message", "wait_for_wechat_update", None),
             edge("wait_for_wechat_update", "wait_for_send_result", None),
-            edge("wait_for_send_result", "check_send_result", Some("iterate")),
+            edge("wait_for_send_result", "end", Some("completed")),
             edge("wait_for_send_result", "send_result_unknown", Some("exhausted")),
-            edge("check_send_result", "end", Some("true")),
-            edge("check_send_result", "wait_for_send_result", Some("false")),
-            edge("check_send_result", "wait_for_send_result", Some("unknown"))
-        ]
+            ]
+          },
+          loop_scope(
+              "wait_for_search_body",
+              "wait_for_search",
+              observe_node("check_search", &application_scope, search_ready, json!({})),
+          ),
+          loop_scope(
+              "wait_for_conversation_body",
+              "wait_for_conversation",
+              observe_node(
+                  "check_conversation",
+                  &application_scope,
+                  conversation_ready,
+                  json!({ "contact_name": contact_input }),
+              ),
+          ),
+          loop_scope(
+              "wait_for_send_result_body",
+              "wait_for_send_result",
+              observe_node(
+                  "check_send_result",
+                  &application_scope,
+                  message_sent,
+                  json!({ "contact_name": input("联系人"), "message": message_input }),
+              ),
+          )]
+        }
     })
 }
 
@@ -156,6 +164,7 @@ fn node(id: &str, type_id: &str, version: u16, payload: Value) -> Value {
     json!({
         "id": id,
         "position": { "x": 0.0, "y": 0.0 },
+        "size": { "width": 160.0, "height": 96.0 },
         "type_id": type_id,
         "version": version,
         "payload": payload,
@@ -174,13 +183,53 @@ fn edge(source: &str, target: &str, branch: Option<&str>) -> Value {
 }
 
 /// 创建一个有明确等待上限的重复执行节点。
-fn loop_node(id: &str) -> Value {
-    node(
+fn loop_node(id: &str, body_scope_id: &str) -> Value {
+    let mut node = node(
         id,
         "argus.loop",
-        1,
-        json!({ "max_iterations": 16, "timeout_ms": 5000, "interval_ms": 300 }),
-    )
+        2,
+        json!({
+            "body_scope_id": body_scope_id,
+            "max_iterations": 16,
+            "timeout_ms": 5000,
+            "interval_ms": 300
+        }),
+    );
+    node["size"] = json!({ "width": 420.0, "height": 240.0 });
+    node
+}
+
+/// 创建由强类型边界包围的一轮检查子作用域。
+fn loop_scope(scope_id: &str, owner_node_id: &str, observation: Value) -> Value {
+    let entry_id = format!("{scope_id}_entry");
+    let continue_id = format!("{scope_id}_continue");
+    let complete_id = format!("{scope_id}_complete");
+    let observation_id = observation["id"]
+        .as_str()
+        .expect("观察节点必须有 ID")
+        .to_owned();
+    json!({
+        "id": scope_id,
+        "parent": { "scope_id": "root", "node_id": owner_node_id },
+        "boundary": {
+            "type": "loop",
+            "entry_node_id": entry_id,
+            "continue_node_id": continue_id,
+            "complete_node_id": complete_id
+        },
+        "nodes": [
+            node(&entry_id, "argus.loop.entry", 1, json!({})),
+            observation,
+            node(&continue_id, "argus.loop.continue", 1, json!({})),
+            node(&complete_id, "argus.loop.complete", 1, json!({}))
+        ],
+        "edges": [
+            edge(&entry_id, &observation_id, None),
+            edge(&observation_id, &complete_id, Some("true")),
+            edge(&observation_id, &continue_id, Some("false")),
+            edge(&observation_id, &continue_id, Some("unknown"))
+        ]
+    })
 }
 
 /// 创建一个一次检查微信界面的布尔观察节点。

@@ -33,7 +33,19 @@ pub(crate) fn registry(
         typed_compiler::<utility::DebugPayload>("argus.debug", utility::prepare_debug),
         typed_compiler::<utility::DelayPayload>("argus.delay", utility::prepare_delay),
         typed_compiler::<control::ConditionPayload>("argus.condition", control::prepare_condition),
-        typed_compiler::<control::LoopPayload>("argus.loop", control::prepare_loop),
+        typed_compiler_at_version::<control::LoopPayload>("argus.loop", 2, control::prepare_loop),
+        typed_compiler::<control::LoopEntryPayload>(
+            "argus.loop.entry",
+            control::prepare_loop_entry,
+        ),
+        typed_compiler::<control::LoopContinuePayload>(
+            "argus.loop.continue",
+            control::prepare_loop_continue,
+        ),
+        typed_compiler::<control::LoopCompletePayload>(
+            "argus.loop.complete",
+            control::prepare_loop_complete,
+        ),
         typed_compiler::<variable::SetVariablesPayload>("argus.variable.set", variable::prepare),
         typed_compiler::<component_output::ComponentOutputPayload>(
             "argus.component.output",
@@ -59,8 +71,21 @@ pub(super) fn typed_compiler<Payload>(
 where
     Payload: DeserializeOwned + Send + Sync + 'static,
 {
+    typed_compiler_at_version(type_id, 1, prepare)
+}
+
+/// 建立拥有显式 payload 版本的强类型编译器。
+pub(super) fn typed_compiler_at_version<Payload>(
+    type_id: &'static str,
+    version: u16,
+    prepare: fn(Payload) -> Arc<dyn PreparedNode>,
+) -> Arc<dyn NodeCompiler>
+where
+    Payload: DeserializeOwned + Send + Sync + 'static,
+{
     Arc::new(TypedNodeCompiler {
         type_id: NodeTypeId::new(type_id),
+        version,
         prepare,
         payload: PhantomData,
     })
@@ -70,6 +95,8 @@ where
 struct TypedNodeCompiler<Payload> {
     /// 注册表查找使用的稳定 ID。
     type_id: NodeTypeId,
+    /// 唯一接受的当前 payload 版本。
+    version: u16,
     /// 将解码后的 payload 冻结为节点执行对象。
     prepare: fn(Payload) -> Arc<dyn PreparedNode>,
     /// 只表达编译器拥有的 payload 类型，不保存实例。
@@ -88,10 +115,10 @@ where
         &self,
         definition: &NodeEnvelope,
     ) -> Result<Arc<dyn PreparedNode>, NodeCompileError> {
-        if definition.version != 1 {
+        if definition.version != self.version {
             return Err(NodeCompileError::new(format!(
-                "unsupported payload version {}; expected 1",
-                definition.version,
+                "unsupported payload version {}; expected {}",
+                definition.version, self.version,
             )));
         }
         let payload =

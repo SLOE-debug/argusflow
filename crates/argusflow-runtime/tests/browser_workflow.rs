@@ -3,11 +3,12 @@
 use argusflow_core::{
     AqlQuery, BackendKind, BackendPolicy, BrowserSpec, ControlPortId, NodeEnvelope,
     ObservationPolicy, ObserveSpec, Position, ResourceRef, TargetScope, ValueExpr,
-    WorkflowCapabilityId, WorkflowDefinition, WorkflowEdge, WorkflowNode, WorkflowPermissions,
+    WorkflowCapabilityId, WorkflowEdge, WorkflowNode, WorkflowPermissions,
 };
 use argusflow_runtime::validate_workflow;
 use serde_json::json;
-use uuid::Uuid;
+mod workflow_fixture;
+use workflow_fixture::workflow_definition;
 
 /// 测试 fixture 使用的内置节点构造器。
 enum WorkflowNodeKind {
@@ -54,14 +55,9 @@ fn validation_accepts_observation_from_a_dominating_browser_resource() {
         backend_policy: BackendPolicy::only(BackendKind::BrowserCdp),
         policy: ObservationPolicy::Once,
     };
-    let workflow = WorkflowDefinition {
-        schema_version: 9,
-        id: Uuid::new_v4(),
-        name: "Browser resource validation".to_owned(),
-        inputs: Vec::new(),
-        variables: json!({}),
-        permissions: WorkflowPermissions::from_iter([WorkflowCapabilityId::application_launch()]),
-        nodes: vec![
+    let mut workflow = workflow_definition(
+        "Browser resource validation",
+        vec![
             node("start", 0.0, WorkflowNodeKind::Start),
             node(
                 "browser",
@@ -79,13 +75,15 @@ fn validation_accepts_observation_from_a_dominating_browser_resource() {
             node("end", 600.0, WorkflowNodeKind::End),
             node("fail", 600.0, WorkflowNodeKind::Fail),
         ],
-        edges: vec![
+        vec![
             edge("start", "browser", None),
             edge("browser", "observe", None),
             edge("observe", "end", Some("known")),
             edge("observe", "fail", Some("unknown")),
         ],
-    };
+    );
+    workflow.permissions =
+        WorkflowPermissions::from_iter([WorkflowCapabilityId::application_launch()]);
 
     let report = validate_workflow(&workflow);
     assert!(report.valid, "{:#?}", report.issues);
@@ -96,6 +94,10 @@ fn node(id: &str, x: f64, kind: WorkflowNodeKind) -> WorkflowNode {
     WorkflowNode {
         id: id.to_owned(),
         position: Position { x, y: 0.0 },
+        size: argusflow_core::Size {
+            width: 142.0,
+            height: 52.0,
+        },
         definition: kind.into(),
         output_bindings: Default::default(),
     }

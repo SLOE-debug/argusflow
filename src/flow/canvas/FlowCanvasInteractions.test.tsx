@@ -16,6 +16,8 @@ const registry = {
     title: '测试',
     defaultSize: { width: 80, height: 50 },
     component: TestNode,
+    resizable: true,
+    minSize: { width: 60, height: 40 },
   },
 } satisfies NodeRegistry;
 
@@ -190,6 +192,91 @@ describe('FlowCanvas interactions', () => {
 
     store.getState().undo();
     expect(store.getState().nodes).toBe(nodes);
+  });
+
+  it('resizes a selected node as one undoable gesture and respects minimum size', () => {
+    const nodes = [createNode('a', 20)];
+    const store = createFlowStore({ nodes, edges: [] });
+    store.getState().selectNodes(['a']);
+    render(
+      <FlowProvider store={store}>
+        <FlowCanvas
+          registry={registry}
+          onAddNode={vi.fn()}
+          onAddConnectedNode={() => true}
+          onConnect={() => true}
+          onReconnect={() => true}
+        />
+      </FlowProvider>,
+    );
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: '调整 a 大小' }), {
+      button: 0,
+      clientX: 100,
+      clientY: 70,
+    });
+    fireEvent.pointerUp(window, { clientX: 40, clientY: 20 });
+
+    expect(store.getState().nodes[0]?.size).toEqual({ width: 60, height: 40 });
+    expect(store.getState().past).toHaveLength(1);
+    store.getState().undo();
+    expect(store.getState().nodes).toBe(nodes);
+  });
+
+  it('activates the single selected structure with Enter', () => {
+    const store = createFlowStore({ nodes: [createNode('a', 20)], edges: [] });
+    const onNodeDoubleClick = vi.fn();
+    store.getState().selectNodes(['a']);
+    render(
+      <FlowProvider store={store}>
+        <FlowCanvas
+          registry={registry}
+          onAddNode={vi.fn()}
+          onAddConnectedNode={() => true}
+          onConnect={() => true}
+          onReconnect={() => true}
+          onNodeDoubleClick={onNodeDoubleClick}
+        />
+      </FlowProvider>,
+    );
+
+    expect(fireEvent.keyDown(window, { key: 'Enter' })).toBe(false);
+    expect(onNodeDoubleClick).toHaveBeenCalledWith('a');
+  });
+
+  it('delegates zoom threshold crossings to semantic scope navigation', () => {
+    let wheelFrame: FrameRequestCallback | undefined;
+    vi.mocked(requestAnimationFrame).mockImplementation((callback) => {
+      wheelFrame = callback;
+      return 1;
+    });
+    const store = createFlowStore({ nodes: [createNode('a', 20)], edges: [] });
+    const onSemanticZoomIn = vi.fn(() => true);
+    const onSemanticZoomOut = vi.fn(() => true);
+    const { container } = render(
+      <FlowProvider store={store}>
+        <FlowCanvas
+          registry={registry}
+          onAddNode={vi.fn()}
+          onAddConnectedNode={() => true}
+          onConnect={() => true}
+          onReconnect={() => true}
+          onSemanticZoomIn={onSemanticZoomIn}
+          onSemanticZoomOut={onSemanticZoomOut}
+        />
+      </FlowProvider>,
+    );
+    const canvas = container.querySelector('.touch-none');
+
+    fireEvent.wheel(canvas!, { clientX: 40, clientY: 40, deltaY: -1_000 });
+    wheelFrame?.(0);
+    expect(onSemanticZoomIn).toHaveBeenCalled();
+    expect(onSemanticZoomOut).not.toHaveBeenCalled();
+
+    onSemanticZoomIn.mockReturnValue(false);
+    fireEvent.wheel(canvas!, { clientX: 40, clientY: 40, deltaY: 2_000 });
+    wheelFrame?.(1);
+    expect(onSemanticZoomOut).toHaveBeenCalled();
   });
 
   it('preserves native arrow-key behavior in editable and menu controls', () => {

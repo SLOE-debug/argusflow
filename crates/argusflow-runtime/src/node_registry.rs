@@ -22,11 +22,25 @@ pub enum NodeFlow {
         /// 该节点类型拥有的稳定开放控制流端口。
         ports: Vec<ControlPortId>,
     },
-    /// 允许唯一结构化回边的有界循环门；端口语义由节点类型拥有。
+    /// 拥有独立子作用域的有界 While 容器。
     Loop {
-        /// 必须包含 `iterate` 与 `exhausted` 的稳定端口集合。
+        /// 必须包含 `completed` 与 `exhausted` 的稳定父图端口集合。
         ports: Vec<ControlPortId>,
+        /// 该容器唯一拥有的子作用域。
+        body_scope_id: String,
+        /// 单次激活最多开始的轮次数。
+        max_iterations: u32,
+        /// 单次激活的总毫秒预算。
+        timeout_ms: u64,
+        /// 第二轮起的间隔毫秒数。
+        interval_ms: u64,
     },
+    /// While 子作用域每轮的固定入口。
+    LoopEntry,
+    /// While 子作用域请求开始下一轮的固定出口。
+    LoopContinue,
+    /// While 子作用域请求正常完成容器的固定出口。
+    LoopComplete,
     /// 唯一出口；至少一条入边且没有出边。
     End,
 }
@@ -121,6 +135,8 @@ impl NodeValidationContext<'_> {
             message: message.into(),
             node_id: Some(self.node_id.to_owned()),
             edge_id: None,
+            scope_id: None,
+            structure_path: Vec::new(),
         }
     }
 }

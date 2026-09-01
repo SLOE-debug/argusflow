@@ -1,5 +1,6 @@
 use argusflow_core::{
     ExecutionComponentFrame, ExecutionEvent, ExecutionEventKind, ExecutionEventPayload,
+    ExecutionStructureFrame,
 };
 use uuid::Uuid;
 
@@ -16,15 +17,19 @@ pub(crate) fn restore_component_source(
     {
         event.node_id = Some(root.instance_node_id.clone());
         event.expanded_node_id = Some(expanded_node_id);
-        event.component_path = path
+        let mut structure_path = path
             .iter()
-            .map(|frame| ExecutionComponentFrame {
-                instance_node_id: frame.instance_node_id.clone(),
-                component_id: frame.component_id.as_uuid(),
-                component_version: frame.component_version.as_str().to_owned(),
-                inner_node_id: frame.inner_node_id.clone(),
+            .map(|frame| {
+                ExecutionStructureFrame::Component(ExecutionComponentFrame {
+                    instance_node_id: frame.instance_node_id.clone(),
+                    component_id: frame.component_id.as_uuid(),
+                    component_version: frame.component_version.as_str().to_owned(),
+                    inner_node_id: frame.inner_node_id.clone(),
+                })
             })
-            .collect();
+            .collect::<Vec<_>>();
+        structure_path.append(&mut event.structure_path);
+        event.structure_path = structure_path;
     }
 }
 
@@ -46,7 +51,7 @@ pub(crate) fn build_event(
         sequence: *sequence,
         node_id,
         expanded_node_id: None,
-        component_path: Vec::new(),
+        structure_path: Vec::new(),
         edge_id,
         kind,
         message,

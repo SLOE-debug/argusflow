@@ -13,6 +13,7 @@ import {
 } from './flowStoreHistory';
 import { updateNodeSelection } from './flowStoreSelection';
 import type {
+  FlowDocument,
   FlowDocumentSnapshot,
   FlowState,
 } from './flowStoreTypes';
@@ -26,15 +27,28 @@ const DEFAULT_VIEWPORT = {
 } as const;
 
 const DEFAULT_EDGE_ACTIVATION_MS = 900;
+/** 没有显式多作用域配置时使用的根文档 ID。 */
+const DEFAULT_DOCUMENT_ID = 'root';
 
 /** 创建独立 Zustand Flow store，允许一个页面并列挂载多个编辑器。 */
 export function createFlowStore<TData = unknown, TEdgeData = unknown>(
   initial?: Partial<FlowDocumentSnapshot<TData, TEdgeData>>,
 ): StoreApi<FlowState<TData, TEdgeData>> {
-  return createStore<FlowState<TData, TEdgeData>>((set, get) => ({
-    metadata: initial?.metadata ?? {},
+  /** 初始化时确保 active nodes/edges 与多文档表共享同一份不可变引用。 */
+  const activeDocumentId = initial?.activeDocumentId ?? DEFAULT_DOCUMENT_ID;
+  const initialDocument: FlowDocument<TData, TEdgeData> = {
     nodes: initial?.nodes ?? [],
     edges: initial?.edges ?? [],
+  };
+  const documents = initial?.documents ?? { [activeDocumentId]: initialDocument };
+  const activeDocument = documents[activeDocumentId] ?? initialDocument;
+  return createStore<FlowState<TData, TEdgeData>>((set, get) => ({
+    metadata: initial?.metadata ?? {},
+    nodes: activeDocument.nodes,
+    edges: activeDocument.edges,
+    documents,
+    activeDocumentId,
+    documentViewports: { [activeDocumentId]: { ...DEFAULT_VIEWPORT } },
     viewport: { ...DEFAULT_VIEWPORT },
     selectedNodeIds: new Set(),
     selectedEdgeId: null,
@@ -54,14 +68,69 @@ export function createFlowStore<TData = unknown, TEdgeData = unknown>(
       && state.viewport.y === viewport.y
       && state.viewport.zoom === viewport.zoom
         ? state
-        : { viewport }
+        : {
+            viewport,
+            documentViewports: {
+              ...state.documentViewports,
+              [state.activeDocumentId]: viewport,
+            },
+          }
     )),
+
+    switchDocument: (documentId) => {
+      const state = get();
+      const document = state.documents[documentId];
+      if (!document || documentId === state.activeDocumentId) return Boolean(document);
+      set({
+        activeDocumentId: documentId,
+        nodes: document.nodes,
+        edges: document.edges,
+        viewport: state.documentViewports[documentId] ?? { ...DEFAULT_VIEWPORT },
+        selectedNodeIds: new Set(),
+        selectedEdgeId: null,
+        hoveredNodeId: null,
+        hoveredEdgeId: null,
+        selectionBox: null,
+        connectionDraft: null,
+      });
+      return true;
+    },
+
+    addDocument: (documentId, document) => {
+      const state = get();
+      if (!documentId.trim() || state.documents[documentId]) return false;
+      state.transact((snapshot) => ({
+        ...snapshot,
+        documents: { ...snapshot.documents, [documentId]: document },
+      }));
+      return true;
+    },
+
+    removeDocuments: (documentIds) => {
+      const state = get();
+      if (documentIds.has(state.activeDocumentId)) return;
+      state.transact((snapshot) => ({
+        ...snapshot,
+        documents: Object.fromEntries(Object.entries(snapshot.documents)
+          .filter(([documentId]) => !documentIds.has(documentId))),
+      }));
+      set((current) => ({
+        documentViewports: Object.fromEntries(Object.entries(current.documentViewports)
+          .filter(([documentId]) => !documentIds.has(documentId))),
+      }));
+    },
 
     setNodes: (nodes, record = true) => {
       if (record) {
         get().transact((document) => ({ ...document, nodes }));
       } else {
-        set((state) => state.nodes === nodes ? state : { nodes });
+        set((state) => state.nodes === nodes ? state : {
+          nodes,
+          documents: {
+            ...state.documents,
+            [state.activeDocumentId]: { nodes, edges: state.edges },
+          },
+        });
       }
     },
 
@@ -69,7 +138,13 @@ export function createFlowStore<TData = unknown, TEdgeData = unknown>(
       if (record) {
         get().transact((document) => ({ ...document, edges }));
       } else {
-        set((state) => state.edges === edges ? state : { edges });
+        set((state) => state.edges === edges ? state : {
+          edges,
+          documents: {
+            ...state.documents,
+            [state.activeDocumentId]: { nodes: state.nodes, edges },
+          },
+        });
       }
     },
 
@@ -127,13 +202,20 @@ export function createFlowStore<TData = unknown, TEdgeData = unknown>(
           ),
         }), historyGroup);
       } else {
-        set((state) => ({
-          nodes: moveSelectedNodes(
+        set((state) => {
+          const nodes = moveSelectedNodes(
             state.nodes,
             state.selectedNodeIds,
             delta,
-          ),
-        }));
+          );
+          return {
+            nodes,
+            documents: {
+              ...state.documents,
+              [state.activeDocumentId]: { nodes, edges: state.edges },
+            },
+          };
+        });
       }
     },
 

@@ -45,7 +45,8 @@ pub use condition::{ConditionEvaluationError, ConditionOperator};
 pub use data::DelimitedTextFormat;
 pub use error::{ActionCapability, AutomationError};
 pub use execution::{
-    ExecutionComponentFrame, ExecutionEvent, ExecutionEventKind, ExecutionEventPayload, RunStarted,
+    ExecutionComponentFrame, ExecutionEvent, ExecutionEventKind, ExecutionEventPayload,
+    ExecutionLoopFrame, ExecutionStructureFrame, RunStarted,
 };
 pub use input::{RunInputs, WorkflowInputDefinition, WorkflowInputType};
 pub use keyboard::{KeyChord, KeyboardKey, KeyboardModifier};
@@ -69,6 +70,6 @@ pub use resource::{
 };
 pub use value::{ValueExpr, ValueSource};
 pub use workflow::{
-    ControlPortId, NodeEnvelope, NodeTypeId, Position, WorkflowDefinition, WorkflowEdge,
-    WorkflowNode,
+    ControlPortId, FlowScope, FlowScopeBoundary, FlowScopeParent, NodeEnvelope, NodeTypeId,
+    Position, ScopedFlowGraph, Size, WorkflowDefinition, WorkflowEdge, WorkflowNode,
 };

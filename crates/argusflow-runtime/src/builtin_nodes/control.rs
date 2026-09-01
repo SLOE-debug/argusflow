@@ -1,7 +1,5 @@
 use std::sync::Arc;
 
-use std::time::Duration;
-
 use argusflow_core::{
     ConditionOperator, ControlPortId, ExecutionEventKind, ExecutionEventPayload, ValueExpr,
     WorkflowPermissions,
@@ -28,6 +26,8 @@ pub(super) struct EndPayload {}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct LoopPayload {
+    /// 该容器拥有的 While 子作用域。
+    body_scope_id: String,
     /// 最多开始的循环体轮次数。
     max_iterations: u32,
     /// 从首次进入 Gate 起计算的总毫秒预算。
@@ -35,6 +35,21 @@ pub(super) struct LoopPayload {
     /// 第二轮起每次进入循环体前的等待毫秒数。
     interval_ms: u64,
 }
+
+/// While 子作用域入口的空 payload。
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct LoopEntryPayload {}
+
+/// While 子作用域继续出口的空 payload。
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct LoopContinuePayload {}
+
+/// While 子作用域完成出口的空 payload。
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct LoopCompletePayload {}
 
 /// 显式失败终点的强类型 payload。
 #[derive(Deserialize)]
@@ -80,10 +95,26 @@ pub(super) fn prepare_condition(payload: ConditionPayload) -> Arc<dyn PreparedNo
 /// 创建冻结的 Loop Gate。
 pub(super) fn prepare_loop(payload: LoopPayload) -> Arc<dyn PreparedNode> {
     Arc::new(LoopNode {
+        body_scope_id: payload.body_scope_id,
         max_iterations: payload.max_iterations,
         timeout_ms: payload.timeout_ms,
         interval_ms: payload.interval_ms,
     })
+}
+
+/// 创建 While 子作用域入口。
+pub(super) fn prepare_loop_entry(_payload: LoopEntryPayload) -> Arc<dyn PreparedNode> {
+    Arc::new(LoopEntryNode)
+}
+
+/// 创建 While 子作用域继续出口。
+pub(super) fn prepare_loop_continue(_payload: LoopContinuePayload) -> Arc<dyn PreparedNode> {
+    Arc::new(LoopContinueNode)
+}
+
+/// 创建 While 子作用域完成出口。
+pub(super) fn prepare_loop_complete(_payload: LoopCompletePayload) -> Arc<dyn PreparedNode> {
+    Arc::new(LoopCompleteNode)
 }
 
 /// 创建冻结的显式失败终点。
@@ -116,6 +147,8 @@ struct ConditionNode {
 /// 只允许由 Validator 建立单层结构化回边的有界循环门。
 #[derive(Debug)]
 struct LoopNode {
+    /// 唯一拥有的子作用域 ID。
+    body_scope_id: String,
     /// 最大循环体轮次数。
     max_iterations: u32,
     /// 循环总时长预算。
@@ -123,6 +156,18 @@ struct LoopNode {
     /// 相邻轮次之间的等待时间。
     interval_ms: u64,
 }
+
+/// While 子作用域固定入口。
+#[derive(Debug)]
+struct LoopEntryNode;
+
+/// While 子作用域继续下一轮的固定出口。
+#[derive(Debug)]
+struct LoopContinueNode;
+
+/// While 子作用域正常完成的固定出口。
+#[derive(Debug)]
+struct LoopCompleteNode;
 
 /// 以预期业务错误结束流程的终点。
 #[derive(Debug)]
@@ -234,9 +279,13 @@ impl PreparedNode for LoopNode {
     fn flow(&self) -> NodeFlow {
         NodeFlow::Loop {
             ports: vec![
-                ControlPortId::new("iterate"),
+                ControlPortId::new("completed"),
                 ControlPortId::new("exhausted"),
             ],
+            body_scope_id: self.body_scope_id.clone(),
+            max_iterations: self.max_iterations,
+            timeout_ms: self.timeout_ms,
+            interval_ms: self.interval_ms,
         }
     }
 
@@ -260,42 +309,40 @@ impl PreparedNode for LoopNode {
 
     async fn execute(
         &self,
-        node_id: &str,
+        _node_id: &str,
         _permissions: &WorkflowPermissions,
-        context: &mut RunContext,
+        _context: &mut RunContext,
     ) -> Result<NodeExecution, RuntimeError> {
-        if context.loop_iterations(node_id) > 0 && self.interval_ms > 0 {
-            tokio::time::sleep(Duration::from_millis(self.interval_ms)).await;
-        }
-        match context.begin_loop_iteration(
-            node_id,
-            self.max_iterations,
-            Duration::from_millis(self.timeout_ms),
-        ) {
-            Ok(iteration) => Ok(NodeExecution {
-                branch: Some(ControlPortId::new("iterate")),
-                events: vec![NodeEvent {
-                    kind: ExecutionEventKind::LoopIteration,
-                    message: Some(format!("开始第 {iteration} 次重复")),
-                    payload: Some(ExecutionEventPayload::LoopIteration {
-                        iteration,
-                        max_iterations: self.max_iterations,
-                    }),
-                }],
-                ..NodeExecution::default()
-            }),
-            Err(iterations) => Ok(NodeExecution {
-                branch: Some(ControlPortId::new("exhausted")),
-                events: vec![NodeEvent {
-                    kind: ExecutionEventKind::LoopExhausted,
-                    message: Some("已达到设置的重复次数或时间上限".to_owned()),
-                    payload: Some(ExecutionEventPayload::LoopExhausted { iterations }),
-                }],
-                ..NodeExecution::default()
-            }),
-        }
+        // While 的进入、轮次和退出由显式执行栈统一编排；节点对象只冻结强类型配置。
+        Ok(NodeExecution::default())
     }
 }
+
+macro_rules! impl_loop_boundary {
+    ($node:ty, $flow:expr, $label:literal) => {
+        #[async_trait]
+        impl PreparedNode for $node {
+            fn flow(&self) -> NodeFlow {
+                $flow
+            }
+            fn label(&self) -> String {
+                $label.to_owned()
+            }
+            async fn execute(
+                &self,
+                _node_id: &str,
+                _permissions: &WorkflowPermissions,
+                _context: &mut RunContext,
+            ) -> Result<NodeExecution, RuntimeError> {
+                Ok(NodeExecution::default())
+            }
+        }
+    };
+}
+
+impl_loop_boundary!(LoopEntryNode, NodeFlow::LoopEntry, "循环开始");
+impl_loop_boundary!(LoopContinueNode, NodeFlow::LoopContinue, "继续下一轮");
+impl_loop_boundary!(LoopCompleteNode, NodeFlow::LoopComplete, "完成循环");
 
 #[async_trait]
 impl PreparedNode for FailNode {

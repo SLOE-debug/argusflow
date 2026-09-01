@@ -326,6 +326,8 @@ fn component_validation_report(
             message,
             node_id,
             edge_id: None,
+            scope_id: None,
+            structure_path: Vec::new(),
         }],
     }
 }

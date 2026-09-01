@@ -51,6 +51,8 @@ type FlowContextMenuProps = Readonly<{
   ) => boolean;
   /** 任一菜单操作完成后关闭菜单。 */
   onClose: () => void;
+  /** 业务层可接管删除结构容器及其外部子文档。 */
+  onDeleteSelection?: () => void;
 }>;
 
 type ArrangeAction = Readonly<{
@@ -114,10 +116,12 @@ export function FlowContextMenu({
   onAddNode,
   onAddConnectedNode,
   onClose,
+  onDeleteSelection,
 }: FlowContextMenuProps) {
   const [openSubmenu, setOpenSubmenu] = useState<OpenSubmenu>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const selectedNodeCount = useFlowStore((state) => state.selectedNodeIds.size);
+  const selectedNodeIds = useFlowStore((state) => state.selectedNodeIds);
   const selectedEdgeId = useFlowStore((state) => state.selectedEdgeId);
   const pastCount = useFlowStore((state) => state.past.length);
   const futureCount = useFlowStore((state) => state.future.length);
@@ -131,6 +135,10 @@ export function FlowContextMenu({
   const align = useFlowStore((state) => state.align);
   const distribute = useFlowStore((state) => state.distribute);
   const hasSelection = selectedNodeCount > 0 || selectedEdgeId !== null;
+  /** 通用剪贴板不能复制由业务层拥有外部文档的结构节点。 */
+  const hasNonCopyableSelection = nodes.some((node) => (
+    selectedNodeIds.has(node.id) && registry[node.kind]?.copyable === false
+  ));
   /** 注册表中声明为单例的节点类型。 */
   const singletonKinds = new Set(
     Object.values(registry)
@@ -254,7 +262,7 @@ export function FlowContextMenu({
         label="复制"
         shortcut="Ctrl+C"
         icon={Copy}
-        disabled={selectedNodeCount === 0}
+        disabled={selectedNodeCount === 0 || hasNonCopyableSelection}
         onHighlight={() => setOpenSubmenu(null)}
         onClick={() => runCommand(copy)}
       />
@@ -272,7 +280,7 @@ export function FlowContextMenu({
         label="创建副本"
         shortcut="Ctrl+D"
         icon={CopyPlus}
-        disabled={selectedNodeCount === 0}
+        disabled={selectedNodeCount === 0 || hasNonCopyableSelection}
         onHighlight={() => setOpenSubmenu(null)}
         onClick={() => runCommand(() => duplicate(singletonKinds))}
       />
@@ -283,7 +291,7 @@ export function FlowContextMenu({
         icon={Trash2}
         disabled={!hasSelection}
         onHighlight={() => setOpenSubmenu(null)}
-        onClick={() => runCommand(() => deleteSelection())}
+        onClick={() => runCommand(onDeleteSelection ?? deleteSelection)}
       />
       <FlowMenuSeparator />
       <FlowMenuItem
@@ -370,7 +378,7 @@ function NodeMenuItems({
   requireConnectionTarget = false,
   onAdd,
 }: NodeMenuItemsProps) {
-  return Object.values(registry).map((definition) => {
+  return Object.values(registry).filter((definition) => definition.creatable !== false).map((definition) => {
     const Icon = NODE_ICONS[definition.kind] ?? Plus;
     const iconTone = NODE_ICON_TONES[definition.kind] ?? 'text-blue-700';
     const singletonConflict = Boolean(

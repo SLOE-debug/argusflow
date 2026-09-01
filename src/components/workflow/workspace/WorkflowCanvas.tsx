@@ -19,6 +19,7 @@ import { FLOW_COMPONENT_CATALOG } from '../../../features/workflow';
 import { NODE_PRESET_CATALOG } from '../../../features/workflow';
 import { workflowNodeRegistry } from '../canvas/WorkflowNodeCard';
 import { resolveWorkflowEdgeLabel } from '../presentation/workflowBranchPresentation';
+import { WorkflowScopeBreadcrumbs } from './WorkflowScopeBreadcrumbs';
 
 type WorkflowCanvasProps = {
   store: StoreApi<FlowState<WorkflowNodeData, WorkflowEdgeData>>;
@@ -44,6 +45,12 @@ type WorkflowCanvasProps = {
   ) => boolean;
   /** 双击流程组件时进入内部版本视图。 */
   onNodeDoubleClick?: (nodeId: string) => void;
+  /** 放大到 While 内部时切换当前作用域。 */
+  onEnterLoop?: (nodeId: string) => boolean;
+  /** 面包屑切换到指定祖先作用域。 */
+  onOpenScope?: (scopeId: string) => boolean;
+  /** 删除结构容器时同步删除它拥有的子作用域树。 */
+  onDeleteSelection?: () => void;
   /** 为工作区组件创建键补齐拖放尺寸定义。 */
   componentCatalog?: ReadonlyArray<FlowComponentCatalogItem>;
 };
@@ -56,6 +63,9 @@ export function WorkflowCanvas({
   onConnect,
   onReconnect,
   onNodeDoubleClick,
+  onEnterLoop,
+  onOpenScope,
+  onDeleteSelection,
   componentCatalog = FLOW_COMPONENT_CATALOG,
 }: WorkflowCanvasProps) {
   /** 创建目录不变时复用注册表，保持画布键盘监听和节点定义引用稳定。 */
@@ -89,7 +99,32 @@ export function WorkflowCanvas({
         onConnect={onConnect}
         onReconnect={onReconnect}
         onNodeDoubleClick={onNodeDoubleClick}
+        onDeleteSelection={onDeleteSelection}
+        onSemanticZoomIn={(worldPoint, nextZoom) => {
+          if (nextZoom < 2.25 || !onEnterLoop) return false;
+          const loop = store.getState().nodes.find((node) => (
+            node.data.kind === 'loop'
+            && worldPoint.x >= node.position.x
+            && worldPoint.x <= node.position.x + node.size.width
+            && worldPoint.y >= node.position.y
+            && worldPoint.y <= node.position.y + node.size.height
+          ));
+          return loop ? onEnterLoop(loop.id) : false;
+        }}
+        onSemanticZoomOut={(nextZoom) => {
+          if (nextZoom >= 0.1 || !onOpenScope) return false;
+          const state = store.getState();
+          const metadata = state.metadata.scopeMetadata as import('../../../features/workflow').WorkflowScopeMetadataMap;
+          const parentScopeId = metadata[state.activeDocumentId]?.parent?.scope_id;
+          return parentScopeId ? onOpenScope(parentScopeId) : false;
+        }}
       />
+      {onOpenScope ? (
+        <WorkflowScopeBreadcrumbs
+          store={store}
+          onOpenScope={onOpenScope}
+        />
+      ) : null}
     </FlowProvider>
   );
 }

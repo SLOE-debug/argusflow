@@ -22,9 +22,9 @@ pub struct ExecutionEvent {
     /// 组件内部执行时的扁平节点 ID；普通节点事件为空。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expanded_node_id: Option<String>,
-    /// 组件内部执行时从外到内的版本锁定来源路径。
+    /// 从外到内的组件与 While 结构来源路径。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub component_path: Vec<ExecutionComponentFrame>,
+    pub structure_path: Vec<ExecutionStructureFrame>,
     /// 相关连线 ID；只有连线流转事件携带该字段。
     pub edge_id: Option<String>,
     /// 事件的生命周期类别。
@@ -48,10 +48,38 @@ pub struct ExecutionComponentFrame {
     pub inner_node_id: String,
 }
 
+/// 执行事件中一个 While 激活帧。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExecutionLoopFrame {
+    /// 父作用域中的 While 容器节点 ID。
+    pub container_node_id: String,
+    /// 当前执行的 While 子作用域 ID。
+    pub scope_id: String,
+    /// 从 1 开始的激活轮次。
+    pub iteration: u32,
+}
+
+/// 事件所在的结构化执行路径；判别联合避免组件与循环帧共享弱字段。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ExecutionStructureFrame {
+    /// 经过一个已版本锁定的可复用组件实例。
+    Component(ExecutionComponentFrame),
+    /// 正在执行一个 While 容器的指定轮次。
+    Loop(ExecutionLoopFrame),
+}
+
 /// 执行事件中可安全展示的结构化详情。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ExecutionEventPayload {
+    /// While 容器已经建立一次新的循环激活。
+    LoopStarted {
+        /// 子作用域 ID。
+        scope_id: String,
+        /// 配置的最大轮次。
+        max_iterations: u32,
+    },
     /// 节点已经保存一组值输出，仅报告端口名避免泄露业务内容。
     NodeOutputsProduced {
         /// 本次产生的稳定输出端口名称。
@@ -106,6 +134,11 @@ pub enum ExecutionEventPayload {
         /// 实际已经开始的轮次数。
         iterations: u32,
     },
+    /// While 容器通过 complete 边界正常离开。
+    LoopCompleted {
+        /// 实际已经开始的轮次数。
+        iterations: u32,
+    },
     /// Fail 节点声明的稳定失败码；消息保存在事件 message 中。
     WorkflowFailureDeclared {
         /// 工作流作者配置的稳定错误码。
@@ -117,6 +150,8 @@ pub enum ExecutionEventPayload {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecutionEventKind {
+    /// While 容器已被激活。
+    LoopStarted,
     /// 工作流已开始执行。
     WorkflowStarted,
     /// 某个节点已开始执行。
@@ -139,6 +174,8 @@ pub enum ExecutionEventKind {
     LoopIteration,
     /// Loop Gate 走向 exhausted 分支。
     LoopExhausted,
+    /// While 容器通过 complete 边界离开。
+    LoopCompleted,
     /// Fail 节点声明预期失败。
     WorkflowFailureDeclared,
     /// 某个节点执行成功。

@@ -8,8 +8,12 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::{
     validation_graph::{build_graph, validate_graph_shape, validate_node_degrees},
-    validation_loops::validate_structured_loops,
     validation_references::validate_data_references,
+    validation_scopes::validate_scopes,
+    validation_workflow::{
+        annotate_issue_locations, optional_scope_boundaries, scope_terminals,
+        validate_global_edge_ids, validate_terminal_counts, validate_workflow_metadata,
+    },
 };
 use crate::{
     application::UnavailableApplicationSessionProvider,
@@ -43,6 +47,12 @@ pub struct ValidationIssue {
     pub node_id: Option<String>,
     /// 相关连线 ID；工作流级问题为空。
     pub edge_id: Option<String>,
+    /// 问题所在作用域；工作流级问题为空。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope_id: Option<String>,
+    /// 从根作用域到问题作用域的稳定 ID 路径。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub structure_path: Vec<String>,
 }
 
 macro_rules! validation_issue_codes {
@@ -145,6 +155,9 @@ validation_issue_codes! {
     ReferenceNotDominating => "reference_not_dominating",
     UnknownNodeType => "unknown_node_type",
     InvalidNodeDefinition => "invalid_node_definition",
+    InvalidScope => "invalid_scope",
+    InvalidScopeBoundary => "invalid_scope_boundary",
+    InvalidNodeSize => "invalid_node_size",
     InvalidComponentDefinition => "invalid_component_definition",
     ComponentExpansionFailed => "component_expansion_failed",
 }
@@ -161,7 +174,7 @@ pub(crate) struct PreparedWorkflow {
     pub(crate) source_map: ComponentSourceMap,
 }
 
-/// 使用内置节点注册表校验 schema v9 工作流。
+/// 使用内置节点注册表校验 schema v10 工作流。
 pub fn validate_workflow(workflow: &WorkflowDefinition) -> ValidationReport {
     let registry = builtin_nodes::registry(
         Arc::new(UnavailableActionDispatcher),
@@ -269,9 +282,12 @@ fn validate_and_compile(
 
     let mut prepared_nodes = HashMap::new();
     let mut node_ids = HashSet::new();
-    let mut start_ids = Vec::new();
-    let mut end_ids = Vec::new();
-    for node in &workflow.nodes {
+    for node in workflow
+        .graph
+        .scopes
+        .iter()
+        .flat_map(|scope| scope.nodes.iter())
+    {
         if node.id.trim().is_empty() {
             issues.push(issue(
                 ValidationIssueCode::EmptyNodeId,
@@ -303,9 +319,14 @@ fn validate_and_compile(
         match registry.compile(node) {
             Ok(prepared) => {
                 match prepared.flow() {
-                    NodeFlow::Start => start_ids.push(node.id.clone()),
-                    NodeFlow::End => end_ids.push(node.id.clone()),
-                    NodeFlow::Linear | NodeFlow::Branch { .. } | NodeFlow::Loop { .. } => {}
+                    NodeFlow::Start
+                    | NodeFlow::End
+                    | NodeFlow::Linear
+                    | NodeFlow::Branch { .. }
+                    | NodeFlow::Loop { .. }
+                    | NodeFlow::LoopEntry
+                    | NodeFlow::LoopContinue
+                    | NodeFlow::LoopComplete => {}
                 }
                 issues.extend(prepared.validate(&NodeValidationContext {
                     workflow,
@@ -333,23 +354,34 @@ fn validate_and_compile(
             )),
         }
     }
-    validate_terminal_counts(&start_ids, &end_ids, &mut issues);
-
-    let graph = build_graph(workflow, &node_ids, &mut issues);
-    validate_node_degrees(workflow, &prepared_nodes, &graph, &mut issues);
-    validate_structured_loops(workflow, &prepared_nodes, &graph, &mut issues);
-    validate_graph_shape(&node_ids, &start_ids, &end_ids, &graph, &mut issues);
-    if start_ids.len() == 1 {
-        validate_data_references(
-            workflow,
-            &prepared_nodes,
-            &start_ids[0],
-            &graph.predecessors,
+    validate_global_edge_ids(workflow, &mut issues);
+    validate_scopes(workflow, &prepared_nodes, &mut issues);
+    for scope in &workflow.graph.scopes {
+        let local_node_ids = scope
+            .nodes
+            .iter()
+            .map(|node| node.id.clone())
+            .collect::<HashSet<_>>();
+        let graph = build_graph(scope, &local_node_ids, &mut issues);
+        validate_node_degrees(scope, &prepared_nodes, &graph, &mut issues);
+        let (entry_ids, end_ids) = scope_terminals(scope, &prepared_nodes);
+        let optional_node_ids = optional_scope_boundaries(scope);
+        validate_graph_shape(
+            &local_node_ids,
+            &entry_ids,
+            &end_ids,
+            &optional_node_ids,
+            &graph,
             &mut issues,
         );
+        if scope.id == workflow.graph.root_scope_id {
+            validate_terminal_counts(scope, &prepared_nodes, &end_ids, &mut issues);
+        }
     }
+    validate_data_references(workflow, &prepared_nodes, &mut issues);
 
     let value_plan = compile_value_plan(workflow, &prepared_nodes, &mut issues);
+    annotate_issue_locations(workflow, &mut issues);
 
     (
         prepared_nodes,
@@ -368,7 +400,12 @@ fn compile_value_plan(
     issues: &mut Vec<ValidationIssue>,
 ) -> Arc<RuntimeValuePlan> {
     let mut builder = RuntimeValuePlanBuilder::default();
-    for node in &workflow.nodes {
+    for node in workflow
+        .graph
+        .scopes
+        .iter()
+        .flat_map(|scope| scope.nodes.iter())
+    {
         if let Some(prepared) = prepared_nodes.get(&node.id) {
             for input in prepared.value_inputs() {
                 if let Err(message) = builder.compile(input.expression) {
@@ -395,69 +432,6 @@ fn compile_value_plan(
     builder.finish()
 }
 
-/// 校验工作流级契约。
-fn validate_workflow_metadata(workflow: &WorkflowDefinition, issues: &mut Vec<ValidationIssue>) {
-    if workflow.schema_version != 9 {
-        issues.push(issue(
-            ValidationIssueCode::UnsupportedSchemaVersion,
-            "schema_version 必须为 9",
-            None,
-            None,
-        ));
-    }
-    if workflow.name.trim().is_empty() {
-        issues.push(issue(
-            ValidationIssueCode::EmptyWorkflowName,
-            "工作流名称不能为空",
-            None,
-            None,
-        ));
-    }
-    let mut input_keys = HashSet::new();
-    for input in &workflow.inputs {
-        if input.key.trim().is_empty() || !input_keys.insert(input.key.as_str()) {
-            issues.push(issue(
-                ValidationIssueCode::InvalidWorkflowInputs,
-                "工作流输入名称必须非空且唯一",
-                None,
-                None,
-            ));
-        }
-    }
-    if !workflow.variables.is_object() {
-        issues.push(issue(
-            ValidationIssueCode::InvalidVariables,
-            "工作流变量根值必须是 JSON 对象",
-            None,
-            None,
-        ));
-    }
-}
-
-/// 校验唯一 Start 与 End 数量。
-fn validate_terminal_counts(
-    start_ids: &[String],
-    end_ids: &[String],
-    issues: &mut Vec<ValidationIssue>,
-) {
-    if start_ids.len() != 1 {
-        issues.push(issue(
-            ValidationIssueCode::InvalidStartCount,
-            "工作流必须且只能包含一个 Start 节点",
-            None,
-            None,
-        ));
-    }
-    if end_ids.is_empty() {
-        issues.push(issue(
-            ValidationIssueCode::InvalidEndCount,
-            "工作流至少需要一个 End 或 Fail 终点",
-            None,
-            None,
-        ));
-    }
-}
-
 /// 创建一项稳定且可定位的校验问题。
 pub(crate) fn issue(
     code: ValidationIssueCode,
@@ -470,5 +444,7 @@ pub(crate) fn issue(
         message: message.into(),
         node_id,
         edge_id,
+        scope_id: None,
+        structure_path: Vec::new(),
     }
 }

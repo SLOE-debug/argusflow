@@ -1,4 +1,3 @@
-import type { ExecutionComponentFrame } from '../components/reusableFlowContracts';
 import type { BackendKind } from './aqlContracts';
 import type { KeyChord } from './inputContracts';
 import type { JsonObject, JsonValue } from './jsonContracts';
@@ -10,10 +9,10 @@ export type {
   UiExecutionPolicy,
 } from './uiExecutionContracts';
 
-/** 与 Rust 后端交换的 schema v9 工作流。 */
+/** 与 Rust 后端交换的 schema v10 多作用域工作流。 */
 export type WorkflowDefinition = {
   /** 当前契约固定版本。 */
-  schema_version: 9;
+  schema_version: 10;
   /** 工作流稳定 ID。 */
   id: string;
   /** 面向用户的名称。 */
@@ -24,16 +23,17 @@ export type WorkflowDefinition = {
   variables: JsonObject;
   /** 对进程和 shell 能力的显式授权。 */
   permissions: WorkflowPermissions;
-  /** 可执行节点。 */
-  nodes: WorkflowNodeContract[];
-  /** 节点间有向连接。 */
-  edges: WorkflowEdgeContract[];
+  /** 根流程与全部 While 子作用域。 */
+  graph: ScopedFlowGraphContract;
 };
 export type Position = { x: number; y: number };
+export type Size = { width: number; height: number };
 /** 后端可执行节点的通用字段与开放 definition envelope。 */
 export type WorkflowNodeContract = {
   id: string;
   position: Position;
+  /** 节点或结构容器的持久化逻辑尺寸。 */
+  size: Size;
   /** 指向唯一 NodeCompiler 的稳定类型 ID。 */
   type_id: string;
   /** 节点类型独立于工作流 schema 的 payload 版本。 */
@@ -237,6 +237,38 @@ export type WorkflowEdgeContract = {
   branch: ControlPortId | null;
 };
 
+/** 多作用域图中的根、组件或 While 固定边界。 */
+export type FlowScopeBoundaryContract =
+  | Readonly<{ type: 'workflow'; entry_node_id: string }>
+  | Readonly<{ type: 'component'; entry_node_id: string; exit_node_id: string }>
+  | Readonly<{
+      type: 'loop';
+      entry_node_id: string;
+      continue_node_id: string;
+      complete_node_id: string;
+    }>;
+
+/** While 子作用域的直接父容器。 */
+export type FlowScopeParentContract = Readonly<{
+  scope_id: string;
+  node_id: string;
+}>;
+
+/** 一份作用域内独立的 DAG 文档。 */
+export type FlowScopeContract = Readonly<{
+  id: string;
+  parent: FlowScopeParentContract | null;
+  boundary: FlowScopeBoundaryContract;
+  nodes: WorkflowNodeContract[];
+  edges: WorkflowEdgeContract[];
+}>;
+
+/** 工作流和组件共享的扁平作用域表。 */
+export type ScopedFlowGraphContract = Readonly<{
+  root_scope_id: string;
+  scopes: FlowScopeContract[];
+}>;
+
 /** Runtime 内置校验问题码。 */
 export type BuiltinValidationIssueCode =
   | 'unsupported_schema_version'
@@ -280,7 +312,10 @@ export type BuiltinValidationIssueCode =
   | 'invalid_resource_reference'
   | 'reference_not_dominating'
   | 'unknown_node_type'
-  | 'invalid_node_definition';
+  | 'invalid_node_definition'
+  | 'invalid_scope'
+  | 'invalid_scope_boundary'
+  | 'invalid_node_size';
 
 /** 内置问题码或由注册节点拥有的命名空间化问题码。 */
 export type ValidationIssueCode = BuiltinValidationIssueCode
@@ -291,6 +326,8 @@ export type ValidationIssue = {
   message: string;
   node_id: string | null;
   edge_id: string | null;
+  scope_id?: string | null;
+  structure_path?: string[];
 };
 
 export type ValidationReport = {
@@ -299,201 +336,17 @@ export type ValidationReport = {
 };
 export type RunStarted = { run_id: string };
 
-/** 本地 Run Trace 的稳定生命周期状态。 */
-export type RunStatus = 'starting' | 'running' | 'completed' | 'failed' | 'crashed';
-/** 单次运行保存的诊断详细程度。 */
-export type RunTraceLevel = 'off' | 'basic' | 'diagnostics' | 'forensics';
-
-/** Run List 无需扫描 JSONL 即可展示的轻量索引。 */
-export type RunManifest = {
-  schema_version: 1;
-  run_id: string;
-  workflow_id: string;
-  workflow_name: string;
-  started_at_unix_ms: number;
-  finished_at_unix_ms: number | null;
-  status: RunStatus;
-  trace_level: RunTraceLevel;
-  event_count: number;
-  trace_degraded: boolean;
-  failed_node_id: string | null;
-  failure_message: string | null;
-};
-
-/** 一次历史运行与其执行时工作流快照。 */
-export type RunDetails = {
-  manifest: RunManifest;
-  workflow: WorkflowDefinition;
-  nodes: RunNodeTrace[];
-  artifacts: RunArtifactSummary[];
-  query_traces: VisualQueryTrace[];
-};
-
-export type RunArtifactKind = 'captured_frame' | 'ocr_source_roi' | 'ocr_model_input';
-export type RunArtifactSummary = {
-  artifact_id: string;
-  kind: RunArtifactKind;
-  mime_type: string;
-  width: number | null;
-  height: number | null;
-  request_id: string | null;
-  frame_id: number;
-};
-
-export type VisualSelectionOutcome =
-  | 'not_found' | 'unique' | 'multiple' | 'ambiguous' | 'rejected_confidence';
-export type VisualQueryTrace = {
-  run_id: string;
-  node_id: string;
-  scene_id: number;
-  frame_id: number;
-  query: string;
-  outcome: VisualSelectionOutcome;
-  candidate_node_ids: string[];
-  selected_node_id: string | null;
-  metrics: {
-    elapsed_us: number;
-    exact_index_hits: number;
-    scanned_nodes: number;
-    spatial_candidates: number;
-  };
-  projection: {
-    schema_version: 1;
-    spatial_text: string;
-    nodes: SceneNodeProjection[];
-  };
-};
-
-export type SceneNodeProjection = {
-  node_id: string;
-  scene_id: number;
-  frame_id: number;
-  window_handle: number;
-  text: string;
-  frame_bbox: { x: number; y: number; width: number; height: number };
-  screen_bbox: { x: number; y: number; width: number; height: number };
-  polygon: Array<{ x: number; y: number }>;
-  confidence: number;
-  source: string;
-};
-
-/** 节点输入在 Runtime 中的事实来源。 */
-export type ResolvedInputSource =
-  | { type: 'literal' }
-  | { type: 'workflow_input'; key: string }
-  | { type: 'variable'; name: string }
-  | { type: 'node'; node_id: string }
-  | { type: 'expression'; expression: string }
-  | { type: 'resource'; producer_node_id: string; output_name: string };
-
-export type ResolvedInputField = {
-  name: string;
-  expected_type: string;
-  source: ResolvedInputSource;
-  value: JsonValue | null;
-  redacted: boolean;
-};
-
-export type ResolvedNodeInputs = {
-  schema_version: 1;
-  node_id: string;
-  node_sequence: number;
-  fields: ResolvedInputField[];
-};
-
-export type RunNodeTrace = {
-  node_id: string;
-  node_sequence: number;
-  resolved_inputs: ResolvedNodeInputs;
-  outputs: {
-    schema_version: 1;
-    output_names: string[];
-    resource_names: string[];
-  } | null;
-};
-
-export type ExecutionEventKind =
-  | 'workflow_started' | 'node_started' | 'log' | 'node_output_produced'
-  | 'resource_acquired' | 'backend_selected' | 'command_exited'
-  | 'diagnostic_evidence_captured' | 'observation_evaluated'
-  | 'loop_iteration' | 'loop_exhausted' | 'workflow_failure_declared' | 'node_succeeded'
-  | 'edge_traversed' | 'node_failed' | 'workflow_completed' | 'workflow_failed';
-
-export type ExecutionEvent = {
-  /** 运行实例 ID。 */
-  run_id: string;
-  /** 工作流 ID。 */
-  workflow_id: string;
-  /** 运行内严格递增序号。 */
-  sequence: number;
-  /** 相关节点 ID。 */
-  node_id: string | null;
-  /** 组件内部事件对应的扁平执行节点 ID。 */
-  expanded_node_id?: string | null;
-  /** 组件内部事件从外到内的版本锁定来源路径。 */
-  component_path?: ExecutionComponentFrame[];
-  /** 相关连线 ID。 */
-  edge_id: string | null;
-  /** 生命周期类别。 */
-  kind: ExecutionEventKind;
-  /** 可选运行说明。 */
-  message: string | null;
-  /** 不包含业务输出或 OS handle 的结构化载荷。 */
-  payload: ExecutionEventPayload | null;
-};
-
-/** JSONL 中包裹产品执行事件的诊断 envelope。 */
-export type RunTraceEvent = {
-  schema_version: 1;
-  trace_sequence: number;
-  timestamp_unix_ms: number;
-  event: ExecutionEvent;
-};
-
-export type ExecutionEventPayload =
-  | { type: 'node_outputs_produced'; output_names: string[] }
-  | { type: 'resource_acquired'; output_name: string; resource_type: string }
-  | { type: 'backend_selected'; backend: BackendKind }
-  | { type: 'command_exited'; exit_code: number }
-  | {
-      type: 'observation_evaluated';
-      value_type: ObservationValueType;
-      backend: BackendKind | null;
-      known: boolean;
-    }
-  | { type: 'loop_iteration'; iteration: number; max_iterations: number }
-  | { type: 'loop_exhausted'; iterations: number }
-  | { type: 'workflow_failure_declared'; code: string }
-  | {
-      type: 'diagnostic_evidence_captured';
-      evidence_id: string;
-      backend: BackendKind;
-      branch_path: number[];
-      recovered_by_fallback: boolean;
-    };
-
-/** Rust `CommandErrorCode` 的完整序列化取值。 */
-export const COMMAND_ERROR_CODES = [
-  'validation_failed',
-  'event_delivery_failed',
-  'execution_invariant_failed',
-  'automation_failed',
-  'application_failed',
-  'browser_failed',
-  'command_failed',
-  'workflow_failed',
-  'runtime_data_failed',
-] as const;
-
-export type BackendCommandErrorCode = typeof COMMAND_ERROR_CODES[number];
-export type CommandErrorCode = BackendCommandErrorCode | 'unknown_error';
-
-export type CommandError = {
-  code: CommandErrorCode;
-  message: string;
-  issues: readonly ValidationIssue[];
-};
+export type {
+  BackendCommandErrorCode, CommandErrorCode, ExecutionEvent, ExecutionEventKind,
+  ExecutionEventPayload, ResolvedInputField, ResolvedInputSource, ResolvedNodeInputs,
+  RunArtifactKind, RunArtifactSummary, RunDetails, RunManifest, RunNodeTrace, RunStatus,
+  RunTraceEvent, RunTraceLevel, SceneNodeProjection, VisualQueryTrace,
+  VisualSelectionOutcome,
+} from './runtimeContracts';
+export type CommandError = import('./runtimeContracts').CommandError<ValidationIssue>;
+export { COMMAND_ERROR_CODES } from './runtimeContracts';
 export type {
   BrowserOperation, BrowserSpec, ComponentInstance, ComponentValueOutput,
-  DelimitedTextFormat, ExecutionComponentFrame, FlowComponentDefinition,
+  DelimitedTextFormat, ExecutionComponentFrame, ExecutionLoopFrame,
+  ExecutionStructureFrame, FlowComponentDefinition,
 } from '../components/reusableFlowContracts';

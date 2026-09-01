@@ -21,10 +21,71 @@ pub struct WorkflowDefinition {
     pub variables: Value,
     /// 对进程和 shell 等高风险能力的显式授权。
     pub permissions: WorkflowPermissions,
-    /// 按节点定义执行内容及画布位置。
+    /// 包含根流程与任意嵌套结构体的作用域图。
+    pub graph: ScopedFlowGraph,
+}
+
+/// 一个可被工作流和可复用组件共同持久化的多作用域流程图。
+///
+/// `scopes` 使用扁平表保存，父子关系由 `FlowScope::parent` 显式描述。这样序列化
+/// 深度不会随 While 嵌套深度增长，同时 Runtime 可以使用显式栈遍历而不依赖递归。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ScopedFlowGraph {
+    /// 顶层作用域 ID；必须指向唯一无父作用域的成员。
+    pub root_scope_id: String,
+    /// 图内全部作用域；作用域、节点和连线 ID 都必须全局唯一。
+    pub scopes: Vec<FlowScope>,
+}
+
+/// 多作用域图中的一份独立有向无环图文档。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FlowScope {
+    /// 图内唯一的作用域 ID。
+    pub id: String,
+    /// 根作用域为空；While 子作用域指向拥有它的容器节点。
+    pub parent: Option<FlowScopeParent>,
+    /// 该作用域固定边界节点的强类型约束。
+    pub boundary: FlowScopeBoundary,
+    /// 只属于当前作用域的节点。
     pub nodes: Vec<WorkflowNode>,
-    /// 描述节点之间执行顺序的有向连线。
+    /// 只允许连接当前作用域节点的有向边。
     pub edges: Vec<WorkflowEdge>,
+}
+
+/// 子作用域与父容器之间不可变的所有权关系。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FlowScopeParent {
+    /// 直接父作用域 ID。
+    pub scope_id: String,
+    /// 父作用域中拥有当前子作用域的 While 节点 ID。
+    pub node_id: String,
+}
+
+/// 不同结构作用域必须具备的固定控制边界。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum FlowScopeBoundary {
+    /// 普通工作流根作用域，入口必须是 Start。
+    Workflow {
+        /// 唯一入口节点 ID。
+        entry_node_id: String,
+    },
+    /// 可复用组件根作用域，必须有唯一入口与出口。
+    Component {
+        /// 组件入口节点 ID。
+        entry_node_id: String,
+        /// 组件出口节点 ID。
+        exit_node_id: String,
+    },
+    /// While 子作用域，固定提供进入、继续下一轮和完成循环三个边界。
+    Loop {
+        /// 每轮执行的入口节点 ID。
+        entry_node_id: String,
+        /// 请求开始下一轮的出口节点 ID。
+        continue_node_id: String,
+        /// 立即以 completed 端口离开容器的出口节点 ID。
+        complete_node_id: String,
+    },
 }
 
 /// 工作流画布中的一个节点。
@@ -34,6 +95,8 @@ pub struct WorkflowNode {
     pub id: String,
     /// 节点在编辑器画布中的位置，单位由客户端画布约定。
     pub position: Position,
+    /// 节点或结构容器在画布中的持久化逻辑尺寸。
+    pub size: Size,
     /// 开放节点定义；序列化时类型、版本和 payload 会被展开到节点对象中。
     #[serde(flatten)]
     pub definition: NodeEnvelope,
@@ -65,6 +128,15 @@ impl NodeTypeId {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+}
+
+/// 编辑器画布中的持久化逻辑尺寸。
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Size {
+    /// 水平尺寸，必须为有限正数。
+    pub width: f64,
+    /// 垂直尺寸，必须为有限正数。
+    pub height: f64,
 }
 
 /// 工作流持久化层中的开放节点定义。

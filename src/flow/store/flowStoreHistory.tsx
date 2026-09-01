@@ -13,6 +13,8 @@ type HistoryState<TData, TEdgeData> = Pick<
   | 'metadata'
   | 'nodes'
   | 'edges'
+  | 'documents'
+  | 'activeDocumentId'
   | 'past'
   | 'future'
   | 'historyGroup'
@@ -39,6 +41,8 @@ export function applyDocumentTransaction<TData, TEdgeData>(
     nextSnapshot.metadata === currentSnapshot.metadata
     && nextSnapshot.nodes === currentSnapshot.nodes
     && nextSnapshot.edges === currentSnapshot.edges
+    && nextSnapshot.documents === currentSnapshot.documents
+    && nextSnapshot.activeDocumentId === currentSnapshot.activeDocumentId
   ) {
     return state;
   }
@@ -58,6 +62,13 @@ export function applyDocumentTransaction<TData, TEdgeData>(
 
   return {
     ...nextSnapshot,
+    documents: {
+      ...nextSnapshot.documents,
+      [nextSnapshot.activeDocumentId]: {
+        nodes: nextSnapshot.nodes,
+        edges: nextSnapshot.edges,
+      },
+    },
     past,
     future: [],
     historyGroup: createHistoryGroup(historyGroupKey, now),

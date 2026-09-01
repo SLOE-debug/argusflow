@@ -69,7 +69,7 @@ const EDGE_BRANCH_OPTIONS = {
     { value: 'unknown', label: WORKFLOW_BRANCH_PRESENTATIONS.unknown.text },
   ],
   loop: [
-    { value: 'iterate', label: WORKFLOW_BRANCH_PRESENTATIONS.iterate.text },
+    { value: 'completed', label: '正常完成' },
     { value: 'exhausted', label: WORKFLOW_BRANCH_PRESENTATIONS.exhausted.text },
   ],
 } as const;
@@ -83,6 +83,9 @@ const NODE_KIND_LABELS: Readonly<Record<WorkflowNodeData['kind'], string>> = {
   condition: '条件判断',
   observe: '检查界面',
   loop: '重复执行',
+  loopEntry: '每轮开始',
+  loopContinue: '继续下一轮',
+  loopComplete: '完成循环',
   variable: '设置变量',
   application: '打开应用',
   browser: '打开浏览器',
@@ -358,6 +361,12 @@ function NodeKindFields({
       return <FailNodeFields data={data} onUpdate={onUpdate} />;
     case 'start':
       return <p className={INSPECTOR_HELP_CLASS_NAME}>流程从这里开始，不需要设置。</p>;
+    case 'loopEntry':
+      return <p className={INSPECTOR_HELP_CLASS_NAME}>While 每一轮都从这里进入；固定边界不能删除。</p>;
+    case 'loopContinue':
+      return <p className={INSPECTOR_HELP_CLASS_NAME}>到达这里会检查预算并开始下一轮。</p>;
+    case 'loopComplete':
+      return <p className={INSPECTOR_HELP_CLASS_NAME}>到达这里会从 completed 端口离开 While。</p>;
     case 'end':
       return <p className={INSPECTOR_HELP_CLASS_NAME}>运行到这里，流程就结束了。</p>;
   }

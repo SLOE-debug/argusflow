@@ -1,5 +1,6 @@
 //! 可复用工作流组件的注册、展开和引用重写。
 
+mod component_contract;
 mod component_expander;
 mod component_registry;
 mod component_rewrite;

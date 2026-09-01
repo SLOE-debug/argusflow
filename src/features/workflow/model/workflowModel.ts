@@ -18,6 +18,7 @@ import type {
   ValueExpr,
   VariableAssignment,
   WorkflowDefinition,
+  FlowScopeBoundaryContract,
   WorkflowInputDefinition,
   WorkflowPermissions,
 } from './contracts';
@@ -71,10 +72,14 @@ export type WorkflowNodeData =
     }
   | WorkflowNodeDataBase & {
       kind: 'loop';
+      bodyScopeId: string;
       maxIterations: number;
       timeoutMs: number;
       intervalMs: number;
     }
+  | WorkflowNodeDataBase & { kind: 'loopEntry' }
+  | WorkflowNodeDataBase & { kind: 'loopContinue' }
+  | WorkflowNodeDataBase & { kind: 'loopComplete' }
   | WorkflowNodeDataBase & { kind: 'variable'; assignments: VariableAssignment[] }
   | WorkflowNodeDataBase & { kind: 'application'; spec: ApplicationSpec }
   | WorkflowNodeDataBase & { kind: 'browser'; spec: BrowserSpec }
@@ -123,7 +128,10 @@ export const WORKFLOW_NODE_SIZES = {
   delay: { width: 136, height: 52 },
   condition: { width: 132, height: 52 },
   observe: { width: 158, height: 52 },
-  loop: { width: 142, height: 52 },
+  loop: { width: 420, height: 240 },
+  loopEntry: { width: 118, height: 52 },
+  loopContinue: { width: 142, height: 52 },
+  loopComplete: { width: 142, height: 52 },
   variable: { width: 148, height: 52 },
   application: { width: 172, height: 52 },
   browser: { width: 172, height: 52 },
@@ -230,30 +238,59 @@ export function createEdge(source: string, target: string, nodes: ReadonlyArray<
   return { id: `edge-${crypto.randomUUID()}`, source: { nodeId: source, side: sourceSide }, target: { nodeId: target, side: targetSide }, data: { branch } };
 }
 
-/** 将画布状态转换为后端 schema v9 开放节点契约。 */
+/** Studio 元数据中一份作用域的固定边界和父容器。 */
+export type WorkflowScopeMetadata = Readonly<{
+  parent: Readonly<{ scope_id: string; node_id: string }> | null;
+  boundary: FlowScopeBoundaryContract;
+}>;
+/** 作用域 ID 到固定结构元数据的只读索引。 */
+export type WorkflowScopeMetadataMap = Readonly<Record<string, WorkflowScopeMetadata>>;
+
+/** 将多文档画布状态转换为后端 schema v10 开放节点契约。 */
 export function toWorkflowDefinition(
   workflowId: string,
   name: string,
   inputs: ReadonlyArray<WorkflowInputDefinition>,
   variables: JsonObject,
   permissions: WorkflowPermissions,
-  nodes: ReadonlyArray<WorkflowCanvasNode>,
-  edges: ReadonlyArray<WorkflowCanvasEdge>,
+  rootScopeId: string,
+  documents: Readonly<Record<string, Readonly<{
+    nodes: ReadonlyArray<WorkflowCanvasNode>;
+    edges: ReadonlyArray<WorkflowCanvasEdge>;
+  }>>>,
+  scopeMetadata: Readonly<Record<string, WorkflowScopeMetadata>>,
 ): WorkflowDefinition {
   return {
-    schema_version: 9,
+    schema_version: 10,
     id: workflowId,
     name,
     inputs: [...inputs],
     variables,
     permissions,
-    nodes: nodes.map((node) => ({
-      id: node.id,
-      position: node.position,
-      output_bindings: node.data.outputBindings,
-      ...encodeNodeDefinition(node.data),
-    })),
-    edges: edges.map((edge) => ({ id: edge.id, source: edge.source.nodeId, target: edge.target.nodeId, branch: edge.data.branch })),
+    graph: {
+      root_scope_id: rootScopeId,
+      scopes: Object.entries(documents).map(([scopeId, document]) => ({
+        id: scopeId,
+        parent: scopeMetadata[scopeId]?.parent ?? null,
+        boundary: scopeMetadata[scopeId]?.boundary ?? {
+          type: 'workflow',
+          entry_node_id: document.nodes.find((node) => node.kind === 'start')?.id ?? '',
+        },
+        nodes: document.nodes.map((node) => ({
+          id: node.id,
+          position: node.position,
+          size: node.size,
+          output_bindings: node.data.outputBindings,
+          ...encodeNodeDefinition(node.data),
+        })),
+        edges: document.edges.map((edge) => ({
+          id: edge.id,
+          source: edge.source.nodeId,
+          target: edge.target.nodeId,
+          branch: edge.data.branch,
+        })),
+      })),
+    },
   };
 }
 
@@ -298,7 +335,8 @@ export function canConnect(nodes: ReadonlyArray<WorkflowCanvasNode>, edges: Read
   if (source === target || edges.some((edge) => edge.id !== ignoredEdgeId && edge.source.nodeId === source && edge.target.nodeId === target)) return false;
   const sourceNode = nodes.find((node) => node.id === source);
   const targetNode = nodes.find((node) => node.id === target);
-  if (!sourceNode || !targetNode || isTerminal(sourceNode.data) || targetNode.kind === 'start') return false;
+  if (!sourceNode || !targetNode || isTerminal(sourceNode.data)
+    || targetNode.kind === 'start' || targetNode.kind === 'loopEntry') return false;
   const outgoing = edges.filter((edge) => edge.id !== ignoredEdgeId && edge.source.nodeId === source).length;
   const maximumOutgoing = Math.max(1, controlPorts(sourceNode.data).length);
   if (outgoing >= maximumOutgoing) return false;
@@ -308,7 +346,7 @@ export function canConnect(nodes: ReadonlyArray<WorkflowCanvasNode>, edges: Read
   const visited = new Set<string>();
   while (queue.length > 0) {
     const id = queue.shift()!;
-    if (id === source) return targetNode.kind === 'loop';
+    if (id === source) return false;
     if (visited.has(id)) continue;
     visited.add(id);
     queue.push(...(adjacency.get(id) ?? []));
@@ -326,7 +364,7 @@ function createNodeData(kind: EditableNodeKind): WorkflowNodeData {
 /** 返回一个分支节点声明的控制端口顺序。 */
 export function controlPorts(data: WorkflowNodeData): ReadonlyArray<ControlPortId> {
   if (data.kind === 'condition') return ['true', 'false'];
-  if (data.kind === 'loop') return ['iterate', 'exhausted'];
+  if (data.kind === 'loop') return ['completed', 'exhausted'];
   if (data.kind === 'observe') {
     return data.resultType === 'boolean'
       ? ['true', 'false', 'unknown']
@@ -337,5 +375,8 @@ export function controlPorts(data: WorkflowNodeData): ReadonlyArray<ControlPortI
 
 /** End 与 Fail 都是显式终点，不允许创建出边。 */
 function isTerminal(data: WorkflowNodeData): boolean {
-  return data.kind === 'end' || data.kind === 'fail';
+  return data.kind === 'end'
+    || data.kind === 'fail'
+    || data.kind === 'loopContinue'
+    || data.kind === 'loopComplete';
 }

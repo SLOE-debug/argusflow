@@ -19,6 +19,7 @@ export {
 export { useEdgeRoutes } from './useEdgeRoutes';
 export { FlowProvider, createFlowStore, useFlowStore, useFlowStoreApi } from './store/store';
 export type { FlowState } from './store/store';
+export type { FlowDocument, FlowDocumentSnapshot } from './store/flowStoreTypes';
 export type {
   FlowAnchorSide,
   FlowEdge,

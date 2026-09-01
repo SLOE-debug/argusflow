@@ -5,8 +5,9 @@ mod workflow_fixture;
 use std::sync::Arc;
 
 use argusflow_core::{
-    AqlQuery, AutomationTarget, ControlPortId, ExecutionEvent, ExecutionEventKind, RunInputs,
-    UiOperation, ValueExpr, ValueSource, WorkflowEdge, WorkflowInputDefinition, WorkflowInputType,
+    AqlQuery, AutomationTarget, ControlPortId, ExecutionEvent, ExecutionEventKind, FlowScope,
+    FlowScopeBoundary, FlowScopeParent, RunInputs, UiOperation, ValueExpr, ValueSource,
+    WorkflowEdge, WorkflowInputDefinition, WorkflowInputType,
 };
 use argusflow_runtime::{
     ExecutionEventSink, FileRunTraceStore, RunStatus, RunTraceLevel, RuntimeError,
@@ -34,7 +35,7 @@ async fn runtime_requires_and_resolves_separate_run_inputs() {
         key: "secret".to_owned(),
         value_type: WorkflowInputType::Text,
     }];
-    workflow.nodes[1].definition = WorkflowNodeKind::Debug {
+    workflow.graph.scopes[0].nodes[1].definition = WorkflowNodeKind::Debug {
         value: ValueExpr::Ref {
             source: ValueSource::WorkflowInput {
                 key: "secret".to_owned(),
@@ -102,7 +103,7 @@ async fn runtime_persists_a_completed_run_without_plaintext_inputs() {
         key: "secret".to_owned(),
         value_type: WorkflowInputType::Text,
     }];
-    workflow.nodes[1].definition = WorkflowNodeKind::Debug {
+    workflow.graph.scopes[0].nodes[1].definition = WorkflowNodeKind::Debug {
         value: ValueExpr::Ref {
             source: ValueSource::WorkflowInput {
                 key: "secret".to_owned(),
@@ -235,7 +236,7 @@ async fn condition_reads_variables_committed_by_a_prior_variable_node() {
     let engine = Arc::new(WorkflowEngine::new(Arc::new(UnavailableActionDispatcher)));
     let (sender, mut receiver) = mpsc::unbounded_channel();
     let mut workflow = condition_workflow(false);
-    workflow.nodes.insert(
+    workflow.graph.scopes[0].nodes.insert(
         1,
         workflow_fixture::node(
             "set-enabled",
@@ -246,11 +247,13 @@ async fn condition_reads_variables_committed_by_a_prior_variable_node() {
             },
         ),
     );
-    workflow.edges.retain(|edge| edge.id != "start-condition");
-    workflow
+    workflow.graph.scopes[0]
+        .edges
+        .retain(|edge| edge.id != "start-condition");
+    workflow.graph.scopes[0]
         .edges
         .push(workflow_fixture::edge("start", "set-enabled"));
-    workflow
+    workflow.graph.scopes[0]
         .edges
         .push(workflow_fixture::edge("set-enabled", "condition"));
 
@@ -296,28 +299,57 @@ async fn bounded_loop_emits_each_iteration_then_exits_through_exhausted() {
     let engine = Arc::new(WorkflowEngine::new(Arc::new(UnavailableActionDispatcher)));
     let (sender, mut receiver) = mpsc::unbounded_channel();
     let mut workflow = demo_workflow(1);
-    workflow.nodes[2].definition = WorkflowNodeKind::Loop {
+    workflow.graph.scopes[0].nodes[2].definition = WorkflowNodeKind::Loop {
+        body_scope_id: "body".to_owned(),
         max_iterations: 2,
         timeout_ms: 1_000,
         interval_ms: 0,
     }
     .into();
-    workflow.edges = vec![
+    workflow.graph.scopes[0].nodes[2].size = argusflow_core::Size {
+        width: 420.0,
+        height: 240.0,
+    };
+    workflow.graph.scopes[0].edges = vec![
         edge("start", "delay"),
         WorkflowEdge {
-            id: "loop-body".to_owned(),
+            id: "loop-completed".to_owned(),
             source: "delay".to_owned(),
-            target: "log".to_owned(),
-            branch: Some(ControlPortId::new("iterate")),
+            target: "end".to_owned(),
+            branch: Some(ControlPortId::new("completed")),
         },
-        edge("log", "delay"),
         WorkflowEdge {
-            id: "loop-exit".to_owned(),
+            id: "loop-exhausted".to_owned(),
             source: "delay".to_owned(),
             target: "end".to_owned(),
             branch: Some(ControlPortId::new("exhausted")),
         },
     ];
+    workflow.graph.scopes[0]
+        .nodes
+        .retain(|node| node.id != "log");
+    workflow.graph.scopes.push(FlowScope {
+        id: "body".to_owned(),
+        parent: Some(FlowScopeParent {
+            scope_id: "root".to_owned(),
+            node_id: "delay".to_owned(),
+        }),
+        boundary: FlowScopeBoundary::Loop {
+            entry_node_id: "body-entry".to_owned(),
+            continue_node_id: "body-continue".to_owned(),
+            complete_node_id: "body-complete".to_owned(),
+        },
+        nodes: vec![
+            raw_node("body-entry", "argus.loop.entry"),
+            raw_node("body-log", "argus.log"),
+            raw_node("body-continue", "argus.loop.continue"),
+            raw_node("body-complete", "argus.loop.complete"),
+        ],
+        edges: vec![
+            edge("body-entry", "body-log"),
+            edge("body-log", "body-continue"),
+        ],
+    });
 
     engine
         .start(
@@ -352,13 +384,32 @@ async fn bounded_loop_emits_each_iteration_then_exits_through_exhausted() {
     );
 }
 
+/// 构造结构化循环测试所需的边界或无参数日志节点。
+fn raw_node(id: &str, type_id: &str) -> argusflow_core::WorkflowNode {
+    let payload = if type_id == "argus.log" {
+        json!({ "message": id })
+    } else {
+        json!({})
+    };
+    argusflow_core::WorkflowNode {
+        id: id.to_owned(),
+        position: argusflow_core::Position { x: 0.0, y: 0.0 },
+        size: argusflow_core::Size {
+            width: 142.0,
+            height: 52.0,
+        },
+        definition: argusflow_core::NodeEnvelope::new(type_id, 1, payload),
+        output_bindings: Default::default(),
+    }
+}
+
 #[tokio::test]
 async fn fail_node_declares_a_typed_workflow_failure() {
     let engine = Arc::new(WorkflowEngine::new(Arc::new(UnavailableActionDispatcher)));
     let (sender, mut receiver) = mpsc::unbounded_channel();
     let mut workflow = demo_workflow(1);
-    workflow.nodes = vec![
-        workflow.nodes.remove(0),
+    workflow.graph.scopes[0].nodes = vec![
+        workflow.graph.scopes[0].nodes.remove(0),
         workflow_fixture::node(
             "fail",
             220.0,
@@ -368,7 +419,7 @@ async fn fail_node_declares_a_typed_workflow_failure() {
             },
         ),
     ];
-    workflow.edges = vec![edge("start", "fail")];
+    workflow.graph.scopes[0].edges = vec![edge("start", "fail")];
 
     engine
         .start(
@@ -406,7 +457,7 @@ async fn runtime_emits_a_failure_for_an_unavailable_action_backend() {
     let engine = Arc::new(WorkflowEngine::new(Arc::new(UnavailableActionDispatcher)));
     let (sender, mut receiver) = mpsc::unbounded_channel();
     let mut workflow = demo_workflow(1);
-    workflow.nodes[1].definition = WorkflowNodeKind::Ui {
+    workflow.graph.scopes[0].nodes[1].definition = WorkflowNodeKind::Ui {
         operation: UiOperation::Click {
             target: AutomationTarget::query(AqlQuery::v3("button(name = \"保存\")")),
         },

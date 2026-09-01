@@ -83,10 +83,18 @@ export type NodeDefinition<TData = unknown> = {
   component: ComponentType<FlowNodeRendererProps<TData>>;
   /** 是否在同一文档中只允许一个实例。 */
   singleton?: boolean;
+  /** 是否允许从菜单或拖放新建；固定结构边界只参与已有节点渲染。 */
+  creatable?: boolean;
   /** 是否允许从该节点创建连线。 */
   canStartConnection?: boolean;
   /** 是否允许该节点作为目标。 */
   canEndConnection?: boolean;
+  /** 是否允许用户从右下角调整持久化逻辑尺寸。 */
+  resizable?: boolean;
+  /** 可调整尺寸节点的最小逻辑尺寸。 */
+  minSize?: { width: number; height: number };
+  /** 是否允许通用剪贴板复制；拥有外部文档的结构容器应由业务层另行处理。 */
+  copyable?: boolean;
 };
 
 /** 按节点 kind 索引的定义注册表。 */

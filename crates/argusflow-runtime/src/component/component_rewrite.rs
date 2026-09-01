@@ -11,12 +11,13 @@ pub(crate) fn rewrite_node(
     expanded_id: &str,
     inputs: &BTreeMap<String, ValueExpr>,
     id_map: &HashMap<String, String>,
+    scope_id_map: &HashMap<String, String>,
 ) -> Result<WorkflowNode, ComponentExpansionError> {
     let mut value = serde_json::to_value(node).map_err(|error| ComponentExpansionError {
         node_id: Some(expanded_id.to_owned()),
         message: error.to_string(),
     })?;
-    rewrite_json(&mut value, inputs, id_map)?;
+    rewrite_json(&mut value, inputs, id_map, scope_id_map)?;
     let mut rewritten =
         serde_json::from_value::<WorkflowNode>(value).map_err(|error| ComponentExpansionError {
             node_id: Some(expanded_id.to_owned()),
@@ -36,7 +37,7 @@ pub(crate) fn rewrite_expression(
         node_id: None,
         message: error.to_string(),
     })?;
-    rewrite_json(&mut value, inputs, id_map)?;
+    rewrite_json(&mut value, inputs, id_map, &HashMap::new())?;
     serde_json::from_value(value).map_err(|error| ComponentExpansionError {
         node_id: None,
         message: error.to_string(),
@@ -48,17 +49,18 @@ fn rewrite_json(
     value: &mut Value,
     inputs: &BTreeMap<String, ValueExpr>,
     id_map: &HashMap<String, String>,
+    scope_id_map: &HashMap<String, String>,
 ) -> Result<(), ComponentExpansionError> {
     match value {
         Value::Array(values) => {
             for value in values {
-                rewrite_json(value, inputs, id_map)?;
+                rewrite_json(value, inputs, id_map, scope_id_map)?;
             }
         }
         Value::Object(object) => {
             if let Some(replacement) = replace_input_reference(object, inputs)? {
                 *value = replacement;
-                rewrite_json(value, &BTreeMap::new(), id_map)?;
+                rewrite_json(value, &BTreeMap::new(), id_map, scope_id_map)?;
                 return Ok(());
             }
             if object.get("type").and_then(Value::as_str) == Some("node")
@@ -72,8 +74,13 @@ fn rewrite_json(
             {
                 *node_id = expanded.clone();
             }
+            if let Some(Value::String(scope_id)) = object.get_mut("body_scope_id")
+                && let Some(expanded) = scope_id_map.get(scope_id)
+            {
+                *scope_id = expanded.clone();
+            }
             for child in object.values_mut() {
-                rewrite_json(child, inputs, id_map)?;
+                rewrite_json(child, inputs, id_map, scope_id_map)?;
             }
         }
         Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}

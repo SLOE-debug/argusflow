@@ -4,11 +4,12 @@
 
 use argusflow_core::{
     AcquirePolicy, ActivationPolicy, ApplicationSpec, AqlQuery, AutomationTarget, BackendKind,
-    BackendPolicy, CleanupPolicy, CommandOperation, CommandRunner, KeyChord, KeyboardKey,
-    KeyboardModifier, NodeEnvelope, ObservationPolicy, ObservationResult, ObservationUnknownReason,
-    ObserveSpec, Position, TargetLocator, TargetScope, UiOperation, ValueExpr, WindowTitleMatcher,
-    WorkflowCapabilityId, WorkflowDefinition, WorkflowEdge, WorkflowInputDefinition,
-    WorkflowInputType, WorkflowNode, WorkflowPermissions,
+    BackendPolicy, CleanupPolicy, CommandOperation, CommandRunner, FlowScope, FlowScopeBoundary,
+    KeyChord, KeyboardKey, KeyboardModifier, NodeEnvelope, ObservationPolicy, ObservationResult,
+    ObservationUnknownReason, ObserveSpec, Position, ScopedFlowGraph, Size, TargetLocator,
+    TargetScope, UiOperation, ValueExpr, WindowTitleMatcher, WorkflowCapabilityId,
+    WorkflowDefinition, WorkflowEdge, WorkflowInputDefinition, WorkflowInputType, WorkflowNode,
+    WorkflowPermissions,
 };
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -16,29 +17,31 @@ use uuid::Uuid;
 #[test]
 fn workflow_contract_round_trips_through_json() {
     let workflow = WorkflowDefinition {
-        schema_version: 9,
+        schema_version: 10,
         id: Uuid::new_v4(),
         name: "契约测试".to_owned(),
         inputs: Vec::new(),
         variables: json!({ "enabled": true }),
         permissions: WorkflowPermissions::default(),
-        nodes: vec![
-            node("start", 0.0, "argus.start", json!({})),
-            node(
-                "action",
-                240.0,
-                "argus.ui",
-                json!({
-                    "operation": UiOperation::Click {
-                        target: AutomationTarget::query(AqlQuery::v3(
-                            "button(name = \"保存\")",
-                        )),
-                    },
-                }),
-            ),
-            node("end", 480.0, "argus.end", json!({})),
-        ],
-        edges: vec![edge("start", "action"), edge("action", "end")],
+        graph: workflow_graph(
+            vec![
+                node("start", 0.0, "argus.start", json!({})),
+                node(
+                    "action",
+                    240.0,
+                    "argus.ui",
+                    json!({
+                        "operation": UiOperation::Click {
+                            target: AutomationTarget::query(AqlQuery::v3(
+                                "button(name = \"保存\")",
+                            )),
+                        },
+                    }),
+                ),
+                node("end", 480.0, "argus.end", json!({})),
+            ],
+            vec![edge("start", "action"), edge("action", "end")],
+        ),
     };
 
     let serialized = serde_json::to_string(&workflow).expect("workflow should serialize");
@@ -52,7 +55,7 @@ fn workflow_contract_round_trips_through_json() {
 }
 
 #[test]
-fn schema_v9_inputs_resources_values_and_commands_round_trip_through_json() {
+fn schema_v10_inputs_resources_values_and_commands_round_trip_through_json() {
     let application_spec = ApplicationSpec {
         executable_path: r"C:\Program Files\Example\example.exe".to_owned(),
         arguments: vec!["--automation".to_owned()],
@@ -84,7 +87,7 @@ fn schema_v9_inputs_resources_values_and_commands_round_trip_through_json() {
         max_stderr_bytes: 1_048_576,
     };
     let workflow = WorkflowDefinition {
-        schema_version: 9,
+        schema_version: 10,
         id: Uuid::new_v4(),
         name: "资源与数据契约".to_owned(),
         inputs: vec![WorkflowInputDefinition {
@@ -96,39 +99,41 @@ fn schema_v9_inputs_resources_values_and_commands_round_trip_through_json() {
             WorkflowCapabilityId::application_launch(),
             WorkflowCapabilityId::direct_command(),
         ]),
-        nodes: vec![
-            node("start", 0.0, "argus.start", json!({})),
-            node(
-                "application",
-                180.0,
-                "argus.application",
-                json!({ "spec": application_spec }),
-            ),
-            node(
-                "observe",
-                360.0,
-                "argus.observe",
-                json!({ "observation": observation }),
-            ),
-            node(
-                "command",
-                540.0,
-                "argus.command",
-                json!({ "operation": command_operation }),
-            ),
-            node("end", 720.0, "argus.end", json!({})),
-        ],
-        edges: vec![
-            edge("start", "application"),
-            edge("application", "observe"),
-            edge("observe", "command"),
-            edge("command", "end"),
-        ],
+        graph: workflow_graph(
+            vec![
+                node("start", 0.0, "argus.start", json!({})),
+                node(
+                    "application",
+                    180.0,
+                    "argus.application",
+                    json!({ "spec": application_spec }),
+                ),
+                node(
+                    "observe",
+                    360.0,
+                    "argus.observe",
+                    json!({ "observation": observation }),
+                ),
+                node(
+                    "command",
+                    540.0,
+                    "argus.command",
+                    json!({ "operation": command_operation }),
+                ),
+                node("end", 720.0, "argus.end", json!({})),
+            ],
+            vec![
+                edge("start", "application"),
+                edge("application", "observe"),
+                edge("observe", "command"),
+                edge("command", "end"),
+            ],
+        ),
     };
 
-    let serialized = serde_json::to_string(&workflow).expect("schema v9 should serialize");
+    let serialized = serde_json::to_string(&workflow).expect("schema v10 should serialize");
     let decoded: WorkflowDefinition =
-        serde_json::from_str(&serialized).expect("schema v9 should deserialize");
+        serde_json::from_str(&serialized).expect("schema v10 should deserialize");
 
     assert!(serialized.contains("\"type_id\":\"argus.observe\""));
     assert!(serialized.contains("\"type\":\"ref\""));
@@ -190,13 +195,33 @@ fn runtime_only_visual_locator_is_not_a_persisted_variant() {
     assert!(result.is_err());
 }
 
-/// 以稳定布局构造 schema v9 开放节点。
+/// 以稳定布局构造 schema v10 开放节点。
 fn node(id: &str, x: f64, type_id: &str, payload: Value) -> WorkflowNode {
     WorkflowNode {
         id: id.to_owned(),
         position: Position { x, y: 0.0 },
+        size: Size {
+            width: 120.0,
+            height: 52.0,
+        },
         definition: NodeEnvelope::new(type_id, 1, payload),
         output_bindings: Default::default(),
+    }
+}
+
+/// 把线性测试节点和边包装为当前多作用域根图。
+fn workflow_graph(nodes: Vec<WorkflowNode>, edges: Vec<WorkflowEdge>) -> ScopedFlowGraph {
+    ScopedFlowGraph {
+        root_scope_id: "root".to_owned(),
+        scopes: vec![FlowScope {
+            id: "root".to_owned(),
+            parent: None,
+            boundary: FlowScopeBoundary::Workflow {
+                entry_node_id: "start".to_owned(),
+            },
+            nodes,
+            edges,
+        }],
     }
 }
 

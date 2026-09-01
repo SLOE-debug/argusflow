@@ -12,10 +12,10 @@ use std::{
 use argusflow_agent::{ActionBackend, ActionRouter};
 use argusflow_core::{
     AcquirePolicy, ActivationPolicy, ApplicationSessionProvider, ApplicationSpec, BackendKind,
-    BackendPolicy, CleanupPolicy, ExecutionEvent, ExecutionEventKind, NodeEnvelope, Position,
-    ResourceRef, RunInputs, TargetLocator, TargetScope, UiExecutionPolicy, UiOperation,
-    WindowIdentity, WindowTitleMatcher, WorkflowCapabilityId, WorkflowDefinition, WorkflowEdge,
-    WorkflowNode, WorkflowPermissions,
+    BackendPolicy, CleanupPolicy, ExecutionEvent, ExecutionEventKind, FlowScope, FlowScopeBoundary,
+    NodeEnvelope, Position, ResourceRef, RunInputs, ScopedFlowGraph, Size, TargetLocator,
+    TargetScope, UiExecutionPolicy, UiOperation, WindowIdentity, WindowTitleMatcher,
+    WorkflowCapabilityId, WorkflowDefinition, WorkflowEdge, WorkflowNode, WorkflowPermissions,
 };
 use argusflow_runtime::{ExecutionEventSink, WorkflowEngine};
 use argusflow_windows::{
@@ -169,44 +169,54 @@ async fn workflow_application_resource_scopes_a_real_uia_action() {
 /// 构造 Start → Application → Ui → End 的真实资源数据路径。
 fn application_workflow(spec: ApplicationSpec) -> WorkflowDefinition {
     WorkflowDefinition {
-        schema_version: 9,
+        schema_version: 10,
         id: Uuid::new_v4(),
         name: "Notepad++ AppSession E2E".to_owned(),
         inputs: Vec::new(),
         variables: json!({}),
         permissions: WorkflowPermissions::from_iter([WorkflowCapabilityId::application_launch()]),
-        nodes: vec![
-            node("start", 0.0, WorkflowNodeKind::Start),
-            node("application", 200.0, WorkflowNodeKind::Application { spec }),
-            node(
-                "invoke-help",
-                400.0,
-                WorkflowNodeKind::Ui {
-                    operation: UiOperation::Click {
-                        target: argusflow_core::AutomationTarget {
-                            scope: TargetScope::Application {
-                                resource: ResourceRef {
-                                    producer_node_id: "application".to_owned(),
-                                    output_name: "session".to_owned(),
+        graph: ScopedFlowGraph {
+            root_scope_id: "root".to_owned(),
+            scopes: vec![FlowScope {
+                id: "root".to_owned(),
+                parent: None,
+                boundary: FlowScopeBoundary::Workflow {
+                    entry_node_id: "start".to_owned(),
+                },
+                nodes: vec![
+                    node("start", 0.0, WorkflowNodeKind::Start),
+                    node("application", 200.0, WorkflowNodeKind::Application { spec }),
+                    node(
+                        "invoke-help",
+                        400.0,
+                        WorkflowNodeKind::Ui {
+                            operation: UiOperation::Click {
+                                target: argusflow_core::AutomationTarget {
+                                    scope: TargetScope::Application {
+                                        resource: ResourceRef {
+                                            producer_node_id: "application".to_owned(),
+                                            output_name: "session".to_owned(),
+                                        },
+                                    },
+                                    locator: TargetLocator::Query {
+                                        query: argusflow_core::AqlQuery::v3(
+                                            r#"menu_item(name = "搜索(S)")"#,
+                                        ),
+                                    },
+                                    backend_policy: BackendPolicy::only(BackendKind::WindowsUia),
                                 },
                             },
-                            locator: TargetLocator::Query {
-                                query: argusflow_core::AqlQuery::v3(
-                                    r#"menu_item(name = "搜索(S)")"#,
-                                ),
-                            },
-                            backend_policy: BackendPolicy::only(BackendKind::WindowsUia),
                         },
-                    },
-                },
-            ),
-            node("end", 600.0, WorkflowNodeKind::End),
-        ],
-        edges: vec![
-            edge("start", "application"),
-            edge("application", "invoke-help"),
-            edge("invoke-help", "end"),
-        ],
+                    ),
+                    node("end", 600.0, WorkflowNodeKind::End),
+                ],
+                edges: vec![
+                    edge("start", "application"),
+                    edge("application", "invoke-help"),
+                    edge("invoke-help", "end"),
+                ],
+            }],
+        },
     }
 }
 
@@ -215,6 +225,10 @@ fn node(id: &str, x: f64, kind: WorkflowNodeKind) -> WorkflowNode {
     WorkflowNode {
         id: id.to_owned(),
         position: Position { x, y: 0.0 },
+        size: Size {
+            width: 142.0,
+            height: 52.0,
+        },
         definition: kind.into(),
         output_bindings: Default::default(),
     }

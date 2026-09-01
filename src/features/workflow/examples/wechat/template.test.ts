@@ -13,6 +13,9 @@ import {
   WECHAT_WORKFLOW_NODES,
   WECHAT_WORKFLOW_PERMISSIONS,
   WECHAT_WORKFLOW_VARIABLES,
+  WECHAT_WORKFLOW_DOCUMENTS,
+  WECHAT_ROOT_SCOPE_ID,
+  WECHAT_SCOPE_METADATA,
 } from './template';
 
 describe('微信联系人消息示例工作流', () => {
@@ -23,11 +26,14 @@ describe('微信联系人消息示例工作流', () => {
       WECHAT_WORKFLOW_INPUTS,
       WECHAT_WORKFLOW_VARIABLES,
       WECHAT_WORKFLOW_PERMISSIONS,
-      WECHAT_WORKFLOW_NODES,
-      WECHAT_WORKFLOW_EDGES,
+      WECHAT_ROOT_SCOPE_ID,
+      WECHAT_WORKFLOW_DOCUMENTS,
+      WECHAT_SCOPE_METADATA,
     );
     /** 用 ID 定位关键节点，避免测试依赖数组中的视觉排列。 */
-    const nodesById = new Map(workflow.nodes.map((node) => [node.id, node]));
+    const nodesById = new Map(workflow.graph.scopes
+      .flatMap((scope) => scope.nodes)
+      .map((node) => [node.id, node]));
 
     expect(FLOW_COMPONENT_CATALOG).toEqual([]);
     expect(WECHAT_CONTACT_RESULT_SELECTOR).toContain(
@@ -54,25 +60,26 @@ describe('微信联系人消息示例工作流', () => {
         }),
       }),
     }));
-    expect(workflow.edges).toEqual(expect.arrayContaining([
+    const edges = workflow.graph.scopes.flatMap((scope) => scope.edges);
+    expect(edges).toEqual(expect.arrayContaining([
       expect.objectContaining({
         source: 'check_search',
-        target: 'select_search_text',
+        target: 'scope_wait_for_search_complete',
         branch: 'true',
       }),
       expect.objectContaining({
         source: 'check_conversation',
-        target: 'type_message',
+        target: 'scope_wait_for_conversation_complete',
         branch: 'true',
       }),
       expect.objectContaining({
         source: 'check_send_result',
-        target: 'end',
+        target: 'scope_wait_for_send_result_complete',
         branch: 'true',
       }),
       expect.objectContaining({
         source: 'check_send_result',
-        target: 'wait_for_send_result',
+        target: 'scope_wait_for_send_result_continue',
         branch: 'false',
       }),
       expect.objectContaining({

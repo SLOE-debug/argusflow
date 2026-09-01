@@ -57,6 +57,8 @@ export {
   type WorkflowNodeCreationKey,
   type WorkflowNodeData,
   type WorkflowNodeUpdater,
+  type WorkflowScopeMetadata,
+  type WorkflowScopeMetadataMap,
 } from './model/workflowModel';
 export {
   getNativeNodeValueOutputs,

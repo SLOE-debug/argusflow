@@ -1,9 +1,8 @@
 import type {
   ResourceRef,
   ValueExpr,
-  WorkflowEdgeContract,
+  ScopedFlowGraphContract,
   WorkflowInputDefinition,
-  WorkflowNodeContract,
 } from '../model/contracts';
 
 /** 每次运行创建隔离 profile 和随机 CDP 端口的 Chromium 获取契约。 */
@@ -42,16 +41,13 @@ export type ComponentValueOutput = Readonly<{
 
 /** 可版本化、可嵌套的流程组件定义。 */
 export type FlowComponentDefinition = Readonly<{
-  schema_version: 1;
+  schema_version: 2;
   id: string;
   version: string;
   name: string;
   inputs: WorkflowInputDefinition[];
   outputs: ComponentValueOutput[];
-  nodes: WorkflowNodeContract[];
-  edges: WorkflowEdgeContract[];
-  entry_node_id: string;
-  exit_node_id: string;
+  graph: ScopedFlowGraphContract;
 }>;
 
 /** 主画布中的精确版本组件实例 payload。 */
@@ -68,3 +64,15 @@ export type ExecutionComponentFrame = Readonly<{
   component_version: string;
   inner_node_id: string;
 }>;
+
+/** 执行事件中的一层 While 激活来源。 */
+export type ExecutionLoopFrame = Readonly<{
+  container_node_id: string;
+  scope_id: string;
+  iteration: number;
+}>;
+
+/** 组件与 While 共同组成的可判别结构路径。 */
+export type ExecutionStructureFrame =
+  | Readonly<{ type: 'component' } & ExecutionComponentFrame>
+  | Readonly<{ type: 'loop' } & ExecutionLoopFrame>;

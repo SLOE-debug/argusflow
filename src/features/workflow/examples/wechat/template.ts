@@ -11,6 +11,7 @@ import {
   type WorkflowCanvasNode,
   type WorkflowNodeData,
 } from '../../model/workflowModel';
+import type { WorkflowDocuments } from '../../studio/workflowScopes';
 import {
   createWechatApplicationSpec,
   createWechatContactClickExecution,
@@ -54,13 +55,18 @@ export const WECHAT_RUN_INPUT_VALUES = {
 /** 默认选中开始节点，让进入画布后的起点明确可见。 */
 export const WECHAT_SELECTED_NODE_ID = 'start';
 
+/** 三个 While 容器各自拥有的独立子作用域。 */
+const SEARCH_SCOPE_ID = 'scope_wait_for_search';
+const CONVERSATION_SCOPE_ID = 'scope_wait_for_conversation';
+const SEND_SCOPE_ID = 'scope_wait_for_send_result';
+
 /**
  * 微信示例由普通画布节点组成，用户可以查看、修改或删除任意一步。
  *
  * 三组“重复检查”分别等待搜索页、联系人会话和发送结果；达到上限后进入
  * 对应的报错节点，不会无限等待。
  */
-export const WECHAT_WORKFLOW_NODES = [
+const WECHAT_WORKFLOW_ALL_NODES = [
   workflowNode('start', 'start', 40, 100, {
     kind: 'start',
     label: '开始',
@@ -90,6 +96,7 @@ export const WECHAT_WORKFLOW_NODES = [
     kind: 'loop',
     label: '等待搜索页打开',
     outputBindings: {},
+    bodyScopeId: SEARCH_SCOPE_ID,
     maxIterations: 16,
     timeoutMs: 5_000,
     intervalMs: 300,
@@ -107,7 +114,7 @@ export const WECHAT_WORKFLOW_NODES = [
     resultType: 'boolean',
     runState: 'idle',
   }),
-  workflowNode('search_not_ready', 'fail', 640, 220, {
+  workflowNode('search_not_ready', 'fail', 779, 460, {
     kind: 'fail',
     label: '搜索页未打开',
     outputBindings: {},
@@ -118,7 +125,7 @@ export const WECHAT_WORKFLOW_NODES = [
     },
     runState: 'idle',
   }),
-  workflowNode('select_search_text', 'ui', 840, 320, {
+  workflowNode('select_search_text', 'ui', 1_160, 100, {
     kind: 'ui',
     label: '清空搜索框',
     outputBindings: {},
@@ -130,7 +137,7 @@ export const WECHAT_WORKFLOW_NODES = [
     execution: createWechatInputExecution(),
     runState: 'idle',
   }),
-  workflowNode('type_contact', 'ui', 640, 320, {
+  workflowNode('type_contact', 'ui', 1_370, 100, {
     kind: 'ui',
     label: '输入联系人',
     outputBindings: {},
@@ -138,7 +145,7 @@ export const WECHAT_WORKFLOW_NODES = [
     execution: createWechatInputExecution(),
     runState: 'idle',
   }),
-  workflowNode('select_contact', 'ui', 430, 320, {
+  workflowNode('select_contact', 'ui', 1_580, 100, {
     kind: 'ui',
     label: '选择联系人',
     outputBindings: {},
@@ -146,10 +153,11 @@ export const WECHAT_WORKFLOW_NODES = [
     execution: createWechatContactClickExecution(),
     runState: 'idle',
   }),
-  workflowNode('wait_for_conversation', 'loop', 220, 320, {
+  workflowNode('wait_for_conversation', 'loop', 1_790, 100, {
     kind: 'loop',
     label: '等待会话打开',
     outputBindings: {},
+    bodyScopeId: CONVERSATION_SCOPE_ID,
     maxIterations: 16,
     timeoutMs: 5_000,
     intervalMs: 300,
@@ -167,7 +175,7 @@ export const WECHAT_WORKFLOW_NODES = [
     resultType: 'boolean',
     runState: 'idle',
   }),
-  workflowNode('conversation_not_ready', 'fail', 220, 440, {
+  workflowNode('conversation_not_ready', 'fail', 1_929, 460, {
     kind: 'fail',
     label: '联系人会话未打开',
     outputBindings: {},
@@ -178,7 +186,7 @@ export const WECHAT_WORKFLOW_NODES = [
     },
     runState: 'idle',
   }),
-  workflowNode('type_message', 'ui', 20, 560, {
+  workflowNode('type_message', 'ui', 2_310, 100, {
     kind: 'ui',
     label: '输入消息',
     outputBindings: {},
@@ -186,7 +194,7 @@ export const WECHAT_WORKFLOW_NODES = [
     execution: createWechatInputExecution(),
     runState: 'idle',
   }),
-  workflowNode('send_message', 'ui', 220, 560, {
+  workflowNode('send_message', 'ui', 2_520, 100, {
     kind: 'ui',
     label: '发送消息',
     outputBindings: {},
@@ -198,17 +206,18 @@ export const WECHAT_WORKFLOW_NODES = [
     execution: createWechatInputExecution(),
     runState: 'idle',
   }),
-  workflowNode('wait_for_wechat_update', 'delay', 430, 560, {
+  workflowNode('wait_for_wechat_update', 'delay', 2_730, 100, {
     kind: 'delay',
     label: '等待微信更新',
     outputBindings: {},
     milliseconds: 800,
     runState: 'idle',
   }),
-  workflowNode('wait_for_send_result', 'loop', 640, 560, {
+  workflowNode('wait_for_send_result', 'loop', 2_940, 100, {
     kind: 'loop',
     label: '等待发送结果',
     outputBindings: {},
+    bodyScopeId: SEND_SCOPE_ID,
     maxIterations: 16,
     timeoutMs: 5_000,
     intervalMs: 300,
@@ -229,7 +238,7 @@ export const WECHAT_WORKFLOW_NODES = [
     resultType: 'boolean',
     runState: 'idle',
   }),
-  workflowNode('send_result_unknown', 'fail', 640, 680, {
+  workflowNode('send_result_unknown', 'fail', 3_079, 460, {
     kind: 'fail',
     label: '无法确认发送结果',
     outputBindings: {},
@@ -240,7 +249,7 @@ export const WECHAT_WORKFLOW_NODES = [
     },
     runState: 'idle',
   }),
-  workflowNode('end', 'end', 1_040, 560, {
+  workflowNode('end', 'end', 3_460, 100, {
     kind: 'end',
     label: '消息已发送',
     outputBindings: {},
@@ -248,78 +257,143 @@ export const WECHAT_WORKFLOW_NODES = [
   }),
 ] as const satisfies ReadonlyArray<WorkflowCanvasNode>;
 
+/** 根画布只保留 While 容器；三项检查移动到各自子作用域。 */
+export const WECHAT_WORKFLOW_NODES = WECHAT_WORKFLOW_ALL_NODES.filter((node) => ![
+  'check_search',
+  'check_conversation',
+  'check_send_result',
+].includes(node.id));
+
 /** 示例连线完整表达正常路径、继续检查和达到上限后的失败路径。 */
 export const WECHAT_WORKFLOW_EDGES = [
   workflowEdge('start', WECHAT_APPLICATION_NODE_ID),
   workflowEdge(WECHAT_APPLICATION_NODE_ID, 'open_search'),
   workflowEdge('open_search', 'wait_for_search'),
-  workflowEdge('wait_for_search', 'check_search', 'iterate'),
+  workflowEdge('wait_for_search', 'select_search_text', 'completed'),
   workflowEdge('wait_for_search', 'search_not_ready', 'exhausted', {
     sourceSide: 'bottom',
     targetSide: 'top',
   }),
-  workflowEdge('check_search', 'select_search_text', 'true', {
-    sourceSide: 'bottom',
-    targetSide: 'top',
-  }),
-  workflowEdge('check_search', 'wait_for_search', 'false', {
-    sourceSide: 'top',
-    targetSide: 'top',
-  }),
-  workflowEdge('check_search', 'wait_for_search', 'unknown', {
-    sourceSide: 'bottom',
-    targetSide: 'bottom',
-  }),
-  workflowEdge('select_search_text', 'type_contact', null, {
-    sourceSide: 'left',
-    targetSide: 'right',
-  }),
-  workflowEdge('type_contact', 'select_contact', null, {
-    sourceSide: 'left',
-    targetSide: 'right',
-  }),
-  workflowEdge('select_contact', 'wait_for_conversation', null, {
-    sourceSide: 'left',
-    targetSide: 'right',
-  }),
-  workflowEdge('wait_for_conversation', 'check_conversation', 'iterate', {
-    sourceSide: 'left',
-    targetSide: 'right',
-  }),
+  workflowEdge('select_search_text', 'type_contact'),
+  workflowEdge('type_contact', 'select_contact'),
+  workflowEdge('select_contact', 'wait_for_conversation'),
+  workflowEdge('wait_for_conversation', 'type_message', 'completed'),
   workflowEdge('wait_for_conversation', 'conversation_not_ready', 'exhausted', {
     sourceSide: 'bottom',
     targetSide: 'top',
   }),
-  workflowEdge('check_conversation', 'type_message', 'true', {
-    sourceSide: 'bottom',
-    targetSide: 'top',
-  }),
-  workflowEdge('check_conversation', 'wait_for_conversation', 'false', {
-    sourceSide: 'top',
-    targetSide: 'top',
-  }),
-  workflowEdge('check_conversation', 'wait_for_conversation', 'unknown', {
-    sourceSide: 'bottom',
-    targetSide: 'bottom',
-  }),
   workflowEdge('type_message', 'send_message'),
   workflowEdge('send_message', 'wait_for_wechat_update'),
   workflowEdge('wait_for_wechat_update', 'wait_for_send_result'),
-  workflowEdge('wait_for_send_result', 'check_send_result', 'iterate'),
+  workflowEdge('wait_for_send_result', 'end', 'completed'),
   workflowEdge('wait_for_send_result', 'send_result_unknown', 'exhausted', {
     sourceSide: 'bottom',
     targetSide: 'top',
   }),
-  workflowEdge('check_send_result', 'end', 'true'),
-  workflowEdge('check_send_result', 'wait_for_send_result', 'false', {
-    sourceSide: 'top',
-    targetSide: 'top',
-  }),
-  workflowEdge('check_send_result', 'wait_for_send_result', 'unknown', {
-    sourceSide: 'bottom',
-    targetSide: 'bottom',
-  }),
 ] as const satisfies ReadonlyArray<WorkflowCanvasEdge>;
+
+/** 默认工作流根作用域 ID。 */
+export const WECHAT_ROOT_SCOPE_ID = 'workflow_root';
+
+/** 三个 While 子图都用 Entry → Observe → Continue/Complete 的显式 DAG。 */
+const SEARCH_SCOPE = loopScope(
+  SEARCH_SCOPE_ID,
+  'wait_for_search',
+  requiredNode('check_search'),
+);
+const CONVERSATION_SCOPE = loopScope(
+  CONVERSATION_SCOPE_ID,
+  'wait_for_conversation',
+  requiredNode('check_conversation'),
+);
+const SEND_SCOPE = loopScope(
+  SEND_SCOPE_ID,
+  'wait_for_send_result',
+  requiredNode('check_send_result'),
+);
+
+/** 默认示例交给多文档 Store 的完整作用域表。 */
+export const WECHAT_WORKFLOW_DOCUMENTS = {
+  [WECHAT_ROOT_SCOPE_ID]: {
+    nodes: WECHAT_WORKFLOW_NODES,
+    edges: WECHAT_WORKFLOW_EDGES,
+  },
+  [SEARCH_SCOPE_ID]: SEARCH_SCOPE.document,
+  [CONVERSATION_SCOPE_ID]: CONVERSATION_SCOPE.document,
+  [SEND_SCOPE_ID]: SEND_SCOPE.document,
+} as const satisfies WorkflowDocuments;
+
+/** 默认示例全部作用域的父容器和固定边界。 */
+export const WECHAT_SCOPE_METADATA = {
+  [WECHAT_ROOT_SCOPE_ID]: {
+    parent: null,
+    boundary: { type: 'workflow', entry_node_id: 'start' },
+  },
+  [SEARCH_SCOPE_ID]: {
+    parent: { scope_id: WECHAT_ROOT_SCOPE_ID, node_id: 'wait_for_search' },
+    boundary: SEARCH_SCOPE.boundary,
+  },
+  [CONVERSATION_SCOPE_ID]: {
+    parent: { scope_id: WECHAT_ROOT_SCOPE_ID, node_id: 'wait_for_conversation' },
+    boundary: CONVERSATION_SCOPE.boundary,
+  },
+  [SEND_SCOPE_ID]: {
+    parent: { scope_id: WECHAT_ROOT_SCOPE_ID, node_id: 'wait_for_send_result' },
+    boundary: SEND_SCOPE.boundary,
+  },
+} as const satisfies import('../../model/workflowModel').WorkflowScopeMetadataMap;
+
+/** 创建一个带固定边界的 While 子图；观察结果只在本作用域内分支。 */
+function loopScope(
+  scopeId: string,
+  _ownerNodeId: string,
+  observation: WorkflowCanvasNode,
+) {
+  const entry = workflowNode(`${scopeId}_entry`, 'loopEntry', 40, 120, {
+    kind: 'loopEntry',
+    label: '每轮开始',
+    outputBindings: {},
+    runState: 'idle',
+  });
+  const continueNode = workflowNode(`${scopeId}_continue`, 'loopContinue', 500, 190, {
+    kind: 'loopContinue',
+    label: '继续下一轮',
+    outputBindings: {},
+    runState: 'idle',
+  });
+  const complete = workflowNode(`${scopeId}_complete`, 'loopComplete', 500, 50, {
+    kind: 'loopComplete',
+    label: '条件成立，完成循环',
+    outputBindings: {},
+    runState: 'idle',
+  });
+  /** 示例观察节点移动到局部坐标，但保留强类型业务配置与稳定 ID。 */
+  const check = { ...observation, position: { x: 250, y: 120 } };
+  return {
+    document: {
+      nodes: [entry, check, continueNode, complete],
+      edges: [
+        workflowEdge(entry.id, check.id),
+        workflowEdge(check.id, complete.id, 'true'),
+        workflowEdge(check.id, continueNode.id, 'false'),
+        workflowEdge(check.id, continueNode.id, 'unknown'),
+      ],
+    },
+    boundary: {
+      type: 'loop' as const,
+      entry_node_id: entry.id,
+      continue_node_id: continueNode.id,
+      complete_node_id: complete.id,
+    },
+  };
+}
+
+/** 从完整示例清单中取得必需节点，并在源码变更时尽早失败。 */
+function requiredNode(nodeId: string): WorkflowCanvasNode {
+  const node = WECHAT_WORKFLOW_ALL_NODES.find((candidate) => candidate.id === nodeId);
+  if (!node) throw new Error(`微信示例缺少节点 '${nodeId}'`);
+  return node;
+}
 
 /** 创建一个 kind 与 data 判别值严格一致的示例画布节点。 */
 function workflowNode<Kind extends EditableNodeKind>(

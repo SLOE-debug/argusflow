@@ -63,7 +63,7 @@ describe('component creation', () => {
         pointer: '/value',
       },
     }]);
-    expect(result.catalogItem.definition.nodes).toContainEqual(expect.objectContaining({
+    expect(result.catalogItem.definition.graph.scopes[0]?.nodes).toContainEqual(expect.objectContaining({
       id: selectedDebug.id,
       payload: {
         value: {

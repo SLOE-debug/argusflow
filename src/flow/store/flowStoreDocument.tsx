@@ -13,12 +13,15 @@ export type PastedSubgraph<TData, TEdgeData> = Readonly<{
 
 /** 捕获当前不可变文档引用；后续编辑通过结构共享保持快照隔离。 */
 export function captureDocumentSnapshot<TData, TEdgeData>(
-  state: Pick<FlowState<TData, TEdgeData>, 'metadata' | 'nodes' | 'edges'>,
+  state: Pick<FlowState<TData, TEdgeData>,
+    'metadata' | 'nodes' | 'edges' | 'documents' | 'activeDocumentId'>,
 ): FlowDocumentSnapshot<TData, TEdgeData> {
   return {
     metadata: state.metadata,
     nodes: state.nodes,
     edges: state.edges,
+    documents: state.documents,
+    activeDocumentId: state.activeDocumentId,
   };
 }
 

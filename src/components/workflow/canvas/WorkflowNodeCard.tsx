@@ -33,6 +33,7 @@ import {
   type NodeRunState,
   type WorkflowNodeData,
 } from '../../../features/workflow';
+import { WorkflowLoopContainer } from './WorkflowLoopContainer';
 
 type WorkflowNodeKind = WorkflowNodeData['kind'];
 
@@ -55,6 +56,9 @@ const NODE_ICONS: Readonly<Record<WorkflowNodeKind, LucideIcon>> = {
   condition: GitBranch,
   observe: ScanSearch,
   loop: Repeat2,
+  loopEntry: PlayCircle,
+  loopContinue: Repeat2,
+  loopComplete: CircleCheck,
   variable: Braces,
   application: AppWindow,
   browser: Globe2,
@@ -129,6 +133,18 @@ const NODE_TONES: Readonly<Record<
     accent: 'bg-violet-500',
     icon: 'bg-violet-50 text-violet-700',
   },
+  loopEntry: {
+    accent: 'bg-violet-400',
+    icon: 'bg-violet-50 text-violet-700',
+  },
+  loopContinue: {
+    accent: 'bg-amber-500',
+    icon: 'bg-amber-50 text-amber-700',
+  },
+  loopComplete: {
+    accent: 'bg-emerald-500',
+    icon: 'bg-emerald-50 text-emerald-700',
+  },
   variable: {
     accent: 'bg-teal-500',
     icon: 'bg-teal-50 text-teal-700',
@@ -198,7 +214,28 @@ export const workflowNodeRegistry = {
   delay: createDefinition('delay', '等待一段时间', WORKFLOW_NODE_SIZES.delay),
   condition: createDefinition('condition', '条件判断', WORKFLOW_NODE_SIZES.condition),
   observe: createDefinition('observe', '检查界面', WORKFLOW_NODE_SIZES.observe),
-  loop: createDefinition('loop', '重复执行', WORKFLOW_NODE_SIZES.loop),
+  loop: {
+    ...createDefinition('loop', 'While', WORKFLOW_NODE_SIZES.loop),
+    component: WorkflowLoopContainer,
+    resizable: true,
+    minSize: { width: 300, height: 180 },
+    copyable: false,
+  },
+  loopEntry: {
+    ...createDefinition('loopEntry', '每轮开始', WORKFLOW_NODE_SIZES.loopEntry, true),
+    canEndConnection: false,
+    creatable: false,
+  },
+  loopContinue: {
+    ...createDefinition('loopContinue', '继续下一轮', WORKFLOW_NODE_SIZES.loopContinue, true),
+    canStartConnection: false,
+    creatable: false,
+  },
+  loopComplete: {
+    ...createDefinition('loopComplete', '完成循环', WORKFLOW_NODE_SIZES.loopComplete, true),
+    canStartConnection: false,
+    creatable: false,
+  },
   variable: createDefinition('variable', '设置变量', WORKFLOW_NODE_SIZES.variable),
   application: createDefinition('application', '打开应用', WORKFLOW_NODE_SIZES.application),
   browser: createDefinition('browser', '打开浏览器', WORKFLOW_NODE_SIZES.browser),
@@ -292,6 +329,12 @@ function resolveNodeDetail(data: WorkflowNodeData): string {
       return observationTypeLabel(data.resultType);
     case 'loop':
       return `最多重复 ${data.maxIterations} 次`;
+    case 'loopEntry':
+      return 'While 每轮入口';
+    case 'loopContinue':
+      return '开始下一轮';
+    case 'loopComplete':
+      return '从 completed 离开';
     case 'variable':
       return `设置 ${data.assignments.length} 个变量`;
     case 'application':

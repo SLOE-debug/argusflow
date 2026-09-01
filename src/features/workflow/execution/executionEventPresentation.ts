@@ -44,8 +44,10 @@ export const EXECUTION_EVENT_LABELS = {
   command_exited: '命令已完成',
   diagnostic_evidence_captured: '已保存诊断信息',
   observation_evaluated: '检查完成',
+  loop_started: '开始循环',
   loop_iteration: '开始下一轮',
   loop_exhausted: '已达上限',
+  loop_completed: '循环完成',
   workflow_failure_declared: '流程已停止',
   node_succeeded: '执行完成',
   edge_traversed: '进入下一步',
@@ -122,6 +124,10 @@ function resolveExecutionDetail(event: ExecutionEvent): string {
         ?? `第 ${event.payload.iteration} / ${event.payload.max_iterations} 轮`;
     case 'loop_exhausted':
       return event.message ?? `达到设置的上限，共重复 ${event.payload.iterations} 次`;
+    case 'loop_started':
+      return event.message ?? `进入 ${event.payload.scope_id}`;
+    case 'loop_completed':
+      return event.message ?? `正常完成，共执行 ${event.payload.iterations} 次`;
     case 'workflow_failure_declared':
       return event.message ?? `错误标识：${event.payload.code}`;
     case 'diagnostic_evidence_captured':
@@ -136,6 +142,7 @@ function resolveExecutionDetail(event: ExecutionEvent): string {
     case 'node_started':
       return '正在执行';
     case 'node_succeeded':
+    case 'loop_completed':
       return '已完成';
     case 'edge_traversed':
       return '已进入下一步';

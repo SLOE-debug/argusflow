@@ -157,21 +157,47 @@ export const WORKFLOW_NODE_DEFINITIONS = {
   }),
   loop: defineNode('loop', {
     typeId: 'argus.loop',
-    version: 1,
+    version: 2,
     create: () => ({
       kind: 'loop',
       label: '重复执行',
       outputBindings: {},
+      bodyScopeId: `scope-${crypto.randomUUID()}`,
       maxIterations: 10,
       timeoutMs: 30_000,
       intervalMs: 500,
       runState: 'idle',
     }),
     encode: (data) => ({
+      body_scope_id: data.bodyScopeId,
       max_iterations: data.maxIterations,
       timeout_ms: data.timeoutMs,
       interval_ms: data.intervalMs,
     }),
+  }),
+  loopEntry: defineNode('loopEntry', {
+    typeId: 'argus.loop.entry',
+    version: 1,
+    create: () => ({
+      kind: 'loopEntry', label: '每轮开始', outputBindings: {}, runState: 'idle',
+    }),
+    encode: () => ({}),
+  }),
+  loopContinue: defineNode('loopContinue', {
+    typeId: 'argus.loop.continue',
+    version: 1,
+    create: () => ({
+      kind: 'loopContinue', label: '继续下一轮', outputBindings: {}, runState: 'idle',
+    }),
+    encode: () => ({}),
+  }),
+  loopComplete: defineNode('loopComplete', {
+    typeId: 'argus.loop.complete',
+    version: 1,
+    create: () => ({
+      kind: 'loopComplete', label: '完成循环', outputBindings: {}, runState: 'idle',
+    }),
+    encode: () => ({}),
   }),
   variable: defineNode('variable', {
     typeId: 'argus.variable.set',
@@ -280,7 +306,7 @@ export const WORKFLOW_NODE_DEFINITIONS = {
   }),
   component: defineNode('component', {
     typeId: 'argus.component',
-    version: 1,
+    version: 2,
     create: () => {
       return {
         kind: 'component',
@@ -294,16 +320,13 @@ export const WORKFLOW_NODE_DEFINITIONS = {
         componentName: '尚未选择',
         componentOutputs: [],
         componentDefinition: {
-          schema_version: 1,
+          schema_version: 2,
           id: '00000000-0000-0000-0000-000000000000',
           version: '0.0.0',
           name: '尚未选择',
           inputs: [],
           outputs: [],
-          nodes: [],
-          edges: [],
-          entry_node_id: '',
-          exit_node_id: '',
+          graph: { root_scope_id: '', scopes: [] },
         },
         runState: 'idle',
       };

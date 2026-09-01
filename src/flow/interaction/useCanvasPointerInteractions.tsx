@@ -1,15 +1,13 @@
 import {
   useCallback,
-  useEffect,
   useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type RefObject,
-  type WheelEvent as ReactWheelEvent,
 } from 'react';
 
-import { rectFromPoints, rectsIntersect, screenToWorld, zoomAt } from '../geometry/geometry';
+import { rectFromPoints, rectsIntersect, screenToWorld } from '../geometry/geometry';
 import type { CanvasToolMode } from '../canvas/FlowCanvasTools';
 import { findFlowNode } from '../selection/nodeLookup';
 import {
@@ -19,6 +17,7 @@ import {
 import { snapNode, type AlignmentGuide } from '../geometry/snapping';
 import { useFlowStoreApi } from '../store/store';
 import type { FlowAnchorSide, FlowPoint } from '../types';
+import { useCanvasWheelZoom } from './useCanvasWheelZoom';
 
 type ConnectionEndpoint = 'source' | 'target';
 
@@ -44,6 +43,10 @@ type UseCanvasPointerInteractionsOptions = Readonly<{
   ) => boolean;
   spacePressed: boolean;
   toolMode: CanvasToolMode;
+  /** 业务层可在滚轮放大到阈值后进入指针下的结构容器。 */
+  onSemanticZoomIn?: (worldPoint: FlowPoint, nextZoom: number) => boolean;
+  /** 业务层可在缩小越过阈值后返回结构容器所在的父作用域。 */
+  onSemanticZoomOut?: (nextZoom: number) => boolean;
 }>;
 
 /** 画布右键菜单的屏幕位置、世界坐标和二级菜单方向。 */
@@ -83,7 +86,7 @@ type CanvasPointerInteractions = Readonly<{
     point: FlowPoint,
     event: ReactPointerEvent,
   ) => void;
-  handleWheel: (event: ReactWheelEvent<HTMLDivElement>) => void;
+  handleWheel: ReturnType<typeof useCanvasWheelZoom>;
 }>;
 
 const FLOW_ANCHOR_SIDES: ReadonlySet<string> = new Set([
@@ -106,18 +109,19 @@ export function useCanvasPointerInteractions({
   onReconnect,
   spacePressed,
   toolMode,
+  onSemanticZoomIn,
+  onSemanticZoomOut,
 }: UseCanvasPointerInteractionsOptions): CanvasPointerInteractions {
   const store = useFlowStoreApi();
   const [guides, setGuides] = useState<ReadonlyArray<AlignmentGuide>>([]);
   const [contextMenu, setContextMenu] = useState<CanvasContextMenu | null>(null);
-  /** 同一动画帧内累计的滚轮垂直增量。 */
-  const wheelDelta = useRef(0);
-  /** 最后一次滚轮事件相对画布左上角的坐标。 */
-  const wheelPoint = useRef<FlowPoint | null>(null);
-  /** 等待应用滚轮缩放的动画帧 ID。 */
-  const wheelFrame = useRef<number | null>(null);
   /** 节点拖拽交互使用的单调递增标识。 */
   const routingInteractionId = useRef(0);
+  const handleWheel = useCanvasWheelZoom({
+    maxZoom,
+    onSemanticZoomIn,
+    onSemanticZoomOut,
+  });
 
   const pointerWorld = useCallback((pointer: Pick<PointerEvent, 'clientX' | 'clientY'>) => {
     const element = containerRef.current;
@@ -248,6 +252,14 @@ export function useCanvasPointerInteractions({
                 edges: initialEdges,
                 metadata: initialMetadata,
                 nodes: initialNodes,
+                documents: {
+                  ...currentState.documents,
+                  [currentState.activeDocumentId]: {
+                    nodes: initialNodes,
+                    edges: initialEdges,
+                  },
+                },
+                activeDocumentId: currentState.activeDocumentId,
               },
             ],
           });
@@ -430,41 +442,6 @@ export function useCanvasPointerInteractions({
       },
     });
   }, [pointerWorld, spacePressed, store, toolMode]);
-
-  const handleWheel = useCallback((event: ReactWheelEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    const bounds = event.currentTarget.getBoundingClientRect();
-    wheelDelta.current += event.deltaY;
-    wheelPoint.current = {
-      x: event.clientX - bounds.left,
-      y: event.clientY - bounds.top,
-    };
-    wheelFrame.current ??= requestAnimationFrame(() => {
-      const viewport = store.getState().viewport;
-      const screenPoint = wheelPoint.current;
-      /** 当前帧累计的滚轮增量会在读取后立即清零。 */
-      const deltaY = wheelDelta.current;
-      wheelFrame.current = null;
-      wheelDelta.current = 0;
-      wheelPoint.current = null;
-      if (!screenPoint) return;
-
-      /** 只限制放大上限；Number.MIN_VALUE 仅防止浮点下溢为零。 */
-      const nextZoom = Math.min(
-        maxZoom,
-        Math.max(Number.MIN_VALUE, viewport.zoom * Math.exp(-deltaY * 0.0015)),
-      );
-      store.getState().setViewport(zoomAt(
-        viewport,
-        screenPoint,
-        nextZoom,
-      ));
-    });
-  }, [maxZoom, store]);
-
-  useEffect(() => () => {
-    if (wheelFrame.current !== null) cancelAnimationFrame(wheelFrame.current);
-  }, []);
 
   const handleContextMenu = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
     event.preventDefault();

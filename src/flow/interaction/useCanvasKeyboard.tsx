@@ -69,7 +69,11 @@ function collectSingletonKinds(registry: Readonly<NodeRegistry>): ReadonlySet<st
 }
 
 /** 注册画布级快捷键，并返回空格键平移模式是否已开启。 */
-export function useCanvasKeyboard(registry: Readonly<NodeRegistry>): boolean {
+export function useCanvasKeyboard(
+  registry: Readonly<NodeRegistry>,
+  onActivateNode?: (nodeId: string) => void,
+  onDeleteSelection?: () => void,
+): boolean {
   const store = useFlowStoreApi();
   const [spacePressed, setSpacePressed] = useState(false);
   const singletonKinds = useMemo(() => collectSingletonKinds(registry), [registry]);
@@ -104,6 +108,10 @@ export function useCanvasKeyboard(registry: Readonly<NodeRegistry>): boolean {
 
       if (modifierPressed && normalizedKey === 'c') {
         event.preventDefault();
+        if ([...state.selectedNodeIds].some((nodeId) => {
+          const node = state.nodes.find((candidate) => candidate.id === nodeId);
+          return node && registry[node.kind]?.copyable === false;
+        })) return;
         state.copy();
         return;
       }
@@ -116,6 +124,10 @@ export function useCanvasKeyboard(registry: Readonly<NodeRegistry>): boolean {
 
       if (modifierPressed && normalizedKey === 'd') {
         event.preventDefault();
+        if ([...state.selectedNodeIds].some((nodeId) => {
+          const node = state.nodes.find((candidate) => candidate.id === nodeId);
+          return node && registry[node.kind]?.copyable === false;
+        })) return;
         state.duplicate(new Set(singletonKinds));
         return;
       }
@@ -123,6 +135,15 @@ export function useCanvasKeyboard(registry: Readonly<NodeRegistry>): boolean {
       if (modifierPressed && normalizedKey === 'a') {
         event.preventDefault();
         state.selectNodes(state.nodes.map((node) => node.id));
+        return;
+      }
+
+      if (event.key === 'Enter' && state.selectedNodeIds.size === 1) {
+        const selectedNodeId = state.selectedNodeIds.values().next().value;
+        if (selectedNodeId) {
+          event.preventDefault();
+          onActivateNode?.(selectedNodeId);
+        }
         return;
       }
 
@@ -143,7 +164,8 @@ export function useCanvasKeyboard(registry: Readonly<NodeRegistry>): boolean {
 
       if (event.key === 'Delete' || event.key === 'Backspace') {
         event.preventDefault();
-        state.deleteSelection();
+        if (onDeleteSelection) onDeleteSelection();
+        else state.deleteSelection();
       }
     };
 
@@ -157,7 +179,7 @@ export function useCanvasKeyboard(registry: Readonly<NodeRegistry>): boolean {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [singletonKinds, store]);
+  }, [onActivateNode, onDeleteSelection, registry, singletonKinds, store]);
 
   return spacePressed;
 }

@@ -64,6 +64,48 @@ describe('useWorkflowStudio', () => {
     expect(studio.result.current.flowStore.getState().edges).toHaveLength(edgeCount);
   });
 
+  it('adds, nests, deletes, and restores While scope trees atomically', () => {
+    const studio = renderHook(() => useWorkflowStudio());
+    const initialState = studio.result.current.flowStore.getState();
+    const initialScopeCount = Object.keys(initialState.documents).length;
+    const initialHistoryCount = initialState.past.length;
+
+    act(() => studio.result.current.addNode('loop', { x: 1_200, y: 100 }));
+    let state = studio.result.current.flowStore.getState();
+    const outer = state.nodes.find((node) => (
+      state.selectedNodeIds.has(node.id) && node.data.kind === 'loop'
+    ));
+    if (!outer || outer.data.kind !== 'loop') throw new Error('expected outer While');
+    const outerScopeId = outer.data.bodyScopeId;
+    expect(state.documents[outerScopeId]).toBeDefined();
+    expect(state.past).toHaveLength(initialHistoryCount + 1);
+
+    act(() => studio.result.current.enterLoop(outer.id));
+    act(() => studio.result.current.addNode('loop', { x: 220, y: 300 }));
+    state = studio.result.current.flowStore.getState();
+    const inner = state.nodes.find((node) => (
+      state.selectedNodeIds.has(node.id) && node.data.kind === 'loop'
+    ));
+    if (!inner || inner.data.kind !== 'loop') throw new Error('expected inner While');
+    const innerScopeId = inner.data.bodyScopeId;
+    expect(state.documents[innerScopeId]).toBeDefined();
+    expect(Object.keys(state.documents)).toHaveLength(initialScopeCount + 2);
+
+    act(() => studio.result.current.openScope('workflow_root'));
+    act(() => studio.result.current.flowStore.getState().selectNodes([outer.id]));
+    const beforeDeleteHistory = studio.result.current.flowStore.getState().past.length;
+    act(() => studio.result.current.deleteSelection());
+    state = studio.result.current.flowStore.getState();
+    expect(state.documents[outerScopeId]).toBeUndefined();
+    expect(state.documents[innerScopeId]).toBeUndefined();
+    expect(state.past).toHaveLength(beforeDeleteHistory + 1);
+
+    act(() => state.undo());
+    state = studio.result.current.flowStore.getState();
+    expect(state.documents[outerScopeId]).toBeDefined();
+    expect(state.documents[innerScopeId]).toBeDefined();
+  });
+
   it('binds a UI node directly connected from an Application to its session', () => {
     const studio = renderHook(() => useWorkflowStudio());
     act(() => studio.result.current.addNode('application', { x: 80, y: 280 }));

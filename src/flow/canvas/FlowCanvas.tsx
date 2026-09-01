@@ -45,6 +45,12 @@ type FlowCanvasProps = Readonly<{
   ) => boolean;
   /** 节点双击由业务编辑器决定是否处理。 */
   onNodeDoubleClick?: (nodeId: string) => void;
+  /** 放大到结构容器内部时由业务层切换作用域。 */
+  onSemanticZoomIn?: (worldPoint: FlowPoint, nextZoom: number) => boolean;
+  /** 缩小离开当前结构时由业务层切换到父作用域。 */
+  onSemanticZoomOut?: (nextZoom: number) => boolean;
+  /** 业务层可接管删除，以同时维护结构容器拥有的外部文档。 */
+  onDeleteSelection?: () => void;
 }>;
 
 /** 自研 Flow 画布入口，仅装配交互、渲染图层与顶部浮层工具。 */
@@ -56,12 +62,19 @@ export function FlowCanvas({
   onConnect,
   onReconnect,
   onNodeDoubleClick,
+  onSemanticZoomIn,
+  onSemanticZoomOut,
+  onDeleteSelection,
 }: FlowCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const store = useFlowStoreApi();
   const [toolMode, setToolMode] = useState<CanvasToolMode>('select');
   const canvasSize = useCanvasSize(containerRef);
-  const spacePressed = useCanvasKeyboard(registry);
+  const spacePressed = useCanvasKeyboard(
+    registry,
+    onNodeDoubleClick,
+    onDeleteSelection,
+  );
   const interactions = useCanvasPointerInteractions({
     containerRef,
     maxZoom: MAX_CANVAS_ZOOM,
@@ -69,6 +82,8 @@ export function FlowCanvas({
     onReconnect,
     spacePressed,
     toolMode,
+    onSemanticZoomIn,
+    onSemanticZoomOut,
   });
   /** 空格与平移工具都必须覆盖节点自身的拖拽手势。 */
   const panActive = spacePressed || toolMode === 'pan';
@@ -135,6 +150,7 @@ export function FlowCanvas({
           onAddNode={onAddNode}
           onAddConnectedNode={onAddConnectedNode}
           onClose={interactions.closeContextMenu}
+          onDeleteSelection={onDeleteSelection}
           registry={registry}
         />
       ) : null}

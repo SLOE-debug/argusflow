@@ -8,7 +8,15 @@ import type {
   ViewportTransform,
 } from '../types';
 
-/** 可进入历史记录的 Flow 文档快照。 */
+/** 一份独立作用域的节点与连线文档。 */
+export type FlowDocument<TData, TEdgeData> = Readonly<{
+  /** 只属于该作用域的节点。 */
+  nodes: ReadonlyArray<FlowNode<TData>>;
+  /** 只允许连接该作用域节点的边。 */
+  edges: ReadonlyArray<FlowEdge<TEdgeData>>;
+}>;
+
+/** 可进入全局历史记录的多文档 Flow 快照。 */
 export type FlowDocumentSnapshot<TData, TEdgeData> = Readonly<{
   /** 由业务层保存的工作流名称、变量等文档字段。 */
   metadata: Readonly<Record<string, unknown>>;
@@ -16,6 +24,10 @@ export type FlowDocumentSnapshot<TData, TEdgeData> = Readonly<{
   nodes: ReadonlyArray<FlowNode<TData>>;
   /** 快照中的连线集合。 */
   edges: ReadonlyArray<FlowEdge<TEdgeData>>;
+  /** 按稳定 ID 保存的全部作用域文档。 */
+  documents: Readonly<Record<string, FlowDocument<TData, TEdgeData>>>;
+  /** 当前投影到 nodes/edges 的作用域文档 ID。 */
+  activeDocumentId: string;
 }>;
 
 /** Flow 内部剪贴板保存的完整选中子图。 */
@@ -53,6 +65,12 @@ export type FlowState<TData = unknown, TEdgeData = unknown> = {
   nodes: ReadonlyArray<FlowNode<TData>>;
   /** 当前文档连线。 */
   edges: ReadonlyArray<FlowEdge<TEdgeData>>;
+  /** 按稳定 ID 保存的全部作用域文档。 */
+  documents: Readonly<Record<string, FlowDocument<TData, TEdgeData>>>;
+  /** 当前可编辑作用域文档 ID。 */
+  activeDocumentId: string;
+  /** 每个作用域独立保存的会话视口，不进入撤销历史。 */
+  documentViewports: Readonly<Record<string, ViewportTransform>>;
   /** 当前画布平移和缩放。 */
   viewport: ViewportTransform;
   /** 当前选中的节点 ID。 */
@@ -81,6 +99,12 @@ export type FlowState<TData = unknown, TEdgeData = unknown> = {
   historyGroup: HistoryGroup | null;
   /** 替换当前视口。 */
   setViewport: (viewport: ViewportTransform) => void;
+  /** 切换当前文档并恢复它自己的视口和选择状态。 */
+  switchDocument: (documentId: string) => boolean;
+  /** 原子新增一份作用域文档并记录全局历史。 */
+  addDocument: (documentId: string, document: FlowDocument<TData, TEdgeData>) => boolean;
+  /** 删除指定作用域文档集合；当前文档不能被删除。 */
+  removeDocuments: (documentIds: ReadonlySet<string>) => void;
   /** 替换节点集合，并可选择是否记录历史。 */
   setNodes: (nodes: ReadonlyArray<FlowNode<TData>>, record?: boolean) => void;
   /** 替换连线集合，并可选择是否记录历史。 */

@@ -20,7 +20,8 @@ use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::json;
 use tokio::sync::mpsc;
-use uuid::Uuid;
+mod workflow_fixture;
+use workflow_fixture::workflow_definition;
 
 /// 测试宿主注册的自定义节点 payload。
 #[derive(Deserialize)]
@@ -178,23 +179,18 @@ async fn engine_executes_a_registered_node_without_central_dispatch_changes() {
 
 /// 创建 start -> test.emit -> end 的最小开放节点工作流。
 fn single_node_workflow(message: &str) -> WorkflowDefinition {
-    WorkflowDefinition {
-        schema_version: 9,
-        id: Uuid::new_v4(),
-        name: "节点扩展契约".to_owned(),
-        inputs: Vec::new(),
-        variables: json!({}),
-        permissions: WorkflowPermissions::default(),
-        nodes: vec![
+    workflow_definition(
+        "节点扩展契约",
+        vec![
             node("start", "argus.start", json!({})),
             node("emit", "test.emit", json!({ "message": message })),
             node("end", "argus.end", json!({})),
         ],
-        edges: vec![
+        vec![
             edge("start-emit", "start", "emit"),
             edge("emit-end", "emit", "end"),
         ],
-    }
+    )
 }
 
 /// 创建 schema v9 节点定义。
@@ -202,6 +198,10 @@ fn node(id: &str, type_id: &str, payload: serde_json::Value) -> WorkflowNode {
     WorkflowNode {
         id: id.to_owned(),
         position: Position { x: 0.0, y: 0.0 },
+        size: argusflow_core::Size {
+            width: 142.0,
+            height: 52.0,
+        },
         definition: NodeEnvelope::new(type_id, 1, payload),
         output_bindings: Default::default(),
     }

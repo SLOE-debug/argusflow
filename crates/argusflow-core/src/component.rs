@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{ValueExpr, WorkflowEdge, WorkflowInputDefinition, WorkflowNode};
+use crate::{ScopedFlowGraph, ValueExpr, WorkflowInputDefinition};
 
 /// 可复用流程组件的稳定标识。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -63,14 +63,8 @@ pub struct FlowComponentDefinition {
     pub inputs: Vec<WorkflowInputDefinition>,
     /// 组件实例对父工作流公开的显式值输出。
     pub outputs: Vec<ComponentValueOutput>,
-    /// 组件内部节点图；必须包含唯一边界 Start 与 End。
-    pub nodes: Vec<WorkflowNode>,
-    /// 组件内部有向边。
-    pub edges: Vec<WorkflowEdge>,
-    /// 唯一入口边界节点 ID。
-    pub entry_node_id: String,
-    /// 唯一出口边界节点 ID。
-    pub exit_node_id: String,
+    /// 可包含任意 While 子作用域的组件内部图；根边界必须是 Component。
+    pub graph: ScopedFlowGraph,
 }
 
 /// 主流程中精确锁定一个组件版本的实例 payload。
