@@ -17,11 +17,11 @@ export type WechatWorkflowInputKey = '联系人' | '消息内容';
 
 /** 搜索结果使用带词边界的分区标题作锚点，避免命中带前后缀的其他文案。 */
 export const WECHAT_CONTACT_RESULT_SELECTOR =
-  'nearest(anchor = text(name matches /\\b(?:联系人|最常使用|最近常用|功能)\\b/), target = text(name = $contact_name), direction = below, index = 1)';
+  'nearest(anchor = text(name matches /\\b(?:联系人|最常使用|最近常用|功能|群聊)\\b/), target = text(name contains $contact_name), direction = below, index = 1)';
 
-/** 右侧会话标题是联系人名称相对搜索入口的第二个同名文字。 */
+/** 从应用顶边定位会话标题，避开左侧列表中位置更低的联系人名称。 */
 const WECHAT_CONVERSATION_HEADER_SELECTOR =
-  'nearest(anchor = text(name = "搜索"), target = text(name = $contact_name), direction = any, index = 2)';
+  'nearest(anchor = viewport_edge(side = top), target = text(name contains $contact_name), direction = any, index = 1)';
 
 /** 消息发送后应出现在当前会话底部附近。 */
 const WECHAT_LATEST_MESSAGE_SELECTOR =

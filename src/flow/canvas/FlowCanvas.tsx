@@ -86,12 +86,15 @@ export function FlowCanvas({
   const containerRef = useRef<HTMLDivElement>(null);
   const store = useFlowStoreApi();
   const [toolMode, setToolMode] = useState<CanvasToolMode>('select');
+  /** 全局画布快捷键只在指针停留于画布区域时生效。 */
+  const [keyboardEnabled, setKeyboardEnabled] = useState(false);
   const canvasSize = useCanvasSize(containerRef);
   const spacePressed = useCanvasKeyboard(
     registry,
+    keyboardEnabled,
+    interactionMode,
     onNodeDoubleClick,
     onDeleteSelection,
-    interactionMode,
   );
   const interactions = useCanvasPointerInteractions({
     containerRef,
@@ -172,6 +175,8 @@ export function FlowCanvas({
       onDragEnter={interactionMode === 'editable' ? handleDragOver : undefined}
       onDragOver={interactionMode === 'editable' ? handleDragOver : undefined}
       onDrop={interactionMode === 'editable' ? handleDrop : undefined}
+      onPointerEnter={() => setKeyboardEnabled(true)}
+      onPointerLeave={() => setKeyboardEnabled(false)}
       onPointerDown={interactions.handlePanePointerDown}
     >
       <FlowCanvasLayers

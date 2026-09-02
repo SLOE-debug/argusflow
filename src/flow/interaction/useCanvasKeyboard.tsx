@@ -75,18 +75,24 @@ function collectSingletonKinds(registry: Readonly<NodeRegistry>): ReadonlySet<st
   );
 }
 
-/** 注册画布级快捷键，并返回空格键平移模式是否已开启。 */
+/** 仅在指针位于画布内时注册画布级快捷键，并返回空格键平移模式是否已开启。 */
 export function useCanvasKeyboard(
   registry: Readonly<NodeRegistry>,
+  keyboardEnabled: boolean,
+  interactionMode: FlowCanvasInteractionMode,
   onActivateNode?: (nodeId: string) => void,
   onDeleteSelection?: () => void,
-  interactionMode: FlowCanvasInteractionMode = 'editable',
 ): boolean {
   const store = useFlowStoreApi();
   const [spacePressed, setSpacePressed] = useState(false);
   const singletonKinds = useMemo(() => collectSingletonKinds(registry), [registry]);
 
   useEffect(() => {
+    if (!keyboardEnabled) {
+      setSpacePressed(false);
+      return;
+    }
+
     const handleKeyEvent = (event: KeyboardEvent, pressed: boolean) => {
       if (isEditable(event.target)) return;
 
@@ -196,7 +202,15 @@ export function useCanvasKeyboard(
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [interactionMode, onActivateNode, onDeleteSelection, registry, singletonKinds, store]);
+  }, [
+    interactionMode,
+    keyboardEnabled,
+    onActivateNode,
+    onDeleteSelection,
+    registry,
+    singletonKinds,
+    store,
+  ]);
 
   return spacePressed;
 }

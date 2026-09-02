@@ -142,6 +142,7 @@ describe('FlowCanvas interactions', () => {
         />
       </FlowProvider>,
     );
+    fireEvent.pointerEnter(container.querySelector('.touch-none')!);
     fireEvent.keyDown(window, { code: 'Space', key: ' ' });
     const selectedNode = container.querySelector('[data-flow-node-id="a"]');
     expect(selectedNode).not.toBeNull();
@@ -166,7 +167,7 @@ describe('FlowCanvas interactions', () => {
     const nodes = [createNode('a', 20), createNode('b', 160)];
     const store = createFlowStore({ nodes, edges: [] });
     store.getState().selectNodes(['a', 'b']);
-    render(
+    const { container } = render(
       <FlowProvider store={store}>
         <FlowCanvas
           registry={registry}
@@ -178,6 +179,7 @@ describe('FlowCanvas interactions', () => {
       </FlowProvider>,
     );
 
+    fireEvent.pointerEnter(container.querySelector('.touch-none')!);
     const rightWasNotCancelled = fireEvent.keyDown(window, {
       key: 'ArrowRight',
     });
@@ -227,7 +229,7 @@ describe('FlowCanvas interactions', () => {
     const store = createFlowStore({ nodes: [createNode('a', 20)], edges: [] });
     const onNodeDoubleClick = vi.fn();
     store.getState().selectNodes(['a']);
-    render(
+    const { container } = render(
       <FlowProvider store={store}>
         <FlowCanvas
           registry={registry}
@@ -240,6 +242,7 @@ describe('FlowCanvas interactions', () => {
       </FlowProvider>,
     );
 
+    fireEvent.pointerEnter(container.querySelector('.touch-none')!);
     expect(fireEvent.keyDown(window, { key: 'Enter' })).toBe(false);
     expect(onNodeDoubleClick).toHaveBeenCalledWith('a');
   });
@@ -300,6 +303,7 @@ describe('FlowCanvas interactions', () => {
     );
     const input = document.createElement('input');
     container.append(input);
+    fireEvent.pointerEnter(container.querySelector('.touch-none')!);
 
     expect(fireEvent.keyDown(input, { key: 'ArrowRight' })).toBe(true);
     fireEvent.contextMenu(container.querySelector('.touch-none')!, {
@@ -336,6 +340,7 @@ describe('FlowCanvas interactions', () => {
     textRange.selectNodeContents(selectableText);
     selection?.removeAllRanges();
     selection?.addRange(textRange);
+    fireEvent.pointerEnter(container.querySelector('.touch-none')!);
 
     expect(selection?.isCollapsed).toBe(false);
     expect(fireEvent.keyDown(selectableText, { key: 'c', ctrlKey: true })).toBe(true);
@@ -344,6 +349,40 @@ describe('FlowCanvas interactions', () => {
     selection?.removeAllRanges();
     expect(fireEvent.keyDown(window, { key: 'c', ctrlKey: true })).toBe(false);
     expect(store.getState().clipboard?.nodes.map((node) => node.id)).toEqual(['a']);
+  });
+
+  it('only captures clipboard and Space shortcuts while the pointer is inside the canvas', () => {
+    const store = createFlowStore({ nodes: [createNode('a', 20)], edges: [] });
+    store.getState().selectNodes(['a']);
+    const { container } = render(
+      <FlowProvider store={store}>
+        <FlowCanvas
+          registry={registry}
+          onAddNode={vi.fn()}
+          onAddConnectedNode={() => true}
+          onConnect={() => true}
+          onReconnect={() => true}
+        />
+      </FlowProvider>,
+    );
+    const canvas = container.querySelector('.touch-none');
+
+    expect(fireEvent.keyDown(window, { key: 'c', ctrlKey: true })).toBe(true);
+    expect(store.getState().clipboard).toBeNull();
+
+    fireEvent.pointerEnter(canvas!);
+    expect(fireEvent.keyDown(window, { key: 'c', ctrlKey: true })).toBe(false);
+    expect(store.getState().clipboard?.nodes.map((node) => node.id)).toEqual(['a']);
+    expect(fireEvent.keyDown(window, { code: 'Space', key: ' ' })).toBe(false);
+    expect(canvas).toHaveClass('cursor-grab');
+
+    fireEvent.pointerLeave(canvas!);
+    expect(canvas).toHaveClass('cursor-crosshair');
+    /** 画布外的原生粘贴不能创建 Flow 节点副本。 */
+    const nodesBeforeNativePaste = store.getState().nodes;
+    expect(fireEvent.keyDown(window, { key: 'v', ctrlKey: true })).toBe(true);
+    expect(fireEvent.keyDown(window, { code: 'Space', key: ' ' })).toBe(true);
+    expect(store.getState().nodes).toBe(nodesBeforeNativePaste);
   });
 
   it('lets the transparent edge path receive hover and selection events', () => {

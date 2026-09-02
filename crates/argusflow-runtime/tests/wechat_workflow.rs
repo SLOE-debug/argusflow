@@ -25,8 +25,8 @@ fn workflow_definition() -> Value {
     let contact_input = input("联系人");
     let message_input = input("消息内容");
     let search_ready = "exists(text(name contains \"网络结果\"))";
-    let conversation_ready = "exists(nearest(anchor = text(name = \"搜索\"), target = text(name = $contact_name), direction = any, index = 2))";
-    let message_sent = "all_of(exists(nearest(anchor = text(name = \"搜索\"), target = text(name = $contact_name), direction = any, index = 2)), exists(nearest(anchor = viewport_edge(side = bottom), target = text(name = $message), direction = any, index = 1)), not(exists(text(name contains \"重新发送\"))))";
+    let conversation_ready = "exists(nearest(anchor = viewport_edge(side = top), target = text(name contains $contact_name), direction = any, index = 1))";
+    let message_sent = "all_of(exists(nearest(anchor = viewport_edge(side = top), target = text(name contains $contact_name), direction = any, index = 1)), exists(nearest(anchor = viewport_edge(side = bottom), target = text(name = $message), direction = any, index = 1)), not(exists(text(name contains \"重新发送\"))))";
 
     json!({
         "schema_version": 10,
@@ -75,7 +75,7 @@ fn workflow_definition() -> Value {
                             "type": "query",
                             "query": {
                                 "language_version": 3,
-                                "source": "nearest(anchor = text(name = \"最常使用\"), target = text(name = $contact_name), direction = below, index = 1)",
+                                "source": "nearest(anchor = text(name matches /\\b(?:联系人|最常使用|最近常用|功能|群聊)\\b/), target = text(name contains $contact_name), direction = below, index = 1)",
                                 "bindings": { "contact_name": contact_input.clone() }
                             }
                         },

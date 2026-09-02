@@ -1,7 +1,7 @@
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 use argusflow_core::{AutomationError, WindowIdentity};
-use argusflow_query::parse_query;
+use argusflow_query::{parse_query, resolve_query_parameters};
 
 use super::*;
 use crate::{
@@ -96,19 +96,29 @@ fn most_used_anchor_selects_the_exact_contact_title_below_its_header() {
 }
 
 #[test]
-fn top_right_viewport_anchor_selects_conversation_header_among_duplicate_contact_text() {
+fn top_viewport_edge_matches_emoji_contact_header_with_group_count_suffix() {
     let app = app_scene(vec![window_scene(
         1,
         7,
-        &[("崽崽", 20, 20), ("崽崽", 170, 21), ("崽崽", 25, 70)],
+        &[
+            ("🦊崽崽(3)", 20, 80),
+            ("🦊崽崽(3)", 170, 21),
+            ("🦊崽崽(3)", 25, 140),
+        ],
     )]);
-    let source = "nearest(anchor = viewport_corner(position = top_right), target = text(name = \"崽崽\"), direction = any, index = 1)";
-    let query = parse_query(source).expect("conversation header AQL should parse");
+    let source = "nearest(anchor = viewport_edge(side = top), target = text(name contains $contact_name), direction = any, index = 1)";
+    let parameterized = parse_query(source).expect("conversation header AQL should parse");
+    let query = resolve_query_parameters(
+        &parameterized,
+        &BTreeMap::from([("contact_name".to_owned(), "🦊崽崽".to_owned())]),
+    )
+    .expect("contact name binding should resolve");
     let plan = compile_vision_query(&query).expect("conversation header AQL should compile");
     let result = evaluate_vision_query(&app, &plan, source).expect("query should execute");
     let (selected, metrics) =
         require_unique(&result, source).expect("conversation header should be unique");
 
+    assert_eq!(selected.node.raw_text, "🦊崽崽(3)");
     assert_eq!(selected.node.bbox.x, 170);
     assert_eq!(selected.node.bbox.y, 21);
     assert_eq!(metrics.spatial_candidates, 3);

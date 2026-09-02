@@ -1,3 +1,4 @@
+import ChevronRight from 'lucide-react/dist/esm/icons/chevron-right.mjs';
 import Maximize2 from 'lucide-react/dist/esm/icons/maximize-2.mjs';
 import Minimize2 from 'lucide-react/dist/esm/icons/minimize-2.mjs';
 import X from 'lucide-react/dist/esm/icons/x.mjs';
@@ -62,9 +63,10 @@ export function WorkspaceEditorHeader({
         <span className="inline-flex h-full shrink-0 items-center font-mono text-[9px] leading-none">
           {languageLabel}
         </span>
-        <span aria-hidden="true" className="inline-flex h-full items-center leading-none text-slate-300">
-          ·
-        </span>
+        <ChevronRight
+          aria-hidden="true"
+          className="size-3 shrink-0 text-slate-300"
+        />
         <span className="inline-flex h-full min-w-0 items-center truncate leading-none">
           {nodeLabel}
         </span>

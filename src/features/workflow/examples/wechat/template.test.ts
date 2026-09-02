@@ -4,6 +4,7 @@ import { FLOW_COMPONENT_CATALOG } from '../../components/componentCatalog';
 import { toWorkflowDefinition } from '../../model/workflowModel';
 import {
   WECHAT_CONTACT_RESULT_SELECTOR,
+  WECHAT_CONVERSATION_READY_QUERY,
   WECHAT_MESSAGE_SENT_QUERY,
 } from './automation';
 import {
@@ -37,7 +38,16 @@ describe('微信联系人消息示例工作流', () => {
 
     expect(FLOW_COMPONENT_CATALOG).toEqual([]);
     expect(WECHAT_CONTACT_RESULT_SELECTOR).toContain(
-      'text(name matches /\\b(?:联系人|最常使用|最近常用|功能)\\b/)',
+      'text(name matches /\\b(?:联系人|最常使用|最近常用|功能|群聊)\\b/)',
+    );
+    expect(WECHAT_CONTACT_RESULT_SELECTOR).toContain(
+      'target = text(name contains $contact_name)',
+    );
+    expect(WECHAT_CONVERSATION_READY_QUERY).toContain(
+      'anchor = viewport_edge(side = top)',
+    );
+    expect(WECHAT_CONVERSATION_READY_QUERY).toContain(
+      'target = text(name contains $contact_name)',
     );
     expect(nodesById.get('select_contact')?.payload).toEqual(expect.objectContaining({
       operation: expect.objectContaining({
@@ -57,6 +67,13 @@ describe('微信联系人消息示例工作流', () => {
         query: expect.objectContaining({
           language_version: 3,
           source: WECHAT_MESSAGE_SENT_QUERY,
+        }),
+      }),
+    }));
+    expect(nodesById.get('check_conversation')?.payload).toEqual(expect.objectContaining({
+      observation: expect.objectContaining({
+        query: expect.objectContaining({
+          source: WECHAT_CONVERSATION_READY_QUERY,
         }),
       }),
     }));
