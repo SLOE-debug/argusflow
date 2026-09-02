@@ -32,6 +32,26 @@ export {
   resolveBackendPolicyPreset,
   type BackendPolicyPreset,
 } from './nodes/workflowAction';
+export {
+  ACTION_INTENT_LABELS,
+  buildActionInspectorViewModel,
+  changeActionControlRole,
+  changeActionLocation,
+  changeActionTargetMatch,
+  changeActionTargetText,
+  changeActionTargetType,
+} from './inspector/actionInspectorAdapter';
+export {
+  INTENT_CONTROL_ROLE_LABELS,
+  type ActionInspectorViewModel,
+  type ActionLocationViewModel,
+  type ActionTargetIntent,
+  type ActionTargetStatus,
+  type IntentControlRole,
+  type IntentMatchMode,
+  type IntentTargetValue,
+  type QueryTargetIntent,
+} from './inspector/actionInspectorTypes';
 export { changeCommandRunner, createDefaultCommandOperation } from './nodes/workflowCommand';
 export {
   NODE_PRESET_CATALOG,

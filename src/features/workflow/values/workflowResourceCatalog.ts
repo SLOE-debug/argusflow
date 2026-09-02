@@ -16,6 +16,8 @@ export type WorkflowResourceOption = Readonly<{
   nodeId: string;
   /** 面向用户展示的节点名称。 */
   nodeLabel: string;
+  /** 应用窗口或浏览器本身的用户可见名称。 */
+  resourceLabel: string;
   /** 当前消费节点执行前是否保证已经产生资源。 */
   available: boolean;
   /** 不可选择时展示的控制流原因。 */
@@ -97,6 +99,7 @@ export function buildWorkflowResourceCatalog(
         kind: node.data.kind,
         nodeId: node.id,
         nodeLabel: node.data.label,
+        resourceLabel: resolveResourceLabel(node),
         ...availability,
       });
     }
@@ -106,6 +109,27 @@ export function buildWorkflowResourceCatalog(
   catalog.application.sort(compareAvailability);
   catalog.browser.sort(compareAvailability);
   return catalog;
+}
+
+/** 从资源配置推导应用/窗口名称，使主字段不再暴露上游节点语义。 */
+function resolveResourceLabel(node: WorkflowCanvasNode): string {
+  if (node.data.kind === 'application') {
+    const windowTitle = node.data.spec.window_title.value.trim();
+    return windowTitle || executableDisplayName(node.data.spec.executable_path) || node.data.label;
+  }
+  if (node.data.kind === 'browser') {
+    const executableName = executableDisplayName(node.data.spec.executable_path).toLowerCase();
+    if (executableName === 'chrome') return 'Chrome';
+    if (executableName === 'msedge') return 'Microsoft Edge';
+    if (executableName === 'chromium') return 'Chromium';
+    return executableName || node.data.label;
+  }
+  return node.data.label;
+}
+
+/** 从 Windows 或 POSIX 路径提取不带扩展名的程序名称。 */
+function executableDisplayName(path: string): string {
+  return path.split(/[\\/]/).at(-1)?.replace(/\.exe$/i, '').trim() ?? '';
 }
 
 /** 返回生产节点相对当前消费节点的跨作用域可用性。 */

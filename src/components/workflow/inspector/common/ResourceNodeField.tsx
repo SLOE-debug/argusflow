@@ -34,6 +34,7 @@ export function ResourceNodeField({
         kind,
         nodeId: resource.producer_node_id,
         nodeLabel: resource.producer_node_id,
+        resourceLabel: resource.producer_node_id,
         available: false,
         unavailableReason: '节点不存在',
       }

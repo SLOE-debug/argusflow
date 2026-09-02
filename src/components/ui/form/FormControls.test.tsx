@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import { Checkbox, Input, Select, Textarea } from '..';
+import { Checkbox, Input, Select, Switch, Textarea } from '..';
 
 describe('form controls', () => {
   it('shares compact text sizing between Input and Select', () => {
@@ -86,5 +86,15 @@ describe('form controls', () => {
       'size-3.5',
       'accent-blue-600',
     );
+  });
+
+  it('keeps native checkbox semantics for switch-style settings', () => {
+    const onChange = vi.fn();
+    render(<Switch aria-label="等待目标出现" checked onChange={onChange} />);
+
+    const control = screen.getByRole('checkbox', { name: '等待目标出现' });
+    expect(control).toBeChecked();
+    fireEvent.click(control);
+    expect(onChange).toHaveBeenCalledOnce();
   });
 });

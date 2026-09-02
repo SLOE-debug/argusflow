@@ -46,11 +46,12 @@ export function WorkspaceEditorHeader({
   const modeLabel = mode === 'maximized' ? '还原编辑器' : '最大化编辑器';
 
   return (
-    <header className="flex h-[38px] shrink-0 items-center border-b border-slate-200 bg-white px-2">
+    <header className="flex h-[38px] shrink-0 items-stretch border-b border-slate-200 bg-white px-2">
       <button
         type="button"
         className={
-          'relative flex h-[38px] min-w-0 max-w-[340px] items-center gap-1.5 px-3 text-[11px] ' +
+          'relative flex h-full min-w-0 max-w-[340px] items-center gap-1.5 px-3 ' +
+          'text-[11px] leading-none ' +
           (active
             ? 'font-semibold text-blue-600 after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:bg-blue-600'
             : 'text-slate-600 hover:text-slate-900')
@@ -58,15 +59,26 @@ export function WorkspaceEditorHeader({
         title={`${languageLabel} · ${nodeLabel}\n${nodeId}`}
         onClick={onActivate}
       >
-        <span className="shrink-0 font-mono text-[9px]">{languageLabel}</span>
-        <span aria-hidden="true" className="text-slate-300">·</span>
-        <span className="truncate">{nodeLabel}</span>
-        <span className="hidden truncate font-mono text-[9px] font-normal text-slate-400 xl:inline">
+        <span className="inline-flex h-full shrink-0 items-center font-mono text-[9px] leading-none">
+          {languageLabel}
+        </span>
+        <span aria-hidden="true" className="inline-flex h-full items-center leading-none text-slate-300">
+          ·
+        </span>
+        <span className="inline-flex h-full min-w-0 items-center truncate leading-none">
+          {nodeLabel}
+        </span>
+        <span
+          className={
+            'hidden h-full min-w-0 items-center truncate font-mono text-[9px] ' +
+            'font-normal leading-none text-slate-400 xl:inline-flex'
+          }
+        >
           {nodeId}
         </span>
       </button>
       {utilityTabs}
-      <div className="ml-auto flex items-center gap-0.5">
+      <div className="ml-auto flex h-full items-center gap-0.5">
         {active ? (
           <IconButton
             icon={ModeIcon}

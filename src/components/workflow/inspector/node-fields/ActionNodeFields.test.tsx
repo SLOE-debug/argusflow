@@ -8,7 +8,7 @@ import {
 import { ActionNodeFields } from './ActionNodeFields';
 
 describe('ActionNodeFields', () => {
-  it('opens the AQL document in Workspace without mounting an Inspector editor', () => {
+  it('shows the target directly and opens the AQL document outside the main form', () => {
     const onChange = vi.fn();
     const onOpenEditor = vi.fn();
     const operation: UiOperation = {
@@ -42,12 +42,15 @@ describe('ActionNodeFields', () => {
     );
 
     expect(screen.queryByRole('textbox', { name: 'AQL 查找条件' })).not.toBeInTheDocument();
-    expect(screen.queryByText('button(name = "保存")')).not.toBeInTheDocument();
-    expect(screen.queryByText('更多设置')).not.toBeInTheDocument();
-    expect(screen.getByText('执行方式')).toBeVisible();
-    expect(screen.queryByText(/运行环境/)).not.toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: '名称' })).toHaveValue('保存');
+    expect(screen.getByRole('combobox', { name: '目标类型' })).toHaveTextContent('控件');
+    expect(screen.queryByText('执行方式')).not.toBeInTheDocument();
+    expect(screen.queryByText(/UIA|OCR|CDP/)).not.toBeInTheDocument();
+    expect(screen.queryByText('尚未检查当前目标')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: '编辑查找条件' }));
+    const aqlButton = screen.getByRole('button', { name: '编辑 AQL 查询' });
+    expect(aqlButton).not.toHaveClass('w-full');
+    fireEvent.click(aqlButton);
     expect(onOpenEditor).toHaveBeenCalledWith({ type: 'aql', nodeId: 'ui-save' });
     expect(onChange).not.toHaveBeenCalled();
   });
@@ -80,15 +83,18 @@ describe('ActionNodeFields', () => {
       />,
     );
 
-    fireEvent.change(screen.getByRole('spinbutton', { name: '最长等待目标时间' }), {
-      target: { value: '8000' },
+    fireEvent.change(screen.getByRole('spinbutton', { name: '最多等待目标秒数' }), {
+      target: { value: '8' },
     });
     expect(onExecutionChange).toHaveBeenCalledWith({
       target_wait: { mode: 'bounded', timeout_ms: 8_000, poll_interval_ms: 100 },
     });
 
-    expect(screen.getAllByText('毫秒')).toHaveLength(2);
-    fireEvent.click(screen.getByRole('checkbox', { name: '找不到目标时等待' }));
+    expect(screen.getByText('秒')).toBeVisible();
+    expect(screen.queryByText('毫秒')).not.toBeInTheDocument();
+    expect(screen.queryByText('检查间隔')).not.toBeInTheDocument();
+    expect(screen.getByText('超时后，节点失败并停止后续步骤。')).toBeVisible();
+    fireEvent.click(screen.getByRole('checkbox', { name: '等待目标出现' }));
     expect(onExecutionChange).toHaveBeenLastCalledWith({
       target_wait: { mode: 'none', timeout_ms: 0, poll_interval_ms: 0 },
     });
@@ -123,12 +129,14 @@ describe('ActionNodeFields', () => {
               kind: 'application',
               nodeId: 'app-before',
               nodeLabel: '打开微信',
+              resourceLabel: '微信',
               available: true,
             },
             {
               kind: 'application',
               nodeId: 'app-after',
               nodeLabel: '后置应用',
+              resourceLabel: '后置应用',
               available: false,
               unavailableReason: '不会在当前节点之前必定执行',
             },
@@ -141,12 +149,12 @@ describe('ActionNodeFields', () => {
       />,
     );
 
-    const resourceSelect = screen.getByRole('combobox', { name: '应用节点' });
+    const resourceSelect = screen.getByRole('combobox', { name: '应用 / 窗口' });
     expect(resourceSelect).toHaveTextContent('后置应用');
     expect(screen.getByText('不会在当前节点之前必定执行')).toBeVisible();
     fireEvent.click(resourceSelect);
     expect(screen.getByRole('option', { name: /后置应用/ })).toBeDisabled();
-    expect(screen.getByRole('option', { name: /打开微信/ })).toHaveTextContent('内部编号：app-before');
+    expect(screen.getByRole('option', { name: /打开微信/ })).toHaveTextContent('来源：打开微信');
 
     fireEvent.click(screen.getByRole('option', { name: /打开微信/ }));
     expect(onChange).toHaveBeenCalledWith({

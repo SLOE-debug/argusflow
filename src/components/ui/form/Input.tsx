@@ -17,6 +17,8 @@ export type InputProps = Readonly<
     containerClassName?: string;
     /** 输入内容之前的图标或其他纯视觉元素。 */
     startAdornment?: ReactNode;
+    /** 输入内容之后的单位或其他纯视觉元素。 */
+    endAdornment?: ReactNode;
   }
 >;
 
@@ -27,6 +29,7 @@ export function Input({
   className = '',
   containerClassName = '',
   startAdornment,
+  endAdornment,
   ...inputProps
 }: InputProps) {
   /** 当前密度对应的公共容器和文字样式。 */
@@ -52,6 +55,7 @@ export function Input({
           `${densityClassNames.text} ${contentSpacingClassName} ${className}`
         }
       />
+      {endAdornment}
     </div>
   );
 }

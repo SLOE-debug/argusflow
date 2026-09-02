@@ -124,11 +124,9 @@ export function CommandNodeFields({
           })}
         />
       </InspectorField>
-      <details className="rounded-md border border-slate-200 bg-slate-50/70 px-2.5 py-2">
-        <summary className="cursor-pointer select-none text-[10px] font-medium text-slate-600">
-          输出大小限制
-        </summary>
-        <div className="mt-2 flex flex-col gap-2.5">
+      <section className="flex flex-col gap-1.5 rounded-md bg-slate-50 px-2.5 py-2">
+        <h4 className="text-[10px] font-medium text-slate-500">输出大小限制</h4>
+        <div className="flex flex-col gap-1.5">
           <ByteLimitField
             label="标准输出上限"
             value={operation.max_stdout_bytes}
@@ -146,7 +144,7 @@ export function CommandNodeFields({
             })}
           />
         </div>
-      </details>
+      </section>
       <p className={INSPECTOR_HELP_CLASS_NAME}>
         命令完成后可读取标准输出、错误输出和退出码。输出不会自动显示在日志中。
       </p>

@@ -15,6 +15,7 @@ export {
   FormField,
   Input,
   Select,
+  Switch,
   Textarea,
   type CheckboxProps,
   type FormControlDensity,
@@ -22,6 +23,7 @@ export {
   type InputProps,
   type SelectOption,
   type SelectProps,
+  type SwitchProps,
   type TextareaProps,
 } from './form';
 export {

@@ -34,7 +34,7 @@ describe('CommandNodeFields', () => {
     const onChange = vi.fn();
     const onOpenEditor = vi.fn();
     const operation = createShellOperation(runner);
-    render(
+    const { container } = render(
       <CommandNodeFields
         nodeId="shell-command"
         operation={operation}
@@ -44,6 +44,7 @@ describe('CommandNodeFields', () => {
     );
 
     expect(screen.queryByRole('textbox', { name: '脚本内容' })).not.toBeInTheDocument();
+    expect(container.querySelector('details')).toBeNull();
     const scriptHeading = screen.getByRole('heading', { name: '脚本' });
     expect(scriptHeading.nextElementSibling).toHaveTextContent(badge);
 

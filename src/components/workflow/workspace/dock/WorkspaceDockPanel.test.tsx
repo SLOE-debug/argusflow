@@ -54,6 +54,12 @@ describe('WorkspaceDockPanel', () => {
 
     expect(screen.getByText('AQL 编辑器内容')).toBeVisible();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    const documentTab = screen.getByText('AQL').closest('button');
+    if (!documentTab) throw new Error('AQL 文档页签未渲染。');
+    expect(documentTab).toHaveClass('h-full', 'items-center', 'leading-none');
+    for (const titlePart of documentTab.querySelectorAll('span')) {
+      expect(titlePart).toHaveClass('h-full', 'items-center', 'leading-none');
+    }
     fireEvent.click(screen.getByRole('button', { name: '最大化编辑器' }));
     expect(onEditorModeChange).toHaveBeenCalledWith('maximized');
 

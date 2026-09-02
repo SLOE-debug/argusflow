@@ -1,38 +1,16 @@
 import type {
-  TargetScope,
-  TargetLocatorKind,
   UiExecutionPolicy,
   UiOperation,
-  UiOperationKind,
   WorkflowResourceCatalog,
 } from '../../../../features/workflow';
-import {
-  changeBackendPolicy,
-  changeKeyChord,
-  changeSetValue,
-  changeTargetLocator,
-  changeTargetLocatorKind,
-  changeTargetScope,
-  changeUiOperationKind,
-  changeTypeText,
-  createTargetWaitPolicy,
-  resolveBackendPolicyPreset,
-  type BackendPolicyPreset,
-} from '../../../../features/workflow';
-import { Checkbox, Input, Select } from '../../../ui';
-import {
-  INSPECTOR_HELP_CLASS_NAME,
-  InspectorField,
-  InspectorMillisecondsField,
-} from '../InspectorControls';
-import { AqlEditButton } from '../common/AqlEditButton';
-import { ResourceNodeField } from '../common/ResourceNodeField';
-import { ValueExprFields } from './ValueExprFields';
-import { KeyboardChordFields } from './KeyboardChordFields';
+import { buildActionInspectorViewModel } from '../../../../features/workflow';
+import { ActionSection } from '../action/ActionSection';
+import { RecoverySection } from '../action/RecoverySection';
+import { TargetSection } from '../action/TargetSection';
 import type { StructuredEditorTarget } from '../../workspace/dock/structuredEditorTarget';
 
 type ActionNodeFieldsProps = Readonly<{
-  /** 当前 UI 节点的稳定标识，用于隔离 Monaco 文档。 */
+  /** 当前 UI 节点的稳定标识，用于隔离 AQL 文档。 */
   nodeId: string;
   /** 当前 UI 节点的完整语义操作契约。 */
   operation: UiOperation;
@@ -40,6 +18,8 @@ type ActionNodeFieldsProps = Readonly<{
   execution: UiExecutionPolicy;
   /** 当前节点可见的应用和浏览器资源目录。 */
   resourceCatalog: WorkflowResourceCatalog;
+  /** 当前节点是否存在配置错误。 */
+  invalid?: boolean;
   /** 写回字段完整的新操作。 */
   onChange: (operation: UiOperation) => void;
   /** 写回字段完整的新执行策略。 */
@@ -48,321 +28,46 @@ type ActionNodeFieldsProps = Readonly<{
   onOpenEditor: (target: StructuredEditorTarget) => void;
 }>;
 
-const OPERATION_KIND_OPTIONS = [
-  { value: 'click', label: '点击' },
-  { value: 'set_value', label: '输入文字' },
-  { value: 'press_key', label: '按键' },
-  { value: 'type_text', label: '物理输入文字' },
-] as const;
-
-const LOCATOR_KIND_OPTIONS = [
-  { value: 'query', label: '按界面内容查找' },
-  { value: 'coordinate', label: '屏幕坐标' },
-  { value: 'focused', label: '当前焦点' },
-] as const;
-
-const SCOPE_OPTIONS = [
-  { value: 'current', label: '当前窗口' },
-  { value: 'application', label: '指定应用' },
-  { value: 'browser', label: '指定浏览器' },
-] as const;
-
-const BACKEND_OPTIONS = [
-  { value: 'auto', label: '自动选择（推荐）' },
-  { value: 'windows_uia', label: 'Windows 控件' },
-  { value: 'browser_cdp', label: '网页元素' },
-  { value: 'ocr_small', label: '屏幕文字（OCR）' },
-  { value: 'send_input', label: '模拟键盘输入' },
-] as const;
-
-/** 编辑 UI 操作、资源作用域、定位方式和后端偏好。 */
+/** 以任务意图顺序组合动作、目标和恢复三个主面板区块。 */
 export function ActionNodeFields({
   nodeId,
   operation,
   execution,
   resourceCatalog,
+  invalid = false,
   onChange,
   onExecutionChange,
   onOpenEditor,
 }: ActionNodeFieldsProps) {
-  /** 当前资源作用域的局部不可变快照，供 JSX 回调保留判别联合收窄。 */
-  const scope = operation.target.scope;
-  /** 键盘动作直接使用当前焦点，不显示无效的元素定位配置。 */
-  const usesKeyboardFocus = operation.type === 'press_key' || operation.type === 'type_text';
-  return (
-    <div className="flex flex-col gap-2.5">
-      <InspectorField label="操作">
-        <Select<UiOperationKind>
-          value={operation.type}
-          options={OPERATION_KIND_OPTIONS}
-          containerClassName="border-slate-300 bg-white"
-          onValueChange={(kind) => {
-            const nextOperation = changeUiOperationKind(operation, kind);
-            onChange(nextOperation);
-            const locatorChanged = nextOperation.target.locator.type !== operation.target.locator.type;
-            if (locatorChanged) {
-              onExecutionChange({
-                ...execution,
-                target_wait: createTargetWaitPolicy(nextOperation.target.locator.type),
-              });
-            }
-          }}
-        />
-      </InspectorField>
-      {operation.type === 'set_value' ? (
-        <ValueExprFields
-          value={operation.value}
-          literalLabel="输入内容"
-          expressionLocation={{ type: 'ui_set_value' }}
-          onChange={(value) => onChange(changeSetValue(operation, value))}
-        />
-      ) : null}
-      {operation.type === 'type_text' ? (
-        <ValueExprFields
-          value={operation.value}
-          literalLabel="输入内容"
-          expressionLocation={{ type: 'ui_type_text' }}
-          onChange={(value) => onChange(changeTypeText(operation, value))}
-        />
-      ) : null}
-      {operation.type === 'press_key' ? (
-        <KeyboardChordFields
-          chord={operation.chord}
-          onChange={(chord) => onChange(changeKeyChord(operation, chord))}
-        />
-      ) : null}
-      <InspectorField label="操作范围">
-        <Select<'current' | 'application' | 'browser'>
-          value={scope.type}
-          options={usesKeyboardFocus
-            ? SCOPE_OPTIONS.filter(({ value }) => value !== 'browser')
-            : SCOPE_OPTIONS}
-          containerClassName="border-slate-300 bg-white"
-          onValueChange={(type) => onChange(changeTargetScope(
-            operation,
-            createEmptyScope(type),
-          ))}
-        />
-      </InspectorField>
-      {scope.type !== 'current' ? (
-        <ResourceNodeField
-          kind={scope.type}
-          resource={scope.resource}
-          catalog={resourceCatalog}
-          onChange={(resource) => onChange(changeTargetScope(operation, {
-            ...scope,
-            resource,
-          }))}
-        />
-      ) : null}
-      {usesKeyboardFocus ? (
-        <p className={INSPECTOR_HELP_CLASS_NAME}>
-          文字或按键会发送到当前选中的输入位置。系统会先切换到指定应用。
-        </p>
-      ) : (
-        <InspectorField label="查找方式">
-          <Select<TargetLocatorKind>
-            value={operation.target.locator.type}
-            options={LOCATOR_KIND_OPTIONS.filter(({ value }) => value !== 'focused')}
-            containerClassName="border-slate-300 bg-white"
-            onValueChange={(kind) => {
-              onChange(changeTargetLocatorKind(operation, kind));
-              onExecutionChange({
-                ...execution,
-                target_wait: createTargetWaitPolicy(kind),
-              });
-            }}
-          />
-        </InspectorField>
-      )}
-      {operation.target.locator.type === 'query' ? (
-        <QueryTargetFields
-          nodeId={nodeId}
-          operation={operation}
-          onChange={onChange}
-          onOpenEditor={onOpenEditor}
-        />
-      ) : null}
-      {operation.target.locator.type === 'coordinate' ? (
-        <CoordinateTargetFields
-          operation={operation}
-          locator={operation.target.locator}
-          onChange={onChange}
-        />
-      ) : null}
-      {operation.target.locator.type === 'query' ? (
-        <TargetWaitFields
-          execution={execution}
-          locatorKind={operation.target.locator.type}
-          onChange={onExecutionChange}
-        />
-      ) : null}
-    </div>
+  const viewModel = buildActionInspectorViewModel(
+    operation,
+    execution,
+    resourceCatalog,
+    invalid,
   );
-}
-
-/** 编辑 UI 节点自己的目标就绪预算，不复制 operation 中的 selector。 */
-function TargetWaitFields({
-  execution,
-  locatorKind,
-  onChange,
-}: Readonly<{
-  execution: UiExecutionPolicy;
-  locatorKind: Exclude<TargetLocatorKind, 'coordinate'>;
-  onChange: (execution: UiExecutionPolicy) => void;
-}>) {
-  const policy = execution.target_wait;
-  const enabled = policy.mode === 'bounded';
-  return (
-    <div className="flex flex-col gap-2.5 rounded-md border border-slate-200 bg-slate-50/70 p-2.5">
-      <label className="flex items-center gap-2 text-[11px] text-slate-700">
-        <Checkbox
-          aria-label="找不到目标时等待"
-          checked={enabled}
-          onChange={(event) => onChange({
-            ...execution,
-            target_wait: event.target.checked
-              ? createTargetWaitPolicy(locatorKind)
-              : { mode: 'none', timeout_ms: 0, poll_interval_ms: 0 },
-          })}
-        />
-        找不到目标时等待
-      </label>
-      {enabled ? (
-        <>
-          <InspectorMillisecondsField
-            label="最长等待"
-            ariaLabel="最长等待目标时间"
-            min={1}
-            max={600_000}
-            value={policy.timeout_ms}
-            onChange={(timeoutMs) => onChange({
-              ...execution,
-              target_wait: {
-                ...policy,
-                timeout_ms: timeoutMs,
-              },
-            })}
-          />
-          <InspectorMillisecondsField
-            label="检查间隔"
-            ariaLabel="检查目标间隔"
-            min={1}
-            max={60_000}
-            value={policy.poll_interval_ms}
-            onChange={(pollIntervalMs) => onChange({
-              ...execution,
-              target_wait: {
-                ...policy,
-                poll_interval_ms: pollIntervalMs,
-              },
-            })}
-          />
-        </>
-      ) : null}
-      <p className={INSPECTOR_HELP_CLASS_NAME}>
-        系统只会等待目标出现。找到多个目标或无法操作时会立即停止并说明原因。
-      </p>
-    </div>
-  );
-}
-
-/** 为资源作用域建立字段完整的判别联合。 */
-function createEmptyScope(type: TargetScope['type']): TargetScope {
-  if (type === 'current') {
-    return { type };
-  }
-  return {
-    type,
-    resource: {
-      producer_node_id: '',
-      output_name: 'session',
-    },
-  };
-}
-
-/** 编辑 AQL 目标及其高级后端约束。 */
-function QueryTargetFields({
-  nodeId,
-  operation,
-  onChange,
-  onOpenEditor,
-}: Readonly<{
-  nodeId: string;
-  operation: UiOperation;
-  onChange: (operation: UiOperation) => void;
-  onOpenEditor: (target: StructuredEditorTarget) => void;
-}>) {
-  /** OCR 只负责为点击物化文字目标。 */
-  const acceptsOcr = operation.type === 'click';
-  /** 当前后端预设只计算一次，保证选择器与帮助文案使用同一状态。 */
-  const backendPreset = resolveBackendPolicyPreset(operation.target.backend_policy);
   return (
     <>
-      <AqlEditButton
-        onEdit={() => onOpenEditor({ type: 'aql', nodeId })}
+      <ActionSection
+        operation={operation}
+        execution={execution}
+        onOperationChange={onChange}
+        onExecutionChange={onExecutionChange}
       />
-      <InspectorField label="执行方式">
-        <Select<BackendPolicyPreset>
-          value={backendPreset}
-          options={acceptsOcr
-            ? BACKEND_OPTIONS
-            : BACKEND_OPTIONS.filter(({ value }) => value !== 'ocr_small')}
-          containerClassName="border-slate-300 bg-white"
-          onValueChange={(preference) => (
-            onChange(changeBackendPolicy(operation, preference))
-          )}
-        />
-      </InspectorField>
-      {backendPreset === 'ocr_small' ? (
-        <p className={INSPECTOR_HELP_CLASS_NAME}>
-          文字识别只查找可见文字，并点击文字所在区域。
-        </p>
-      ) : null}
-    </>
-  );
-}
-
-/** 编辑 Windows 虚拟屏幕中的物理像素坐标。 */
-function CoordinateTargetFields({
-  operation,
-  locator,
-  onChange,
-}: Readonly<{
-  operation: UiOperation;
-  locator: Extract<UiOperation['target']['locator'], { type: 'coordinate' }>;
-  onChange: (operation: UiOperation) => void;
-}>) {
-  const point = locator.point;
-  const updatePoint = (axis: 'x' | 'y', value: number) => {
-    onChange(changeTargetLocator(operation, {
-      type: 'coordinate',
-      point: { ...point, [axis]: value },
-    }));
-  };
-  return (
-    <>
-      <InspectorField label="屏幕 X">
-        <Input
-          aria-label="屏幕 X 坐标"
-          type="number"
-          value={point.x}
-          containerClassName="border-slate-300 bg-white"
-          onChange={(event) => updatePoint('x', Number(event.target.value))}
-        />
-      </InspectorField>
-      <InspectorField label="屏幕 Y">
-        <Input
-          aria-label="屏幕 Y 坐标"
-          type="number"
-          value={point.y}
-          containerClassName="border-slate-300 bg-white"
-          onChange={(event) => updatePoint('y', Number(event.target.value))}
-        />
-      </InspectorField>
-      <p className={INSPECTOR_HELP_CLASS_NAME}>
-        只有其他方式找不到目标时，才建议使用屏幕坐标。
-      </p>
+      <TargetSection
+        nodeId={nodeId}
+        operation={operation}
+        execution={execution}
+        viewModel={viewModel}
+        resourceCatalog={resourceCatalog}
+        onOperationChange={onChange}
+        onExecutionChange={onExecutionChange}
+        onOpenEditor={onOpenEditor}
+      />
+      <RecoverySection
+        locatorKind={operation.target.locator.type}
+        execution={execution}
+        onChange={onExecutionChange}
+      />
     </>
   );
 }

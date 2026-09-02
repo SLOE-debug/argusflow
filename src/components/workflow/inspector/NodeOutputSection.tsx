@@ -4,58 +4,56 @@ import Trash2 from 'lucide-react/dist/esm/icons/trash-2.mjs';
 import type {
   WorkflowNodeData,
   WorkflowNodeUpdater,
-} from '../../../../features/workflow';
-import { getNativeNodeValueOutputs } from '../../../../features/workflow';
-import { Input } from '../../../ui';
-import { InspectorField } from '../InspectorControls';
-import { ValueExprFields } from './ValueExprFields';
+} from '../../../features/workflow';
+import { getNativeNodeValueOutputs } from '../../../features/workflow';
+import { IconButton, Input } from '../../ui';
+import { InspectorField, InspectorSection } from './InspectorControls';
+import { ValueExprFields } from './node-fields/ValueExprFields';
 
-/** 设置可供后续节点使用的额外输出。 */
-export function NodeOutputBindingsFields({
-  data,
-  onUpdate,
-}: Readonly<{
+type NodeOutputSectionProps = Readonly<{
+  /** 当前节点数据。 */
   data: WorkflowNodeData;
+  /** 通过统一 Flow 事务写回节点。 */
   onUpdate: (updater: WorkflowNodeUpdater) => void;
-}>) {
+}>;
+
+/** 输出直接占据一个紧凑分段；空状态只保留摘要，不制造折叠栏或占位框。 */
+export function NodeOutputSection({ data, onUpdate }: NodeOutputSectionProps) {
   const bindings = Object.entries(data.outputBindings);
   const nativeOutputNames = new Set(
     getNativeNodeValueOutputs(data).map((output) => output.name),
   );
+  const outputSummary = bindings.length === 0 ? '使用默认结果' : `${bindings.length} 项`;
+
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center">
-        <p className="pr-2 text-[10px] leading-4 text-slate-500">
-          把节点结果另存为输出，供后面的步骤使用。
-        </p>
-        <button
-          type="button"
-          aria-label="添加输出"
-          className="ml-auto flex size-6 shrink-0 items-center justify-center rounded text-blue-600 hover:bg-blue-50"
-          onClick={() => onUpdate((current) => {
-            const name = createOutputName(current.outputBindings);
-            return {
-              ...current,
-              outputBindings: {
-                ...current.outputBindings,
-                [name]: { type: 'expression', source: 'result' },
-              },
-              invalid: false,
-            };
-          })}
-        >
-          <Plus className="size-3.5 shrink-0" aria-hidden="true" />
-        </button>
-      </div>
-      {bindings.length === 0 ? (
-        <p className="rounded-md border border-dashed border-slate-200 px-2.5 py-3 text-center text-[10px] text-slate-400">
-          还没有额外输出
-        </p>
-      ) : null}
-      {bindings.map(([name, expression]) => (
+    <InspectorSection
+      title="输出"
+      action={(
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] font-normal text-slate-400">{outputSummary}</span>
+          <IconButton
+            label="添加输出"
+            icon={Plus}
+            className="text-blue-600 hover:bg-blue-50"
+            onClick={() => onUpdate((current) => {
+              const name = createOutputName(current.outputBindings);
+              return {
+                ...current,
+                outputBindings: {
+                  ...current.outputBindings,
+                  [name]: { type: 'expression', source: 'result' },
+                },
+                invalid: false,
+              };
+            })}
+          />
+        </div>
+      )}
+    >
+      {bindings.length > 0 ? bindings.map(([name, expression]) => (
         <div
           key={name}
-          className="relative flex flex-col gap-2 rounded-md border border-slate-200 bg-slate-50/60 p-2.5"
+          className="relative flex flex-col gap-1.5 rounded-md border border-slate-200 bg-slate-50/60 p-2.5"
         >
           <InspectorField label="输出名称">
             <Input
@@ -85,20 +83,19 @@ export function NodeOutputBindingsFields({
               会替换同名的默认输出。
             </p>
           ) : null}
-          <button
-            type="button"
-            aria-label={`删除输出 ${name}`}
-            className="absolute top-1.5 right-1.5 flex size-6 items-center justify-center rounded text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+          <IconButton
+            label={`删除输出 ${name}`}
+            icon={Trash2}
+            className="absolute top-1.5 right-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
             onClick={() => onUpdate((current) => removeOutput(current, name))}
-          >
-            <Trash2 className="size-3 shrink-0" aria-hidden="true" />
-          </button>
+          />
         </div>
-      ))}
-    </div>
+      )) : null}
+    </InspectorSection>
   );
 }
 
+/** 为新输出生成不与已有名称冲突的稳定默认名。 */
 function createOutputName(bindings: Readonly<Record<string, unknown>>): string {
   let suffix = 1;
   while (Object.hasOwn(bindings, suffix === 1 ? 'output' : `output_${suffix}`)) {
@@ -107,6 +104,7 @@ function createOutputName(bindings: Readonly<Record<string, unknown>>): string {
   return suffix === 1 ? 'output' : `output_${suffix}`;
 }
 
+/** 重命名时保留原表达式，并拒绝覆盖已有输出。 */
 function renameOutput(
   data: WorkflowNodeData,
   previousName: string,
@@ -123,6 +121,7 @@ function renameOutput(
   return { ...data, outputBindings, invalid: false };
 }
 
+/** 从额外输出映射中移除指定名称。 */
 function removeOutput(data: WorkflowNodeData, name: string): WorkflowNodeData {
   const outputBindings = Object.fromEntries(
     Object.entries(data.outputBindings).filter(([candidate]) => candidate !== name),

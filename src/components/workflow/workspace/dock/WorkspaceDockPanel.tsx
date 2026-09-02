@@ -162,9 +162,9 @@ export function WorkspaceDockPanel({
           trailingActions={trailingActions}
         />
       ) : (
-        <header className="flex h-[38px] shrink-0 items-center border-b border-slate-200 bg-white px-2">
+        <header className="flex h-[38px] shrink-0 items-stretch border-b border-slate-200 bg-white px-2">
           {utilityTabs}
-          <div className="ml-auto">{trailingActions}</div>
+          <div className="ml-auto flex h-full items-center">{trailingActions}</div>
         </header>
       )}
       {open
@@ -190,7 +190,7 @@ function UtilityTabButtons({ activeTab, hasWorkflowData, onActivate }: UtilityTa
       key={tab.id}
       type="button"
       className={
-        'relative flex h-[38px] items-center px-3 text-[12px] ' +
+        'relative flex h-full items-center px-3 text-[12px] leading-none ' +
         (activeTab === tab.id
           ? 'font-semibold text-blue-600 after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:bg-blue-600'
           : 'text-slate-500 hover:text-slate-800')

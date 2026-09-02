@@ -24,14 +24,14 @@ import {
   type WorkflowScopeMetadataMap,
 } from '../../../features/workflow';
 import {
-  EdgeInspectorFields,
-  MultipleSelection,
   NodeInspectorFields,
 } from './NodeInspectorFields';
+import { EdgeInspectorFields } from './EdgeInspectorFields';
+import { MultipleSelection } from './MultipleSelection';
 import { WorkflowInspectorFields } from './WorkflowInspectorFields';
 import type { StructuredEditorTarget } from '../workspace/dock/structuredEditorTarget';
 import { ValueExprEditorProvider } from './node-fields/ValueExprFields';
-import { IconButton } from '../../ui';
+import { Button, IconButton } from '../../ui';
 
 type NodeInspectorProps = Readonly<{
   /** 属性面板按选择状态订阅的工作流 Store。 */
@@ -74,13 +74,18 @@ export function NodeInspector(props: NodeInspectorProps) {
     props.store,
     (state) => state.selectedNodeIds.size,
   );
+  const selectedNodeId = useStore(props.store, (state): string | null => (
+    state.selectedNodeIds.size === 1
+      ? state.selectedNodeIds.values().next().value ?? null
+      : null
+  ));
+  const selectedEdgeId = useStore(props.store, (state) => state.selectedEdgeId);
   const node = useStore(props.store, (state): WorkflowCanvasNode | null => {
-    if (state.selectedNodeIds.size !== 1) return null;
-    const selectedNodeId = state.selectedNodeIds.values().next().value;
+    if (!selectedNodeId) return null;
     return state.nodes.find((candidate) => candidate.id === selectedNodeId) ?? null;
   });
   const edge = useStore(props.store, (state): WorkflowCanvasEdge | null => (
-    state.edges.find((candidate) => candidate.id === state.selectedEdgeId) ?? null
+    state.edges.find((candidate) => candidate.id === selectedEdgeId) ?? null
   ));
   const nodes = useStore(props.store, (state) => state.nodes);
   const edges = useStore(props.store, (state) => state.edges);
@@ -113,7 +118,14 @@ export function NodeInspector(props: NodeInspectorProps) {
     : EMPTY_WORKFLOW_RESOURCE_CATALOG,
   [activeDocumentId, documents, node, scopeMetadata]);
 
-  const inspectorContext = node
+  /** 选择 ID 与当前文档不一致时，整个 Inspector 进入不可编辑 missing 状态。 */
+  const missingSelection = Boolean(
+    (selectedNodeId && !node)
+    || (selectedEdgeId && !edge),
+  );
+  const inspectorContext = missingSelection
+      ? '内容不存在'
+      : node
       ? '节点'
       : edge
         ? '连线'
@@ -137,7 +149,13 @@ export function NodeInspector(props: NodeInspectorProps) {
         />
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {!node && !edge && selectedCount <= 1 ? (
+        {missingSelection ? (
+          <MissingInspectorState
+            subject={selectedNodeId ? '节点' : '连线'}
+            onClose={() => props.store.getState().clearSelection()}
+          />
+        ) : null}
+        {!missingSelection && !node && !edge && selectedCount <= 1 ? (
           <WorkflowInspectorFields
             workflowName={props.workflowName}
             permissions={props.permissions}
@@ -189,5 +207,27 @@ export function NodeInspector(props: NodeInspectorProps) {
         ) : null}
       </div>
     </aside>
+  );
+}
+
+/** 失效选择只提供恢复动作，禁止幽灵节点继续接受字段修改。 */
+function MissingInspectorState({
+  subject,
+  onClose,
+}: Readonly<{ subject: '节点' | '连线'; onClose: () => void }>) {
+  return (
+    <section className="flex flex-col gap-3 px-3 py-5">
+      <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-3">
+        <h3 className="text-[13px] font-semibold text-amber-900">
+          此{subject}已被删除或无法找到
+        </h3>
+        <p className="mt-1 text-[11px] leading-4 text-amber-800">
+          关闭此状态后重新选择画布内容。
+        </p>
+      </div>
+      <Button className="w-full" onClick={onClose}>
+        关闭
+      </Button>
+    </section>
   );
 }
