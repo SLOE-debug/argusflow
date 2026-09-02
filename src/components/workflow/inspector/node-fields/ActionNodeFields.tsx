@@ -4,6 +4,7 @@ import type {
   UiExecutionPolicy,
   UiOperation,
   UiOperationKind,
+  WorkflowResourceCatalog,
 } from '../../../../features/workflow';
 import {
   changeBackendPolicy,
@@ -22,8 +23,10 @@ import { Checkbox, Input, Select } from '../../../ui';
 import {
   INSPECTOR_HELP_CLASS_NAME,
   InspectorField,
+  InspectorMillisecondsField,
 } from '../InspectorControls';
-import { AqlFieldSummary } from '../common/AqlFieldSummary';
+import { AqlEditButton } from '../common/AqlEditButton';
+import { ResourceNodeField } from '../common/ResourceNodeField';
 import { ValueExprFields } from './ValueExprFields';
 import { KeyboardChordFields } from './KeyboardChordFields';
 import type { StructuredEditorTarget } from '../../workspace/dock/structuredEditorTarget';
@@ -35,6 +38,8 @@ type ActionNodeFieldsProps = Readonly<{
   operation: UiOperation;
   /** 与目标定位语义分离的节点执行预算。 */
   execution: UiExecutionPolicy;
+  /** 当前节点可见的应用和浏览器资源目录。 */
+  resourceCatalog: WorkflowResourceCatalog;
   /** 写回字段完整的新操作。 */
   onChange: (operation: UiOperation) => void;
   /** 写回字段完整的新执行策略。 */
@@ -75,18 +80,13 @@ export function ActionNodeFields({
   nodeId,
   operation,
   execution,
+  resourceCatalog,
   onChange,
   onExecutionChange,
   onOpenEditor,
 }: ActionNodeFieldsProps) {
   /** 当前资源作用域的局部不可变快照，供 JSX 回调保留判别联合收窄。 */
   const scope = operation.target.scope;
-  /** 当前作用域对应的资源节点名称，避免把内部 Resource 概念直接展示给用户。 */
-  const resourceLabel = scope.type === 'browser' ? '浏览器节点' : '应用节点';
-  /** 告诉用户资源节点和当前操作的执行顺序。 */
-  const resourceHelp = scope.type === 'browser'
-    ? '请先运行打开浏览器的节点，再执行当前操作。'
-    : '请先运行打开应用的节点，再执行当前操作。';
   /** 键盘动作直接使用当前焦点，不显示无效的元素定位配置。 */
   const usesKeyboardFocus = operation.type === 'press_key' || operation.type === 'type_text';
   return (
@@ -145,25 +145,15 @@ export function ActionNodeFields({
         />
       </InspectorField>
       {scope.type !== 'current' ? (
-        <div className="flex flex-col gap-2.5 rounded-md border border-blue-100 bg-blue-50/40 p-2.5">
-          <InspectorField label={resourceLabel}>
-            <Input
-              aria-label={resourceLabel}
-              value={scope.resource.producer_node_id}
-              containerClassName="border-slate-300 bg-white"
-              onChange={(event) => onChange(changeTargetScope(operation, {
-                ...scope,
-                resource: {
-                  ...scope.resource,
-                  producer_node_id: event.target.value,
-                },
-              }))}
-            />
-          </InspectorField>
-          <p className={INSPECTOR_HELP_CLASS_NAME}>
-            {resourceHelp}
-          </p>
-        </div>
+        <ResourceNodeField
+          kind={scope.type}
+          resource={scope.resource}
+          catalog={resourceCatalog}
+          onChange={(resource) => onChange(changeTargetScope(operation, {
+            ...scope,
+            resource,
+          }))}
+        />
       ) : null}
       {usesKeyboardFocus ? (
         <p className={INSPECTOR_HELP_CLASS_NAME}>
@@ -189,7 +179,6 @@ export function ActionNodeFields({
         <QueryTargetFields
           nodeId={nodeId}
           operation={operation}
-          locator={operation.target.locator}
           onChange={onChange}
           onOpenEditor={onOpenEditor}
         />
@@ -225,67 +214,56 @@ function TargetWaitFields({
   const policy = execution.target_wait;
   const enabled = policy.mode === 'bounded';
   return (
-    <details className="rounded-md border border-slate-200 bg-slate-50/70 px-2.5 py-2">
-      <summary className="cursor-pointer select-none text-[10px] font-medium text-slate-600">
-        等待目标
-      </summary>
-      <div className="mt-2 flex flex-col gap-2.5">
-        <label className="flex items-center gap-2 text-[11px] text-slate-700">
-          <Checkbox
-            aria-label="找不到目标时自动等待"
-            checked={enabled}
-            onChange={(event) => onChange({
+    <div className="flex flex-col gap-2.5 rounded-md border border-slate-200 bg-slate-50/70 p-2.5">
+      <label className="flex items-center gap-2 text-[11px] text-slate-700">
+        <Checkbox
+          aria-label="找不到目标时等待"
+          checked={enabled}
+          onChange={(event) => onChange({
+            ...execution,
+            target_wait: event.target.checked
+              ? createTargetWaitPolicy(locatorKind)
+              : { mode: 'none', timeout_ms: 0, poll_interval_ms: 0 },
+          })}
+        />
+        找不到目标时等待
+      </label>
+      {enabled ? (
+        <>
+          <InspectorMillisecondsField
+            label="最长等待"
+            ariaLabel="最长等待目标时间"
+            min={1}
+            max={600_000}
+            value={policy.timeout_ms}
+            onChange={(timeoutMs) => onChange({
               ...execution,
-              target_wait: event.target.checked
-                ? createTargetWaitPolicy(locatorKind)
-                : { mode: 'none', timeout_ms: 0, poll_interval_ms: 0 },
+              target_wait: {
+                ...policy,
+                timeout_ms: timeoutMs,
+              },
             })}
           />
-          找不到目标时自动等待
-        </label>
-        {enabled ? (
-          <>
-          <InspectorField label="最长等待（毫秒）">
-              <Input
-                aria-label="最长等待目标时间"
-                type="number"
-                min={1}
-                max={600_000}
-                value={policy.timeout_ms}
-                containerClassName="border-slate-300 bg-white"
-                onChange={(event) => onChange({
-                  ...execution,
-                  target_wait: {
-                    ...policy,
-                    timeout_ms: Number(event.target.value),
-                  },
-                })}
-              />
-            </InspectorField>
-            <InspectorField label="检查间隔（毫秒）">
-              <Input
-                aria-label="检查目标间隔"
-                type="number"
-                min={1}
-                max={60_000}
-                value={policy.poll_interval_ms}
-                containerClassName="border-slate-300 bg-white"
-                onChange={(event) => onChange({
-                  ...execution,
-                  target_wait: {
-                    ...policy,
-                    poll_interval_ms: Number(event.target.value),
-                  },
-                })}
-              />
-            </InspectorField>
-          </>
-        ) : null}
-        <p className={INSPECTOR_HELP_CLASS_NAME}>
-          系统只会等待目标出现。找到多个目标或无法操作时会立即停止并说明原因。
-        </p>
-      </div>
-    </details>
+          <InspectorMillisecondsField
+            label="检查间隔"
+            ariaLabel="检查目标间隔"
+            min={1}
+            max={60_000}
+            value={policy.poll_interval_ms}
+            onChange={(pollIntervalMs) => onChange({
+              ...execution,
+              target_wait: {
+                ...policy,
+                poll_interval_ms: pollIntervalMs,
+              },
+            })}
+          />
+        </>
+      ) : null}
+      <p className={INSPECTOR_HELP_CLASS_NAME}>
+        系统只会等待目标出现。找到多个目标或无法操作时会立即停止并说明原因。
+      </p>
+    </div>
   );
 }
 
@@ -307,13 +285,11 @@ function createEmptyScope(type: TargetScope['type']): TargetScope {
 function QueryTargetFields({
   nodeId,
   operation,
-  locator,
   onChange,
   onOpenEditor,
 }: Readonly<{
   nodeId: string;
   operation: UiOperation;
-  locator: Extract<UiOperation['target']['locator'], { type: 'query' }>;
   onChange: (operation: UiOperation) => void;
   onOpenEditor: (target: StructuredEditorTarget) => void;
 }>) {
@@ -323,35 +299,26 @@ function QueryTargetFields({
   const backendPreset = resolveBackendPolicyPreset(operation.target.backend_policy);
   return (
     <>
-      <AqlFieldSummary
-        query={locator.query}
-        target={operation.target}
+      <AqlEditButton
         onEdit={() => onOpenEditor({ type: 'aql', nodeId })}
       />
-      <details className="rounded-md border border-slate-200 bg-slate-50/70 px-2.5 py-2">
-        <summary className="cursor-pointer select-none text-[10px] font-medium text-slate-600">
-          更多设置
-        </summary>
-        <div className="mt-2">
-          <InspectorField label="操作方式">
-            <Select<BackendPolicyPreset>
-              value={backendPreset}
-              options={acceptsOcr
-                ? BACKEND_OPTIONS
-                : BACKEND_OPTIONS.filter(({ value }) => value !== 'ocr_small')}
-              containerClassName="border-slate-300 bg-white"
-              onValueChange={(preference) => (
-                onChange(changeBackendPolicy(operation, preference))
-              )}
-            />
-          </InspectorField>
-          {backendPreset === 'ocr_small' ? (
-            <p className={`${INSPECTOR_HELP_CLASS_NAME} mt-1`}>
-              文字识别只查找可见文字，并点击文字所在区域。
-            </p>
-          ) : null}
-        </div>
-      </details>
+      <InspectorField label="执行方式">
+        <Select<BackendPolicyPreset>
+          value={backendPreset}
+          options={acceptsOcr
+            ? BACKEND_OPTIONS
+            : BACKEND_OPTIONS.filter(({ value }) => value !== 'ocr_small')}
+          containerClassName="border-slate-300 bg-white"
+          onValueChange={(preference) => (
+            onChange(changeBackendPolicy(operation, preference))
+          )}
+        />
+      </InspectorField>
+      {backendPreset === 'ocr_small' ? (
+        <p className={INSPECTOR_HELP_CLASS_NAME}>
+          文字识别只查找可见文字，并点击文字所在区域。
+        </p>
+      ) : null}
     </>
   );
 }

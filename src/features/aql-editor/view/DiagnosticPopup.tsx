@@ -3,7 +3,7 @@ import AlertTriangle from 'lucide-react/dist/esm/icons/triangle-alert.mjs';
 import type { AqlDiagnostic } from '../../workflow';
 import { diagnosticLabel } from '../language/messages';
 
-/** 展示第一个高优先级诊断；完整列表仍保留在 decoration 与 Explain 中。 */
+/** 展示第一个高优先级诊断；完整列表仍由 Monaco 标记保留。 */
 export function DiagnosticPopup({
   diagnostics,
 }: Readonly<{ diagnostics: readonly AqlDiagnostic[] }>) {

@@ -1,7 +1,10 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { UiOperation } from '../../../../features/workflow';
+import {
+  EMPTY_WORKFLOW_RESOURCE_CATALOG,
+  type UiOperation,
+} from '../../../../features/workflow';
 import { ActionNodeFields } from './ActionNodeFields';
 
 describe('ActionNodeFields', () => {
@@ -31,6 +34,7 @@ describe('ActionNodeFields', () => {
         execution={{
           target_wait: { mode: 'bounded', timeout_ms: 5_000, poll_interval_ms: 100 },
         }}
+        resourceCatalog={EMPTY_WORKFLOW_RESOURCE_CATALOG}
         onChange={onChange}
         onExecutionChange={vi.fn()}
         onOpenEditor={onOpenEditor}
@@ -38,14 +42,12 @@ describe('ActionNodeFields', () => {
     );
 
     expect(screen.queryByRole('textbox', { name: 'AQL 查找条件' })).not.toBeInTheDocument();
-    expect(screen.getByText('button(name = "保存")')).toBeVisible();
-    const aqlHeading = screen.getByRole('heading', { name: '查找条件' });
-    const advancedSettings = screen.getByText('更多设置');
-    expect(aqlHeading.compareDocumentPosition(advancedSettings)
-      & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
-    expect(screen.getByText('请在 ArgusFlow 桌面应用中检查运行环境。')).toBeVisible();
+    expect(screen.queryByText('button(name = "保存")')).not.toBeInTheDocument();
+    expect(screen.queryByText('更多设置')).not.toBeInTheDocument();
+    expect(screen.getByText('执行方式')).toBeVisible();
+    expect(screen.queryByText(/运行环境/)).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: '编辑条件' }));
+    fireEvent.click(screen.getByRole('button', { name: '编辑查找条件' }));
     expect(onOpenEditor).toHaveBeenCalledWith({ type: 'aql', nodeId: 'ui-save' });
     expect(onChange).not.toHaveBeenCalled();
   });
@@ -71,13 +73,13 @@ describe('ActionNodeFields', () => {
         execution={{
           target_wait: { mode: 'bounded', timeout_ms: 5_000, poll_interval_ms: 100 },
         }}
+        resourceCatalog={EMPTY_WORKFLOW_RESOURCE_CATALOG}
         onChange={vi.fn()}
         onExecutionChange={onExecutionChange}
         onOpenEditor={vi.fn()}
       />,
     );
 
-    fireEvent.click(screen.getByText('等待目标'));
     fireEvent.change(screen.getByRole('spinbutton', { name: '最长等待目标时间' }), {
       target: { value: '8000' },
     });
@@ -85,10 +87,77 @@ describe('ActionNodeFields', () => {
       target_wait: { mode: 'bounded', timeout_ms: 8_000, poll_interval_ms: 100 },
     });
 
-    fireEvent.click(screen.getByRole('checkbox', { name: '找不到目标时自动等待' }));
+    expect(screen.getAllByText('毫秒')).toHaveLength(2);
+    fireEvent.click(screen.getByRole('checkbox', { name: '找不到目标时等待' }));
     expect(onExecutionChange).toHaveBeenLastCalledWith({
       target_wait: { mode: 'none', timeout_ms: 0, poll_interval_ms: 0 },
     });
-    expect(screen.getAllByText('button(name = "继续")')).toHaveLength(1);
+    expect(screen.queryByText('button(name = "继续")')).not.toBeInTheDocument();
+  });
+
+  it('selects a guaranteed application node and disables unsafe references', () => {
+    const onChange = vi.fn();
+    const operation: UiOperation = {
+      type: 'click',
+      target: {
+        scope: {
+          type: 'application',
+          resource: { producer_node_id: 'app-after', output_name: 'session' },
+        },
+        locator: {
+          type: 'query',
+          query: { language_version: 3, bindings: {}, source: 'button()' },
+        },
+        backend_policy: { allow: [], deny: [], prefer: [] },
+      },
+    };
+
+    render(
+      <ActionNodeFields
+        nodeId="ui-continue"
+        operation={operation}
+        execution={{ target_wait: { mode: 'none', timeout_ms: 0, poll_interval_ms: 0 } }}
+        resourceCatalog={{
+          application: [
+            {
+              kind: 'application',
+              nodeId: 'app-before',
+              nodeLabel: '打开微信',
+              available: true,
+            },
+            {
+              kind: 'application',
+              nodeId: 'app-after',
+              nodeLabel: '后置应用',
+              available: false,
+              unavailableReason: '不会在当前节点之前必定执行',
+            },
+          ],
+          browser: [],
+        }}
+        onChange={onChange}
+        onExecutionChange={vi.fn()}
+        onOpenEditor={vi.fn()}
+      />,
+    );
+
+    const resourceSelect = screen.getByRole('combobox', { name: '应用节点' });
+    expect(resourceSelect).toHaveTextContent('后置应用');
+    expect(screen.getByText('不会在当前节点之前必定执行')).toBeVisible();
+    fireEvent.click(resourceSelect);
+    expect(screen.getByRole('option', { name: /后置应用/ })).toBeDisabled();
+    expect(screen.getByRole('option', { name: /打开微信/ })).toHaveTextContent('内部编号：app-before');
+
+    fireEvent.click(screen.getByRole('option', { name: /打开微信/ }));
+    expect(onChange).toHaveBeenCalledWith({
+      ...operation,
+      target: {
+        ...operation.target,
+        scope: {
+          type: 'application',
+          resource: { producer_node_id: 'app-before', output_name: 'session' },
+        },
+      },
+    });
   });
 });

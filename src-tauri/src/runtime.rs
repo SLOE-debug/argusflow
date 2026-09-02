@@ -29,8 +29,6 @@ const WORKER_INITIALIZATION_RETRY_INTERVAL: Duration = Duration::from_millis(250
 pub struct AppState {
     /// 接收校验通过的工作流并负责异步调度执行。
     pub engine: Arc<WorkflowEngine>,
-    /// 供 AQL Explain 与 WorkflowEngine 共享的唯一 Planner 实例。
-    pub router: Arc<ActionRouter>,
     /// 历史运行的本地只读查询入口，与 Engine 使用同一 Store 实例。
     pub run_store: Arc<FileRunTraceStore>,
     /// 首屏完成后才异步初始化的稳定捕获服务门面。
@@ -94,7 +92,7 @@ impl AppState {
         ));
 
         let engine = WorkflowEngine::with_dispatchers(
-            router.clone(),
+            router,
             observations,
             Arc::new(WindowsApplicationSessionProvider),
             cdp_runtime,
@@ -102,7 +100,6 @@ impl AppState {
         .with_trace_store(run_store.clone());
         Self {
             engine: Arc::new(engine),
-            router,
             run_store,
             capture_service,
             vision_runtime,

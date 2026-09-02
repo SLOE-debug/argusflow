@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import type { RunDetails, VisualQueryTrace } from '../../../features/workflow';
@@ -19,6 +19,26 @@ describe('RunSceneStage', () => {
     rerender(scene(details([trace(20)]), 5));
     expect(screen.getByRole('tab', { name: '截图标注' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('heading', { name: '当前事件没有截图' })).toBeVisible();
+  });
+
+  it('keeps a long AQL out of the title bar and shows it on demand', () => {
+    const longQuery = `all_of(${Array.from({ length: 20 }, (_, index) => (
+      `exists(text(name = "message-${index}"))`
+    )).join(', ')})`;
+    const { container } = renderScene(details([trace(10, longQuery)]), 10);
+
+    const titleBar = container.querySelector('header');
+    expect(titleBar).not.toBeNull();
+    expect(titleBar).not.toHaveTextContent(longQuery);
+    expect(titleBar).toHaveTextContent('没有候选');
+    expect(container.firstChild).toHaveClass('min-w-0', 'max-w-full', 'overflow-hidden');
+
+    fireEvent.click(screen.getByRole('button', { name: '查看查询' }));
+    const dialog = screen.getByRole('dialog', { name: '本次查找条件' });
+    expect(within(dialog).getByText(longQuery)).toBeVisible();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '关闭查询' }));
+    expect(screen.queryByRole('dialog', { name: '本次查找条件' })).not.toBeInTheDocument();
   });
 });
 
@@ -41,13 +61,16 @@ function scene(runDetails: RunDetails, cursorSequence: number) {
 }
 
 /** 构造只有一个窗口且没有图像 Artifact 的 v2 场景。 */
-function trace(nodeSequence: number): VisualQueryTrace {
+function trace(
+  nodeSequence: number,
+  query = 'exists(text(name = $message))',
+): VisualQueryTrace {
   return {
     schema_version: 2,
     run_id: 'run-1',
     node_id: `node-${nodeSequence}`,
     node_sequence: nodeSequence,
-    query: 'exists(text(name = $message))',
+    query,
     outcome: 'not_found',
     candidate_nodes: [],
     selected_node: null,

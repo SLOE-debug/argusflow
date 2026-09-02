@@ -1,10 +1,7 @@
-import AlertTriangle from 'lucide-react/dist/esm/icons/triangle-alert.mjs';
-import CheckCircle2 from 'lucide-react/dist/esm/icons/circle-check.mjs';
 import LoaderCircle from 'lucide-react/dist/esm/icons/loader-circle.mjs';
 import WandSparkles from 'lucide-react/dist/esm/icons/wand-sparkles.mjs';
 import {
   useCallback,
-  useMemo,
   useRef,
 } from 'react';
 import type * as Monaco from 'monaco-editor/editor/editor.api';
@@ -17,22 +14,17 @@ import {
 import type {
   AqlDiagnostic,
   AqlQuery,
-  AutomationTarget,
 } from '../../workflow';
-import { useAqlInspection } from '../../workflow';
 import {
   AQL_LANGUAGE_ID,
   registerAqlMonacoLanguage,
 } from '../language/MonacoAqlLanguage';
 import { useLanguageDocument } from '../language/useLanguageDocument';
 import { DiagnosticPopup } from './DiagnosticPopup';
-import { PlanExplanation } from './PlanExplanation';
 
 type AqlEditorProps = Readonly<{
   /** 当前节点持久化的版本化 AQL。 */
   query: AqlQuery;
-  /** Runtime Planner 使用的完整目标作用域与后端约束。 */
-  target: AutomationTarget;
   /** 当前字段稳定且唯一的 Monaco 模型 URI。 */
   modelUri: string;
   /** 写回节点的 AQL 源码。 */
@@ -61,15 +53,12 @@ const AQL_EDITOR_OPTIONS = {
 } as const satisfies Monaco.editor.IStandaloneEditorConstructionOptions;
 
 /** 使用 Monaco 承载编辑交互，并由 Rust/WASM 注册 AQL 语言能力。 */
-export function AqlEditor({ query, target, modelUri, onChange }: AqlEditorProps) {
+export function AqlEditor({ query, modelUri, onChange }: AqlEditorProps) {
   const editorRef = useRef<MonacoEditorHandle>(null);
-  const plannerState = useAqlInspection(target);
   const languageState = useLanguageDocument(query.source);
   const languageDocument = languageState.phase === 'ready' ? languageState.document : null;
-  const diagnostics = useMemo(
-    () => resolveDiagnostics(languageDocument?.parsed.diagnostics ?? null, plannerState),
-    [languageDocument, plannerState],
-  );
+  /** 编辑期只展示语言服务诊断，不推测运行时窗口或后端可用性。 */
+  const diagnostics = languageDocument?.parsed.diagnostics ?? [];
   const formatAvailability = resolveFormatAvailability(
     query.source,
     languageState,
@@ -85,12 +74,7 @@ export function AqlEditor({ query, target, modelUri, onChange }: AqlEditorProps)
   }, [languageState]);
 
   /** Toolbar 与 Shift+Alt+F 都进入 Monaco 的同一个 Format Document 动作。 */
-  const editorActions = formatAvailability.type === 'clean' ? (
-    <span className="flex h-7 items-center gap-1 px-2 text-[10px] font-medium text-emerald-700">
-      <CheckCircle2 className="size-3 shrink-0" aria-hidden="true" />
-      {formatAvailability.label}
-    </span>
-  ) : (
+  const editorActions = formatAvailability.type !== 'clean' ? (
     <button
       type="button"
       className="flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-[10px] font-medium text-slate-600 hover:border-blue-300 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
@@ -109,9 +93,9 @@ export function AqlEditor({ query, target, modelUri, onChange }: AqlEditorProps)
       )}
       {formatAvailability.label}
     </button>
-  );
+  ) : null;
 
-  /** 语言诊断和 Planner Explain 作为只读反馈，不参与 Monaco 文档状态。 */
+  /** 语言诊断作为只读反馈，不参与 Monaco 文档状态。 */
   const editorFooter = (
     <>
       {languageState.phase === 'loading' ? (
@@ -125,33 +109,11 @@ export function AqlEditor({ query, target, modelUri, onChange }: AqlEditorProps)
           查找条件暂时无法检查，请稍后重试。
         </p>
       ) : null}
-      {diagnostics.some((diagnostic) => diagnostic.severity === 'error') ? (
-        <DiagnosticPopup diagnostics={diagnostics} />
-      ) : plannerState.phase === 'unavailable' ? (
-        <p className="flex items-center gap-1.5 text-[10px] text-amber-700" role="status">
-          <AlertTriangle className="size-3 shrink-0" aria-hidden="true" />
-          查找条件已通过语法检查，但运行环境暂不可用
-        </p>
-      ) : plannerState.phase === 'ready'
-        && plannerState.inspection.status === 'valid'
-        && plannerState.inspection.planning.selected_backend === null ? (
-        <p className="flex items-center gap-1.5 text-[10px] text-amber-700" role="status">
-          <AlertTriangle className="size-3 shrink-0" aria-hidden="true" />
-          查找条件已通过语法检查，但当前环境不能运行
-        </p>
-      ) : (
-        <p className="flex items-center gap-1.5 text-[10px] text-emerald-700" role="status">
-          <CheckCircle2 className="size-3 shrink-0" aria-hidden="true" />
-          查找条件可以使用
-        </p>
-      )}
-      {diagnostics.length > 0
-        && diagnostics.every((diagnostic) => diagnostic.severity !== 'error') ? (
-          <DiagnosticPopup diagnostics={diagnostics} />
-        ) : null}
-      <PlanExplanation state={plannerState} />
+      {diagnostics.length > 0 ? <DiagnosticPopup diagnostics={diagnostics} /> : null}
     </>
   );
+  /** 没有诊断时不给编辑器保留空白反馈栏。 */
+  const footerVisible = languageState.phase !== 'ready' || diagnostics.length > 0;
 
   return (
     <section className="flex h-full min-h-0 flex-col bg-white">
@@ -171,9 +133,11 @@ export function AqlEditor({ query, target, modelUri, onChange }: AqlEditorProps)
           onChange={(source) => onChange({ ...query, source })}
         />
       </div>
-      <div className="max-h-[38%] shrink-0 overflow-y-auto border-t border-slate-200 px-3 py-2">
-        <div className="flex flex-col gap-2">{editorFooter}</div>
-      </div>
+      {footerVisible ? (
+        <div className="max-h-[38%] shrink-0 overflow-y-auto border-t border-slate-200 px-3 py-2">
+          <div className="flex flex-col gap-2">{editorFooter}</div>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -200,28 +164,4 @@ function resolveFormatAvailability(
   return formattedSource === source
     ? { type: 'clean', label: '已格式化' }
     : { type: 'dirty', label: '格式化' };
-}
-
-/** WASM 诊断优先；WASM 尚未就绪时使用 Runtime recovery parser 的结果。 */
-function resolveDiagnostics(
-  languageDiagnostics: readonly AqlDiagnostic[] | null,
-  plannerState: ReturnType<typeof useAqlInspection>,
-): readonly AqlDiagnostic[] {
-  const plannerDiagnostics = plannerState.phase === 'ready'
-    ? plannerState.inspection.diagnostics
-    : [];
-  if (!languageDiagnostics) {
-    return plannerDiagnostics;
-  }
-  const languageKeys = new Set(languageDiagnostics.map(diagnosticKey));
-  return [
-    ...languageDiagnostics,
-    ...plannerDiagnostics.filter((diagnostic) => !languageKeys.has(diagnosticKey(diagnostic))),
-  ];
-}
-
-/** 构造诊断去重键，避免 WASM 与 IPC recovery parser 重复展示同一问题。 */
-function diagnosticKey(diagnostic: AqlDiagnostic): string {
-  const position = diagnostic.range?.start;
-  return `${diagnostic.code}-${diagnostic.backend ?? 'all'}-${position?.line ?? -1}-${position?.utf16_column ?? -1}`;
 }

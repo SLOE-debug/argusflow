@@ -9,7 +9,6 @@ fn main() {
             "begin_runtime_initialization",
             "get_startup_status",
             "retry_startup",
-            "inspect_aql",
             "validate_workflow",
             "run_workflow",
         ]));

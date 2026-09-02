@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main-workflow",
-  "description": "Allow the main ArgusFlow window to inspect AQL and validate or run in-memory workflows.",
+  "description": "Allow the main ArgusFlow window to validate and run workflows or read run history.",
   "windows": ["main"],
   "platforms": ["windows"],
   "permissions": [
@@ -14,7 +14,6 @@
     "allow-begin-runtime-initialization",
     "allow-get-startup-status",
     "allow-retry-startup",
-    "allow-inspect-aql",
     "allow-list-runs",
     "allow-get-run",
     "allow-read-run-events",

@@ -23,7 +23,6 @@ pub fn run() -> tauri::Result<()> {
             commands::startup::begin_runtime_initialization,
             commands::startup::get_startup_status,
             commands::startup::retry_startup,
-            commands::query::inspect_aql,
             commands::run_trace::list_runs,
             commands::run_trace::get_run,
             commands::run_trace::read_run_events,

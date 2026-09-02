@@ -1,4 +1,5 @@
 import PanelRightClose from 'lucide-react/dist/esm/icons/panel-right-close.mjs';
+import { useMemo } from 'react';
 import { useStore, type StoreApi } from 'zustand';
 
 import type { FlowState } from '../../../flow';
@@ -17,6 +18,11 @@ import type {
   WorkflowInputDefinition,
 } from '../../../features/workflow';
 import { buildWorkflowSymbolRegistry } from '../../../features/workflow';
+import {
+  buildWorkflowResourceCatalog,
+  EMPTY_WORKFLOW_RESOURCE_CATALOG,
+  type WorkflowScopeMetadataMap,
+} from '../../../features/workflow';
 import {
   EdgeInspectorFields,
   MultipleSelection,
@@ -78,6 +84,12 @@ export function NodeInspector(props: NodeInspectorProps) {
   ));
   const nodes = useStore(props.store, (state) => state.nodes);
   const edges = useStore(props.store, (state) => state.edges);
+  const documents = useStore(props.store, (state) => state.documents);
+  const activeDocumentId = useStore(props.store, (state) => state.activeDocumentId);
+  const scopeMetadata = useStore(
+    props.store,
+    (state) => state.metadata.scopeMetadata as WorkflowScopeMetadataMap,
+  );
   const workflowInputs = useStore(
     props.store,
     (state) => (
@@ -90,6 +102,16 @@ export function NodeInspector(props: NodeInspectorProps) {
       state.metadata.variables as JsonObject | undefined
     ) ?? EMPTY_WORKFLOW_VARIABLES,
   );
+  /** 资源目录读取全部作用域，使循环内部仍能选择根流程产生的应用会话。 */
+  const resourceCatalog = useMemo(() => node
+    ? buildWorkflowResourceCatalog({
+        documents,
+        scopeMetadata,
+        consumerScopeId: activeDocumentId,
+        consumerNodeId: node.id,
+      })
+    : EMPTY_WORKFLOW_RESOURCE_CATALOG,
+  [activeDocumentId, documents, node, scopeMetadata]);
 
   const inspectorContext = node
       ? '节点'
@@ -150,6 +172,7 @@ export function NodeInspector(props: NodeInspectorProps) {
             <NodeInspectorFields
               node={node}
               componentCatalog={props.componentCatalog ?? []}
+              resourceCatalog={resourceCatalog}
               onUpdate={props.onUpdateNode}
               onOpenStructuredEditor={props.onOpenStructuredEditor}
               onDelete={props.onDelete}

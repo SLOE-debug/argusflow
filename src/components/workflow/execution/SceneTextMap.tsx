@@ -18,12 +18,14 @@ export function SceneTextMap({ trace }: SceneTextMapProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const dragStart = useRef<Readonly<{ x: number; y: number; viewBox: ViewBox }> | null>(null);
   const [windowFilter, setWindowFilter] = useState(WINDOW_ALL);
-  const windows = trace.projection.windows.filter((window) => (
+  /** 稳定过滤结果，避免父组件状态变化时重复重置同一个 viewBox。 */
+  const windows = useMemo(() => trace.projection.windows.filter((window) => (
     windowFilter === WINDOW_ALL || window.window_handle === windowFilter
-  ));
-  const nodes = trace.projection.nodes.filter((node) => (
+  )), [trace.projection.windows, windowFilter]);
+  /** 文字节点与窗口筛选共享同一稳定依赖。 */
+  const nodes = useMemo(() => trace.projection.nodes.filter((node) => (
     windowFilter === WINDOW_ALL || node.window_handle === windowFilter
-  ));
+  )), [trace.projection.nodes, windowFilter]);
   const fittedViewBox = useMemo(() => sceneBounds(windows.map((window) => window.screen_bounds)), [windows]);
   const [viewBox, setViewBox] = useState<ViewBox>(fittedViewBox);
 

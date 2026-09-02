@@ -21,6 +21,8 @@ export type WorkflowNodeOutputAvailabilityArgs = Readonly<{
   nodes: ReadonlyArray<WorkflowCanvasNode>;
   /** 当前工作流画布连线。 */
   edges: ReadonlyArray<WorkflowCanvasEdge>;
+  /** 多作用域调用方提供的固定入口；省略时从画布结构推导。 */
+  entryNodeId?: string;
 }>;
 
 /** 一次性派生全部生产节点可用性所需的消费节点上下文。 */
@@ -31,6 +33,8 @@ export type BuildWorkflowNodeOutputAvailabilityIndexArgs = Readonly<{
   nodes: ReadonlyArray<WorkflowCanvasNode>;
   /** 当前工作流画布连线。 */
   edges: ReadonlyArray<WorkflowCanvasEdge>;
+  /** 多作用域调用方提供的固定入口；省略时从画布结构推导。 */
+  entryNodeId?: string;
 }>;
 
 /** 没有消费节点上下文时，节点输出只需要经过 Registry 枚举即可进入值空间。 */
@@ -69,7 +73,7 @@ export function buildWorkflowNodeOutputAvailabilityIndex(
     return new Map(args.nodes.map((node) => [node.id, unavailable('消费节点不存在')]));
   }
 
-  const graph = buildGraph(args.nodes, args.edges);
+  const graph = buildGraph(args.nodes, args.edges, args.entryNodeId);
   if (!graph.reachable.has(consumerNodeId)) {
     return new Map(args.nodes.map((node) => [
       node.id,
@@ -119,6 +123,7 @@ type WorkflowGraph = Readonly<{
 function buildGraph(
   nodes: ReadonlyArray<WorkflowCanvasNode>,
   edges: ReadonlyArray<WorkflowCanvasEdge>,
+  entryNodeId?: string,
 ): WorkflowGraph {
   const nodeIds = new Set(nodes.map((node) => node.id));
   const predecessors = new Map<string, string[]>();
@@ -137,7 +142,7 @@ function buildGraph(
     successors.get(sourceId)?.push(targetId);
   }
 
-  const entryIds = resolveEntryIds(nodes, predecessors);
+  const entryIds = resolveEntryIds(nodes, predecessors, entryNodeId);
   return {
     predecessors,
     reachable: collectReachable(entryIds, successors),
@@ -149,7 +154,11 @@ function buildGraph(
 function resolveEntryIds(
   nodes: ReadonlyArray<WorkflowCanvasNode>,
   predecessors: ReadonlyMap<string, ReadonlyArray<string>>,
+  entryNodeId?: string,
 ): ReadonlySet<string> {
+  if (entryNodeId !== undefined) {
+    return new Set(nodes.some((node) => node.id === entryNodeId) ? [entryNodeId] : []);
+  }
   const startIds = nodes
     .filter((node) => node.data.kind === 'start')
     .map((node) => node.id);

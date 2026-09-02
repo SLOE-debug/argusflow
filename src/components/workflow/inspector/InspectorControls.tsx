@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-import { Button } from '../../ui';
+import { Button, Input } from '../../ui';
 
 /** 属性面板输入控件的统一 Tailwind 样式。 */
 export const INSPECTOR_CONTROL_CLASS_NAME = [
@@ -61,5 +61,39 @@ export function InspectorDeleteButton({
     >
       {label}
     </Button>
+  );
+}
+
+/** 在紧凑属性面板中使用短标签和独立单位展示毫秒输入。 */
+export function InspectorMillisecondsField({
+  label,
+  ariaLabel,
+  min,
+  max,
+  value,
+  onChange,
+}: Readonly<{
+  label: string;
+  ariaLabel: string;
+  min: number;
+  max: number;
+  value: number;
+  onChange: (value: number) => void;
+}>) {
+  return (
+    <InspectorField label={label}>
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+        <Input
+          aria-label={ariaLabel}
+          type="number"
+          min={min}
+          max={max}
+          value={value}
+          containerClassName="border-slate-300 bg-white"
+          onChange={(event) => onChange(Number(event.target.value))}
+        />
+        <span className="text-[10px] text-slate-400">毫秒</span>
+      </div>
+    </InspectorField>
   );
 }

@@ -1,8 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 
 import type {
-  AqlInspection,
-  AutomationTarget,
   BackendCommandErrorCode,
   CommandError,
   FlowComponentDefinition,
@@ -24,13 +22,6 @@ const commandErrorCodes = new Set<string>(COMMAND_ERROR_CODES);
 export function isDesktopRuntime(): boolean {
   return typeof window !== 'undefined'
     && Boolean((window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
-}
-
-/** 请求 Runtime Planner 基于当前执行上下文生成只读 AQL Explain。 */
-export function inspectAql(
-  target: AutomationTarget,
-): Promise<AqlInspection> {
-  return invoke<AqlInspection>('inspect_aql', { target });
 }
 
 /** 请求后端校验工作流结构，并返回可定位到节点或边的问题。 */

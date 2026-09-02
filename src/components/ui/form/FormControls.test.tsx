@@ -46,6 +46,29 @@ describe('form controls', () => {
     expect(onValueChange).toHaveBeenCalledWith('team');
   });
 
+  it('keeps helper descriptions in the menu instead of the compact trigger', () => {
+    render(
+      <Select
+        aria-label="应用节点"
+        value="open-wechat"
+        options={[{
+          value: 'open-wechat',
+          label: '打开微信',
+          description: '内部编号：open-wechat',
+        }]}
+      />,
+    );
+
+    const trigger = screen.getByRole('combobox', { name: '应用节点' });
+    expect(trigger).toHaveTextContent('打开微信');
+    expect(trigger).not.toHaveTextContent('open-wechat');
+
+    fireEvent.click(trigger);
+    expect(screen.getByRole('option', { name: /打开微信/ })).toHaveTextContent(
+      '内部编号：open-wechat',
+    );
+  });
+
   it('provides the shared focus and disabled treatment for multiline input', () => {
     render(<Textarea aria-label="查询源码" disabled />);
 

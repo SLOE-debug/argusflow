@@ -4,12 +4,15 @@ import type {
   ObserveSpec,
   TargetScope,
   WorkflowNodeUpdater,
+  WorkflowResourceCatalog,
 } from '../../../../features/workflow';
-import { Input, Select } from '../../../ui';
-import { AqlFieldSummary } from '../common/AqlFieldSummary';
+import { Select } from '../../../ui';
+import { AqlEditButton } from '../common/AqlEditButton';
+import { ResourceNodeField } from '../common/ResourceNodeField';
 import {
   INSPECTOR_HELP_CLASS_NAME,
   InspectorField,
+  InspectorMillisecondsField,
 } from '../InspectorControls';
 import type { StructuredEditorTarget } from '../../workspace/dock/structuredEditorTarget';
 
@@ -17,6 +20,7 @@ type ObserveNodeFieldsProps = Readonly<{
   nodeId: string;
   observation: ObserveSpec;
   resultType: ObservationValueType;
+  resourceCatalog: WorkflowResourceCatalog;
   onUpdate: (updater: WorkflowNodeUpdater) => void;
   onOpenEditor: (target: StructuredEditorTarget) => void;
 }>;
@@ -51,6 +55,7 @@ export function ObserveNodeFields({
   nodeId,
   observation,
   resultType,
+  resourceCatalog,
   onUpdate,
   onOpenEditor,
 }: ObserveNodeFieldsProps) {
@@ -61,11 +66,6 @@ export function ObserveNodeFields({
       ? { ...current, observation: next, invalid: false }
       : current
   ));
-  const target = {
-    scope: observation.scope,
-    locator: { type: 'query' as const, query: observation.query },
-    backend_policy: observation.backend_policy,
-  };
   return (
     <div className="flex flex-col gap-2.5">
       <InspectorField label="需要什么结果">
@@ -80,9 +80,7 @@ export function ObserveNodeFields({
           ))}
         />
       </InspectorField>
-      <AqlFieldSummary
-        query={observation.query}
-        target={target}
+      <AqlEditButton
         onEdit={() => onOpenEditor({ type: 'aql', nodeId })}
       />
       <p className={INSPECTOR_HELP_CLASS_NAME}>
@@ -100,22 +98,15 @@ export function ObserveNodeFields({
         />
       </InspectorField>
       {scope.type !== 'current' ? (
-        <InspectorField label={scope.type === 'browser' ? '浏览器节点' : '应用节点'}>
-          <Input
-            value={scope.resource.producer_node_id}
-            containerClassName="border-slate-300 bg-white"
-            onChange={(event) => updateObservation({
-              ...observation,
-              scope: {
-                ...scope,
-                resource: {
-                  ...scope.resource,
-                  producer_node_id: event.target.value,
-                },
-              },
-            })}
-          />
-        </InspectorField>
+        <ResourceNodeField
+          kind={scope.type}
+          resource={scope.resource}
+          catalog={resourceCatalog}
+          onChange={(resource) => updateObservation({
+            ...observation,
+            scope: { ...scope, resource },
+          })}
+        />
       ) : null}
       <InspectorField label="检查方式">
         <Select<ObservationBackendPreset>
@@ -147,38 +138,36 @@ export function ObserveNodeFields({
         />
       </InspectorField>
       {boundedPolicy ? (
-        <div className="grid grid-cols-2 gap-2">
-          <InspectorField label="最长等待（毫秒）">
-            <Input
-              type="number"
-              min={1}
-              max={600_000}
-              value={boundedPolicy.timeout_ms}
-              onChange={(event) => updateObservation({
-                ...observation,
-                policy: {
-                  ...boundedPolicy,
-                  timeout_ms: Number(event.target.value),
-                },
-              })}
-            />
-          </InspectorField>
-          <InspectorField label="检查间隔（毫秒）">
-            <Input
-              type="number"
-              min={1}
-              max={60_000}
-              value={boundedPolicy.poll_interval_ms}
-              onChange={(event) => updateObservation({
-                ...observation,
-                policy: {
-                  ...boundedPolicy,
-                  poll_interval_ms: Number(event.target.value),
-                },
-              })}
-            />
-          </InspectorField>
-        </div>
+        <>
+          <InspectorMillisecondsField
+            label="最长等待"
+            ariaLabel="最长等待检查结果时间"
+            min={1}
+            max={600_000}
+            value={boundedPolicy.timeout_ms}
+            onChange={(timeoutMs) => updateObservation({
+              ...observation,
+              policy: {
+                ...boundedPolicy,
+                timeout_ms: timeoutMs,
+              },
+            })}
+          />
+          <InspectorMillisecondsField
+            label="检查间隔"
+            ariaLabel="检查结果间隔"
+            min={1}
+            max={60_000}
+            value={boundedPolicy.poll_interval_ms}
+            onChange={(pollIntervalMs) => updateObservation({
+              ...observation,
+              policy: {
+                ...boundedPolicy,
+                poll_interval_ms: pollIntervalMs,
+              },
+            })}
+          />
+        </>
       ) : null}
     </div>
   );

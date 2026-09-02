@@ -3,13 +3,8 @@ import { useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useLanguageDocument } from '../../../features/aql-editor/language/useLanguageDocument';
-import { useAqlInspection } from '../../../features/workflow';
 import { AqlEditor } from '../../../features/aql-editor/view/AqlEditor';
 import type { AqlQuery } from '../../../features/workflow/model/contracts';
-
-vi.mock('../../../features/workflow', () => ({
-  useAqlInspection: vi.fn(),
-}));
 
 vi.mock('../../../features/aql-editor/language/useLanguageDocument', () => ({
   useLanguageDocument: vi.fn(),
@@ -22,30 +17,6 @@ describe('AqlEditor', () => {
       formatted_source: 'button(\n    name = "保存",\n    enabled = true\n)',
       canonical_source: 'button(enabled=true,name="保存")',
     } as const;
-    vi.mocked(useAqlInspection).mockReturnValue({
-      phase: 'ready',
-      message: null,
-      inspection: {
-        status: 'valid',
-        canonical_source: 'button(enabled=true,name="保存")',
-        portability: { type: 'portable' },
-        diagnostics: [],
-        planning: {
-          selected_backend: 'windows_uia',
-          candidates: [{
-            backend: 'windows_uia',
-            branch_path: [],
-            support: 'native',
-            cost: 'low',
-            availability: 'ready',
-            context_fitness: 'good',
-            portability: { type: 'portable' },
-            steps: [{ kind: 'pushdown', summary: '2 native conditions' }],
-            diagnostics: [],
-          }],
-        },
-      },
-    });
     vi.mocked(useLanguageDocument).mockReturnValue({
       phase: 'ready',
       message: null,
@@ -59,34 +30,25 @@ describe('AqlEditor', () => {
     });
   });
 
-  it('shows planner selection and exposes the standard format command', () => {
+  it('shows only language tools and exposes the standard format command', () => {
     const onChange = vi.fn();
     const query = { language_version: 3 as const, bindings: {}, source: 'button(name="保存",enabled=true)' };
     render(
       <AqlEditor
         query={query}
         modelUri="inmemory://test/aql-format"
-        target={{
-          scope: { type: 'current' },
-          locator: { type: 'query', query },
-          backend_policy: {
-            allow: ['windows_uia'],
-            deny: [],
-            prefer: ['windows_uia'],
-          },
-        }}
         onChange={onChange}
       />,
     );
 
-    expect(screen.getByText('执行方式：Windows 控件')).toBeVisible();
-    expect(screen.getByText('查找条件可以使用')).toBeVisible();
+    expect(screen.queryByText(/执行方式/)).not.toBeInTheDocument();
+    expect(screen.queryByText('查找条件可以使用')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '格式化' }));
     expect(onChange).not.toHaveBeenCalled();
   });
 
-  it('explains that a document already matches the formatter output', () => {
+  it('does not render a success banner when the document is already formatted', () => {
     const query = { language_version: 3 as const, bindings: {}, source: 'button()' };
     const languageDocument = {
       parsed: { diagnostics: [], semantic_tokens: [], hir: {} },
@@ -109,17 +71,56 @@ describe('AqlEditor', () => {
       <AqlEditor
         query={query}
         modelUri="inmemory://test/aql-clean"
-        target={{
-          scope: { type: 'current' },
-          locator: { type: 'query', query },
-          backend_policy: { allow: [], deny: [], prefer: [] },
-        }}
         onChange={vi.fn()}
       />,
     );
 
-    expect(screen.getByText('已格式化')).toBeVisible();
+    expect(screen.queryByText('已格式化')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '格式化' })).not.toBeInTheDocument();
+  });
+
+  it('shows syntax diagnostics returned by the language service', () => {
+    const query = { language_version: 3 as const, bindings: {}, source: 'button(' };
+    const languageDocument = {
+      parsed: {
+        diagnostics: [{
+          code: 'missing_right_parenthesis' as const,
+          severity: 'error' as const,
+          range: {
+            start: { line: 0, utf16_column: 6 },
+            end: { line: 0, utf16_column: 7 },
+          },
+          backend: null,
+          params: { type: 'none' as const },
+        }],
+        semantic_tokens: [],
+        hir: {},
+      },
+      formatted_source: null,
+      canonical_source: null,
+    };
+    vi.mocked(useLanguageDocument).mockReturnValue({
+      phase: 'ready',
+      message: null,
+      document: languageDocument,
+      service: {
+        inspect: vi.fn(() => languageDocument),
+        completions: vi.fn(() => []),
+        hover: vi.fn(() => null),
+        codeActions: vi.fn(() => []),
+      },
+    });
+
+    render(
+      <AqlEditor
+        query={query}
+        modelUri="inmemory://test/aql-diagnostic"
+        onChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('alert')).toHaveTextContent('第 1 行，第 7 列：缺少右括号');
+    expect(screen.getByRole('button', { name: '请先修复语法错误' })).toBeDisabled();
   });
 
   it('writes Monaco document changes back to the versioned query', () => {
@@ -129,11 +130,6 @@ describe('AqlEditor', () => {
       <AqlEditor
         query={query}
         modelUri="inmemory://test/aql-edit"
-        target={{
-          scope: { type: 'current' },
-          locator: { type: 'query', query },
-          backend_policy: { allow: [], deny: [], prefer: [] },
-        }}
         onChange={onChange}
       />,
     );
@@ -150,11 +146,6 @@ describe('AqlEditor', () => {
       <AqlEditor
         query={query}
         modelUri="inmemory://test/aql-hover"
-        target={{
-          scope: { type: 'current' },
-          locator: { type: 'query', query },
-          backend_policy: { allow: [], deny: [], prefer: [] },
-        }}
         onChange={vi.fn()}
       />,
     );
@@ -166,11 +157,6 @@ describe('AqlEditor', () => {
       <AqlEditor
         query={{ ...query, source: 'button(name = "保存")' }}
         modelUri="inmemory://test/aql-hover"
-        target={{
-          scope: { type: 'current' },
-          locator: { type: 'query', query: { ...query, source: 'button(name = "保存")' } },
-          backend_policy: { allow: [], deny: [], prefer: [] },
-        }}
         onChange={vi.fn()}
       />,
     );
@@ -185,11 +171,6 @@ describe('AqlEditor', () => {
       <AqlEditor
         query={query}
         modelUri="inmemory://test/aql-expand"
-        target={{
-          scope: { type: 'current' },
-          locator: { type: 'query', query },
-          backend_policy: { allow: [], deny: [], prefer: [] },
-        }}
         onChange={vi.fn()}
       />,
     );
@@ -209,11 +190,6 @@ describe('AqlEditor', () => {
         <AqlEditor
           query={query}
           modelUri="inmemory://test/aql-composition"
-          target={{
-            scope: { type: 'current' },
-            locator: { type: 'query', query },
-            backend_policy: { allow: [], deny: [], prefer: [] },
-          }}
           onChange={setQuery}
         />
       );

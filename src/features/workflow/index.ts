@@ -1,7 +1,6 @@
 export { useWorkflowStudio } from './studio/useWorkflowStudio';
 export { isJsonObject } from './model/contracts';
 export {
-  inspectAql,
   getRun,
   isDesktopRuntime,
   listRuns,
@@ -88,7 +87,6 @@ export {
   type ExecutionLogEntry,
   type ExecutionLogSeverity,
 } from './execution/executionEventPresentation';
-export { useAqlInspection, type AqlInspectionState } from './execution/useAqlInspection';
 export { useRunHistory, type RunHistoryState } from './execution/useRunHistory';
 export {
   useRunExecutionWorkbench,
@@ -146,6 +144,14 @@ export {
   type WorkflowSymbolAvailability,
 } from './values/workflowSymbolAvailability';
 export {
+  buildWorkflowResourceCatalog,
+  EMPTY_WORKFLOW_RESOURCE_CATALOG,
+  type BuildWorkflowResourceCatalogArgs,
+  type WorkflowResourceCatalog,
+  type WorkflowResourceKind,
+  type WorkflowResourceOption,
+} from './values/workflowResourceCatalog';
+export {
   countWorkflowReferences,
   findExpressionReferenceLocations,
   renameValueReference,
@@ -167,7 +173,6 @@ export type {
   AcquirePolicy,
   ActivationPolicy,
   ApplicationSpec,
-  AqlInspection,
   AqlDiagnostic,
   AqlDiagnosticCode,
   AqlDiagnosticParams,
@@ -187,7 +192,6 @@ export type {
   CommandOperation,
   CommandRunner,
   ConditionOperator,
-  ContextFitness,
   ControlPortId,
   DelimitedTextFormat,
   EditorPosition,
@@ -200,14 +204,8 @@ export type {
   FlowComponentDefinition,
   JsonObject,
   JsonValue,
-  PlanExplain,
-  PlanStepKind,
-  PlanningReport,
   Position,
   QueryBackend,
-  QueryCost,
-  QueryPortability,
-  QuerySupportLevel,
   ResourceRef,
   RunInputs,
   RunDetails,
@@ -229,7 +227,6 @@ export type {
   SceneNodeProjection,
   SceneNodeRef,
   SceneWindowProjection,
-  RuntimeAvailability,
   TargetLocator,
   TargetLocatorKind,
   TargetScope,

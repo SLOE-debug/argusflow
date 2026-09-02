@@ -6,6 +6,7 @@ import {
   type WorkflowCanvasNode,
   type WorkflowNodeData,
   type WorkflowNodeUpdater,
+  type WorkflowResourceCatalog,
 } from '../../../features/workflow';
 import type { FlowComponentCatalogItem } from '../../../features/workflow';
 import { Select } from '../../ui';
@@ -38,6 +39,8 @@ type NodeInspectorFieldsProps = Readonly<{
   node: WorkflowCanvasNode;
   /** 可供组件实例显式升级的精确版本目录。 */
   componentCatalog: ReadonlyArray<FlowComponentCatalogItem>;
+  /** 当前节点可见的应用和浏览器资源目录。 */
+  resourceCatalog: WorkflowResourceCatalog;
   /** 修改节点业务字段。 */
   onUpdate: (updater: WorkflowNodeUpdater) => void;
   /** 请求中央工作区打开结构化文档。 */
@@ -112,6 +115,7 @@ const RUN_STATE_LABELS: Readonly<Record<NonNullable<WorkflowNodeData['runState']
 export function NodeInspectorFields({
   node,
   componentCatalog,
+  resourceCatalog,
   onUpdate,
   onOpenStructuredEditor,
   onDelete,
@@ -148,6 +152,7 @@ export function NodeInspectorFields({
         <NodeKindFields
           node={node}
           componentCatalog={componentCatalog}
+          resourceCatalog={resourceCatalog}
           onUpdate={onUpdate}
           onOpenStructuredEditor={onOpenStructuredEditor}
         />
@@ -205,6 +210,7 @@ export function NodeInspectorFields({
 type NodeKindFieldsProps = Readonly<{
   node: WorkflowCanvasNode;
   componentCatalog: ReadonlyArray<FlowComponentCatalogItem>;
+  resourceCatalog: WorkflowResourceCatalog;
   onUpdate: (updater: WorkflowNodeUpdater) => void;
   onOpenStructuredEditor: (target: StructuredEditorTarget) => void;
 }>;
@@ -213,6 +219,7 @@ type NodeKindFieldsProps = Readonly<{
 function NodeKindFields({
   node,
   componentCatalog,
+  resourceCatalog,
   onUpdate,
   onOpenStructuredEditor,
 }: NodeKindFieldsProps) {
@@ -278,6 +285,7 @@ function NodeKindFields({
           nodeId={node.id}
           observation={data.observation}
           resultType={data.resultType}
+          resourceCatalog={resourceCatalog}
           onUpdate={onUpdate}
           onOpenEditor={onOpenStructuredEditor}
         />
@@ -313,6 +321,7 @@ function NodeKindFields({
       return (
         <BrowserOperationFields
           operation={data.operation}
+          resourceCatalog={resourceCatalog}
           onUpdate={onUpdate}
         />
       );
@@ -322,6 +331,7 @@ function NodeKindFields({
           nodeId={node.id}
           operation={data.operation}
           execution={data.execution}
+          resourceCatalog={resourceCatalog}
           onOpenEditor={onOpenStructuredEditor}
           onChange={(operation) => onUpdate((current) => current.kind === 'ui'
             ? { ...current, operation, invalid: false }

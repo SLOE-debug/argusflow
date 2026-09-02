@@ -33,7 +33,6 @@
     { "from": "src/components/workflow/WorkflowInspectorFields.tsx", "to": "src/components/workflow/inspector/WorkflowInspectorFields.tsx" },
     { "from": "src/components/workflow/InspectorControls.tsx", "to": "src/components/workflow/inspector/InspectorControls.tsx" },
     { "from": "src/components/workflow/StructuredFieldSummary.tsx", "to": "src/components/workflow/inspector/common/StructuredFieldSummary.tsx" },
-    { "from": "src/components/workflow/AqlFieldSummary.tsx", "to": "src/components/workflow/inspector/common/AqlFieldSummary.tsx" },
     { "from": "src/components/workflow/ScriptFieldSummary.tsx", "to": "src/components/workflow/inspector/common/ScriptFieldSummary.tsx" },
     { "from": "src/components/workflow/ActionNodeFields.tsx", "to": "src/components/workflow/inspector/node-fields/ActionNodeFields.tsx" },
     { "from": "src/components/workflow/ActionNodeFields.test.tsx", "to": "src/components/workflow/inspector/node-fields/ActionNodeFields.test.tsx" },
@@ -95,7 +94,6 @@
     { "from": "src/features/workflow/reusableFlowContracts.ts", "to": "src/features/workflow/components/reusableFlowContracts.ts" },
     { "from": "src/features/workflow/useWorkflowComponents.ts", "to": "src/features/workflow/components/useWorkflowComponents.ts" },
     { "from": "src/features/workflow/executionEventPresentation.ts", "to": "src/features/workflow/execution/executionEventPresentation.ts" },
-    { "from": "src/features/workflow/useAqlInspection.ts", "to": "src/features/workflow/execution/useAqlInspection.ts" },
     { "from": "src/features/workflow/useWorkflowInputs.ts", "to": "src/features/workflow/inputs/useWorkflowInputs.ts" },
 
     { "from": "src/flow/FlowCanvas.tsx", "to": "src/flow/canvas/FlowCanvas.tsx" },

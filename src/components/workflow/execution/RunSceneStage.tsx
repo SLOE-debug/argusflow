@@ -1,3 +1,4 @@
+import Braces from 'lucide-react/dist/esm/icons/braces.mjs';
 import ScanSearch from 'lucide-react/dist/esm/icons/scan-search.mjs';
 import ImageOff from 'lucide-react/dist/esm/icons/image-off.mjs';
 import { useState } from 'react';
@@ -7,6 +8,7 @@ import {
   type RunDetails,
   type VisualQueryTrace,
 } from '../../../features/workflow';
+import { Button, Dialog } from '../../ui';
 import { SceneCoordinateTable } from './SceneCoordinateTable';
 import { SceneScreenshotStage } from './SceneScreenshotStage';
 import { SceneTextMap } from './SceneTextMap';
@@ -36,6 +38,7 @@ export function RunSceneStage({
   sceneInvalidatedAtSequence,
 }: RunSceneStageProps) {
   const [tab, setTab] = useState<SceneTab>('text_map');
+  const [queryOpen, setQueryOpen] = useState(false);
   const selection = selectRunSceneTrace(
     details,
     cursorSequence,
@@ -45,9 +48,13 @@ export function RunSceneStage({
   );
   const trace = selection.trace;
   return (
-    <div className="grid h-full min-h-0 grid-rows-[52px_minmax(0,1fr)]">
-      <header className="flex items-center gap-5 border-b border-slate-200 bg-white px-5">
-        <div className="flex items-center gap-1 self-stretch" role="tablist" aria-label="场景视图">
+    <div className="grid h-full min-h-0 min-w-0 max-w-full grid-rows-[52px_minmax(0,1fr)] overflow-hidden">
+      <header className="flex min-w-0 max-w-full items-center gap-3 overflow-hidden border-b border-slate-200 bg-white px-5">
+        <div
+          className="flex shrink-0 items-center gap-1 self-stretch"
+          role="tablist"
+          aria-label="场景视图"
+        >
           {SCENE_TABS.map((item) => (
             // 场景页签是主舞台的业务视图切换，不承担通用按钮语义。
             <button
@@ -71,9 +78,7 @@ export function RunSceneStage({
         <div className="min-w-0 flex-1 truncate text-[12px] text-slate-500">
           {trace ? (
             <>
-              <span className="font-medium text-slate-800">{trace.query}</span>
-              <span className="mx-2">·</span>
-              <span>{outcomeLabel(trace)}</span>
+              <span className="font-medium text-slate-800">{outcomeLabel(trace)}</span>
               <span className="mx-2">·</span>
               <span>{trace.candidate_nodes.length} 个候选</span>
               <span className="mx-2">·</span>
@@ -83,11 +88,21 @@ export function RunSceneStage({
             </>
           ) : '当前事件没有场景证据'}
         </div>
+        {trace ? (
+          <Button
+            icon={Braces}
+            size="compact"
+            className="shrink-0"
+            onClick={() => setQueryOpen(true)}
+          >
+            查看查询
+          </Button>
+        ) : null}
       </header>
       <div
         id="run-scene-panel"
         role="tabpanel"
-        className="min-h-0 overflow-hidden"
+        className="min-h-0 min-w-0 max-w-full overflow-hidden [&>*]:max-w-full [&>*]:min-w-0"
       >
         {trace ? (
           <>
@@ -103,6 +118,20 @@ export function RunSceneStage({
           </>
         ) : <EmptySceneTab tab={tab} />}
       </div>
+      {trace ? (
+        <Dialog
+          open={queryOpen}
+          title="本次查找条件"
+          description={`${outcomeLabel(trace)} · ${trace.candidate_nodes.length} 个候选 · ${formatElapsed(trace.metrics.elapsed_us)}`}
+          closeLabel="关闭查询"
+          className="!w-[min(100%-2rem,48rem)] max-w-[calc(100%-2rem)]"
+          onOpenChange={setQueryOpen}
+        >
+          <pre className="m-0 max-h-[60vh] max-w-full overflow-auto whitespace-pre-wrap break-words rounded-md bg-slate-950 p-3 font-mono text-[12px] leading-5 text-slate-100">
+            {trace.query}
+          </pre>
+        </Dialog>
+      ) : null}
     </div>
   );
 }

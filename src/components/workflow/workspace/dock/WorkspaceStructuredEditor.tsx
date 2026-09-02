@@ -54,14 +54,13 @@ export function WorkspaceStructuredEditor({
 
   switch (target.type) {
     case 'aql': {
-      const queryTarget = resolveAqlTarget(node);
-      if (!queryTarget) {
+      const query = resolveAqlQuery(node);
+      if (!query) {
         return <UnavailableEditor message="此节点已改用其他查找方式，请关闭此编辑器。" />;
       }
       return (
         <AqlEditor
-          query={queryTarget.query}
-          target={queryTarget.target}
+          query={query}
           modelUri={`inmemory://argusflow/workflow/${encodeURIComponent(node.id)}/locator-aql`}
           onChange={(query) => onUpdateNode(node.id, (current) => (
             updateAqlQuery(current, query)
@@ -148,26 +147,13 @@ function updateAqlQuery(
   };
 }
 
-/** 将 Action 目标和 Observe 事实范围统一投影为 AQL 编辑器契约。 */
-function resolveAqlTarget(node: WorkflowCanvasNode): Readonly<{
-  query: AqlQuery;
-  target: Extract<WorkflowCanvasNode['data'], { kind: 'ui' }>['operation']['target'];
-}> | null {
+/** 从仍使用查询定位的节点读取其版本化 AQL 文档。 */
+function resolveAqlQuery(node: WorkflowCanvasNode): AqlQuery | null {
   if (node.data.kind === 'observe') {
-    return {
-      query: node.data.observation.query,
-      target: {
-        scope: node.data.observation.scope,
-        locator: { type: 'query', query: node.data.observation.query },
-        backend_policy: node.data.observation.backend_policy,
-      },
-    };
+    return node.data.observation.query;
   }
   if (node.data.kind !== 'ui' || node.data.operation.target.locator.type !== 'query') return null;
-  return {
-    query: node.data.operation.target.locator.query,
-    target: node.data.operation.target,
-  };
+  return node.data.operation.target.locator.query;
 }
 
 /** 仅在节点仍为固定文本 shell 命令时更新脚本。 */

@@ -32,5 +32,23 @@ vi.mock('../components/ui/monaco', () => ({
   }),
 }));
 
+/** jsdom 不实现原生 dialog 方法；测试通过 open 属性模拟其可见状态。 */
+if (typeof HTMLDialogElement !== 'undefined') {
+  Object.defineProperties(HTMLDialogElement.prototype, {
+    showModal: {
+      configurable: true,
+      value(this: HTMLDialogElement) {
+        this.open = true;
+      },
+    },
+    close: {
+      configurable: true,
+      value(this: HTMLDialogElement) {
+        this.open = false;
+      },
+    },
+  });
+}
+
 /** 每个测试结束后卸载 React 树，避免跨用例残留 DOM 与订阅。 */
 afterEach(cleanup);

@@ -23,6 +23,8 @@ export type SelectOption<Value extends string> = Readonly<{
   value: Value;
   /** 向用户展示的选项文字。 */
   label: string;
+  /** 仅在展开菜单中展示的辅助说明，触发器保持简洁。 */
+  description?: string;
   /** 当前选项是否不可选择。 */
   disabled?: boolean;
 }>;
@@ -311,7 +313,7 @@ function SelectOptionButton<Value extends string>({
       disabled={option.disabled}
       tabIndex={-1}
       className={
-        'flex w-full items-center gap-2 rounded-md border-0 bg-transparent px-2.5 py-2 ' +
+        'flex w-full items-start gap-2 rounded-md border-0 bg-transparent px-2.5 py-2 ' +
         'text-left text-[12px] ' +
         'outline-none transition-colors disabled:cursor-not-allowed disabled:text-slate-300 ' +
         `${highlighted ? 'bg-blue-50 text-blue-700' : 'text-slate-700 hover:bg-slate-50'} ` +
@@ -321,8 +323,15 @@ function SelectOptionButton<Value extends string>({
       onMouseEnter={onHighlight}
       onPointerDown={(event) => event.preventDefault()}
     >
-      <span className="min-w-0 flex-1 truncate">{option.label}</span>
-      {selected ? <Check className="size-3.5 shrink-0 text-blue-600" aria-hidden="true" /> : null}
+      <span className="min-w-0 flex-1">
+        <span className="block truncate">{option.label}</span>
+        {option.description ? (
+          <span className="mt-0.5 block truncate text-[10px] font-normal text-slate-400">
+            {option.description}
+          </span>
+        ) : null}
+      </span>
+      {selected ? <Check className="mt-0.5 size-3.5 shrink-0 text-blue-600" aria-hidden="true" /> : null}
     </button>
   );
 }
