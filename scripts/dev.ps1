@@ -1,7 +1,9 @@
 [CmdletBinding()]
 param(
     [string]$Proxy = "",
-    [switch]$SkipInstall
+    [switch]$SkipInstall,
+    [ValidateRange(0.001, 1024)]
+    [double]$MaxTargetGiB = 8
 )
 
 Set-StrictMode -Version Latest
@@ -34,6 +36,7 @@ if ($Proxy) {
 
 Push-Location $projectRoot
 try {
+    & (Join-Path $PSScriptRoot 'clean-rust-cache.ps1') -MaxTargetGiB $MaxTargetGiB
     if (-not $SkipInstall -and -not (Test-Path -LiteralPath $nodeModulesPath)) {
         if (-not (Test-Path -LiteralPath $lockfilePath)) {
             throw "pnpm-lock.yaml is missing; refusing an unlocked dependency install."
@@ -104,6 +107,11 @@ finally {
             Stop-Process -Id $visionWorker.Process.Id -Force
         }
     }
-    Pop-Location
+    try {
+        & (Join-Path $PSScriptRoot 'clean-rust-cache.ps1') -MaxTargetGiB $MaxTargetGiB
+    }
+    finally {
+        Pop-Location
+    }
 }
 

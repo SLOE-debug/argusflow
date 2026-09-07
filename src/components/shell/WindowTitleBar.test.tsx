@@ -18,6 +18,22 @@ vi.mock('@tauri-apps/api/window', () => ({
 }));
 
 describe('WindowTitleBar', () => {
+  it('does not drag the native window when selecting recorder dialog content', () => {
+    render(
+      <WindowTitleBar
+        workflowName="测试流程"
+        running={false}
+        report={null}
+        errorMessage={null}
+        homeActive
+        onOpenHome={vi.fn()}
+        onOpenWorkflow={vi.fn()}
+        editorActions={<dialog open><pre>录制 Trace 内容</pre></dialog>}
+      />,
+    );
+    fireEvent.mouseDown(screen.getByText('录制 Trace 内容'), { button: 0, detail: 1 });
+    expect(windowMock.startDragging).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     windowMock.close.mockResolvedValue(undefined);

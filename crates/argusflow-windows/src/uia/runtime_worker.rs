@@ -24,10 +24,8 @@ use super::{
     error::{UiaError, UiaOperation},
     evidence::UiaEvidenceCollector,
     executor::UiaExecutor,
-    runtime::{
-        UiaEvidenceRequest, UiaExecuteRequest, UiaObserveRequest, UiaRuntimeConfig,
-        UiaRuntimeHealth,
-    },
+    runtime::{UiaEvidenceRequest, UiaExecuteRequest, UiaObserveRequest, UiaRuntimeConfig},
+    runtime_health::UiaRuntimeHealth,
 };
 
 /// 当前 runtime 唯一接收新请求的 worker generation。
@@ -41,6 +39,24 @@ pub(super) struct UiaWorkerGeneration {
 }
 
 impl UiaWorkerGeneration {
+    /// 发送不含 COM 对象的坐标/焦点反查请求。
+    pub(super) fn send_inspect(
+        &self,
+        context: argusflow_core::InspectionContext,
+        probe: argusflow_core::InspectionProbe,
+        response: oneshot::Sender<
+            Result<argusflow_core::InspectedEntity, argusflow_core::InspectionFailure>,
+        >,
+    ) -> Result<(), argusflow_core::InspectionFailure> {
+        self.sender
+            .send(UiaWorkerMessage::Inspect {
+                context,
+                probe,
+                response,
+            })
+            .map_err(|_| argusflow_core::InspectionFailure::Unavailable)
+    }
+
     /// 创建、初始化并最多等待 connection timeout 的新 worker generation。
     pub(super) fn start(
         generation: u64,
@@ -151,6 +167,17 @@ impl UiaWorkerGeneration {
 
 /// worker 可处理的封闭消息集合。
 enum UiaWorkerMessage {
+    /// 只读语义反查，使用现有 apartment 与 provider 生命周期。
+    Inspect {
+        /// 已由 Win32 定位的实际窗口。
+        context: argusflow_core::InspectionContext,
+        /// 原始物理点或键盘焦点。
+        probe: argusflow_core::InspectionProbe,
+        /// 返回自有 DTO，不携带 COM。
+        response: oneshot::Sender<
+            Result<argusflow_core::InspectedEntity, argusflow_core::InspectionFailure>,
+        >,
+    },
     /// 执行冻结请求并通过 oneshot 返回公共结果。
     Execute {
         /// 不含 COM interface 的请求。
@@ -227,6 +254,21 @@ fn worker_main(
     let evidence = UiaEvidenceCollector::new(&automation);
     while let Ok(message) = receiver.recv() {
         match message {
+            UiaWorkerMessage::Inspect {
+                context,
+                probe,
+                response,
+            } => {
+                if response.is_closed() {
+                    continue;
+                }
+                let result = if health.is_ready_generation(generation) {
+                    super::inspection::inspect_element(&automation, &context, probe)
+                } else {
+                    Err(argusflow_core::InspectionFailure::Unavailable)
+                };
+                let _ = response.send(result);
+            }
             UiaWorkerMessage::Execute {
                 request,
                 budget,

@@ -9,8 +9,17 @@ fn main() {
             "begin_runtime_initialization",
             "get_startup_status",
             "retry_startup",
+            "list_runs",
+            "get_run",
+            "read_run_events",
+            "read_run_artifact",
             "validate_workflow",
             "run_workflow",
+            "start_recording",
+            "stop_recording",
+            "get_recording_status",
+            "list_recordings",
+            "get_recording",
         ]));
 
     if let Err(error) = tauri_build::try_build(attributes) {

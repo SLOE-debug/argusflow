@@ -113,6 +113,7 @@ dependencies = [
  "argusflow-browser",
  "argusflow-core",
  "argusflow-query",
+ "argusflow-recorder",
  "argusflow-runtime",
  "argusflow-vision",
  "argusflow-windows",
@@ -144,6 +145,23 @@ dependencies = [
  "serde-wasm-bindgen",
  "uuid",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "argusflow-recorder"
+version = "0.1.0"
+dependencies = [
+ "argusflow-core",
+ "argusflow-query",
+ "argusflow-windows",
+ "async-trait",
+ "futures-util",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "tokio",
+ "uuid",
+ "windows 0.62.2",
 ]
 
 [[package]]

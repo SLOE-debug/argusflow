@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main-workflow",
-  "description": "Allow the main ArgusFlow window to validate and run workflows or read run history.",
+  "description": "Allow the main ArgusFlow window to run workflows, control recording and read local history.",
   "windows": ["main"],
   "platforms": ["windows"],
   "permissions": [
@@ -19,6 +19,11 @@
     "allow-read-run-events",
     "allow-read-run-artifact",
     "allow-validate-workflow",
-    "allow-run-workflow"
+    "allow-run-workflow",
+    "allow-start-recording",
+    "allow-stop-recording",
+    "allow-get-recording-status",
+    "allow-list-recordings",
+    "allow-get-recording"
   ]
 }

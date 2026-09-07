@@ -13,6 +13,7 @@ mod data;
 mod error;
 mod execution;
 mod input;
+mod inspection;
 mod keyboard;
 mod observation;
 mod prepared;
@@ -50,6 +51,10 @@ pub use execution::{
     ExecutionLoopFrame, ExecutionStructureFrame, RunStarted,
 };
 pub use input::{RunInputs, WorkflowInputDefinition, WorkflowInputType};
+pub use inspection::{
+    ElementSemantics, FieldSensitivity, InspectedEntity, InspectionContext, InspectionFailure,
+    InspectionProbe, InspectionRect, TargetInspector, WindowInspector, sensitive_field_metadata,
+};
 pub use keyboard::{KeyChord, KeyboardKey, KeyboardModifier};
 pub use observation::{
     CoordinateSpace, EntityBounds, EntityField, EntityObservation, EntitySnapshot, EntitySource,

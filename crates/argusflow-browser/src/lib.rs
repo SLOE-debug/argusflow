@@ -7,6 +7,7 @@ compile_error!("ArgusFlow only supports Windows targets.");
 pub mod cdp;
 
 mod backend;
+mod inspection;
 mod runtime;
 
 pub use backend::CdpBackend;

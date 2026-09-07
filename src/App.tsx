@@ -6,6 +6,8 @@ import {
 } from 'react';
 
 import { WindowTitleBar } from './components/shell/WindowTitleBar';
+import { RecorderToolbar } from './components/recorder';
+import { useRecorder } from './features/recorder';
 import {
   ComponentDrillDown,
   EditorPrimaryActions,
@@ -58,6 +60,7 @@ type AppProps = Readonly<{
 /** ArgusFlow 桌面 IDE 工作台入口。 */
 export default function App({ startupStatus, executionEnabled }: AppProps) {
   const studio = useWorkflowStudio();
+  const recorder = useRecorder();
   const workspaceEditor = useWorkspaceEditor();
   const [libraryOpen, setLibraryOpen] = useState(true);
   const [dockOpen, setDockOpen] = useState(true);
@@ -186,15 +189,23 @@ export default function App({ startupStatus, executionEnabled }: AppProps) {
             onInspectorOpenChange={setInspectorOpen}
           />
         ) : null}
-        editorActions={appView === 'editor' ? (
-          <EditorPrimaryActions
-            running={studio.running}
-            executionEnabled={executionEnabled}
-            onValidate={() => void studio.validate()}
-            onRun={() => setRunInputsOpen(true)}
-            onPublish={() => undefined}
-          />
-        ) : null}
+        editorActions={(
+          <div className="flex items-center gap-2">
+            <RecorderToolbar
+              recorder={recorder}
+              workflowRunning={studio.running}
+            />
+            {appView === 'editor' ? (
+              <EditorPrimaryActions
+                running={studio.running}
+                executionEnabled={executionEnabled && recorder.status.phase === 'idle' && recorder.pending === null}
+                onValidate={() => void studio.validate()}
+                onRun={() => setRunInputsOpen(true)}
+                onPublish={() => undefined}
+              />
+            ) : null}
+          </div>
+        )}
       />
       {appView === 'home' ? (
         <>

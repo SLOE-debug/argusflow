@@ -24,8 +24,8 @@ use super::{
     plan::UiaPreparedPlan,
     runtime::{
         PreparedWindowTarget, UiaEvidenceRequest, UiaExecuteRequest, UiaObserveRequest, UiaRuntime,
-        UiaRuntimeState,
     },
+    runtime_health::UiaRuntimeState,
 };
 
 /// 使用共享 `UiaRuntime` 操作原生 Windows UIA provider 的后端。

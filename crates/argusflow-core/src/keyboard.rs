@@ -22,6 +22,26 @@ pub enum KeyboardKey {
     Escape,
     /// Tab 键。
     Tab,
+    /// 删除光标前的字符。
+    Backspace,
+    /// 删除光标后的字符或选中对象。
+    Delete,
+    /// 光标左移。
+    ArrowLeft,
+    /// 光标右移。
+    ArrowRight,
+    /// 光标上移。
+    ArrowUp,
+    /// 光标下移。
+    ArrowDown,
+    /// 行或文档起点。
+    Home,
+    /// 行或文档终点。
+    End,
+    /// 向上翻页。
+    PageUp,
+    /// 向下翻页。
+    PageDown,
     /// 单个 ASCII 字母或数字；主要用于带修饰键的应用快捷键。
     Character {
         /// 必须是单个 ASCII 字母或数字。

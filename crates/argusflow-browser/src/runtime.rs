@@ -32,6 +32,21 @@ pub struct CdpRuntime {
 }
 
 impl CdpRuntime {
+    /// 只返回本 runtime 启动、仍附加且 PID/EXE 一致的会话；不探测调试端口。
+    pub(crate) fn inspection_session(
+        &self,
+        process_id: u32,
+        executable: Option<&str>,
+    ) -> Option<(ResourceId, Arc<CdpPageSession>)> {
+        let browsers = self.browsers.lock().ok()?;
+        let (id, _) = browsers.iter().find(|(_, browser)| {
+            browser.child.id() == Some(process_id)
+                && executable
+                    .is_some_and(|path| path.eq_ignore_ascii_case(&browser.executable_path))
+        })?;
+        Some((*id, self.sessions.get(*id)?))
+    }
+
     /// 创建空的应用级 CDP runtime。
     pub fn new() -> Self {
         Self::default()
@@ -41,6 +56,8 @@ impl CdpRuntime {
 /// 资源表之外由 provider 独占的不可克隆进程状态。
 #[derive(Debug)]
 struct ManagedBrowser {
+    /// 获取时已验证的进程路径，录制反查同时校验 PID 与 EXE。
+    executable_path: String,
     /// 浏览器根进程句柄。
     child: Child,
     /// Chromium 本次运行的隔离用户目录。
@@ -74,6 +91,7 @@ impl BrowserSessionProvider for CdpRuntime {
             .insert(
                 resource_id,
                 ManagedBrowser {
+                    executable_path: spec.executable_path.clone(),
                     child,
                     profile_directory,
                 },

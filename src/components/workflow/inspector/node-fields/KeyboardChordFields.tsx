@@ -9,10 +9,21 @@ import { INSPECTOR_HELP_CLASS_NAME, InspectorField } from '../InspectorControls'
 /** 属性面板可编辑的主键类别。 */
 type KeyboardKeyKind = KeyboardKey['type'];
 
+/** 与工作流 PressKey 契约对应的可编辑主键，使用键帽名称便于识别。 */
 const KEY_OPTIONS = [
   { value: 'enter', label: 'Enter' },
   { value: 'escape', label: 'Esc' },
   { value: 'tab', label: 'Tab' },
+  { value: 'backspace', label: 'Backspace' },
+  { value: 'delete', label: 'Delete' },
+  { value: 'arrow_left', label: '← 左方向键' },
+  { value: 'arrow_right', label: '→ 右方向键' },
+  { value: 'arrow_up', label: '↑ 上方向键' },
+  { value: 'arrow_down', label: '↓ 下方向键' },
+  { value: 'home', label: 'Home' },
+  { value: 'end', label: 'End' },
+  { value: 'page_up', label: 'Page Up' },
+  { value: 'page_down', label: 'Page Down' },
   { value: 'character', label: '字母或数字' },
 ] as const;
 

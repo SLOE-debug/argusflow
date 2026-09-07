@@ -23,7 +23,7 @@ import { resolveWorkflowStatus } from '../workflow';
 type WindowTitleBarProps = Readonly<{
   /** 编辑器命令插槽；Home 视图不传入。 */
   editorCommands?: ReactNode;
-  /** 编辑器校验、运行和发布操作插槽；Home 视图不传入。 */
+  /** 全局录制入口与编辑器校验、运行和发布操作插槽。 */
   editorActions?: ReactNode;
   /** 当前工作流名称。 */
   workflowName: string;
@@ -108,7 +108,8 @@ export function WindowTitleBar({
   const handleDragMouseDown = (event: MouseEvent<HTMLDivElement>) => {
     if (event.button !== 0 || !appWindow) return;
     const target = event.target;
-    if (target instanceof Element && target.closest('button, input, select')) return;
+    // 标题栏装配的 dialog 在顶层显示，其内容操作不能触发窗口拖拽。
+    if (target instanceof Element && target.closest('button, input, select, textarea, dialog')) return;
     if (event.detail === 2) {
       void toggleMaximized();
       return;

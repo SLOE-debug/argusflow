@@ -7,9 +7,10 @@ use windows::Win32::{
     Foundation::HWND,
     UI::{
         Input::KeyboardAndMouse::{
-            INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT, KEYEVENTF_KEYUP,
-            KEYEVENTF_UNICODE, SendInput, VIRTUAL_KEY, VK_CONTROL, VK_ESCAPE, VK_MENU, VK_RETURN,
-            VK_SHIFT, VK_TAB,
+            INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT, KEYEVENTF_EXTENDEDKEY,
+            KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, SendInput, VIRTUAL_KEY, VK_BACK, VK_CONTROL,
+            VK_DELETE, VK_DOWN, VK_END, VK_ESCAPE, VK_HOME, VK_LEFT, VK_MENU, VK_NEXT, VK_PRIOR,
+            VK_RETURN, VK_RIGHT, VK_SHIFT, VK_TAB, VK_UP,
         },
         WindowsAndMessaging::{
             GetForegroundWindow, GetWindowThreadProcessId, IsWindow, SetForegroundWindow,
@@ -148,6 +149,16 @@ fn key_virtual_key(key: &KeyboardKey) -> Result<VIRTUAL_KEY, KeyboardInputError>
         KeyboardKey::Enter => Ok(VK_RETURN),
         KeyboardKey::Escape => Ok(VK_ESCAPE),
         KeyboardKey::Tab => Ok(VK_TAB),
+        KeyboardKey::Backspace => Ok(VK_BACK),
+        KeyboardKey::Delete => Ok(VK_DELETE),
+        KeyboardKey::ArrowLeft => Ok(VK_LEFT),
+        KeyboardKey::ArrowRight => Ok(VK_RIGHT),
+        KeyboardKey::ArrowUp => Ok(VK_UP),
+        KeyboardKey::ArrowDown => Ok(VK_DOWN),
+        KeyboardKey::Home => Ok(VK_HOME),
+        KeyboardKey::End => Ok(VK_END),
+        KeyboardKey::PageUp => Ok(VK_PRIOR),
+        KeyboardKey::PageDown => Ok(VK_NEXT),
         KeyboardKey::Character { value }
             if value.len() == 1 && value.as_bytes()[0].is_ascii_alphanumeric() =>
         {
@@ -159,6 +170,16 @@ fn key_virtual_key(key: &KeyboardKey) -> Result<VIRTUAL_KEY, KeyboardInputError>
 
 /// 创建一个 virtual-key 键盘事件。
 fn virtual_key_input(key: VIRTUAL_KEY, flags: KEYBD_EVENT_FLAGS) -> INPUT {
+    // 独立编辑键簇必须带 E0 扩展标记，不能在回放时变成数字小键盘导航。
+    let flags = if [
+        VK_DELETE, VK_LEFT, VK_RIGHT, VK_UP, VK_DOWN, VK_HOME, VK_END, VK_PRIOR, VK_NEXT,
+    ]
+    .contains(&key)
+    {
+        flags | KEYEVENTF_EXTENDEDKEY
+    } else {
+        flags
+    };
     INPUT {
         r#type: INPUT_KEYBOARD,
         Anonymous: INPUT_0 {

@@ -1,6 +1,10 @@
 [build]
 target = "x86_64-pc-windows-msvc"
 
+[cache]
+# 每次构建检查全局依赖缓存中的过期项；构建产物由开发脚本单独限制。
+auto-clean-frequency = "always"
+
 [target.x86_64-pc-windows-msvc]
 # MSVC link.exe 将正常的库创建状态写入 stdout，Rust 会将其识别为 linker_messages warning。
 rustflags = ["-A", "linker_messages"]

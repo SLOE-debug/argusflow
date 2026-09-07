@@ -2,5 +2,7 @@
 
 mod application;
 mod application_discovery;
+mod inspection;
 
 pub use application::WindowsApplicationSessionProvider;
+pub use inspection::WindowsWindowInspector;

@@ -6,6 +6,16 @@ export type KeyboardKey =
   | { type: 'enter' }
   | { type: 'escape' }
   | { type: 'tab' }
+  | { type: 'backspace' }
+  | { type: 'delete' }
+  | { type: 'arrow_left' }
+  | { type: 'arrow_right' }
+  | { type: 'arrow_up' }
+  | { type: 'arrow_down' }
+  | { type: 'home' }
+  | { type: 'end' }
+  | { type: 'page_up' }
+  | { type: 'page_down' }
   | { type: 'character'; value: string };
 
 /** 一次完整按下并逆序释放的组合键。 */

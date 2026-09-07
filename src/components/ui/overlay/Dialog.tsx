@@ -20,6 +20,8 @@ export type DialogProps = Readonly<{
   closeLabel?: string;
   /** 主体内容附加样式。 */
   className?: string;
+  /** 由容器选择宽度，避免调用方追加相互冲突的 Tailwind 宽度类。 */
+  size?: 'standard' | 'wide';
 }>;
 
 /** 基于原生 dialog 的受控模态容器，集中处理 Escape、遮罩和焦点恢复。 */
@@ -32,6 +34,7 @@ export const Dialog = forwardRef<HTMLDialogElement, DialogProps>(function Dialog
   footer,
   closeLabel = '关闭对话框',
   className = '',
+  size = 'standard',
 }, forwardedRef) {
   const localRef = useRef<HTMLDialogElement>(null);
   const titleId = useId();
@@ -77,7 +80,7 @@ export const Dialog = forwardRef<HTMLDialogElement, DialogProps>(function Dialog
       ref={setDialogRef}
       aria-labelledby={titleId}
       aria-describedby={description ? descriptionId : undefined}
-      className={`m-auto w-[min(100%-2rem,32rem)] rounded-lg border border-slate-200 bg-white p-0 text-slate-800 shadow-xl outline-none backdrop:bg-slate-900/30 ${className}`}
+      className={`m-auto ${size === 'wide' ? 'w-[min(100%-2rem,76rem)] max-w-none' : 'w-[min(100%-2rem,32rem)]'} rounded-lg border border-slate-200 bg-white p-0 text-slate-800 shadow-xl outline-none backdrop:bg-slate-900/30 ${className}`}
       onCancel={(event) => {
         event.preventDefault();
         close();

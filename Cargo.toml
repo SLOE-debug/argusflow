@@ -5,6 +5,7 @@ members = [
     "crates/argusflow-core",
     "crates/argusflow-query",
     "crates/argusflow-query-wasm",
+    "crates/argusflow-recorder",
     "crates/argusflow-runtime",
     "crates/argusflow-vision",
     "crates/argusflow-windows",
@@ -28,6 +29,7 @@ argusflow-agent = { path = "crates/argusflow-agent" }
 argusflow-browser = { path = "crates/argusflow-browser" }
 argusflow-core = { path = "crates/argusflow-core" }
 argusflow-query = { path = "crates/argusflow-query" }
+argusflow-recorder = { path = "crates/argusflow-recorder" }
 argusflow-runtime = { path = "crates/argusflow-runtime" }
 argusflow-vision = { path = "crates/argusflow-vision" }
 argusflow-windows = { path = "crates/argusflow-windows" }
@@ -45,3 +47,8 @@ uuid = { version = "1.24.1", features = ["serde", "v4"] }
 wasm-bindgen = "=0.2.127"
 serde-wasm-bindgen = "0.6.5"
 windows = "0.62.2"
+
+# 开发与测试保留堆栈行号，避免完整 PDB 和增量编译快照持续占用磁盘。
+[profile.dev]
+debug = "line-tables-only"
+incremental = false

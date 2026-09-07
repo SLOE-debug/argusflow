@@ -8,6 +8,10 @@
   ],
   "scripts": {
     "start": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/dev.ps1",
+    "rust:run": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/rust-run.ps1",
+    "rust:cache": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/clean-rust-cache.ps1",
+    "test:desktop-permissions": "node --test src-tauri/tests/command-permissions.test.mjs",
+    "test:rust-cache": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/tests/rust-cache.tests.ps1",
     "build:aql-wasm": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/build-aql-wasm.ps1",
     "dev": "vite",
     "build": "pnpm build:aql-wasm && tsc -b && vite build",

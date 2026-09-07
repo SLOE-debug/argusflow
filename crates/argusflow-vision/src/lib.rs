@@ -10,6 +10,9 @@ mod diff;
 mod error;
 mod frame;
 mod image;
+mod inspection;
+#[cfg(test)]
+mod inspection_tests;
 mod metrics;
 mod ocr;
 mod projection;

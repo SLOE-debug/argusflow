@@ -22,6 +22,7 @@ argusflow-browser.workspace = true
 argusflow-core.workspace = true
 argusflow-query.workspace = true
 argusflow-runtime.workspace = true
+argusflow-recorder.workspace = true
 argusflow-vision.workspace = true
 argusflow-windows.workspace = true
 serde.workspace = true

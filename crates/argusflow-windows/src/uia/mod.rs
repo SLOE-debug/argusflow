@@ -14,11 +14,14 @@ mod evidence;
 mod executor;
 mod explain;
 mod extract;
+mod inspection;
+mod inspection_role;
 mod native;
 mod plan;
 mod process_search;
 mod property;
 mod runtime;
+mod runtime_health;
 mod runtime_worker;
 mod selector_trace;
 mod target_selection;
@@ -35,4 +38,5 @@ pub use plan::{
     TargetResolutionFailure, UiaActionPlan, UiaActionSupport, UiaMatcherPlan, UiaPlanExpr,
     UiaPreparedPlan, UiaQueryPlan,
 };
-pub use runtime::{UiaRuntime, UiaRuntimeHealth, UiaRuntimeState};
+pub use runtime::UiaRuntime;
+pub use runtime_health::{UiaRuntimeHealth, UiaRuntimeState};

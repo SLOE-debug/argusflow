@@ -144,7 +144,10 @@ function asKeyboardKey(value: JsonValue | undefined): KeyboardKey {
   const object = asObject(value, 'key_chord.key');
   const type = asString(object.type, 'key_chord.key.type');
   if (type === 'character') return { type, value: asString(object.value, 'key_chord.key.value') };
-  if (type === 'enter' || type === 'escape' || type === 'tab') return { type };
+  if (type === 'enter' || type === 'escape' || type === 'tab'
+    || type === 'backspace' || type === 'delete'
+    || type === 'arrow_left' || type === 'arrow_right' || type === 'arrow_up' || type === 'arrow_down'
+    || type === 'home' || type === 'end' || type === 'page_up' || type === 'page_down') return { type };
   throw new Error(`模板使用了不支持的按键“${type}”。`);
 }
 
