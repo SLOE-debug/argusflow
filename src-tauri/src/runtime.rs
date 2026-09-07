@@ -27,7 +27,7 @@ const WORKER_INITIALIZATION_RETRY_INTERVAL: Duration = Duration::from_millis(250
 
 /// Tauri 应用共享状态，持有唯一的工作流执行引擎实例。
 pub struct AppState {
-    /// 与执行器共用 backend runtime 的独立 Physical → Semantic 录制控制器。
+    /// 独立的用户演示事件录制控制器，复用 UIA/CDP 观察能力。
     pub recorder: argusflow_recorder::RecorderService,
     /// 接收校验通过的工作流并负责异步调度执行。
     pub engine: Arc<WorkflowEngine>,
@@ -94,11 +94,11 @@ impl AppState {
         ));
 
         let recorder = argusflow_recorder::RecorderService::new(
-            Arc::new(argusflow_recorder::TargetResolver::new(
+            Arc::new(argusflow_recorder::EvidenceCollector::new(
                 Arc::new(argusflow_windows::window::WindowsWindowInspector),
                 cdp_runtime.clone(),
                 uia_runtime,
-                vision_runtime.clone(),
+                Arc::new(argusflow_windows::capture::WindowsEventCapture::default()),
             )),
             ".argusflow/recordings",
         );
@@ -159,7 +159,7 @@ impl AppState {
 
     /// 在 Tauri 最终退出事件中确定性销毁全部 WGC 资源并等待主机线程结束。
     pub fn shutdown(&self) -> Result<(), VisionError> {
-        // 先排空语义录制，确保 Vision fallback 完成后才销毁共用 capture 服务。
+        // 应用退出前先排空事件和图像写入，再销毁其他共享能力。
         match tauri::async_runtime::block_on(self.recorder.stop()) {
             Ok(_) | Err(argusflow_recorder::RecorderError::NotRecording) => {}
             Err(error) => eprintln!("ArgusFlow recorder shutdown failed: {error}"),

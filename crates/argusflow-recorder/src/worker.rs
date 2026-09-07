@@ -1,8 +1,8 @@
-//! 有界并发语义检查与严格输入顺序的持久化前脱敏。
+//! 有界结构化观察与按捕获顺序脱敏，最后按事件时间发布唯一时间线。
 
 use crate::{
-    RawTrace, RecordingDiagnostic, RecordingTrace, ResolutionBackend, ResolvedTarget,
-    TargetResolver, TraceNormalizer, ingestion::CapturedInput, redaction::InputRedactor,
+    EventEvidence, EventTimeline, EvidenceCollector, RawInput, RecordingDiagnostic, RecordingTrace,
+    ingestion::CapturedInput, redaction::InputRedactor,
 };
 use futures_util::{StreamExt, stream::FuturesOrdered};
 use std::{
@@ -14,15 +14,14 @@ use std::{
 };
 use tokio::sync::mpsc::Receiver;
 
-/// 有界 trace 长度，达到上限只计缺口，不继续增长内存。
+/// 限制内存中的输入事实数量；原始序号与丢弃计数保留缺口。
 const MAX_TRACE_EVENTS: usize = 100_000;
-/// 并发 provider 请求上限，防止慢 UIA/OCR 导致无界 task 积累。
+/// 防止慢速 provider 积累无界任务。
 const MAX_PENDING: usize = 16;
 
-/// 并发解析但按接收顺序返回；release/up 不能越过尚未脱敏的 down。
 pub(crate) async fn record(
     mut receiver: Receiver<CapturedInput>,
-    resolver: Arc<TargetResolver>,
+    collector: Arc<EvidenceCollector>,
     dropped: Arc<AtomicU64>,
     recording_id: uuid::Uuid,
     started_at_unix_ms: u64,
@@ -30,27 +29,27 @@ pub(crate) async fn record(
 ) -> RecordingTrace {
     let mut pending = FuturesOrdered::new();
     let mut source_closed = false;
-    let mut raw = RawTrace::default();
+    let mut timeline = EventTimeline::default();
     let mut redactor = InputRedactor::default();
     let mut previous_sequence = 0;
     loop {
         tokio::select! {
             input = receiver.recv(), if !source_closed && pending.len() < MAX_PENDING => {
-                match input {
-                    Some(input) => pending.push_back(resolve_input(input, resolver.clone())),
-                    None => source_closed = true,
-                }
+                match input { Some(input) => pending.push_back(collect_input(input, collector.clone())), None => source_closed = true }
             }
-            Some((mut input, target)) = pending.next(), if !pending.is_empty() => {
+            Some((mut input, evidence)) = pending.next(), if !pending.is_empty() => {
                 if input.event.sequence != previous_sequence + 1 {
                     redactor.reset();
                     input.diagnostics.push(RecordingDiagnostic::InputGap);
                 }
                 previous_sequence = input.event.sequence;
-                if raw.events.len() < MAX_TRACE_EVENTS {
-                    raw.events.push(redactor.sanitize(input.event, input.elapsed_ms, input.decoded,
-                        target, input.diagnostics));
-                    processed.store(raw.events.len() as u64, Ordering::Relaxed);
+                if timeline.events.len() < MAX_TRACE_EVENTS {
+                    let mut event = redactor.sanitize(input.event, input.elapsed_ms, input.decoded, evidence, input.diagnostics);
+                    if let RawInput::Clipboard { content, .. } = &mut event.input {
+                        *content = input.clipboard.unwrap_or(crate::ClipboardContent::Unavailable);
+                    }
+                    timeline.events.push(event);
+                    processed.store(timeline.events.len() as u64, Ordering::Relaxed);
                 } else { dropped.fetch_add(1, Ordering::Relaxed); }
             }
             else => break,
@@ -59,62 +58,77 @@ pub(crate) async fn record(
             break;
         }
     }
-    let mut normalized = TraceNormalizer::normalize(&raw);
-    let dropped_events = dropped.load(Ordering::Relaxed);
-    if dropped_events > 0 {
-        normalized.diagnostics.push(RecordingDiagnostic::InputGap);
-    }
+    timeline.compact_pointer_motion();
     RecordingTrace {
-        schema_version: 1,
+        schema_version: 2,
         recording_id,
         started_at_unix_ms,
-        raw,
-        normalized,
-        dropped_events,
+        timeline,
+        dropped_events: dropped.load(Ordering::Relaxed),
     }
 }
 
-/// 检查开始过晚时保存 coordinate 事实，不把当前 UI 当成历史 UI。
-async fn resolve_input(
+/// 永远保留摄入阶段的图像；延迟或焦点变化只撤销结构化元素，不重拍。
+async fn collect_input(
     mut input: CapturedInput,
-    resolver: Arc<TargetResolver>,
-) -> (CapturedInput, Option<ResolvedTarget>) {
-    let Some(probe) = input.probe else {
-        return (input, None);
-    };
-    let late = input.captured_at.elapsed() > Duration::from_millis(150)
+    collector: Arc<EvidenceCollector>,
+) -> (CapturedInput, Option<EventEvidence>) {
+    let mut evidence = EventEvidence::default();
+    let late = input.captured_at.elapsed()
+        + Duration::from_millis(input.captured_at_ms.saturating_sub(input.elapsed_ms))
+        > Duration::from_millis(150)
         || input
             .diagnostics
             .contains(&RecordingDiagnostic::LateInspection);
-    let context = input.context.take();
-    let mut target = match context {
-        Some(Ok(context)) if !late => resolver.resolve(context, probe).await,
-        Some(Ok(context)) => TargetResolver::fallback(
-            Some(context),
-            probe,
-            vec![RecordingDiagnostic::LateInspection],
-        ),
-        Some(Err(reason)) => TargetResolver::fallback(
-            None,
-            probe,
-            vec![RecordingDiagnostic::Fallback {
-                backend: ResolutionBackend::Coordinate,
-                reason,
-            }],
-        ),
-        None => TargetResolver::fallback(None, probe, vec![RecordingDiagnostic::LateInspection]),
-    };
-    if matches!(probe, argusflow_core::InspectionProbe::Focus)
+    match input.context.take() {
+        Some(Ok(context)) => {
+            if let Some(probe) = input.probe.filter(|_| !late) {
+                evidence = collector
+                    .collect(
+                        context,
+                        probe,
+                        input.captured_at_ms + input.captured_at.elapsed().as_millis() as u64,
+                        input.elapsed_ms,
+                    )
+                    .await;
+            } else {
+                evidence.context = Some(context);
+                if late {
+                    evidence
+                        .diagnostics
+                        .push(RecordingDiagnostic::LateInspection);
+                }
+            }
+        }
+        Some(Err(reason)) => evidence
+            .diagnostics
+            .push(RecordingDiagnostic::ContextUnavailable { reason }),
+        None => {}
+    }
+    if matches!(input.probe, Some(argusflow_core::InspectionProbe::Focus))
         && input.focus_epoch.load(Ordering::Relaxed) != input.expected_epoch
     {
-        target = TargetResolver::fallback(
-            target.context,
-            probe,
-            vec![RecordingDiagnostic::Fallback {
-                backend: target.backend,
-                reason: argusflow_core::InspectionFailure::ContextChanged,
-            }],
-        );
+        if let Some(snapshot) = evidence.ui_snapshot.take() {
+            evidence
+                .diagnostics
+                .push(RecordingDiagnostic::InspectionFailed {
+                    backend: snapshot.backend,
+                    reason: argusflow_core::InspectionFailure::ContextChanged,
+                });
+        }
     }
-    (input, Some(target))
+    // PNG 编码与结构化查询并行；等待时只接收已冻结像素的持久化结果。
+    if let Some(screenshot) = input.screenshot.take() {
+        match screenshot
+            .await
+            .unwrap_or(Err(argusflow_core::InspectionFailure::Unavailable))
+        {
+            Ok(screenshot) => evidence.screenshot = Some(screenshot),
+            Err(reason) => evidence
+                .diagnostics
+                .push(RecordingDiagnostic::ScreenshotUnavailable { reason }),
+        }
+    }
+    let evidence = (evidence != EventEvidence::default()).then_some(evidence);
+    (input, evidence)
 }

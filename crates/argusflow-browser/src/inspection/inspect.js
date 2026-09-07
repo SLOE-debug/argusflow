@@ -49,7 +49,7 @@ function () {
         bounds: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
         editable: element.isContentEditable || ['input', 'textarea'].includes(element.localName),
         sensitive: sensitive(element) || Boolean(element.closest('[data-sensitive], [data-private], input[type=password]')),
-        replayable: element.ownerDocument.defaultView === element.ownerDocument.defaultView.top
-            && element.getRootNode() === element.ownerDocument && !['iframe', 'frame'].includes(element.localName),
+        // Shadow DOM 和 iframe 容器仍是有效观察事实；只拒绝未变换的子文档坐标。
+        top_level_viewport: element.ownerDocument.defaultView === element.ownerDocument.defaultView.top,
     };
 }

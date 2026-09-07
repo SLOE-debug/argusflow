@@ -152,10 +152,10 @@ name = "argusflow-recorder"
 version = "0.1.0"
 dependencies = [
  "argusflow-core",
- "argusflow-query",
  "argusflow-windows",
  "async-trait",
  "futures-util",
+ "png 0.18.1",
  "serde",
  "serde_json",
  "thiserror 2.0.20",

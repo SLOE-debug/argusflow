@@ -1,109 +1,116 @@
-//! Physical → Semantic 单向解析链；所有适配器通过 core 的只读契约装配。
+//! 只读 UIA/CDP 证据采集；截图在 ingestion 阶段预先冻结。
 
-use crate::{RecordingDiagnostic, ResolutionBackend, ResolvedTarget, synthesize_selectors};
+use crate::{EventEvidence, EvidenceBackend, RecordingDiagnostic, UiSnapshot};
 use argusflow_core::{
-    FieldSensitivity, InspectionContext, InspectionFailure, InspectionProbe, TargetInspector,
+    ElementRole, EvidenceFrame, FieldSensitivity, InspectedEntity, InspectionContext,
+    InspectionFailure, InspectionProbe, TargetInspector, WindowEvidenceCapture, WindowIdentity,
     WindowInspector,
 };
 use std::{sync::Arc, time::Duration};
 
-/// 宿主共享现有 browser/UIA/Vision 实例，录制器不依赖具体后端 crate。
-pub struct TargetResolver {
-    /// 实际点所在窗口的同步只读探测。
+/// 后端只通过 core 契约协作，不依赖 OCR 或 selector 编译。
+pub struct EvidenceCollector {
+    /// 同步窗口身份查询。
     windows: Arc<dyn WindowInspector>,
-    /// 只有当前 runtime 已附加的页面可返回成功。
+    /// 已托管页面的只读观察实例。
     browser: Arc<dyn TargetInspector>,
-    /// UIA 原有 MTA worker。
+    /// UIA 专用 worker 门面。
     uia: Arc<dyn TargetInspector>,
-    /// 共用窗口捕获与 OCR Scene。
-    vision: Arc<dyn TargetInspector>,
+    /// 事件到达时同步冻结像素。
+    capture: Arc<dyn WindowEvidenceCapture>,
 }
 
-impl TargetResolver {
-    /// 建立唯一解析顺序；外部不能修改内部 backend 集合。
+impl EvidenceCollector {
+    /// 复用宿主结构化观察实例，截图使用独立快速能力。
     pub fn new(
         windows: Arc<dyn WindowInspector>,
         browser: Arc<dyn TargetInspector>,
         uia: Arc<dyn TargetInspector>,
-        vision: Arc<dyn TargetInspector>,
+        capture: Arc<dyn WindowEvidenceCapture>,
     ) -> Self {
         Self {
             windows,
             browser,
             uia,
-            vision,
+            capture,
         }
     }
 
-    /// 仅由 ingestion worker 调用，在开始慢速语义检查前冻结窗口。
+    /// 在事件摄入阶段读取真实点击窗口或键盘上下文。
     pub fn context(&self, probe: InspectionProbe) -> Result<InspectionContext, InspectionFailure> {
         self.windows.context(probe)
     }
 
-    /// 明确 late/context failure 的 coordinate 降级，不尝试重新解释历史屏幕。
-    pub fn fallback(
-        context: Option<InspectionContext>,
-        probe: InspectionProbe,
-        diagnostics: Vec<RecordingDiagnostic>,
-    ) -> ResolvedTarget {
-        let point = match probe {
-            InspectionProbe::Point(point) => Some(point),
-            InspectionProbe::Focus => None,
-        };
-        let candidates = synthesize_selectors(None, ResolutionBackend::Coordinate, point);
-        ResolvedTarget {
-            context,
-            backend: ResolutionBackend::Coordinate,
-            entity: None,
-            preferred_selector: (!candidates.is_empty()).then_some(0),
-            selector_candidates: candidates,
-            confidence: 0.05,
-            diagnostics,
-        }
+    /// 窗口事件必须使用事件携带的身份。
+    pub(crate) fn window_context(
+        &self,
+        window: WindowIdentity,
+    ) -> Result<InspectionContext, InspectionFailure> {
+        self.windows.window_context(window)
     }
 
-    /// CDP → UIA → Vision → coordinate；任何 provider 故障都进入结构化诊断。
-    pub async fn resolve(
+    /// 同步冻结像素，绝不等待异步元素检查失败后再拍摄。
+    pub(crate) fn capture(
+        &self,
+        context: &InspectionContext,
+    ) -> Result<EvidenceFrame, InspectionFailure> {
+        self.capture.capture(context)
+    }
+
+    /// 尝试结构化证据；不可用时返回窗口事实，图像由调用方保留。
+    pub async fn collect(
         &self,
         context: InspectionContext,
         probe: InspectionProbe,
-    ) -> ResolvedTarget {
-        let mut diagnostics = Vec::new();
+        observed_at_ms: u64,
+        event_elapsed_ms: u64,
+    ) -> EventEvidence {
+        let started = tokio::time::Instant::now();
+        let mut evidence = EventEvidence {
+            context: Some(context.clone()),
+            ..Default::default()
+        };
         for (backend, inspector, timeout) in [
             (
-                ResolutionBackend::ManagedCdp,
+                EvidenceBackend::ManagedCdp,
                 &self.browser,
-                Duration::from_millis(800),
+                Duration::from_millis(150),
             ),
-            (
-                ResolutionBackend::Uia,
-                &self.uia,
-                Duration::from_millis(1500),
-            ),
-            (
-                ResolutionBackend::Vision,
-                &self.vision,
-                Duration::from_secs(8),
-            ),
+            (EvidenceBackend::Uia, &self.uia, Duration::from_millis(1000)),
         ] {
+            if observed_at_ms.saturating_sub(event_elapsed_ms)
+                + started.elapsed().as_millis() as u64
+                >= 150
+            {
+                evidence
+                    .diagnostics
+                    .push(RecordingDiagnostic::LateInspection);
+                break;
+            }
+            let provider_started_ms = observed_at_ms + started.elapsed().as_millis() as u64;
+            let provider_started = tokio::time::Instant::now();
+            // 图像证据已经冻结，不受 provider 等待影响。
+            // UIA 外层预算须大于自身 800ms 恢复预算，避免提前取消导致阻塞 worker 无法恢复。
             let result = tokio::time::timeout(timeout, inspector.inspect(&context, probe))
                 .await
                 .unwrap_or(Err(InspectionFailure::Timeout));
             match result {
-                Ok(mut entity)
-                    if entity.bounds.is_valid()
-                        && entity.confidence.is_finite()
-                        && entity.confidence > 0.0 =>
-                {
-                    // 拒绝 provider 完成期间被替换/移走的窗口；不能把新窗口的事实套在旧事件上。
-                    if !self.context(probe).is_ok_and(|current| {
+                Ok(mut entity) if reliable(&entity, probe) => {
+                    let current = if matches!(probe, InspectionProbe::Window) {
+                        self.window_context(context.window)
+                    } else {
+                        self.context(probe)
+                    };
+                    if !current.is_ok_and(|current| {
                         current.window == context.window && current.bounds == context.bounds
                     }) {
-                        diagnostics.push(RecordingDiagnostic::Fallback {
-                            backend,
-                            reason: InspectionFailure::ContextChanged,
-                        });
-                        return Self::fallback(Some(context), probe, diagnostics);
+                        evidence
+                            .diagnostics
+                            .push(RecordingDiagnostic::InspectionFailed {
+                                backend,
+                                reason: InspectionFailure::ContextChanged,
+                            });
+                        break;
                     }
                     if entity.sensitivity == FieldSensitivity::Sensitive {
                         entity.semantics.name = None;
@@ -111,31 +118,43 @@ impl TargetResolver {
                             .ancestors
                             .iter_mut()
                             .for_each(|item| item.name = None);
-                        diagnostics.push(RecordingDiagnostic::Redacted);
+                        evidence.diagnostics.push(RecordingDiagnostic::Redacted);
                     }
-                    let point = match probe {
-                        InspectionProbe::Point(point) => Some(point),
-                        InspectionProbe::Focus => None,
-                    };
-                    let candidates = synthesize_selectors(Some(&entity), backend, point);
-                    diagnostics.push(RecordingDiagnostic::SelectorUniquenessUnverified);
-                    return ResolvedTarget {
-                        context: Some(context),
+                    evidence.ui_snapshot = Some(UiSnapshot {
                         backend,
-                        confidence: entity.confidence.clamp(0.0, 1.0),
-                        entity: Some(entity),
-                        preferred_selector: (!candidates.is_empty()).then_some(0),
-                        selector_candidates: candidates,
-                        diagnostics,
-                    };
+                        entity,
+                        observed_at_ms: provider_started_ms,
+                        observation_duration_ms: provider_started.elapsed().as_millis() as u64,
+                    });
+                    break;
                 }
-                Ok(_) => diagnostics.push(RecordingDiagnostic::Fallback {
-                    backend,
-                    reason: InspectionFailure::NoElement,
-                }),
-                Err(reason) => diagnostics.push(RecordingDiagnostic::Fallback { backend, reason }),
+                Ok(_) => evidence
+                    .diagnostics
+                    .push(RecordingDiagnostic::InspectionFailed {
+                        backend,
+                        reason: InspectionFailure::NoElement,
+                    }),
+                Err(reason) => evidence
+                    .diagnostics
+                    .push(RecordingDiagnostic::InspectionFailed { backend, reason }),
             }
         }
-        Self::fallback(Some(context), probe, diagnostics)
+        evidence
     }
+}
+
+/// 只命中窗口/容器或无角色不能证明具有可靠的结构化交互信息。
+fn reliable(entity: &InspectedEntity, probe: InspectionProbe) -> bool {
+    entity.bounds.is_valid()
+        && entity.confidence.is_finite()
+        && entity.confidence >= 0.5
+        && (matches!(probe, InspectionProbe::Window)
+            || !matches!(
+                entity.semantics.role,
+                None | Some(ElementRole::Window | ElementRole::Pane | ElementRole::Document)
+            ))
+        && match probe {
+            InspectionProbe::Point(point) => entity.bounds.contains(point),
+            InspectionProbe::Focus | InspectionProbe::Window => true,
+        }
 }

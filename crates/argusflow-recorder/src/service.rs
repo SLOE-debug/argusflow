@@ -1,8 +1,8 @@
-//! 录制生命周期与后台任务编排；不包含平台解析、归一化或文件编码细节。
+//! 录制生命周期与后台任务编排；证据采集和文件编码由独立模块负责。
 
 use crate::{
-    RecorderError, RecorderPhase, RecorderStatus, RecordingFiles, RecordingSummary, RecordingTrace,
-    TargetResolver, hooks::HookCapture,
+    EvidenceCollector, RecorderError, RecorderPhase, RecorderStatus, RecordingFiles,
+    RecordingSummary, RecordingTrace, hooks::HookCapture,
 };
 use serde::Serialize;
 use std::{
@@ -20,7 +20,7 @@ use windows::Win32::System::SystemInformation::GetTickCount;
 /// 停止后的文件与结构化结果。
 #[derive(Debug, Clone, Serialize)]
 pub struct CompletedRecording {
-    /// raw/semantic/manifest 三个本地文件。
+    /// 时间线、manifest 与图像证据目录。
     pub files: RecordingFiles,
     /// 供当前调用方立即使用的完整 Trace。
     pub trace: RecordingTrace,
@@ -29,7 +29,7 @@ pub struct CompletedRecording {
 /// 应用级单录制控制器；必须显式 start，构造不会安装全局 Hook。
 pub struct RecorderService {
     /// 与执行器共用能力实例的反查门面。
-    resolver: Arc<TargetResolver>,
+    resolver: Arc<EvidenceCollector>,
     /// 默认位于宿主 .argusflow/recordings。
     root: PathBuf,
     /// start/stop 的互斥生命周期边界。
@@ -44,7 +44,7 @@ struct ActiveRecording {
     hook: HookCapture,
     /// 元数据摄入线程；hook 关闭后输入 channel 自然结束。
     ingestion: Option<std::thread::JoinHandle<()>>,
-    /// 按序脱敏和 normalization 的异步结果。
+    /// 按序脱敏并关联证据的异步结果。
     worker: tokio::task::JoinHandle<RecordingTrace>,
     /// 文件写入失败或调用取消时仍保留可重试的 Trace。
     completed: Option<RecordingTrace>,
@@ -58,7 +58,7 @@ struct ActiveRecording {
 
 impl RecorderService {
     /// 构造只保存配置的控制器，不访问用户输入。
-    pub fn new(resolver: Arc<TargetResolver>, root: impl Into<PathBuf>) -> Self {
+    pub fn new(resolver: Arc<EvidenceCollector>, root: impl Into<PathBuf>) -> Self {
         Self {
             resolver,
             root: root.into(),
@@ -73,6 +73,10 @@ impl RecorderService {
             return Err(RecorderError::AlreadyRecording);
         }
         let id = uuid::Uuid::new_v4();
+        // 先确认演示包可写，再安装 Hook；截图在录制期间立即写入此目录。
+        let directory = self.root.join(id.to_string());
+        tokio::fs::create_dir_all(directory.join("evidence")).await?;
+        let screenshots = crate::screenshot_pipeline::ScreenshotWriter::start(directory)?;
         let dropped = Arc::new(AtomicU64::new(0));
         let processed = Arc::new(AtomicU64::new(0));
         let (hook_sender, hook_receiver) = mpsc::sync_channel(4096);
@@ -95,6 +99,7 @@ impl RecorderService {
                     resolver,
                     ingestion_dropped,
                     started_tick,
+                    screenshots,
                 )
             })
             .map_err(|_| RecorderError::WorkerUnavailable)?;
@@ -132,7 +137,7 @@ impl RecorderService {
         })
     }
 
-    /// 先卸载 Hook、排空已捕获事件，再分别保存 raw/semantic；失败时可再次 stop 重试保存。
+    /// 先卸载监听并排空事件及 PNG，再发布时间线；发布失败可再次 stop 重试。
     pub async fn stop(&self) -> Result<CompletedRecording, RecorderError> {
         let mut session = self.session.lock().await;
         let active = session.as_mut().ok_or(RecorderError::NotRecording)?;
@@ -198,5 +203,15 @@ impl RecorderService {
     /// 通过 UUID 读取录制，调用方不能传入文件路径。
     pub async fn load(&self, id: uuid::Uuid) -> Result<CompletedRecording, RecorderError> {
         crate::history::load(&self.root, id).await
+    }
+
+    /// 只读取已发布事件的完整窗口图像或点击 crop。
+    pub async fn screenshot(
+        &self,
+        id: uuid::Uuid,
+        sequence: u64,
+        kind: crate::ScreenshotKind,
+    ) -> Result<Vec<u8>, RecorderError> {
+        crate::evidence_reader::read(&self.root, id, sequence, kind).await
     }
 }

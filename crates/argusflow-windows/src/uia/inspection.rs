@@ -92,6 +92,7 @@ pub(super) fn inspect_element(
                 &request,
             ),
             InspectionProbe::Focus => automation.GetFocusedElementBuildCache(&request),
+            InspectionProbe::Window => automation.ElementFromHandleBuildCache(hwnd, &request),
         }
     }
     .map_err(|_| InspectionFailure::NoElement)?;

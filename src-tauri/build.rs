@@ -20,6 +20,7 @@ fn main() {
             "get_recording_status",
             "list_recordings",
             "get_recording",
+            "read_recording_screenshot",
         ]));
 
     if let Err(error) = tauri_build::try_build(attributes) {

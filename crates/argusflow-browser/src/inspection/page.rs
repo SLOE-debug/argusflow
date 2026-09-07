@@ -22,8 +22,8 @@ struct PageEntity {
     editable: bool,
     /// 页面从 type/autocomplete/字段元数据读取的敏感性。
     sensitive: bool,
-    /// iframe/shadow tree 无法由当前 AQL 页面执行器查询。
-    replayable: bool,
+    /// CSS bounds 是否属于已验证的顶层 viewport；与 selector 可执行性无关。
+    top_level_viewport: bool,
 }
 
 pub(super) async fn inspect(
@@ -49,8 +49,8 @@ pub(super) async fn inspect(
         .ok_or(InspectionFailure::NoElement)?;
     let mut entity: PageEntity =
         serde_json::from_value(value).map_err(|_| InspectionFailure::NoElement)?;
-    if !entity.replayable {
-        return Err(InspectionFailure::UnsupportedScope);
+    if !entity.top_level_viewport {
+        return Err(InspectionFailure::InvalidGeometry);
     }
     if !entity.bounds.is_valid() {
         return Err(InspectionFailure::NoElement);

@@ -11,6 +11,7 @@ mod component;
 mod condition;
 mod data;
 mod error;
+mod evidence;
 mod execution;
 mod input;
 mod inspection;
@@ -46,6 +47,7 @@ pub use component::{
 pub use condition::{ConditionEvaluationError, ConditionOperator};
 pub use data::DelimitedTextFormat;
 pub use error::{ActionCapability, AutomationError};
+pub use evidence::{EvidenceFrame, EvidencePixelFormat, WindowEvidenceCapture};
 pub use execution::{
     ExecutionComponentFrame, ExecutionEvent, ExecutionEventKind, ExecutionEventPayload,
     ExecutionLoopFrame, ExecutionStructureFrame, RunStarted,

@@ -47,18 +47,19 @@ fn ime_failure_survives_in_ai_trace_without_leaking_down_or_up_codes() {
             }
         ));
     }
-    let normalized = TraceNormalizer::normalize(&RawTrace {
-        events: vec![down, up],
-    });
     assert!(
-        normalized.records.is_empty(),
-        "IME key codes cannot become fabricated committed text"
+        down.diagnostics
+            .contains(&RecordingDiagnostic::KeyboardDecode {
+                reason: KeyboardDecodeFailure::InputMethodActive
+            })
     );
     assert_eq!(
-        normalized.diagnostics,
-        vec![RecordingDiagnostic::KeyboardDecode {
-            reason: KeyboardDecodeFailure::InputMethodActive
-        }]
+        EventTimeline {
+            events: vec![down, up]
+        }
+        .events
+        .len(),
+        2
     );
 }
 
@@ -67,7 +68,7 @@ fn password_and_unknown_redact_both_down_and_up_and_normalized_trace() {
     for sensitivity in [FieldSensitivity::Sensitive, FieldSensitivity::Unknown] {
         let mut redactor = InputRedactor::default();
         let mut target = target();
-        target.entity.as_mut().unwrap().sensitivity = sensitivity;
+        target.ui_snapshot.as_mut().unwrap().entity.sensitivity = sensitivity;
         let down = redactor.sanitize(
             event(1, InputPhase::Down),
             1,
@@ -95,22 +96,18 @@ fn password_and_unknown_redact_both_down_and_up_and_normalized_trace() {
                 }
             ));
         }
-        let raw = RawTrace {
+        let raw = EventTimeline {
             events: vec![down, up],
         };
-        let normalized = TraceNormalizer::normalize(&raw);
         assert!(!serde_json::to_string(&raw).unwrap().contains("TOP_SECRET"));
-        assert!(
-            !serde_json::to_string(&normalized)
-                .unwrap()
-                .contains("TOP_SECRET")
-        );
-        assert_eq!(
-            normalized.records[0].operation,
-            RecordedOperation::TypeText {
-                text: RecordedText::Redacted
+        assert_eq!(raw.events.len(), 2);
+        assert!(matches!(
+            raw.events[0].input,
+            RawInput::Key {
+                text: Some(RecordedText::Redacted),
+                ..
             }
-        );
+        ));
     }
 }
 

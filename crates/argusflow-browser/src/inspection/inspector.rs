@@ -87,12 +87,12 @@ pub(super) async fn inspect_attached(
                 .map(str::to_owned)
                 .ok_or(InspectionFailure::NoElement)?
         }
-        InspectionProbe::Focus => {
+        InspectionProbe::Focus | InspectionProbe::Window => {
             let result = page
                 .command(
                     "Runtime.evaluate",
                     json!({
-                        "expression": "document.activeElement", "objectGroup": lease.group(),
+                        "expression": if matches!(probe, InspectionProbe::Window) { "document.documentElement" } else { "document.activeElement" }, "objectGroup": lease.group(),
                     }),
                 )
                 .await

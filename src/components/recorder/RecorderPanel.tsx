@@ -16,22 +16,32 @@ export function RecorderPanel({ open, onOpenChange, recorder, workflowRunning }:
     <Dialog
       open={open}
       onOpenChange={onOpenChange}
-      title="语义录制器"
-      description="记录点击、文字输入与快捷键。密码和无法确认的输入会自动遮盖。"
+      title="操作演示录制器"
+      description="记录鼠标、键盘、窗口与剪贴板变化，并保存当时的界面证据。"
       closeLabel="收起录制面板"
       size="wide"
       className="select-text"
     >
       <div className="flex h-[min(76vh,52rem)] min-h-0 flex-col gap-3">
-        <RecorderControls recorder={recorder} workflowRunning={workflowRunning} />
+        <RecorderControls
+          recorder={recorder}
+          workflowRunning={workflowRunning}
+        />
         {recorder.error ? (
-          <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">{recorder.error}</p>
+          <p
+            role="alert"
+            className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700"
+          >{recorder.error}</p>
         ) : null}
         <div className="grid min-h-0 flex-1 grid-cols-[11rem_minmax(0,1fr)] gap-3">
           <aside className="flex min-h-0 flex-col rounded-lg border border-slate-200">
             <header className="flex items-center justify-between border-b border-slate-200 p-2">
               <h3 className="text-xs font-semibold">录制历史</h3>
-              <Button size="compact" variant="ghost" onClick={() => void recorder.refreshHistory()}>刷新</Button>
+              <Button
+                size="compact"
+                variant="ghost"
+                onClick={() => void recorder.refreshHistory()}
+              >刷新</Button>
             </header>
             <ul className="min-h-0 flex-1 overflow-y-auto p-1">
               {recorder.history.map((item) => (
@@ -45,7 +55,7 @@ export function RecorderPanel({ open, onOpenChange, recorder, workflowRunning }:
                   >
                     <span className="block text-[11px]">
                       <span className="block">{recordingDate(item.started_at_unix_ms)}</span>
-                      <span className="mt-1 block font-normal text-slate-500">{item.semantic_record_count} 个步骤 · {item.raw_event_count} 个事件</span>
+                      <span className="mt-1 block font-normal text-slate-500">{item.event_count} 个事件 · {item.screenshot_count} 份截图</span>
                     </span>
                   </Button>
                 </li>
@@ -54,18 +64,24 @@ export function RecorderPanel({ open, onOpenChange, recorder, workflowRunning }:
             </ul>
           </aside>
           {recorder.loadingHistory ? (
-            <p role="status" className="p-5 text-sm text-slate-500">正在读取录制…</p>
+            <p
+              role="status"
+              className="p-5 text-sm text-slate-500"
+            >正在读取录制…</p>
           ) : recorder.completed ? (
-            <RecordingTraceViewer key={recorder.completed.trace.recording_id} recording={recorder.completed} />
+            <RecordingTraceViewer
+              key={recorder.completed.trace.recording_id}
+              recording={recorder.completed}
+            />
           ) : (
             <div className="flex items-center justify-center rounded-lg border border-dashed border-slate-300 p-8">
               <div className="max-w-md text-center">
-                <h3 className="text-sm font-semibold">{recorder.status.phase === 'recording' ? '操作正在后台录制' : '把实际操作记录为语义步骤'}</h3>
+                <h3 className="text-sm font-semibold">{recorder.status.phase === 'recording' ? '操作正在后台录制' : '记录一次完整的跨应用演示'}</h3>
                 <p className="mt-2 text-xs leading-6 text-slate-500">
-                  停止并保存后，在这里查看操作、目标、定位候选和降级原因。语义 Trace 可以复制给 AI 整理流程。
+                  停止后可查看事件时间线、界面快照和截图。将完整演示包交给多模态 AI，理解任务后再生成工作流。
                 </p>
                 <p className="mt-2 text-xs leading-6 text-slate-500">
-                  当前支持普通键盘字符；中文输入法组合、拖拽和滚轮暂不生成完整语义步骤。
+                  键盘敏感内容会遮盖；截图和剪贴板文本按实际内容保存。中文输入法最终提交文字仍可能缺失。
                 </p>
               </div>
             </div>

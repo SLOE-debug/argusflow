@@ -7,7 +7,9 @@ mod physical_assertions;
 
 use argusflow_core::*;
 use argusflow_recorder::*;
-use argusflow_windows::{uia::UiaRuntime, window::WindowsWindowInspector};
+use argusflow_windows::{
+    capture::WindowsEventCapture, uia::UiaRuntime, window::WindowsWindowInspector,
+};
 use async_trait::async_trait;
 use std::{sync::Arc, time::Duration};
 
@@ -27,6 +29,15 @@ impl TargetInspector for Unavailable {
 /// 测试只允许解析 fixture 窗口，用户误切其他应用时输入按未知字段遮盖。
 struct FixtureWindowInspector(u64);
 impl WindowInspector for FixtureWindowInspector {
+    fn window_context(
+        &self,
+        window: WindowIdentity,
+    ) -> Result<InspectionContext, InspectionFailure> {
+        if window.handle != self.0 {
+            return Err(InspectionFailure::ContextChanged);
+        }
+        WindowsWindowInspector.window_context(window)
+    }
     fn context(&self, probe: InspectionProbe) -> Result<InspectionContext, InspectionFailure> {
         let context = WindowsWindowInspector.context(probe)?;
         if context.window.handle != self.0 {
@@ -38,7 +49,7 @@ impl WindowInspector for FixtureWindowInspector {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires physical clicks and fixed text in the temporary Win32 fixture within 90 seconds"]
-async fn physical_input_to_semantic_trace_and_redaction() {
+async fn physical_input_to_event_timeline_and_evidence() {
     let fixture = native_window::NativeWindow::start();
     let uia = Arc::new(UiaRuntime::start());
     for _ in 0..50 {
@@ -47,17 +58,17 @@ async fn physical_input_to_semantic_trace_and_redaction() {
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    let resolver = Arc::new(TargetResolver::new(
+    let resolver = Arc::new(EvidenceCollector::new(
         Arc::new(FixtureWindowInspector(fixture.handle)),
         Arc::new(Unavailable),
         uia,
-        Arc::new(Unavailable),
+        Arc::new(WindowsEventCapture::default()),
     ));
     let root = std::env::temp_dir().join(format!("argusflow-physical-{}", uuid::Uuid::new_v4()));
     let recorder = RecorderService::new(resolver, &root);
     recorder.start().await.unwrap();
     println!(
-        "PHYSICAL SEMANTIC READY: use English layout; click top field, type argus; click bottom, type secret42; press Enter. Automatic stop after 90 seconds."
+        "PHYSICAL TIMELINE READY: use English layout; click top field, type argus; click bottom, type secret42; press Enter. Automatic stop after 90 seconds."
     );
     let deadline = tokio::time::Instant::now() + Duration::from_secs(90);
     let mut finished = false;
@@ -71,20 +82,9 @@ async fn physical_input_to_semantic_trace_and_redaction() {
     // Enter 的真实 key-up 需要经过 Hook、摄入线程与有序 worker；stop 会排空整个链。
     let completed = recorder.stop().await.unwrap();
     let loaded = recorder.load(completed.trace.recording_id).await.unwrap();
-    assert_eq!(loaded.trace.raw, completed.trace.raw);
-    assert_eq!(loaded.trace.normalized, completed.trace.normalized);
+    assert_eq!(loaded.trace.timeline, completed.trace.timeline);
     // 在断言之前清理固定测试目录，失败也不会留下录制内容；只删除显式返回的文件。
-    for file in [
-        &completed.files.raw,
-        &completed.files.normalized,
-        &completed.files.manifest,
-    ] {
-        tokio::fs::remove_file(file).await.unwrap();
-    }
-    tokio::fs::remove_dir(root.join(completed.trace.recording_id.to_string()))
-        .await
-        .unwrap();
-    tokio::fs::remove_dir(root).await.unwrap();
+    cleanup(&root).await;
     assert!(
         finished,
         "no completion Enter in fixture before deadline; Hook has been stopped"
@@ -105,11 +105,11 @@ async fn real_uia_hit_test_password_and_hook_service_save_retry() {
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    let resolver = Arc::new(TargetResolver::new(
+    let resolver = Arc::new(EvidenceCollector::new(
         Arc::new(windows),
         Arc::new(Unavailable),
         uia,
-        Arc::new(Unavailable),
+        Arc::new(WindowsEventCapture::default()),
     ));
     for (point, sensitivity) in [
         (fixture.ordinary, FieldSensitivity::Normal),
@@ -119,14 +119,14 @@ async fn real_uia_hit_test_password_and_hook_service_save_retry() {
         let context = WindowsWindowInspector.context(probe).unwrap();
         assert_eq!(context.window.handle, fixture.handle);
         assert_eq!(context.window.process_id, std::process::id());
-        let target = resolver.resolve(context, probe).await;
+        let target = resolver.collect(context, probe, 0, 0).await;
         assert_eq!(
-            target.backend,
-            ResolutionBackend::Uia,
+            target.ui_snapshot.as_ref().unwrap().backend,
+            EvidenceBackend::Uia,
             "diagnostics={:?}",
             target.diagnostics
         );
-        let entity = target.entity.as_ref().unwrap();
+        let entity = &target.ui_snapshot.as_ref().unwrap().entity;
         assert_eq!(entity.semantics.role, Some(ElementRole::TextBox));
         assert_eq!(entity.sensitivity, sensitivity);
         assert_eq!(
@@ -142,14 +142,10 @@ async fn real_uia_hit_test_password_and_hook_service_save_retry() {
             "UIA cache bounds must remain screen physical pixels"
         );
         assert!(entity.bounds.contains(point));
-        assert!(!target.selector_candidates.is_empty());
         if sensitivity == FieldSensitivity::Sensitive {
             assert!(entity.semantics.name.is_none());
         }
-        println!(
-            "real WindowFromPoint/UIA: TextBox, sensitivity={sensitivity:?}, candidates={}",
-            target.selector_candidates.len()
-        );
+        println!("real WindowFromPoint/UIA evidence: TextBox, sensitivity={sensitivity:?}");
     }
     fixture.focus_password();
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -157,9 +153,11 @@ async fn real_uia_hit_test_password_and_hook_service_save_retry() {
         .context(InspectionProbe::Focus)
         .unwrap();
     assert_eq!(context.window.handle, fixture.handle);
-    let focus = resolver.resolve(context, InspectionProbe::Focus).await;
+    let focus = resolver
+        .collect(context, InspectionProbe::Focus, 0, 0)
+        .await;
     assert_eq!(
-        focus.entity.unwrap().sensitivity,
+        focus.ui_snapshot.unwrap().entity.sensitivity,
         FieldSensitivity::Sensitive
     );
 
@@ -168,6 +166,12 @@ async fn real_uia_hit_test_password_and_hook_service_save_retry() {
     tokio::fs::write(&root, b"test blocker").await.unwrap();
     let recorder = RecorderService::new(resolver, &root);
     assert_eq!(recorder.status().await.phase, RecorderPhase::Idle);
+    // 截图目录必须在监听前可写，开始失败不能留下 Hook。
+    assert!(matches!(
+        recorder.start().await,
+        Err(RecorderError::Storage(_))
+    ));
+    tokio::fs::remove_file(&root).await.unwrap();
     assert_eq!(
         recorder.start().await.unwrap().phase,
         RecorderPhase::Recording
@@ -176,34 +180,42 @@ async fn real_uia_hit_test_password_and_hook_service_save_retry() {
         recorder.start().await,
         Err(RecorderError::AlreadyRecording)
     ));
+    let recording_id = recorder.status().await.recording_id.unwrap();
+    // 用同名目录阻止 timeline rename，不影响已经冻结的截图。
+    let blocker = root.join(recording_id.to_string()).join("timeline.json");
+    tokio::fs::create_dir(&blocker).await.unwrap();
     assert!(matches!(
         recorder.stop().await,
         Err(RecorderError::Storage(_))
     ));
     assert_eq!(recorder.status().await.phase, RecorderPhase::AwaitingSave);
-    tokio::fs::remove_file(&root).await.unwrap();
+    tokio::fs::remove_dir(blocker).await.unwrap();
     let completed = recorder.stop().await.unwrap();
     assert_eq!(recorder.status().await.phase, RecorderPhase::Idle);
     let saved = recorder.load(completed.trace.recording_id).await.unwrap();
-    assert_eq!(saved.trace.normalized, completed.trace.normalized);
+    assert_eq!(saved.trace.timeline, completed.trace.timeline);
     assert_eq!(recorder.list().await.unwrap().len(), 1);
     assert!(matches!(
         recorder.stop().await,
         Err(RecorderError::NotRecording)
     ));
-    // 仅删除本次 UUID fixture 返回的三个文件及其空目录。
-    for file in [
-        &completed.files.raw,
-        &completed.files.normalized,
-        &completed.files.manifest,
-    ] {
-        tokio::fs::remove_file(file).await.unwrap();
-    }
-    tokio::fs::remove_dir(root.join(completed.trace.recording_id.to_string()))
-        .await
-        .unwrap();
-    tokio::fs::remove_dir(root).await.unwrap();
+    cleanup(&root).await;
     println!(
         "real Hook service: start, duplicate rejection, stop, save failure, retry, history roundtrip passed"
     );
+}
+
+/// 清理仅由本测试生成的临时 UUID 目录，先验证绝对目标归属。
+async fn cleanup(root: &std::path::Path) {
+    let directory = tokio::fs::canonicalize(root).await.unwrap();
+    let temporary = tokio::fs::canonicalize(std::env::temp_dir()).await.unwrap();
+    assert_eq!(directory.parent(), Some(temporary.as_path()));
+    assert!(
+        directory
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with("argusflow-")
+    );
+    tokio::fs::remove_dir_all(directory).await.unwrap();
 }

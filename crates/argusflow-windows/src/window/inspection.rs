@@ -31,6 +31,25 @@ use windows::{
 pub struct WindowsWindowInspector;
 
 impl WindowInspector for WindowsWindowInspector {
+    fn window_context(
+        &self,
+        window: WindowIdentity,
+    ) -> Result<InspectionContext, InspectionFailure> {
+        // SAFETY: 同步线程局部 DPI 范围；身份在读取后再次核对。
+        let previous =
+            unsafe { SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
+        let result = inspect_window(HWND(window.handle as *mut _)).and_then(|context| {
+            if context.window == window {
+                Ok(context)
+            } else {
+                Err(InspectionFailure::ContextChanged)
+            }
+        });
+        if !previous.0.is_null() {
+            unsafe { SetThreadDpiAwarenessContext(previous) };
+        }
+        result
+    }
     fn context(&self, probe: InspectionProbe) -> Result<InspectionContext, InspectionFailure> {
         // SAFETY: DPI context 仅覆盖当前同步 worker 调用，并在返回前恢复。
         let previous =
@@ -54,10 +73,16 @@ fn inspect_context(probe: InspectionProbe) -> Result<InspectionContext, Inspecti
                 y: point.y,
             }),
             InspectionProbe::Focus => GetForegroundWindow(),
+            InspectionProbe::Window => return Err(InspectionFailure::ContextChanged),
         }
     };
     // SAFETY: 不解引用 HWND，失效句柄由后续 API 检测。
     let root = unsafe { GetAncestor(child, GA_ROOT) };
+    inspect_window(root)
+}
+
+/// 从事件指定的根窗口读取自有元数据。
+fn inspect_window(root: HWND) -> Result<InspectionContext, InspectionFailure> {
     if root.0.is_null() {
         return Err(InspectionFailure::ContextChanged);
     }

@@ -68,6 +68,8 @@ pub enum InspectionProbe {
     Point(ScreenPoint),
     /// 键盘输入前当前 focused element。
     Focus,
+    /// 事件指定的窗口根；使用 InspectionContext 的身份，不借用稍后的焦点。
+    Window,
 }
 
 /// 可序列化的语义属性；刻意不提供 value、outerHTML 或任意属性容器。
@@ -155,6 +157,11 @@ pub enum InspectionFailure {
 pub trait WindowInspector: Send + Sync {
     /// Point 使用 WindowFromPoint + GA_ROOT，Focus 才允许使用焦点窗口。
     fn context(&self, probe: InspectionProbe) -> Result<InspectionContext, InspectionFailure>;
+    /// 对窗口生命周期事件使用事件自带的 HWND/PID，不能替换为当前前台窗口。
+    fn window_context(
+        &self,
+        window: WindowIdentity,
+    ) -> Result<InspectionContext, InspectionFailure>;
 }
 
 /// CDP/UIA/Vision 共享的只读反查边界，不注册到 ActionRouter。

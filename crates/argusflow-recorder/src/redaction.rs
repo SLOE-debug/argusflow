@@ -1,8 +1,8 @@
 //! 原始键码与布局文本只允许经过此出口进入可序列化 Trace。
 
 use crate::{
-    InputPhase, PhysicalEvent, PhysicalInput, RawInput, RawTraceEvent, RecordedText,
-    RecordingDiagnostic, ResolvedTarget, input::DecodedKey,
+    EventEvidence, InputPhase, PhysicalEvent, PhysicalInput, RawInput, RawTraceEvent, RecordedText,
+    RecordingDiagnostic, input::DecodedKey,
 };
 use argusflow_core::{FieldSensitivity, KeyChord};
 
@@ -39,13 +39,18 @@ impl InputRedactor {
         event: PhysicalEvent,
         elapsed_ms: u64,
         decoded: DecodedKey,
-        target: Option<ResolvedTarget>,
+        target: Option<EventEvidence>,
         mut diagnostics: Vec<RecordingDiagnostic>,
     ) -> RawTraceEvent {
         if let Some(reason) = decoded.failure {
             diagnostics.push(RecordingDiagnostic::KeyboardDecode { reason });
         }
         let input = match event.input {
+            PhysicalInput::Window { window, change } => RawInput::Window { window, change },
+            PhysicalInput::Clipboard { sequence_number } => RawInput::Clipboard {
+                sequence_number,
+                content: crate::ClipboardContent::Unavailable,
+            },
             PhysicalInput::Mouse {
                 point,
                 button,
@@ -73,7 +78,7 @@ impl InputRedactor {
             } => {
                 let sensitive = target
                     .as_ref()
-                    .and_then(|target| target.entity.as_ref())
+                    .and_then(|target| target.ui_snapshot.as_ref().map(|snapshot| &snapshot.entity))
                     .is_none_or(|entity| {
                         entity.sensitivity != FieldSensitivity::Normal || !entity.editable
                     });
@@ -139,7 +144,7 @@ impl InputRedactor {
             timestamp_ms: event.timestamp_ms,
             elapsed_ms,
             input,
-            target,
+            evidence: target,
             diagnostics,
         }
     }

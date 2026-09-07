@@ -34,7 +34,7 @@ async fn coordinate_hit_test_and_object_cleanup_use_only_the_attached_session() 
                 "Runtime.callFunctionOn" => json!({ "result": { "value": {
                     "semantics": { "role": "text_box", "name": "Name", "test_id": "name-input" },
                     "ancestors": [], "bounds": { "x": 100, "y": 200, "width": 40, "height": 20 },
-                    "editable": true, "sensitive": false, "replayable": true,
+                    "editable": true, "sensitive": false, "top_level_viewport": true,
                 } } }),
                 "DOM.describeNode" => json!({ "node": { "backendNodeId": 99 } }),
                 "Runtime.releaseObjectGroup" => {

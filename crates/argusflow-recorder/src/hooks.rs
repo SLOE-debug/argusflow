@@ -78,6 +78,18 @@ impl HookCapture {
                 let installed = install();
                 match installed {
                     Ok((mouse, keyboard)) => {
+                        let system = crate::system_events::SystemEventCapture::install();
+                        if system.is_err() {
+                            unsafe {
+                                let _ = UnhookWindowsHookEx(mouse);
+                                let _ = UnhookWindowsHookEx(keyboard);
+                            }
+                            let _ = ready.send(Err(RecorderError::HookUnavailable));
+                            SINK.with(|sink| *sink.borrow_mut() = None);
+                            return;
+                        }
+                        // 同一消息线程安装并拥有系统通知，退出时先卸载再关闭输入队列。
+                        let _system = system;
                         let mut message = MSG::default();
                         // SAFETY: 先创建线程消息队列，再发布 thread id，避免 stop 的投递竞争。
                         unsafe {
@@ -167,7 +179,7 @@ fn install() -> Result<(HHOOK, HHOOK), RecorderError> {
 }
 
 /// Callback 的唯一业务操作：复制固定大小事件并立即非阻塞投递。
-fn emit(timestamp_ms: u32, input: PhysicalInput) {
+pub(crate) fn emit(timestamp_ms: u32, input: PhysicalInput) {
     SINK.with(|sink| {
         if let Ok(mut sink) = sink.try_borrow_mut()
             && let Some(sink) = sink.as_mut()
@@ -230,6 +242,22 @@ unsafe extern "system" fn mouse_hook(code: i32, message: WPARAM, parameter: LPAR
                     button: MouseButton::Middle,
                     phase: InputPhase::Up,
                 }),
+                WM_XBUTTONDOWN | WM_XBUTTONUP => match event.mouseData >> 16 {
+                    1 | 2 => Some(PhysicalInput::Mouse {
+                        point,
+                        button: if event.mouseData >> 16 == 1 {
+                            MouseButton::X1
+                        } else {
+                            MouseButton::X2
+                        },
+                        phase: if message.0 as u32 == WM_XBUTTONDOWN {
+                            InputPhase::Down
+                        } else {
+                            InputPhase::Up
+                        },
+                    }),
+                    _ => None,
+                },
                 WM_MOUSEMOVE => Some(PhysicalInput::Move { point }),
                 WM_MOUSEWHEEL | WM_MOUSEHWHEEL => Some(PhysicalInput::Wheel {
                     point,

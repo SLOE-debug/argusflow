@@ -63,9 +63,11 @@ test('contenteditable values are never converted into accessible names', () => {
     assert.equal(inspect.call(node).semantics.name, null);
 });
 
-test('iframe and shadow roots do not claim replayable selectors', () => {
+test('shadow roots and iframe containers retain evidence regardless of selector support', () => {
     const frame = element({}, { localName: 'iframe' });
-    assert.equal(inspect.call(frame).replayable, false);
+    assert.equal(inspect.call(frame).top_level_viewport, true);
     const shadow = element({}, { getRootNode: () => ({}) });
-    assert.equal(inspect.call(shadow).replayable, false);
+    assert.equal(inspect.call(shadow).top_level_viewport, true);
+    const child = element({}, { ownerDocument: { defaultView: { top: {} } } });
+    assert.equal(inspect.call(child).top_level_viewport, false);
 });

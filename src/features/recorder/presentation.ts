@@ -1,28 +1,22 @@
 import type { KeyChord, KeyboardKey, KeyboardModifier } from '../workflow';
-import type { CandidateBasis, InspectionFailure, KeyboardDecodeFailure, RecordedSelector,
-  RecordingDiagnostic, ResolutionBackend } from './inspectionContracts';
-import type { RecordedOperation } from './model';
+import type { InspectionFailure, KeyboardDecodeFailure,
+  RecordingDiagnostic, EvidenceBackend } from './inspectionContracts';
+import type { RawInput } from './model';
+import { motionLabel } from './motion';
 
 /** 稳定后端名称，用于解释定位来源。 */
 export const BACKEND_LABELS = {
-  managed_cdp: '浏览器 DOM', uia: 'Windows UIA', vision: '视觉 OCR', coordinate: '坐标',
-} satisfies Record<ResolutionBackend, string>;
-/** Selector 分值依据。 */
-export const BASIS_LABELS = {
-  automation_id: 'AutomationId', test_id: 'data-testid', stable_id: '稳定 ID',
-  role_name: '角色和名称', stable_ancestor: '稳定祖先', class: '类名',
-  dynamic_attribute: '动态属性', visual_text: '视觉文字', coordinate: '屏幕坐标',
-} satisfies Record<CandidateBasis, string>;
+  managed_cdp: '浏览器 DOM', uia: 'Windows UIA',
+} satisfies Record<EvidenceBackend, string>;
 const FAILURE_LABELS = {
   unmanaged_window: '没有匹配的已连接浏览器会话', context_changed: '窗口或焦点已改变',
   invalid_geometry: '无法确认坐标转换', no_element: '没有有效元素', unavailable: '能力不可用',
   timeout: '定位超时', unsupported_scope: '暂不支持该文档范围',
 } satisfies Record<InspectionFailure, string>;
 const DIAGNOSTIC_LABELS = {
-  late_inspection: '解析开始过晚，已保留降级结果', input_gap: '输入有缺口，已分开步骤',
-  unsupported_input: '包含暂不支持的输入', unpaired_mouse: '鼠标按下与释放未配对',
-  redacted: '输入已遮盖', selector_uniqueness_unverified: '定位候选尚未验证唯一性',
-} satisfies Record<Exclude<RecordingDiagnostic['type'], 'fallback' | 'keyboard_decode'>, string>;
+  late_inspection: '采样开始过晚，未补采当前界面', input_gap: '部分事件未能记录',
+  redacted: '键盘内容已遮盖',
+} satisfies Record<'late_inspection' | 'input_gap' | 'redacted', string>;
 /** 明确区分输入法限制、布局失败与窗口采样失败。 */
 const KEYBOARD_FAILURE_LABELS = {
   invalid_key: '无法识别该按键', unsupported_chord: '暂不支持该组合键',
@@ -38,11 +32,19 @@ const KEY_LABELS = {
 const MODIFIER_LABELS = { control: 'Ctrl', alt: 'Alt', shift: 'Shift' } satisfies Record<KeyboardModifier, string>;
 
 /** 不将 redaction 当作真实输入文字。 */
-export function operationLabel(operation: RecordedOperation): string {
-  switch (operation.type) {
-    case 'click': return ({ left: '点击', right: '右键点击', middle: '中键点击' } as const)[operation.button];
-    case 'type_text': return operation.text.type === 'redacted' ? '输入已遮盖' : `输入「${operation.text.value}」`;
-    case 'press_key': return `按键 ${chordLabel(operation.chord)}`;
+export function eventLabel(input: RawInput): string {
+  switch (input.type) {
+    case 'pointer_motion': return motionLabel(input);
+    case 'mouse': return `${({ left: '左键', right: '右键', middle: '中键', x1: '侧键 1', x2: '侧键 2' } as const)[input.button]}${input.phase === 'down' ? '按下' : '释放'} (${input.point.x}, ${input.point.y})`;
+    case 'move': return `鼠标移动 (${input.point.x}, ${input.point.y})`;
+    case 'wheel': return `${input.horizontal ? '水平' : '垂直'}滚轮 ${input.delta}`;
+    case 'window': return input.change === 'foreground' ? '切换窗口' : '窗口出现';
+    case 'clipboard': return '剪贴板变化';
+    case 'key': {
+      const key = input.chord ? chordLabel(input.chord) : input.text?.type === 'plain' ? input.text.value
+        : input.virtual_key !== null ? `VK ${input.virtual_key}` : '内容已遮盖';
+      return `键盘${input.phase === 'down' ? '按下' : '释放'} · ${key}`;
+    }
   }
 }
 /** 将已有 KeyChord 契约展示为常用按键名。 */
@@ -50,14 +52,12 @@ export function chordLabel(chord: KeyChord): string {
   return [...chord.modifiers.map((modifier) => MODIFIER_LABELS[modifier]),
     chord.key.type === 'character' ? chord.key.value.toUpperCase() : KEY_LABELS[chord.key.type]].join('+');
 }
-/** 读取已生成选择器，不重新推断目标。 */
-export function selectorLabel(selector: RecordedSelector): string {
-  return selector.type === 'aql' ? selector.value.source : `(${selector.value.x}, ${selector.value.y})`;
-}
 /** 本地化后端失败链，不暴露 provider 原始错误。 */
 export function diagnosticLabel(diagnostic: RecordingDiagnostic): string {
   switch (diagnostic.type) {
-    case 'fallback': return `${BACKEND_LABELS[diagnostic.backend]}：${FAILURE_LABELS[diagnostic.reason]}`;
+    case 'inspection_failed': return `${BACKEND_LABELS[diagnostic.backend]}：${FAILURE_LABELS[diagnostic.reason]}`;
+    case 'context_unavailable': return `窗口信息缺失：${FAILURE_LABELS[diagnostic.reason]}`;
+    case 'screenshot_unavailable': return `截图未保存：${FAILURE_LABELS[diagnostic.reason]}`;
     case 'keyboard_decode': return KEYBOARD_FAILURE_LABELS[diagnostic.reason];
     default: return DIAGNOSTIC_LABELS[diagnostic.type];
   }

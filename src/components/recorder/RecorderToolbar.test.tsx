@@ -32,12 +32,11 @@ describe('recorder user flow', () => {
     expect(api.stopRecording).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: '录制中' }));
     fireEvent.click(screen.getByRole('button', { name: '停止并保存' }));
-    await screen.findByText('步骤 1 · 定位详情');
+    await screen.findByText('事件 1 · 证据详情');
     expect(screen.getByText('AutomationId', { selector: 'dt' })).toBeInTheDocument();
-    expect(screen.getByText('首选')).toBeInTheDocument();
-    expect(screen.getByText('定位候选尚未验证唯一性')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '原始 Trace' }));
-    expect(screen.getByLabelText('原始 Trace').textContent).toContain('"virtual_key": null');
+    expect(screen.queryByText('定位候选')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '时间线 JSON' }));
+    expect(screen.getByLabelText('时间线 JSON').textContent).toContain('"virtual_key": null');
   });
 
   it('copies only the chosen sanitized trace layer and displays clipboard failures', async () => {
@@ -45,24 +44,24 @@ describe('recorder user flow', () => {
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
     render(<Harness />);
     fireEvent.click(screen.getByRole('button', { name: '录制操作' }));
-    fireEvent.click(await screen.findByRole('button', { name: /1 个步骤 · 1 个事件/ }));
-    await screen.findByText('步骤 1 · 定位详情');
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '复制语义 Trace' })); });
-    expect(JSON.parse(writeText.mock.calls[0][0])).toEqual(RECORDING_FIXTURE.trace.normalized);
+    fireEvent.click(await screen.findByRole('button', { name: /1 个事件 · 0 份截图/ }));
+    await screen.findByText('事件 1 · 证据详情');
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '复制时间线' })); });
+    expect(JSON.parse(writeText.mock.calls[0][0])).toEqual(RECORDING_FIXTURE.trace);
     writeText.mockRejectedValueOnce(new Error('denied'));
-    fireEvent.click(screen.getByRole('button', { name: '原始 Trace' }));
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '复制原始 Trace' })); });
+    fireEvent.click(screen.getByRole('button', { name: '时间线 JSON' }));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '复制时间线' })); });
     expect(screen.getByText('复制失败，请使用导出 JSON。')).toBeInTheDocument();
   });
 
   it('explains unsupported IME commits even when no semantic step was created', async () => {
     api.getRecording.mockResolvedValue({ ...RECORDING_FIXTURE, trace: { ...RECORDING_FIXTURE.trace,
-      normalized: { records: [], diagnostics: [{ type: 'keyboard_decode', reason: 'input_method_active' }] },
+      timeline: { events: [{ ...RECORDING_FIXTURE.trace.timeline.events[0], diagnostics: [{ type: 'keyboard_decode', reason: 'input_method_active' }] }] },
     } });
     render(<Harness />);
     fireEvent.click(screen.getByRole('button', { name: '录制操作' }));
-    fireEvent.click(await screen.findByRole('button', { name: /1 个步骤 · 1 个事件/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /1 个事件 · 0 份截图/ }));
     expect(await screen.findByText('暂不支持输入法组合提交，组合期间的文字未录入')).toBeInTheDocument();
-    expect(screen.getByText('没有可归一化的操作。可查看原始 Trace 和诊断。')).toBeInTheDocument();
+    expect(screen.getByText('事件 1 · 证据详情')).toBeInTheDocument();
   });
 });

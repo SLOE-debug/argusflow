@@ -17,11 +17,15 @@ impl EventClock {
     }
 
     pub(crate) fn advance(&mut self, tick: u32) -> u64 {
-        self.elapsed = self
-            .elapsed
-            .saturating_add(u64::from(tick.wrapping_sub(self.previous)));
-        self.previous = tick;
-        self.elapsed
+        // 不同 Win32 事件源可乱序送达；小幅倒退是历史事件而不是 49 天回绕。
+        let delta = tick.wrapping_sub(self.previous) as i32;
+        if delta >= 0 {
+            self.elapsed = self.elapsed.saturating_add(delta as u64);
+            self.previous = tick;
+            self.elapsed
+        } else {
+            self.elapsed.saturating_sub(u64::from(delta.unsigned_abs()))
+        }
     }
 }
 
@@ -36,5 +40,13 @@ mod tests {
         assert_eq!(clock.advance(3), 9);
         assert_eq!(clock.advance(3), 9);
         assert_eq!(clock.advance(13), 19);
+    }
+
+    #[test]
+    fn delayed_window_notification_is_not_mistaken_for_a_clock_wrap() {
+        let mut clock = EventClock::new(1000);
+        assert_eq!(clock.advance(1030), 30);
+        assert_eq!(clock.advance(1010), 10);
+        assert_eq!(clock.advance(1040), 40);
     }
 }

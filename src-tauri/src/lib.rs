@@ -34,6 +34,7 @@ pub fn run() -> tauri::Result<()> {
             commands::recorder::get_recording_status,
             commands::recorder::list_recordings,
             commands::recorder::get_recording,
+            commands::recorder::read_recording_screenshot,
         ])
         .build(tauri::generate_context!())?;
     app.run(|app_handle, event| {

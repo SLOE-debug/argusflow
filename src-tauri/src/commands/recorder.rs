@@ -1,4 +1,4 @@
-//! 录制命令只适配控制面；Hook、解析、脱敏和 normalization 均位于独立 crate。
+//! 录制命令只适配控制面与证据读取，不编译工作流。
 
 use crate::runtime::AppState;
 use argusflow_recorder::{CompletedRecording, RecorderStatus, RecordingSummary};
@@ -14,7 +14,7 @@ pub(crate) async fn start_recording(state: State<'_, AppState>) -> Result<Record
         .map_err(|error| error.to_string())
 }
 
-/// 停止并排空 worker，返回已分离持久化的 Raw/Semantic Trace。
+/// 停止并排空 worker，返回事件时间线与本地证据目录。
 #[tauri::command]
 pub(crate) async fn stop_recording(
     state: State<'_, AppState>,
@@ -56,5 +56,21 @@ pub(crate) async fn get_recording(
         .recorder
         .load(recording_id)
         .await
+        .map_err(|error| error.to_string())
+}
+
+/// 按录制 ID 与事件序号读取 PNG，不接受文件路径。
+#[tauri::command]
+pub(crate) async fn read_recording_screenshot(
+    state: State<'_, AppState>,
+    recording_id: uuid::Uuid,
+    sequence: u64,
+    kind: argusflow_recorder::ScreenshotKind,
+) -> Result<tauri::ipc::Response, String> {
+    state
+        .recorder
+        .screenshot(recording_id, sequence, kind)
+        .await
+        .map(tauri::ipc::Response::new)
         .map_err(|error| error.to_string())
 }

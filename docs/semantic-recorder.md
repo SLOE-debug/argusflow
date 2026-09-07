@@ -1,103 +1,116 @@
-# Semantic Recorder 第一阶段
+# ArgusFlow Recorder：事件溯源的用户演示录制器
 
-`argusflow-recorder` 实现 Physical → Semantic。它通过 `argusflow-core` 的 `WindowInspector` / `TargetInspector` 只读契约使用已有的 `CdpRuntime`、`UiaRuntime`、`VisionRuntime`。`ActionRouter` 继续负责 Semantic → Physical，没有注册录制逻辑，也没有复制动作执行栈。
+ArgusFlow Recorder 是 **event-sourced user demonstration recorder**。它采集用户实际行为与当时的证据，不在录制期间理解任务、生成 selector、合成 Click/TypeText 或提前编译 Workflow。Vision 不需要被解析成 element；没有可靠 UIA/CDP 信息时，窗口截图与坐标就是独立有效的证据。
 
-## 入口与输出
+## 三阶段边界
 
-Tauri 已装配以下命令：
+1. **Recorder**：鼠标、键盘、窗口切换/出现、剪贴板变化 → 按时间排序的 Event Timeline + UI evidence + screenshot evidence。
+2. **多模态 AI**：录制结束后接收完整演示包，理解跨应用任务，例如“启动 xxx.exe → 复制内容 → 切换微信 → 选择联系人 → 发送复制内容”，再生成 `WorkflowDefinition`。窗口出现本身不等于已确认的进程启动；AI 应结合 EXE、窗口及前后事件理解意图。
+3. **独立 compiler**：根据工作流与原始录制证据，构造 AQL/UIA/CDP/视觉执行目标，处理定位与可执行性。录制期元素 ID 只表示观察身份，不是 selector。
 
-| 命令 | 行为 |
-| --- | --- |
-| `start_recording` | 显式安装 Windows 全局低级鼠标、键盘 Hook；返回录制 ID 和状态。重复调用报错。 |
-| `get_recording_status` | 返回 phase、recording_id、started_at_unix_ms、processed_events、dropped_events。 |
-| `stop_recording` | 卸载 Hook，排空 worker，规范化并保存记录；返回 `CompletedRecording { files, trace }`。保存失败可再次调用重试。 |
-| `list_recordings` | 返回最近最多 100 次完整保存的录制摘要，不包含输入文字。 |
-| `get_recording` | 按 UUID 读取已脱敏的完整录制，拒绝任意路径。 |
+当前实现覆盖第一阶段及本地查看/导出。没有调用 AI API，也没有实现第二、三阶段的新生成服务。`ActionRouter` 与已有工作流执行器保持独立；Recorder 不静态依赖 browser/windows/vision 的生产实现，宿主通过 core 的只读契约装配。
 
-首页和编辑器的标题栏均提供“录制操作”入口。面板可开始录制、停止并保存、显示计时与已处理/丢弃事件数、查看历史、浏览操作及其语义实体/定位候选/降级诊断，并分别查看、复制或下载完整的 Raw/Semantic JSON。列表与 JSON 按每页 50 条显示，复制和导出包含完整层；自动保存的绝对文件路径也在面板中提供。
+## 事件与证据契约
 
-界面控制器位于 `src/features/recorder`，只处理类型、IPC 和生命周期；视觉组件位于 `src/components/recorder` 并复用通用 Button/Dialog。收起面板继续录制，标题栏保留录制状态。页面恢复会读取现有后台状态，不自动安装 Hook，也不因组件卸载而擅自停止。普通浏览器预览明确禁用录制入口。工作流运行期间不能从面板开始录制，录制期间禁用界面的工作流运行入口。
+`RecordingTrace` 使用 `schema_version: 2`，只有一个 `timeline.events`。每个事件保留：
 
-生命周期明确分成 `idle`、`recording`、`finishing`、`awaiting_save`。保存失败后 Hook 已卸载，面板显示“重试保存”，不会误报仍在监听。构造 AppState 不会开始监听输入，只有 `start_recording` 安装 Hook；使用后应调用 `stop_recording` 完成持久化。桌面正常退出也会先停止并保存录制，再关闭 capture 服务；进程强制终止不保证保存。
+- 捕获序号 `sequence`、Win32 原始 `timestamp_ms`、展开回绕后的 `elapsed_ms`。
+- `input`：鼠标 down/up、移动、垂直/水平滚轮、键盘 down/up、窗口 `foreground`/`appeared`、剪贴板变化。
+- `evidence.context`：真实窗口 HWND/PID、EXE 路径、标题、类名、物理 bounds、DPI 与浏览器 viewport 信息。
+- `evidence.ui_snapshot`：可选 UIA/CDP 快照，包含来源、元素属性、祖先、bounds、字段敏感性、采样开始与耗时。不包含 selector 候选和稳定性评分。
+- `evidence.screenshot`：可选 PNG 引用、采样开始与耗时、实际屏幕范围、物理像素尺寸、鼠标坐标及按下位置附近的 crop。
+- 事件级与证据级诊断：延迟、窗口变更、结构化观察失败、截图失败、输入缺口与键盘遮盖。
 
-默认目录为启动工作目录下的 `.argusflow/recordings/<UUID>/`，已被仓库现有 `.gitignore` 覆盖：
+最终按 `(elapsed_ms, sequence)` 排序。不同 Win32 事件源可能乱序送达，小幅时间倒退按历史事件处理，不误算为 49 天回绕。下游通过稳定的事件序号关联证据，不假设相邻序号必定时间递增。鼠标按下/释放、拖拽中的移动、滚轮和剪贴板事件不会因无法合成某种 Workflow 操作而消失。
 
-- `raw.json`：`RawTrace`，包括原始事件序号、Win32 timestamp、展开回绕后的相对时间、已脱敏输入、解析快照和输入诊断。
-- `semantic.json`：`NormalizedSemanticTrace`，可单独发送给 AI。每条记录包括操作、时间、原始事件编号和已脱敏原始输入，以及 application/window context、backend、entity、selector candidates、preferred selector 索引、confidence 和 fallback diagnostics。
-- `manifest.json`：协议版本、录制 ID、开始时间和丢弃计数；最后发布，表示两份 trace 都已写完。
+### 鼠标移动合并
 
-文件先写 `.pending` 再 rename 发布。`RecordingFiles` 返回绝对路径。Raw Trace 与 Semantic Trace 都经过脱敏，Raw 不代表允许落盘密码键码。
+连续的鼠标采样会整理为一条 `pointer_motion`，独立单点保留 `move`。它是轨迹事实压缩，不是 Workflow 动作编译：保留首尾源序号、起止时间、原始采样数、原始路径累计距离、录制内观察到的按下鼠标键，以及简化后的真实轨迹点。
 
-## 输入与并发
+- 源序号连续、采样间隔不超过 200ms、诊断相同且不含独立 UI/截图证据时才合并。
+- 鼠标按下/释放、键盘、窗口变化、滚轮、剪贴板事件、证据或输入缺口都会切断轨迹。先按真实时间排序，因此迟到的窗口通知也能在正确位置分段。
+- 使用到线段距离的 RDP 简化，容差为 2 个物理像素，保留起终点、明显转折、折返与闭环；每约 250ms 保留真实时间锚点。累计距离按简化前全部源点计算。
+- 一段最多持续 5 秒或收集 4096 个采样点，限制几何处理成本；分段/简化不增加 `dropped_events`。
+- 新录制在保存前整理，历史录制在读取时使用同一幂等整理，不改写历史源文件。事件列表、分页、JSON 复制与导出均使用精简结果；历史列表计数与实际条目一致，录制时长按移动段结束时间计算。
 
-专用 Hook 消息线程只读取 `MSLLHOOKSTRUCT` / `KBDLLHOOKSTRUCT` 的 timestamp、point、button、vk、scan code、flags，并 `try_send` 到容量 4096 的队列；回调始终调用 `CallNextHookEx`。忽略 injected input。回调没有窗口发现、COM、UIA、CDP、OCR、Unicode 转换、日志或文件写入。
+界面一行展示一段移动，详情显示起终点、耗时、原始采样数、保留点数与路径；连续移动没有 UIA/截图时不展示误导性的“窗口信息缺失”提示。按下状态来自已观察到的鼠标事件，不能据此猜测录制开始前的按键状态。
 
-摄入线程先冻结廉价 Win32 上下文和目标线程键盘布局，再投递容量 2048 的异步队列。语义 worker 最多同时检查 16 个事件，按捕获顺序释放结果，最后统一规范化。Raw Trace 上限 100,000 个事件；溢出保留计数与 sequence 缺口，禁止跨缺口合并文本或鼠标事件。
+## 采集链路
 
-晚于事件 150ms 才开始窗口采样，或异步排队超过 150ms 的事件不会用当前 UI 伪装历史目标。键盘 pending 检查若跨越可能改变焦点的点击/组合键代数，会降级并遮盖输入。窗口销毁、复用或移动也产生显式诊断。
+- 同一专用消息线程安装低级鼠标/键盘 Hook、`SetWinEventHook(EVENT_SYSTEM_FOREGROUND / EVENT_OBJECT_SHOW)` 与剪贴板 message-only listener。构造服务不会开始录制；停止、失败和 Drop 都卸载监听。
+- 低级 Hook 只复制固定字段并非阻塞投递，始终调用 `CallNextHookEx`，忽略 injected input。窗口回调仅保留顶层窗口，附带 HWND/PID 与系统事件时间。剪贴板通知记录送达时钟与版本号。
+- 摄入线程立即读取实际窗口与键盘布局、复制当前版本剪贴板，并通过 `WindowEvidenceCapture` 冻结图像。鼠标按位置找窗口；窗口事件使用事件携带的窗口身份；键盘/剪贴板使用当时焦点。
+- **先冻结像素，再开始 UIA/CDP 查询**。这避免查询失败后才截图，拍到已经关闭的菜单或切换后的界面。当前对非移动事件尽可能保存完整可见窗口区域，即使之后得到 UIA/CDP 快照也保留图像。
+- 截图用 DXGI Desktop Duplication 获取最近已呈现的桌面，并裁切到用户可见的窗口屏幕区域，不调用 WGC 或 OCR。包含遮挡内容，不承诺恢复离屏、最小化或被遮挡窗口内部；屏幕外边缘会裁切。负虚拟屏幕原点、跨屏拼接和旋转显示器按物理像素处理。DXGI 发布跟随桌面呈现，不承诺截图调用与显示刷新原子同步。
+- PNG 压缩/写入在独立有界线程中执行，最多排队四帧。点击 crop 从同一冻结帧裁切，最大 192×192，边缘按实际图像范围缩小。不会停止录制后补拍。
+- 结构化观察按 CDP → UIA 尝试，使用现有只读 runtime；不调用 Vision/OCR，不生成坐标 selector。只命中根容器不被当作可靠点击元素；窗口生命周期事件可直接记录窗口根快照。
+- 普通 Chrome 不会被自动附加；CDP 仅观察当前 managed attached session。Shadow DOM 和 iframe 容器不因现有 selector 不支持而被过滤；无法确认子文档坐标变换时保留截图并报告几何缺失。
 
-异步观察无法冻结第三方应用在按下后的 UI。立即消失的菜单、程序主动变更焦点等仍存在竞态；trace 记录观察结果与可检测的降级，不能宣称所有输入都有无竞态的语义快照。
+Hook 输入队列 4096，异步事件队列 2048，并发观察上限 16，整理前最多保留 100,000 个原始事件。满队列保留丢弃数和序号缺口，截图队列满则记录图像缺失。晚于事件 150ms 开始采样时不拿当前 UI 冒充过去；每个快照记录实际观察时间和耗时。结构化查询期间窗口或键盘焦点发生变化时撤销该元素，保留此前冻结的截图。
 
-## Target Resolution
+第三方 UI 无法与全局 Hook 原子冻结，菜单立即关闭、快速焦点改变、系统调度与磁盘拥塞仍可能造成证据缺失。录制器表达这种不确定性，不宣称每个事件都有严格无竞态的 UI 快照。
 
-1. Mouse down 使用 `WindowFromPoint(point)` → `GetAncestor(GA_ROOT)` → HWND/PID/EXE。`GetForegroundWindow` 只用于键盘 context 和 CDP 活动页面交叉校验，不替代点击窗口定位。
-2. Managed CDP 要求 PID/EXE 属于当前 runtime 已启动且仍 attach 的 BrowserSession。当前原生键盘窗口与该 document 都必须拥有焦点，以避免同进程其他窗口/标签的错误映射。不发现任意 Chrome，不创建新 attach。
-3. 原生 `Chrome_RenderWidgetHostHWND` 的唯一可见 client rect 提供物理 viewport 原点。验证 native width/height 与 CSS innerWidth/innerHeight × devicePixelRatio 一致后，使用 `(screenPhysical - viewportPhysicalOrigin) / DPR` 调用 `DOM.getNodeForLocation`。DPR 包括浏览器 page zoom；屏幕原点不乘 DPI，不加 document scroll offset。负屏幕坐标受支持。
-4. `DOM.resolveNode` + 固定只读页面函数采集与现有 AQL matcher 一致的 DOM role/name/data-testid/id/class、祖先、CSS bounds 与敏感性，再转换为屏幕物理 bounds。每次检查独立 object group，正常返回和取消均释放。没有读取 `.value`、outerHTML 或任意 HTML 属性集合。
-5. CDP 不适用/失败时，在现有 UIA MTA worker 上使用 `ElementFromPointBuildCache`；键盘使用 `GetFocusedElementBuildCache`。同步反查期间设置 Per-Monitor V2 线程 DPI context，并在结束时恢复，避免 Win32 UIA proxy 将点击点与 cache bounds 虚拟化到错误控件。CacheRequest 采集 ControlType、Name、AutomationId、ClassName、FrameworkId、bounds、IsPassword、PID、native handle、offscreen/focus。沿有限祖先链验证元素属于实际根 HWND；不读取 ValuePattern。
-6. UIA 无有效结果时复用 `VisionRuntime.current_scene` 的窗口 capture + OCR，按 Scene 实际 screen origin 将点转换成帧本地物理坐标，选择包含该点的最小有效 OCR 文本框。不会把最近但不包含该点的文本硬当成目标。
-7. 最后保留 coordinate 候选、窗口上下文与失败链。键盘无可靠焦点实体时仅保留窗口上下文，绝不猜坐标。
+## 剪贴板与键盘
 
-浏览器 toolbar、后台页面、缺少/多个 renderer、无法确认几何、pinch zoom/device emulation，以及当前执行器无法精确查询的 iframe/shadow scope 会回退。普通浏览器 page zoom 与显示器 DPI 已支持。Vision 无法读取键盘焦点，因此不用于推测文本输入字段。
+剪贴板变化是独立事实，支持 Unicode 文本、空、非文本、采集前再次变化和不可用状态。读取前后核对版本，绝不把后续版本内容填到之前事件。文本最多保留 65,536 个 UTF-16 单元并明确标记截断；非文本内容目前只保留变化状态，不提取图片/文件 payload。不会读取录制开始前的初始剪贴板。
 
-## Selector Synthesizer
+键盘仍使用目标线程布局与无副作用 `ToUnicodeEx`。敏感/未知或无法证明可编辑的字段遮盖字符及可逆 vk/scan/flags，释放继承按下状态。安全的组合键保留为观察事实。**键盘脱敏不代表截图和剪贴板文本已自动脱敏**；图像与剪贴板按实际内容保存，界面明确说明这一点。
 
-候选由已观察事实构造 AQL AST，再交给现有 canonical formatter 生成 AQL v3，不拼接未转义 AQL、不调用 AI。AutomationId/data-testid 优先，其后是稳定 DOM id、稳定祖先关系和 role+name；class、明显生成的 hash/id 与坐标降权。没有观察到结果顺序就不生成 `Nth`。
+IME composition/commit 与死键最终提交文字仍无法由低级 Hook 可靠获取；保留输入事件和具体诊断，不伪造提交文字。Ctrl+C/V 与剪贴板版本可由 AI 结合时间线上下文理解，Recorder 不将它们提前改写成 Copy/Paste/TypeText 工作流动作。
 
-`RecordedSelector` 明确区分 `Aql(AqlQuery)` 和 `Coordinate(ScreenPoint)`。`stability_score` 是确定性的 0–100 启发式，`confidence` 是 0–1 观察置信度。两者都不代表唯一性证明或回放成功率；trace 显式包含 `selector_uniqueness_unverified`，现有执行器仍负责查询歧义校验。
+## 持久化与界面
 
-## Normalization 与脱敏
+`.argusflow/recordings/<UUID>/` 是完整多模态演示包：
 
-- 同一鼠标键的 down/up 合成 Click，保留 down 时解析的目标。超出 DPI 调整容差的移动（即使最终回到原点）视为不支持的拖拽；缺失配对不编造 Click。
-- 同一语义实体上、间隔不超过 1 秒的连续字符归并为增量 `TypeText`。没有读取整个字段值，因此不生成冒充完整替换值的 SetValue。
-- Ctrl+C 等组合键、Enter、Tab、Escape、Backspace/Delete、方向键、Home/End/PageUp/PageDown 生成现有 `KeyChord` 形式的 PressKey。同步扩展核心、Windows 回放与编辑器契约，编辑键簇回放带 E0 标记。
-- 鼠标操作、PressKey、目标切换、超时、输入缺口和不支持的操作切断文本组。Raw 与 Semantic 之间保留事件引用以及对应的已脱敏输入。
-- UIA IsPassword、DOM password/autocomplete/显式敏感标记和字段元数据识别 password/token/secret/验证码/银行卡等；敏感 entity name 和祖先聚合 name 不进入 selectors。
-- 字段敏感性为 Sensitive 或 Unknown，或不能证明是可编辑字段时，字符变成 `Redacted`，down 和对应 up 的 vk/scan code 都为空；自动重复不能解除同一次按压的遮盖。安全的语义组合键仍可保留。不会读取剪贴板；Ctrl+V 保留为 PressKey，不编造粘贴文本。
-- 使用目标线程布局及无副作用 `ToUnicodeEx(flags=4)`。IME composition/commit 和死键组合不由低级 Hook 可靠提供，本阶段保留不支持诊断，不把拼音/死键序列假装成提交文本。`keyboard_decode` 明确区分 `input_method_active`、`dead_key`、`missing_window`、`missing_thread`、`unsupported_chord`、`invalid_key` 和 `no_character`；即使没有产生语义步骤，失败原因仍进入独立 Semantic Trace 并在界面显示。Redaction 标记不含原文，Raw 仍保留输入事件时序和数量。
+```text
+manifest.json            # 版本、录制身份、时间、事件/截图/丢弃计数；最后发布
+timeline.json            # EventTimeline，所有事件及证据引用
+evidence/<sequence>.png  # 录制期间保存的可见窗口区域
+evidence/<sequence>-crop.png # 可选点击局部图像
+```
 
-右键/中键 Click 会保留真实 button；现有 Workflow Click 只直接支持左键，后续工作流整理不能悄悄丢弃该差异。
+文件先写 `.pending` 再 rename；截图在录制期间立即保存，停止排空事件与 PNG 写入后发布时间线和 manifest。目录在安装 Hook 前创建并验证可写。生命周期为 `idle`、`recording`、`finishing`、`awaiting_save`；停止后的 JSON 发布失败可重试。强制结束进程时未发布 manifest 的目录不会出现在完整历史列表。
 
-## 后续 AI 边界
+旧 v1 Raw/Semantic 协议不做兼容映射、双写或自动迁移；历史列表只列当前协议。没有删除用户已有录制。
 
-AI 输入为 `semantic.json`。允许删除噪声、合并步骤、抽象变量/输入、推断 wait/condition/loop，并使用已提供的 AQL v3 候选构造现有 `WorkflowDefinition`；不能把低置信度 coordinate 记录重新解释为未经观察的 UI，也不应把 redaction 标记当成要输入的字面文本。
+控制命令为 `start_recording`、`stop_recording`、`get_recording_status`、`list_recordings`、`get_recording`；`read_recording_screenshot` 只接受录制 UUID、事件序号、window/crop 类型，通过固定文件名与路径归属检查读取 PNG，不能读取任意路径。
 
-本阶段不接 AI API、不自动生成 Condition/Loop、不做任意 Chrome attach、拖拽或高级滚轮语义。
+界面展示事件时间线、UI/窗口事实、完整截图与点击 crop；分页只影响展示，复制/导出包含完整 JSON 和证据引用。**JSON 本身不是完整多模态输入**：交给 AI 时需要一并提供 PNG，保留相对路径和事件关联。收起面板继续录制，使用“停止并保存”结束监听。录制与工作流运行互斥沿用已有控制面。
 
 ## 验证
 
-常规 Rust 单元/协议测试覆盖解析顺序、fallback、u32 时序相关队列契约、并发结果顺序、焦点代数/延迟脱敏、密码 down/up、编辑键、AQL 转义/稳定性、DPI/缩放/负坐标、分离存储和 CDP 对象释放。CDP 测试使用本地模拟 WebSocket，页面函数测试使用 Node 纯对象 fixture；这些常规测试不自动操作浏览器或安装真实全局 Hook。
+### 截图热路径优化
 
-独立 `#[ignore]` 桌面测试只在显式命令下运行：
+`WindowsEventCapture::default()` 持有可复用的 DXGI/D3D11 会话，通过 Mutex 串行访问 immediate context，实例释放时销毁资源，避免 GPU 资源在 Windows TLS 析构边界释放。每个适配器共享设备，每个命中输出独立维护桌面复制会话；GPU 保存完整桌面，CPU staging 只分配窗口交集尺寸。每次返回独立 BGRX 字节，不逐像素换色或降低分辨率。截图前后复验 HWND/PID、可见性和边界。
 
-- `windows_global_hooks_receive_filter_stop_and_restart`：真实安装 WH_MOUSE_LL / WH_KEYBOARD_LL，用带测试标记的往返一像素移动及 F24 down/up 验证 Windows 实际回调、注入过滤、卸载和三次重启。测试专用观察器只累计数量，发布构建不存在此观察器，也没有允许 injected input 进入生产录制的开关。
-- `windows_global_hooks_capture_physical_input`：安装后最多等待 60 秒，要求实体鼠标点击和实体键盘按下/释放；仅记录各类事件数量，不保存坐标、键码、文字。超时不算通过，始终先卸载 Hook 再报告结果。
-- `real_uia_hit_test_password_and_hook_service_save_retry`：创建并自动销毁 Win32 测试窗口，使用真实 WindowFromPoint、UIA 坐标/焦点反查检查普通/密码 Edit、屏幕物理 bounds 与 selector；随后真实启动/停止服务，验证重复启动拒绝、保存失败后 AwaitingSave、重试与历史读取。
-- `physical_input_to_semantic_trace_and_redaction`：在专用窗口内用实体鼠标点击上方普通框并输入 `argus`，点击下方密码框并输入测试串 `secret42`，然后按 Enter 结束。完整检查两个 UIA Click、普通 TypeText、密码脱敏、Enter PressKey、零丢弃及持久化读回。只允许对该 fixture 窗口解析明文字段，其他窗口按未知字段遮盖；不会放行注入输入。要求可直接解码的英文输入，最长监听 90 秒；断言前停止 Hook 并清理测试文件。失败诊断仅打印事件类别、时序和 fixture ID，不输出文字或键码。
+首帧必须取得非零 `LastPresentTime` 的真实桌面呈现，不能把鼠标通知的未初始化纹理当成功截图。后续只在 DXGI 确认没有桌面更新时复用图像，同一区域可跳过重复 GPU 传输。显示器断开、移动、旋转或复制会话失效会撤销缓存并报错，下次调用重建；没有 GDI 回退。首次呈现等待和 GPU 映射轮询分别有 100ms 预算，但设备/复制会话初始化不受此预算约束。
 
-2026-09-07 本机已通过三轮真实 Hook 回调/过滤/卸载和原生 UIA/服务集成测试。原生 UIA 测试发现并修复了显示缩放下命中相邻控件的问题。早期仅计数的实体输入测试两次未收到鼠标点击，到期卸载；不能将它们记作通过。
+后台 PNG 线程消费帧并原地转换为不透明 RGBA，再保存完整图和 crop；编码使用无损 `Fastest` 档位。core、recorder、windows 及 PNG 热路径依赖在开发构建中开启优化。150ms 的历史证据约束未放宽。
 
-用户准备好后执行了两轮完整实体输入验收：
+历史 GDI 优化曾在 2560×1549 的 10 次预热样本中得到 193.285ms → 32.539ms。2026-09-07 新基准改为自有动态窗口、四象限逐帧变色、4 帧预热和 100 次采样，完整截图包含身份校验、GPU 读回和独立像素复制；绘制、呈现等待、PNG 编码不计入截图耗时。每轮验证颜色、方向及上一帧未被覆盖，错误直接终止，不剔除失败样本。
 
-1. 第一轮两个实体 UIA Click 通过，但普通字段的实际 `argus` 只记录为 `gus`，断言失败。用户确认文本框显示完整 `argus`，且使用中文输入法，但不记得切换时机。该轮缺少逐事件诊断，不能确认缺字根因，也不能声称已修复。
-2. 增加无输入原文的逐事件诊断后，第二轮完整通过（15.98 秒）：普通字段五个字符均通过 UIA 解析并保留，密码框八个字符均 redaction，两个实体 Click、Enter PressKey、持久化读回和零丢弃断言全部通过。测试结束后 Hook、窗口及临时文件均已清理。
+本机开发构建，同窗口顺序对照（DXGI 后 GDI）：1920×1080 中位数 26.242ms → 6.104ms，DXGI P95 11.862ms；2560×1440 中位数 36.215ms → 14.182ms，DXGI P95 15.137ms。每组 104 次动态校验和 103 次独立帧校验通过。冷启动分别 272.212ms / 264.663ms，未达到个位数；大尺寸动态截图及长尾也尚未达到个位数。结果受驱动、负载和刷新时序影响，不把静态缓存样本宣传为动态性能，也不与旧尺寸直接算加速比。未执行真实用户输入录制验收。
 
-这证明了本机实体输入 → UIA → Trace 的一次完整成功运行，不证明中文 IME composition/commit 已支持，也不排除首轮尚未定位的缺字问题。新增键盘解码分类用于让后续异常带上明确原因。managed CDP/OCR 和桌面界面仍以先前协议/组件测试覆盖，没有进行浏览器自动化验收。
-
-前端测试覆盖显式开始、双击去重、收起面板继续录制、停止后展示语义/原始层、保存失败重试、历史请求竞态、复制层边界、复制失败和标题栏对话框不触发窗口拖拽。没有使用浏览器自动化验收。
+模块整理后追加复测：1920×1080 中位数 9.511ms、P95 10.695ms；原始尺寸 2560×1549 同轮 GDI 37.138ms → DXGI 15.149ms（约 2.45 倍），DXGI P95 17.292ms、最大 18.307ms，冷启动 234.067ms。两组动态及独立帧校验仍全部通过。1080p 多轮中位数约 6–9.5ms，原始大窗口尺寸尚未达到个位数，不能将最初静态窗口的 2.63ms 当作完整动态截图结论。
 
 ```powershell
-cargo test -p argusflow-recorder -p argusflow-browser -p argusflow-windows -p argusflow-vision --lib
+# 只输出完整截图耗时，不安装 Hook，不保存屏幕图像。
+cargo run -p argusflow-windows --example recorder_capture_bench
+# 自有动态窗口，不夺取焦点；必须能完整放进主屏幕。
+cargo run -p argusflow-windows --example recorder_capture_bench -- --fixture 1920 1080
+# 可选：同一画面同时对照旧 GDI 路径，仅影响基准程序。
+$env:ARGUSFLOW_BENCH_GDI = '1'
+cargo run -p argusflow-windows --example recorder_capture_bench -- --fixture 2560 1440
+Remove-Item Env:ARGUSFLOW_BENCH_GDI
+# 仅合成图，输出后台转换/编码/写盘耗时，清理临时 PNG。
+cargo test -p argusflow-recorder full_size_encoding_benchmark --lib -- --ignored --nocapture
+```
+
+常规测试使用纯数据、模拟 provider 和临时 PNG，覆盖事件顺序、时钟回绕/乱序、窗口/剪贴板事实、焦点变化脱敏、结构化失败后保留冻结图像、负原点 crop、PNG/时间线持久化和受限证据读取。组件测试覆盖生命周期、事件 JSON、证据预览与异步 URL 清理；不自动运行浏览器或安装真实全局 Hook。
+
+```powershell
+cargo test -p argusflow-recorder -p argusflow-browser -p argusflow-windows --lib
+cargo test -p argusflow-recorder --no-run
 cargo check -p argusflow-desktop
 node --test crates/argusflow-browser/tests/inspection-script.test.mjs
 pnpm exec tsc -b --pretty false
@@ -105,13 +118,6 @@ pnpm exec vitest run src/features/recorder src/components/recorder src/component
 pnpm exec vite build
 ```
 
-只在可以使用桌面的会话内显式运行以下测试；前两条无需人工输入。第三条需要在出现 `PHYSICAL HOOK READY` 后进行实体点击和按键；第四条需要在 `PHYSICAL SEMANTIC READY` 后按测试窗口说明输入。不要使用不带用例过滤器的 `--test windows_native -- --ignored` 自动执行，因为它也会启动人工输入验收：
+真实桌面验收保留为显式 `#[ignore]` 测试：`real_uia_hit_test_password_and_hook_service_save_retry`、`physical_input_to_event_timeline_and_evidence`。后者需人工输入固定 fixture 文本；不得作为普通回归自动执行。以前 Semantic Recorder 的实体输入验收不能当作新事件/截图链路已通过真实桌面验收的证明。
 
-```powershell
-cargo test -p argusflow-recorder windows_global_hooks_receive_filter_stop_and_restart -- --ignored --nocapture --test-threads=1
-cargo test -p argusflow-recorder --test windows_native real_uia_hit_test_password_and_hook_service_save_retry -- --ignored --nocapture --test-threads=1
-cargo test -p argusflow-recorder windows_global_hooks_capture_physical_input -- --ignored --nocapture --test-threads=1
-cargo test -p argusflow-recorder --test windows_native physical_input_to_semantic_trace_and_redaction -- --ignored --nocapture --test-threads=1
-```
-
-平台语义依据：[Windows LowLevelMouseProc](https://learn.microsoft.com/en-us/windows/win32/winmsg/lowlevelmouseproc)、[UIA ElementFromPointBuildCache](https://learn.microsoft.com/en-us/windows/win32/api/uiautomationclient/nf-uiautomationclient-iuiautomation-elementfrompointbuildcache)、[CDP DOM.getNodeForLocation](https://chromedevtools.github.io/devtools-protocol/tot/DOM/#method-getNodeForLocation)。
+平台依据：[剪贴板监听与版本](https://learn.microsoft.com/en-us/windows/win32/dataxchg/using-the-clipboard)、[SetWinEventHook](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwineventhook)、[BitBlt](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-bitblt)。

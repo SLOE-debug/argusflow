@@ -9,14 +9,17 @@ use std::{
 
 struct Windows;
 impl WindowInspector for Windows {
+    fn window_context(&self, _: WindowIdentity) -> Result<InspectionContext, InspectionFailure> {
+        Ok(context())
+    }
     fn context(&self, _: InspectionProbe) -> Result<InspectionContext, InspectionFailure> {
         Ok(context())
     }
 }
 
 struct Inspector {
-    label: ResolutionBackend,
-    calls: Arc<Mutex<Vec<ResolutionBackend>>>,
+    label: EvidenceBackend,
+    calls: Arc<Mutex<Vec<EvidenceBackend>>>,
     result: Result<InspectedEntity, InspectionFailure>,
     delay: Duration,
 }
@@ -36,12 +39,8 @@ impl TargetInspector for Inspector {
 
 #[tokio::test]
 async fn each_success_stops_the_ordered_fallback_chain() {
-    let backends = [
-        ResolutionBackend::ManagedCdp,
-        ResolutionBackend::Uia,
-        ResolutionBackend::Vision,
-    ];
-    for succeeds in 0..=3 {
+    let backends = [EvidenceBackend::ManagedCdp, EvidenceBackend::Uia];
+    for succeeds in 0..=2 {
         let calls = Arc::new(Mutex::new(Vec::new()));
         let inspectors: Vec<Arc<dyn TargetInspector>> = backends
             .iter()
@@ -59,31 +58,30 @@ async fn each_success_stops_the_ordered_fallback_chain() {
                 }) as Arc<dyn TargetInspector>
             })
             .collect();
-        let resolver = TargetResolver::new(
+        let resolver = EvidenceCollector::new(
             Arc::new(Windows),
             inspectors[0].clone(),
             inspectors[1].clone(),
-            inspectors[2].clone(),
+            Arc::new(super::fixtures::NoCapture),
         );
         let target = resolver
-            .resolve(
+            .collect(
                 context(),
                 InspectionProbe::Point(ScreenPoint { x: 20, y: 20 }),
+                10,
+                10,
             )
             .await;
-        assert_eq!(*calls.lock().unwrap(), backends[..(succeeds + 1).min(3)]);
+        assert_eq!(*calls.lock().unwrap(), backends[..(succeeds + 1).min(2)]);
         assert_eq!(
-            target.backend,
-            backends
-                .get(succeeds)
-                .copied()
-                .unwrap_or(ResolutionBackend::Coordinate)
+            target.ui_snapshot.map(|snapshot| snapshot.backend),
+            backends.get(succeeds).copied()
         );
         assert_eq!(
             target
                 .diagnostics
                 .iter()
-                .filter(|item| matches!(item, RecordingDiagnostic::Fallback { .. }))
+                .filter(|item| matches!(item, RecordingDiagnostic::InspectionFailed { .. }))
                 .count(),
             succeeds
         );
@@ -94,7 +92,7 @@ async fn each_success_stops_the_ordered_fallback_chain() {
 async fn managed_backend_timeout_falls_back_and_sensitive_names_are_removed() {
     let calls = Arc::new(Mutex::new(Vec::new()));
     let browser = Arc::new(Inspector {
-        label: ResolutionBackend::ManagedCdp,
+        label: EvidenceBackend::ManagedCdp,
         calls: calls.clone(),
         result: Ok(entity()),
         delay: Duration::from_secs(60),
@@ -103,29 +101,69 @@ async fn managed_backend_timeout_falls_back_and_sensitive_names_are_removed() {
     sensitive.sensitivity = FieldSensitivity::Sensitive;
     sensitive.semantics.name = Some("SECRET_INPUT_VALUE".into());
     let uia = Arc::new(Inspector {
-        label: ResolutionBackend::Uia,
+        label: EvidenceBackend::Uia,
         calls: calls.clone(),
         result: Ok(sensitive),
         delay: Duration::ZERO,
     });
-    let vision = Arc::new(Inspector {
-        label: ResolutionBackend::Vision,
-        calls,
-        result: Ok(entity()),
-        delay: Duration::ZERO,
-    });
-    let resolver = TargetResolver::new(Arc::new(Windows), browser, uia, vision);
-    let target = resolver.resolve(context(), InspectionProbe::Focus).await;
-    assert_eq!(target.backend, ResolutionBackend::Uia);
+    let resolver = EvidenceCollector::new(
+        Arc::new(Windows),
+        browser,
+        uia,
+        Arc::new(super::fixtures::NoCapture),
+    );
+    let target = resolver
+        .collect(context(), InspectionProbe::Focus, 10, 10)
+        .await;
+    assert!(target.ui_snapshot.is_none());
+    assert!(
+        target
+            .diagnostics
+            .contains(&RecordingDiagnostic::LateInspection)
+    );
     assert_eq!(
         target.diagnostics[0],
-        RecordingDiagnostic::Fallback {
-            backend: ResolutionBackend::ManagedCdp,
+        RecordingDiagnostic::InspectionFailed {
+            backend: EvidenceBackend::ManagedCdp,
             reason: InspectionFailure::Timeout
         }
     );
     assert!(
         !serde_json::to_string(&target)
+            .unwrap()
+            .contains("SECRET_INPUT_VALUE")
+    );
+    // 快速失败可以进入 UIA；查询耗尽事件预算后禁止用稍后的 UIA 冒充事件快照。
+    let failed = Arc::new(Inspector {
+        label: EvidenceBackend::ManagedCdp,
+        calls: calls.clone(),
+        result: Err(InspectionFailure::UnmanagedWindow),
+        delay: Duration::ZERO,
+    });
+    let mut sensitive = entity();
+    sensitive.sensitivity = FieldSensitivity::Sensitive;
+    sensitive.semantics.name = Some("SECRET_INPUT_VALUE".into());
+    let uia = Arc::new(Inspector {
+        label: EvidenceBackend::Uia,
+        calls,
+        result: Ok(sensitive),
+        delay: Duration::ZERO,
+    });
+    let collector = EvidenceCollector::new(
+        Arc::new(Windows),
+        failed,
+        uia,
+        Arc::new(super::fixtures::NoCapture),
+    );
+    let evidence = collector
+        .collect(context(), InspectionProbe::Focus, 10, 10)
+        .await;
+    assert_eq!(
+        evidence.ui_snapshot.as_ref().unwrap().backend,
+        EvidenceBackend::Uia
+    );
+    assert!(
+        !serde_json::to_string(&evidence)
             .unwrap()
             .contains("SECRET_INPUT_VALUE")
     );
@@ -135,6 +173,12 @@ async fn managed_backend_timeout_falls_back_and_sensitive_names_are_removed() {
 async fn replaced_window_is_never_accepted_as_the_original_target() {
     struct ChangedWindow;
     impl WindowInspector for ChangedWindow {
+        fn window_context(
+            &self,
+            _: WindowIdentity,
+        ) -> Result<InspectionContext, InspectionFailure> {
+            self.context(InspectionProbe::Focus)
+        }
         fn context(&self, _: InspectionProbe) -> Result<InspectionContext, InspectionFailure> {
             let mut changed = context();
             changed.window.process_id += 1;
@@ -142,18 +186,19 @@ async fn replaced_window_is_never_accepted_as_the_original_target() {
         }
     }
     let inspector = Arc::new(Inspector {
-        label: ResolutionBackend::Uia,
+        label: EvidenceBackend::Uia,
         calls: Arc::new(Mutex::new(vec![])),
         result: Ok(entity()),
         delay: Duration::ZERO,
     });
-    let resolver = TargetResolver::new(
+    let resolver = EvidenceCollector::new(
         Arc::new(ChangedWindow),
         inspector.clone(),
         inspector.clone(),
-        inspector,
+        Arc::new(super::fixtures::NoCapture),
     );
-    let target = resolver.resolve(context(), InspectionProbe::Focus).await;
-    assert_eq!(target.backend, ResolutionBackend::Coordinate);
-    assert!(target.entity.is_none());
+    let target = resolver
+        .collect(context(), InspectionProbe::Focus, 10, 10)
+        .await;
+    assert!(target.ui_snapshot.is_none());
 }

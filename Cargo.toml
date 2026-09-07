@@ -52,3 +52,35 @@ windows = "0.62.2"
 [profile.dev]
 debug = "line-tables-only"
 incremental = false
+
+# 像素转换与 PNG 压缩必须在开发构建中也保持实时吞吐，避免编码队列被未优化循环拖满。
+[profile.dev.package.argusflow-core]
+opt-level = 3
+
+[profile.dev.package.argusflow-recorder]
+opt-level = 3
+
+# 桌面读回的行复制与旋转属于逐帧热路径，开发版也使用优化代码。
+[profile.dev.package.argusflow-windows]
+opt-level = 3
+
+[profile.dev.package.png]
+opt-level = 3
+
+[profile.dev.package.fdeflate]
+opt-level = 3
+
+[profile.dev.package.flate2]
+opt-level = 3
+
+[profile.dev.package.miniz_oxide]
+opt-level = 3
+
+[profile.dev.package.crc32fast]
+opt-level = 3
+
+[profile.dev.package.simd-adler32]
+opt-level = 3
+
+[profile.dev.package.adler2]
+opt-level = 3

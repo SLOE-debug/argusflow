@@ -46,14 +46,16 @@ pub(super) fn entity() -> InspectedEntity {
     }
 }
 
-pub(super) fn target() -> ResolvedTarget {
-    ResolvedTarget {
+pub(super) fn target() -> EventEvidence {
+    EventEvidence {
         context: Some(context()),
-        backend: ResolutionBackend::Uia,
-        entity: Some(entity()),
-        selector_candidates: vec![],
-        preferred_selector: None,
-        confidence: 0.9,
+        ui_snapshot: Some(UiSnapshot {
+            backend: EvidenceBackend::Uia,
+            entity: entity(),
+            observed_at_ms: 10,
+            observation_duration_ms: 0,
+        }),
+        screenshot: None,
         diagnostics: vec![],
     }
 }
@@ -64,8 +66,15 @@ pub(super) fn raw(sequence: u64, input: RawInput) -> RawTraceEvent {
         timestamp_ms: sequence as u32 * 10,
         elapsed_ms: sequence * 10,
         input,
-        target: Some(target()),
+        evidence: Some(target()),
         diagnostics: vec![],
+    }
+}
+
+pub(super) struct NoCapture;
+impl WindowEvidenceCapture for NoCapture {
+    fn capture(&self, _: &InspectionContext) -> Result<EvidenceFrame, InspectionFailure> {
+        Err(InspectionFailure::Unavailable)
     }
 }
 
@@ -77,13 +86,5 @@ pub(super) fn text(value: &str) -> RawInput {
         phase: InputPhase::Down,
         text: Some(RecordedText::Plain(value.into())),
         chord: None,
-    }
-}
-
-pub(super) fn mouse(phase: InputPhase, x: i32) -> RawInput {
-    RawInput::Mouse {
-        point: ScreenPoint { x, y: 20 },
-        button: MouseButton::Left,
-        phase,
     }
 }

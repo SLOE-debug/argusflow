@@ -1,4 +1,4 @@
-//! 本地 Trace 存储；raw/normalized 分文件，完成标记最后写入。
+//! 本地演示包发布；事件时间线引用录制期间写入的 PNG，manifest 最后写入。
 
 use crate::{RecorderError, RecordingTrace};
 use serde::{Deserialize, Serialize};
@@ -7,10 +7,10 @@ use std::path::{Path, PathBuf};
 /// 已持久化文件的位置，供 Tauri/CLI 读取或导出。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecordingFiles {
-    /// 已脱敏 Raw Trace JSON。
-    pub raw: PathBuf,
-    /// 可直接发送给 AI 的语义 JSON。
-    pub normalized: PathBuf,
+    /// 事件时间线 JSON。
+    pub timeline: PathBuf,
+    /// 多模态输入必须随时间线一起传递的 PNG 目录。
+    pub evidence_directory: PathBuf,
     /// 最后写入的版本/录制 ID 元数据。
     pub manifest: PathBuf,
 }
@@ -24,12 +24,12 @@ pub(crate) async fn save(
     tokio::fs::create_dir_all(&directory).await?;
     let directory = tokio::fs::canonicalize(directory).await?;
     let files = RecordingFiles {
-        raw: directory.join("raw.json"),
-        normalized: directory.join("semantic.json"),
+        timeline: directory.join("timeline.json"),
+        evidence_directory: directory.join("evidence"),
         manifest: directory.join("manifest.json"),
     };
-    write_json(&files.raw, &trace.raw).await?;
-    write_json(&files.normalized, &trace.normalized).await?;
+    tokio::fs::create_dir_all(&files.evidence_directory).await?;
+    write_json(&files.timeline, &trace.timeline).await?;
     let metadata = crate::history::RecordingSummary::from_trace(trace);
     write_json(&files.manifest, &metadata).await?;
     Ok(files)

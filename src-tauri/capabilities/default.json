@@ -24,6 +24,7 @@
     "allow-stop-recording",
     "allow-get-recording-status",
     "allow-list-recordings",
-    "allow-get-recording"
+    "allow-get-recording",
+    "allow-read-recording-screenshot"
   ]
 }
