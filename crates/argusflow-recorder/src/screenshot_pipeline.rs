@@ -4,7 +4,10 @@ use crate::{RecorderError, ScreenshotEvidence, screenshots::ScreenshotStore};
 use argusflow_core::{EvidenceFrame, InspectionFailure, ScreenPoint};
 use std::{
     path::PathBuf,
-    sync::mpsc::{self, SyncSender},
+    sync::{
+        Arc,
+        mpsc::{self, SyncSender},
+    },
     thread::JoinHandle,
 };
 use tokio::sync::oneshot;
@@ -15,10 +18,12 @@ pub(crate) type PendingScreenshot =
 
 /// 一项拥有冻结帧的写入请求，不访问 live UI。
 struct ScreenshotJob {
+    /// 目标证据和操作结果使用不同持久化路径。
+    target: bool,
     /// 关联唯一原始事件。
     sequence: u64,
     /// 完整自有像素，后台线程不再触碰屏幕。
-    frame: EvidenceFrame,
+    frame: Arc<EvidenceFrame>,
     /// 相对录制起点，毫秒。
     captured_at_ms: u64,
     /// 像素冻结耗时，毫秒。
@@ -27,6 +32,8 @@ struct ScreenshotJob {
     pointer: Option<ScreenPoint>,
     /// 鼠标按下才生成局部 PNG。
     crop_click: bool,
+    /// 操作后是否在预算内稳定。
+    stabilized: bool,
     /// 仅返回成功落盘的引用或明确失败。
     result: oneshot::Sender<Result<ScreenshotEvidence, InspectionFailure>>,
 }
@@ -50,15 +57,31 @@ impl ScreenshotWriter {
                 let store = ScreenshotStore::new(directory);
                 while let Ok(job) = receiver.recv() {
                     // 原生像素在后台原地转换，不能占用事件摄入线程的采样预算。
-                    let frame = job.frame.into_rgba8();
-                    let result = store.save(
-                        job.sequence,
-                        &frame,
-                        job.captured_at_ms,
-                        job.duration_ms,
-                        job.pointer,
-                        job.crop_click,
-                    );
+                    let frame = Arc::try_unwrap(job.frame)
+                        .unwrap_or_else(|frame| (*frame).clone())
+                        .into_rgba8();
+                    let result = if job.target {
+                        store.save_target(
+                            job.sequence,
+                            &frame,
+                            job.captured_at_ms,
+                            job.duration_ms,
+                            job.pointer,
+                        )
+                    } else {
+                        store.save(
+                            job.sequence,
+                            &frame,
+                            job.captured_at_ms,
+                            job.duration_ms,
+                            job.pointer,
+                            job.crop_click,
+                        )
+                    }
+                    .map(|mut evidence| {
+                        evidence.stabilized = job.stabilized;
+                        evidence
+                    });
                     let _ = job.result.send(result);
                 }
             })
@@ -70,6 +93,7 @@ impl ScreenshotWriter {
     }
 
     /// 立即投递已冻结帧；队列满时明确失败，绝不推迟重新采样。
+    #[cfg(test)]
     pub(crate) fn submit(
         &self,
         sequence: u64,
@@ -84,16 +108,81 @@ impl ScreenshotWriter {
             .as_ref()
             .ok_or(InspectionFailure::Unavailable)?
             .try_send(ScreenshotJob {
+                target: false,
                 sequence,
-                frame,
+                frame: Arc::new(frame),
                 captured_at_ms,
                 duration_ms,
                 pointer,
                 crop_click,
+                stabilized: false,
                 result,
             })
             .map_err(|_| InspectionFailure::Unavailable)?;
         Ok(receiver)
+    }
+
+    /// 转交操作后帧和调用方结果通道，编码仍使用有界队列。
+    pub(crate) fn submit_post(
+        &self,
+        sequence: u64,
+        frame: Arc<EvidenceFrame>,
+        captured_at_ms: u64,
+        duration_ms: u64,
+        pointer: Option<ScreenPoint>,
+        crop_click: bool,
+        stabilized: bool,
+        result: oneshot::Sender<Result<ScreenshotEvidence, InspectionFailure>>,
+    ) {
+        let job = ScreenshotJob {
+            target: false,
+            sequence,
+            frame,
+            captured_at_ms,
+            duration_ms,
+            pointer,
+            crop_click,
+            stabilized,
+            result,
+        };
+        self.send(job);
+    }
+
+    /// 立即保存点击目标帧，不与异步操作结果共享路径。
+    pub(crate) fn submit_target(
+        &self,
+        sequence: u64,
+        frame: Arc<EvidenceFrame>,
+        captured_at_ms: u64,
+        duration_ms: u64,
+        pointer: ScreenPoint,
+    ) -> PendingScreenshot {
+        let (result, receiver) = oneshot::channel();
+        self.send(ScreenshotJob {
+            target: true,
+            sequence,
+            frame,
+            captured_at_ms,
+            duration_ms,
+            pointer: Some(pointer),
+            crop_click: true,
+            stabilized: false,
+            result,
+        });
+        receiver
+    }
+
+    fn send(&self, job: ScreenshotJob) {
+        if let Some(sender) = &self.sender {
+            if let Err(error) = sender.try_send(job) {
+                let job = match error {
+                    mpsc::TrySendError::Full(job) | mpsc::TrySendError::Disconnected(job) => job,
+                };
+                let _ = job.result.send(Err(InspectionFailure::Unavailable));
+            }
+        } else {
+            let _ = job.result.send(Err(InspectionFailure::Unavailable));
+        }
     }
 }
 

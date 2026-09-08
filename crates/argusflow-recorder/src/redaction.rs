@@ -8,6 +8,8 @@ use argusflow_core::{FieldSensitivity, KeyChord};
 
 /// Up 必须继承对应 Down 的遮盖状态，防止通过释放键码反推密码。
 pub(crate) struct InputRedactor {
+    /// 会话显式开启才执行敏感输入遮盖。
+    enabled: bool,
     /// 默认 unknown/sensitive；必须成功检查 Down 后才允许暴露对应 Up。
     redacted_keys: [bool; 256],
     /// 自动重复 down 必须继承本次物理按压的遮盖状态。
@@ -19,6 +21,7 @@ pub(crate) struct InputRedactor {
 impl Default for InputRedactor {
     fn default() -> Self {
         Self {
+            enabled: false,
             redacted_keys: [true; 256],
             pressed_keys: [false; 256],
             held_chords: std::array::from_fn(|_| None),
@@ -27,6 +30,12 @@ impl Default for InputRedactor {
 }
 
 impl InputRedactor {
+    pub(crate) fn new(enabled: bool) -> Self {
+        Self {
+            enabled,
+            ..Self::default()
+        }
+    }
     /// 事件缺口后清空所有允许状态，不从后续释放事件泄露未知输入。
     pub(crate) fn reset(&mut self) {
         self.redacted_keys.fill(true);
@@ -110,6 +119,7 @@ impl InputRedactor {
                         .copied()
                         .unwrap_or(true)
                 };
+                let redacted = self.enabled && redacted;
                 if redacted {
                     diagnostics.push(RecordingDiagnostic::Redacted);
                 }

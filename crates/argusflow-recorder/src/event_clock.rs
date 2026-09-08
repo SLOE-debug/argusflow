@@ -49,4 +49,58 @@ mod tests {
         assert_eq!(clock.advance(1010), 10);
         assert_eq!(clock.advance(1040), 40);
     }
+
+    #[test]
+    fn timeline_uses_event_time_not_callback_order_or_window_priority() {
+        use crate::{EventTimeline, RawInput, RawTraceEvent, WindowChange};
+        let window = argusflow_core::WindowIdentity {
+            handle: 1,
+            process_id: 1,
+        };
+        let event = |sequence, elapsed_ms, input| RawTraceEvent {
+            sequence,
+            timestamp_ms: elapsed_ms as u32,
+            elapsed_ms,
+            input,
+            evidence: None,
+            diagnostics: vec![],
+        };
+        let mut timeline = EventTimeline {
+            events: vec![
+                event(
+                    1,
+                    1050,
+                    RawInput::Clipboard {
+                        sequence_number: 1,
+                        content: crate::ClipboardContent::Empty,
+                    },
+                ),
+                event(
+                    2,
+                    1010,
+                    RawInput::Window {
+                        window,
+                        change: WindowChange::Appeared,
+                    },
+                ),
+                event(
+                    3,
+                    1050,
+                    RawInput::Window {
+                        window,
+                        change: WindowChange::Foreground,
+                    },
+                ),
+            ],
+        };
+        timeline.compact_pointer_motion();
+        assert_eq!(
+            timeline
+                .events
+                .iter()
+                .map(|event| event.sequence)
+                .collect::<Vec<_>>(),
+            [2, 1, 3]
+        );
+    }
 }

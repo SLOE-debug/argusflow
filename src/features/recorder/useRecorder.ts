@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as api from './api';
-import { IDLE_RECORDER_STATUS, type CompletedRecording, type RecorderStatus,
+import { IDLE_RECORDER_STATUS, DEFAULT_RECORDING_PRIVACY, type RecordingPrivacy, type CompletedRecording, type RecorderStatus,
   type RecordingSummary } from './model';
 
 /** IPC 操作互斥，状态恢复和保存重试独立于面板是否可见。 */
 export function useRecorder() {
   const available = api.recorderAvailable();
   const [status, setStatus] = useState<RecorderStatus>(IDLE_RECORDER_STATUS);
+  const [privacy, setPrivacy] = useState<RecordingPrivacy>(DEFAULT_RECORDING_PRIVACY);
   const [ready, setReady] = useState(false);
   const [pending, setPending] = useState<'start' | 'stop' | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -69,7 +70,7 @@ export function useRecorder() {
     setError(null);
     try {
       if (operation === 'start') {
-        const snapshot = await api.startRecording();
+        const snapshot = await api.startRecording(privacy);
         if (mounted.current) { setStatus(snapshot); setCompleted(null); setReady(true); }
       } else {
         const recording = await api.stopRecording();
@@ -91,7 +92,7 @@ export function useRecorder() {
       revision.current += 1;
       if (mounted.current) setPending(null);
     }
-  }, [available, refreshHistory]);
+  }, [available, refreshHistory, privacy]);
 
   const selectHistory = useCallback(async (id: string) => {
     if (busy.current) return;
@@ -108,8 +109,14 @@ export function useRecorder() {
     }
   }, []);
 
-  return { available, ready, status, pending, error: connectionError ?? error, completed, history, loadingHistory,
-    start: () => operate('start'), stop: () => operate('stop'), refreshHistory, selectHistory };
+  /** 隐私保存后同步录制与历史计数，导出使用最新内容。 */
+  const updateRecording = useCallback((recording: CompletedRecording) => {
+    setCompleted(recording);
+    void refreshHistory();
+  }, [refreshHistory]);
+
+  return { available, ready, status, pending, privacy, setPrivacy, error: connectionError ?? error, completed, history, loadingHistory,
+    start: () => operate('start'), stop: () => operate('stop'), refreshHistory, selectHistory, updateRecording };
 }
 
 /** 界面只依赖此控制器公开契约。 */

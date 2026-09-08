@@ -126,6 +126,7 @@ function SplitMenuButton({
 
 /** Split Button 菜单入口的分隔边界和悬停颜色。 */
 const SPLIT_MENU_VARIANT_CLASS_NAMES: Readonly<Record<ButtonVariant, string>> = {
+  selected: 'border-l-[#becfff] hover:border-l-[#a6bcff]',
   primary: 'border-l-blue-500 hover:border-l-blue-400',
   secondary: 'border-l-slate-200 hover:border-l-slate-300',
   ghost: 'border-l-transparent',

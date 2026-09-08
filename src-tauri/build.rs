@@ -21,6 +21,8 @@ fn main() {
             "list_recordings",
             "get_recording",
             "read_recording_screenshot",
+            "recognize_recording_screenshot",
+            "edit_recording_privacy",
         ]));
 
     if let Err(error) = tauri_build::try_build(attributes) {

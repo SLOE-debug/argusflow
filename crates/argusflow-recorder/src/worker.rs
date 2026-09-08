@@ -19,18 +19,41 @@ const MAX_TRACE_EVENTS: usize = 100_000;
 /// 防止慢速 provider 积累无界任务。
 const MAX_PENDING: usize = 16;
 
+#[cfg(test)]
 pub(crate) async fn record(
-    mut receiver: Receiver<CapturedInput>,
+    receiver: Receiver<CapturedInput>,
     collector: Arc<EvidenceCollector>,
     dropped: Arc<AtomicU64>,
     recording_id: uuid::Uuid,
     started_at_unix_ms: u64,
     processed: Arc<AtomicU64>,
 ) -> RecordingTrace {
+    record_with_privacy(
+        receiver,
+        collector,
+        dropped,
+        recording_id,
+        started_at_unix_ms,
+        processed,
+        crate::RecordingPrivacy::default(),
+    )
+    .await
+}
+
+/// 隐私策略仅属于本次会话，不修改共享 collector。
+pub(crate) async fn record_with_privacy(
+    mut receiver: Receiver<CapturedInput>,
+    collector: Arc<EvidenceCollector>,
+    dropped: Arc<AtomicU64>,
+    recording_id: uuid::Uuid,
+    started_at_unix_ms: u64,
+    processed: Arc<AtomicU64>,
+    privacy: crate::RecordingPrivacy,
+) -> RecordingTrace {
     let mut pending = FuturesOrdered::new();
     let mut source_closed = false;
     let mut timeline = EventTimeline::default();
-    let mut redactor = InputRedactor::default();
+    let mut redactor = InputRedactor::new(privacy.input());
     let mut previous_sequence = 0;
     loop {
         tokio::select! {
@@ -44,9 +67,24 @@ pub(crate) async fn record(
                 }
                 previous_sequence = input.event.sequence;
                 if timeline.events.len() < MAX_TRACE_EVENTS {
+                    let mut evidence = evidence;
+                    if privacy.input() {
+                        if let Some(target) = evidence.as_mut() {
+                            if let Some(snapshot) = target.ui_snapshot.as_mut() {
+                                if snapshot.entity.sensitivity != argusflow_core::FieldSensitivity::Normal {
+                                    snapshot.entity.semantics.name = None;
+                                    snapshot.entity.ancestors.iter_mut().for_each(|item| item.name = None);
+                                    target.diagnostics.push(RecordingDiagnostic::Redacted);
+                                }
+                            }
+                        }
+                    }
                     let mut event = redactor.sanitize(input.event, input.elapsed_ms, input.decoded, evidence, input.diagnostics);
                     if let RawInput::Clipboard { content, .. } = &mut event.input {
-                        *content = input.clipboard.unwrap_or(crate::ClipboardContent::Unavailable);
+                        if privacy.clipboard() {
+                            *content = crate::ClipboardContent::Unavailable;
+                            event.diagnostics.push(RecordingDiagnostic::Redacted);
+                        } else { *content = input.clipboard.unwrap_or(crate::ClipboardContent::Unavailable); }
                     }
                     timeline.events.push(event);
                     processed.store(timeline.events.len() as u64, Ordering::Relaxed);
@@ -68,7 +106,7 @@ pub(crate) async fn record(
     }
 }
 
-/// 永远保留摄入阶段的图像；延迟或焦点变化只撤销结构化元素，不重拍。
+/// 结构化观察保留输入时上下文；主要截图来自并行的操作后采样。
 async fn collect_input(
     mut input: CapturedInput,
     collector: Arc<EvidenceCollector>,
@@ -117,13 +155,24 @@ async fn collect_input(
                 });
         }
     }
-    // PNG 编码与结构化查询并行；等待时只接收已冻结像素的持久化结果。
+    // 操作后采样和 PNG 编码与结构化查询并行，返回实际像素的持久化结果。
     if let Some(screenshot) = input.screenshot.take() {
         match screenshot
             .await
             .unwrap_or(Err(argusflow_core::InspectionFailure::Unavailable))
         {
             Ok(screenshot) => evidence.screenshot = Some(screenshot),
+            Err(reason) => evidence
+                .diagnostics
+                .push(RecordingDiagnostic::ScreenshotUnavailable { reason }),
+        }
+    }
+    if let Some(target) = input.click_target.take() {
+        match target
+            .await
+            .unwrap_or(Err(argusflow_core::InspectionFailure::Unavailable))
+        {
+            Ok(target) => evidence.click_target = Some(target),
             Err(reason) => evidence
                 .diagnostics
                 .push(RecordingDiagnostic::ScreenshotUnavailable { reason }),

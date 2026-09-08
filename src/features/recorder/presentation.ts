@@ -15,7 +15,7 @@ const FAILURE_LABELS = {
 } satisfies Record<InspectionFailure, string>;
 const DIAGNOSTIC_LABELS = {
   late_inspection: '采样开始过晚，未补采当前界面', input_gap: '部分事件未能记录',
-  redacted: '键盘内容已遮盖',
+  redacted: '已按隐私设置遮盖内容',
 } satisfies Record<'late_inspection' | 'input_gap' | 'redacted', string>;
 /** 明确区分输入法限制、布局失败与窗口采样失败。 */
 const KEYBOARD_FAILURE_LABELS = {
@@ -38,7 +38,7 @@ export function eventLabel(input: RawInput): string {
     case 'mouse': return `${({ left: '左键', right: '右键', middle: '中键', x1: '侧键 1', x2: '侧键 2' } as const)[input.button]}${input.phase === 'down' ? '按下' : '释放'} (${input.point.x}, ${input.point.y})`;
     case 'move': return `鼠标移动 (${input.point.x}, ${input.point.y})`;
     case 'wheel': return `${input.horizontal ? '水平' : '垂直'}滚轮 ${input.delta}`;
-    case 'window': return input.change === 'foreground' ? '切换窗口' : '窗口出现';
+    case 'window': return input.change === 'foreground' ? '切换窗口' : '窗口显示通知';
     case 'clipboard': return '剪贴板变化';
     case 'key': {
       const key = input.chord ? chordLabel(input.chord) : input.text?.type === 'plain' ? input.text.value
@@ -68,4 +68,10 @@ export const recordingDate = (timestamp: number) => new Date(timestamp).toLocale
 export function durationLabel(milliseconds: number): string {
   const seconds = Math.max(0, Math.floor(milliseconds / 1000));
   return `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`;
+}
+
+/** 回看和选区使用毫秒精度，避免同一秒内的操作显示为同一个时间。 */
+export function preciseDurationLabel(milliseconds: number): string {
+  const value = Math.max(0, Math.floor(milliseconds));
+  return `${durationLabel(value)}.${String(value % 1000).padStart(3, '0')}`;
 }

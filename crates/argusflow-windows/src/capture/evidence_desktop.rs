@@ -84,6 +84,16 @@ impl EvidenceDesktop {
         &mut self,
         bounds: InspectionRect,
     ) -> Result<EvidenceFrame, InspectionFailure> {
+        self.capture_update(bounds, false)?
+            .ok_or(InspectionFailure::Unavailable)
+    }
+
+    /// 无新呈现时不读回、不分配和复制整帧。
+    pub(super) fn capture_update(
+        &mut self,
+        bounds: InspectionRect,
+        only_changed: bool,
+    ) -> Result<Option<EvidenceFrame>, InspectionFailure> {
         if !unsafe { self.factory.IsCurrent() }.as_bool() {
             return Err(InspectionFailure::ContextChanged);
         }
@@ -94,6 +104,7 @@ impl EvidenceDesktop {
         let width = bounds.width as u32;
         let height = bounds.height as u32;
         let mut crops = Vec::new();
+        let mut changed = false;
         for (adapter_index, adapter) in self.adapters.iter_mut().enumerate() {
             for (output_index, output) in adapter.outputs.iter_mut().enumerate() {
                 output.validate()?;
@@ -105,7 +116,7 @@ impl EvidenceDesktop {
                 if output.capture.is_none() {
                     output.capture = Some(DesktopOutput::new(&output.output, &adapter.graphics)?);
                 }
-                output
+                changed |= output
                     .capture
                     .as_mut()
                     .ok_or(InspectionFailure::Unavailable)?
@@ -115,6 +126,9 @@ impl EvidenceDesktop {
         }
         if crops.is_empty() {
             return Err(InspectionFailure::InvalidGeometry);
+        }
+        if only_changed && !changed {
+            return Ok(None);
         }
         let mut pixels = vec![0; width as usize * height as usize * 4];
         for (adapter_index, output_index, crop) in crops {
@@ -131,7 +145,7 @@ impl EvidenceDesktop {
                     },
                 )?;
         }
-        EvidenceFrame::new(bounds, width, height, EvidencePixelFormat::Bgrx8, pixels)
+        EvidenceFrame::new(bounds, width, height, EvidencePixelFormat::Bgrx8, pixels).map(Some)
     }
 }
 

@@ -15,6 +15,37 @@ pub struct WindowsEventCapture {
 }
 
 impl WindowEvidenceCapture for WindowsEventCapture {
+    fn capture_desktop(&self) -> Result<Option<EvidenceFrame>, InspectionFailure> {
+        use windows::Win32::UI::WindowsAndMessaging::{
+            GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
+            SM_YVIRTUALSCREEN,
+        };
+        let _dpi = PhysicalDpiScope::enter();
+        // SAFETY: 只读虚拟桌面物理范围，DPI scope 在同一线程恢复。
+        let bounds = unsafe {
+            argusflow_core::InspectionRect {
+                x: GetSystemMetrics(SM_XVIRTUALSCREEN).into(),
+                y: GetSystemMetrics(SM_YVIRTUALSCREEN).into(),
+                width: GetSystemMetrics(SM_CXVIRTUALSCREEN).into(),
+                height: GetSystemMetrics(SM_CYVIRTUALSCREEN).into(),
+            }
+        };
+        let mut desktop = self
+            .desktop
+            .lock()
+            .map_err(|_| InspectionFailure::Unavailable)?;
+        if desktop.is_none() {
+            *desktop = Some(EvidenceDesktop::new()?);
+        }
+        let result = desktop
+            .as_mut()
+            .ok_or(InspectionFailure::Unavailable)?
+            .capture_update(bounds, true);
+        if result.is_err() {
+            *desktop = None;
+        }
+        result
+    }
     fn capture(&self, context: &InspectionContext) -> Result<EvidenceFrame, InspectionFailure> {
         let _dpi = PhysicalDpiScope::enter();
         evidence_geometry::validate(context)?;

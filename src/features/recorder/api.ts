@@ -1,5 +1,5 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
-import type { CompletedRecording, RecorderStatus, RecordingSummary } from './model';
+import type { CompletedRecording, RecorderStatus, RecordingSummary, RecordingPrivacy } from './model';
 
 /** 封闭命令注册，避免业务 UI 散落 IPC 字符串。 */
 const COMMANDS = {
@@ -10,7 +10,7 @@ const COMMANDS = {
 /** 浏览器预览可查看界面，但不能伪装拥有全局输入能力。 */
 export const recorderAvailable = () => isTauri();
 /** 显式安装真实全局 Hook。 */
-export const startRecording = () => invoke<RecorderStatus>(COMMANDS.start);
+export const startRecording = (privacy: RecordingPrivacy) => invoke<RecorderStatus>(COMMANDS.start, { privacy });
 /** 卸载 Hook、排空并保存。 */
 export const stopRecording = () => invoke<CompletedRecording>(COMMANDS.stop);
 /** 无输入内容的状态轮询。 */
@@ -23,6 +23,6 @@ export const getRecording = (recordingId: string) => (
 );
 
 /** 通过事件身份读取二进制 PNG，前端不能提交任意本地路径。 */
-export const readRecordingScreenshot = (recordingId: string, sequence: number, kind: 'window' | 'crop') => (
+export const readRecordingScreenshot = (recordingId: string, sequence: number, kind: 'window' | 'crop' | 'target' | 'target_crop') => (
   invoke<ArrayBuffer>(COMMANDS.screenshot, { recordingId, sequence, kind })
 );

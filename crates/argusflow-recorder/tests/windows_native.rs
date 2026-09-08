@@ -66,7 +66,14 @@ async fn physical_input_to_event_timeline_and_evidence() {
     ));
     let root = std::env::temp_dir().join(format!("argusflow-physical-{}", uuid::Uuid::new_v4()));
     let recorder = RecorderService::new(resolver, &root);
-    recorder.start().await.unwrap();
+    recorder
+        .start_with_privacy(RecordingPrivacy {
+            enabled: true,
+            sensitive_input: true,
+            ..Default::default()
+        })
+        .await
+        .unwrap();
     println!(
         "PHYSICAL TIMELINE READY: use English layout; click top field, type argus; click bottom, type secret42; press Enter. Automatic stop after 90 seconds."
     );
@@ -142,9 +149,7 @@ async fn real_uia_hit_test_password_and_hook_service_save_retry() {
             "UIA cache bounds must remain screen physical pixels"
         );
         assert!(entity.bounds.contains(point));
-        if sensitivity == FieldSensitivity::Sensitive {
-            assert!(entity.semantics.name.is_none());
-        }
+        // Provider 只报告敏感性；遮盖由录制会话显式配置。
         println!("real WindowFromPoint/UIA evidence: TextBox, sensitivity={sensitivity:?}");
     }
     fixture.focus_password();

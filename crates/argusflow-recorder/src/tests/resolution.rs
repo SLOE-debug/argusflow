@@ -89,7 +89,7 @@ async fn each_success_stops_the_ordered_fallback_chain() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn managed_backend_timeout_falls_back_and_sensitive_names_are_removed() {
+async fn managed_backend_timeout_is_bounded_and_raw_sensitive_names_are_retained() {
     let calls = Arc::new(Mutex::new(Vec::new()));
     let browser = Arc::new(Inspector {
         label: EvidenceBackend::ManagedCdp,
@@ -163,7 +163,7 @@ async fn managed_backend_timeout_falls_back_and_sensitive_names_are_removed() {
         EvidenceBackend::Uia
     );
     assert!(
-        !serde_json::to_string(&evidence)
+        serde_json::to_string(&evidence)
             .unwrap()
             .contains("SECRET_INPUT_VALUE")
     );

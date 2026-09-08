@@ -38,7 +38,7 @@ pub struct AppState {
     /// 启动协调器读取捕获与 OCR 的统一健康快照。
     vision_runtime: Arc<VisionRuntime>,
     /// 配置了本地 worker 时保留的控制面，用于 health 刷新与失败重试。
-    vision_pipe: Option<Arc<NamedPipeOcrEngine>>,
+    pub(crate) vision_pipe: Option<Arc<NamedPipeOcrEngine>>,
     /// React 首屏绘制后首次触发能力初始化的单调时钟起点。
     startup_started_at: OnceLock<Instant>,
 }

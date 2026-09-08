@@ -75,3 +75,5 @@ pub use worker::{
     WorkerInferenceEngine, WorkerLifecycle, WorkerModelInfo, WorkerModelLifecycle,
     WorkerOcrRequest, WorkerProtocolEnvelope, WorkerResponse,
 };
+mod saved_image;
+pub use saved_image::recognize_saved_png;

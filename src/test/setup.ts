@@ -9,6 +9,13 @@ import {
 import type { ChangeEvent } from 'react';
 import { afterEach, vi } from 'vitest';
 
+/** jsdom 没有布局引擎；尺寸由具体测试桩提供，观察器只模拟订阅生命周期。 */
+globalThis.ResizeObserver = class implements ResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+};
+
 /** jsdom 不提供 Monaco 所需的布局与 Worker；组件测试使用等价受控文本边界。 */
 vi.mock('../components/ui/monaco', () => ({
   MonacoEditor: forwardRef(function MonacoEditorMock(props: Readonly<{

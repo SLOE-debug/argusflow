@@ -42,10 +42,9 @@ impl RecordingSummary {
                 .events
                 .iter()
                 .filter(|event| {
-                    event
-                        .evidence
-                        .as_ref()
-                        .is_some_and(|evidence| evidence.screenshot.is_some())
+                    event.evidence.as_ref().is_some_and(|evidence| {
+                        evidence.screenshot.is_some() || evidence.click_target.is_some()
+                    })
                 })
                 .count(),
             dropped_events: trace.dropped_events,

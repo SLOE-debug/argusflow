@@ -45,7 +45,7 @@ impl DesktopOutput {
     }
 
     /// 获取当前可用桌面；静态桌面不等待下一次刷新，失败绝不伪装为旧帧成功。
-    pub(super) fn refresh(&mut self, graphics: &DesktopDevice) -> Result<(), InspectionFailure> {
+    pub(super) fn refresh(&mut self, graphics: &DesktopDevice) -> Result<bool, InspectionFailure> {
         let mut info = DXGI_OUTDUPL_FRAME_INFO::default();
         let mut resource = None;
         let deadline = std::time::Instant::now() + std::time::Duration::from_millis(100);
@@ -64,7 +64,7 @@ impl DesktopOutput {
                     .AcquireNextFrame(timeout_ms, &mut info, &mut resource)
             } {
                 Err(error) if error.code() == DXGI_ERROR_WAIT_TIMEOUT && self.desktop.is_some() => {
-                    return Ok(());
+                    return Ok(false);
                 }
                 Err(error) if error.code() == DXGI_ERROR_WAIT_TIMEOUT => {
                     return Err(InspectionFailure::Timeout);
@@ -78,7 +78,7 @@ impl DesktopOutput {
                 drop(FrameLease(&self.duplication));
                 resource = None;
                 if self.desktop.is_some() {
-                    return Ok(());
+                    return Ok(false);
                 }
                 if std::time::Instant::now() >= deadline {
                     return Err(InspectionFailure::Timeout);
@@ -139,7 +139,7 @@ impl DesktopOutput {
         unsafe { graphics.context.Flush() };
         self.readback.invalidate();
         drop(lease);
-        Ok(())
+        Ok(true)
     }
 
     /// 映射后通过借用闭包消费；无论复制成功与否都解除映射。

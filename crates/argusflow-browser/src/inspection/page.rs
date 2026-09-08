@@ -47,7 +47,7 @@ pub(super) async fn inspect(
         .pointer("/result/value")
         .cloned()
         .ok_or(InspectionFailure::NoElement)?;
-    let mut entity: PageEntity =
+    let entity: PageEntity =
         serde_json::from_value(value).map_err(|_| InspectionFailure::NoElement)?;
     if !entity.top_level_viewport {
         return Err(InspectionFailure::InvalidGeometry);
@@ -64,13 +64,7 @@ pub(super) async fn inspect(
         .into_iter()
         .flatten()
         .any(|value| sensitive_field_metadata(value));
-    if sensitive {
-        entity.semantics.name = None;
-        entity
-            .ancestors
-            .iter_mut()
-            .for_each(|item| item.name = None);
-    }
+    // 不在共享观察层隐式遮盖，调用方按会话策略处理敏感性。
     let node = page
         .command(
             "DOM.describeNode",

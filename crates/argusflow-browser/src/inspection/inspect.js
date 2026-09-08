@@ -35,17 +35,17 @@ function () {
             (node.isContentEditable || ['input', 'textarea'].includes(node.localName) ? '' :
                 node.innerText || node.textContent || '')).replace(/\s+/g, ' ').trim();
     };
-    const snapshot = (node, ancestor) => ({
-        role: role(node), name: ancestor || sensitive(node) ? null : (name(node) || null),
+    const snapshot = (node) => ({
+        role: role(node), name: name(node) || null,
         automation_id: null, test_id: node.getAttribute('data-testid'), stable_id: node.id || null,
         class_name: typeof node.className === 'string' ? node.className : null, framework_id: null,
     });
     const ancestors = [];
     for (let parent = element.parentElement; parent && ancestors.length < 8; parent = parent.parentElement) {
-        ancestors.push(snapshot(parent, true));
+        ancestors.push(snapshot(parent));
     }
     const rect = element.getBoundingClientRect();
-    return { semantics: snapshot(element, false), ancestors,
+    return { semantics: snapshot(element), ancestors,
         bounds: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
         editable: element.isContentEditable || ['input', 'textarea'].includes(element.localName),
         sensitive: sensitive(element) || Boolean(element.closest('[data-sensitive], [data-private], input[type=password]')),

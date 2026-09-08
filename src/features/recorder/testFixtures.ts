@@ -13,7 +13,7 @@ export const RECORDING_FIXTURE: CompletedRecording = {
         context: { window: { handle: 123, process_id: 42 }, executable_path: 'D:\\Example.exe',
           title: '测试窗口', class_name: 'FixtureWindow', bounds: { x: 0, y: 0, width: 800, height: 600 },
           browser_viewport: null, dpi: 96, has_keyboard_focus: true },
-        screenshot: null, diagnostics: [],
+        click_target: null, screenshot: null, diagnostics: [],
         ui_snapshot: { backend: 'uia', observed_at_ms: 11, observation_duration_ms: 1,
           entity: { identity: 'uia:42', editable: true, sensitivity: 'sensitive', ancestors: [],
             bounds: { x: 10, y: 10, width: 100, height: 20 }, browser_session: null, page_url: null,

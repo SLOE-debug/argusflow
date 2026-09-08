@@ -189,6 +189,7 @@ dependencies = [
  "argusflow-core",
  "argusflow-query",
  "async-trait",
+ "png 0.18.1",
  "regex",
  "serde",
  "serde_json",

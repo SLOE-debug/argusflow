@@ -31,15 +31,15 @@ pub struct RecorderService {
     /// 与执行器共用能力实例的反查门面。
     resolver: Arc<EvidenceCollector>,
     /// 默认位于宿主 .argusflow/recordings。
-    root: PathBuf,
+    pub(crate) root: PathBuf,
     /// start/stop 的互斥生命周期边界。
-    session: Mutex<Option<ActiveRecording>>,
+    pub(crate) session: Mutex<Option<ActiveRecording>>,
 }
 
 /// Hook、ingestion 与 async worker 均由同一个录制生命周期拥有。
-struct ActiveRecording {
+pub(crate) struct ActiveRecording {
     /// 控制面识别本次会话。
-    id: uuid::Uuid,
+    pub(crate) id: uuid::Uuid,
     /// 专用消息线程的停止句柄。
     hook: HookCapture,
     /// 元数据摄入线程；hook 关闭后输入 channel 自然结束。
@@ -68,6 +68,15 @@ impl RecorderService {
 
     /// 安装真实输入 Hook 并启动两个 worker 阶段；拒绝重复录制。
     pub async fn start(&self) -> Result<RecorderStatus, RecorderError> {
+        self.start_with_privacy(crate::RecordingPrivacy::default())
+            .await
+    }
+
+    /// 会话隐私配置在开始后不可修改。
+    pub async fn start_with_privacy(
+        &self,
+        privacy: crate::RecordingPrivacy,
+    ) -> Result<RecorderStatus, RecorderError> {
         let mut session = self.session.lock().await;
         if session.is_some() {
             return Err(RecorderError::AlreadyRecording);
@@ -90,6 +99,12 @@ impl RecorderService {
             .as_millis() as u64;
         // SAFETY: GetTickCount 与 Hook struct.time 使用相同事件时钟。
         let started_tick = unsafe { GetTickCount() };
+        let screenshots = crate::post_capture::PostCapture::start(
+            self.resolver.clone(),
+            screenshots,
+            std::time::Instant::now(),
+            !privacy.screenshots(),
+        )?;
         let ingestion = std::thread::Builder::new()
             .name("argusflow-recorder-ingest".into())
             .spawn(move || {
@@ -100,6 +115,7 @@ impl RecorderService {
                     ingestion_dropped,
                     started_tick,
                     screenshots,
+                    privacy,
                 )
             })
             .map_err(|_| RecorderError::WorkerUnavailable)?;
@@ -110,13 +126,14 @@ impl RecorderService {
                 return Err(error);
             }
         };
-        let worker = tokio::spawn(crate::worker::record(
+        let worker = tokio::spawn(crate::worker::record_with_privacy(
             receiver,
             self.resolver.clone(),
             dropped.clone(),
             id,
             started_at_unix_ms,
             processed.clone(),
+            privacy,
         ));
         *session = Some(ActiveRecording {
             id,
@@ -197,11 +214,13 @@ impl RecorderService {
 
     /// 最近最多 100 次完整保存的录制；未发布 manifest 的半成品不进入列表。
     pub async fn list(&self) -> Result<Vec<RecordingSummary>, RecorderError> {
+        let _session = self.session.lock().await;
         crate::history::list(&self.root).await
     }
 
     /// 通过 UUID 读取录制，调用方不能传入文件路径。
     pub async fn load(&self, id: uuid::Uuid) -> Result<CompletedRecording, RecorderError> {
+        let _session = self.session.lock().await;
         crate::history::load(&self.root, id).await
     }
 
@@ -212,6 +231,7 @@ impl RecorderService {
         sequence: u64,
         kind: crate::ScreenshotKind,
     ) -> Result<Vec<u8>, RecorderError> {
+        let _session = self.session.lock().await;
         crate::evidence_reader::read(&self.root, id, sequence, kind).await
     }
 }

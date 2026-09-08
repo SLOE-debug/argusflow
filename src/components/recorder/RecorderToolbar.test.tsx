@@ -27,16 +27,26 @@ describe('recorder user flow', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: '开始录制' })).toBeEnabled());
     expect(api.startRecording).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: '开始录制' }));
+    expect(api.startRecording).toHaveBeenCalledWith(expect.objectContaining({ enabled: false }));
     await screen.findByRole('button', { name: '录制中' });
     fireEvent.click(screen.getByRole('button', { name: '收起录制面板' }));
     expect(api.stopRecording).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: '录制中' }));
     fireEvent.click(screen.getByRole('button', { name: '停止并保存' }));
-    await screen.findByText('事件 1 · 证据详情');
-    expect(screen.getByText('AutomationId', { selector: 'dt' })).toBeInTheDocument();
-    expect(screen.queryByText('定位候选')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '时间线 JSON' }));
-    expect(screen.getByLabelText('时间线 JSON').textContent).toContain('"virtual_key": null');
+    expect(await screen.findByRole('slider', { name: '录制时间轴' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '时间线 JSON' })).not.toBeInTheDocument();
+  });
+
+  it('offers privacy review after saving instead of a recording-wide switch', async () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByRole('button', { name: '录制操作' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: '开始录制' })).toBeEnabled());
+    expect(screen.queryByRole('checkbox', { name: '开启敏感数据遮盖' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '开始录制' }));
+    expect(api.startRecording).toHaveBeenCalledWith(expect.objectContaining({ enabled: false }));
+    await screen.findByRole('button', { name: '录制中' });
+    fireEvent.click(screen.getByRole('button', { name: '停止并保存' }));
+    expect(await screen.findByRole('button', { name: '选择时间段' })).toBeEnabled();
   });
 
   it('copies only the chosen sanitized trace layer and displays clipboard failures', async () => {
@@ -44,14 +54,10 @@ describe('recorder user flow', () => {
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
     render(<Harness />);
     fireEvent.click(screen.getByRole('button', { name: '录制操作' }));
-    fireEvent.click(await screen.findByRole('button', { name: /1 个事件 · 0 份截图/ }));
-    await screen.findByText('事件 1 · 证据详情');
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '复制时间线' })); });
-    expect(JSON.parse(writeText.mock.calls[0][0])).toEqual(RECORDING_FIXTURE.trace);
-    writeText.mockRejectedValueOnce(new Error('denied'));
-    fireEvent.click(screen.getByRole('button', { name: '时间线 JSON' }));
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '复制时间线' })); });
-    expect(screen.getByText('复制失败，请使用导出 JSON。')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '录制历史' }));
+    fireEvent.click(await screen.findByRole('button', { name: /1 条操作记录 · 0 份截图/ }));
+    expect(await screen.findByRole('slider', { name: '录制时间轴' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '复制时间线' })).not.toBeInTheDocument();
   });
 
   it('explains unsupported IME commits even when no semantic step was created', async () => {
@@ -60,8 +66,9 @@ describe('recorder user flow', () => {
     } });
     render(<Harness />);
     fireEvent.click(screen.getByRole('button', { name: '录制操作' }));
-    fireEvent.click(await screen.findByRole('button', { name: /1 个事件 · 0 份截图/ }));
-    expect(await screen.findByText('暂不支持输入法组合提交，组合期间的文字未录入')).toBeInTheDocument();
-    expect(screen.getByText('事件 1 · 证据详情')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '录制历史' }));
+    fireEvent.click(await screen.findByRole('button', { name: /1 条操作记录 · 0 份截图/ }));
+    fireEvent.change(await screen.findByRole('slider', { name: '录制时间轴' }), { target: { value: '10' } });
+    expect(screen.getByText(/暂不支持输入法组合提交，组合期间的文字未录入/)).toBeInTheDocument();
   });
 });

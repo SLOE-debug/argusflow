@@ -1,4 +1,5 @@
 import Check from 'lucide-react/dist/esm/icons/check.mjs';
+import { useSelectPlacement } from './useSelectPlacement';
 import ChevronDown from 'lucide-react/dist/esm/icons/chevron-down.mjs';
 import {
   useCallback,
@@ -97,6 +98,8 @@ export function Select<Value extends string>({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const listboxId = useId();
   const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const placement = useSelectPlacement(open, triggerRef, menuRef);
   const selectedIndex = options.findIndex((option) => option.value === value);
   const firstEnabledIndex = findEnabledOptionIndex(options, 0, 1);
   const [highlightedIndex, setHighlightedIndex] = useState(
@@ -269,10 +272,12 @@ export function Select<Value extends string>({
       {open ? (
         <div
           id={listboxId}
+          ref={menuRef}
+          style={placement}
           role="listbox"
           aria-label={buttonProps['aria-label'] ?? '选项'}
           className={
-            'absolute top-full left-0 z-50 mt-1.5 max-h-64 min-w-full overflow-y-auto ' +
+            'fixed z-50 overflow-y-auto overscroll-contain ' +
             'rounded-lg border border-slate-200 bg-white p-1.5 shadow-[0_10px_28px_rgba(15,23,42,.14)]'
           }
         >

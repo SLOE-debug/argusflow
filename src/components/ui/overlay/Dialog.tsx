@@ -1,4 +1,6 @@
 import X from 'lucide-react/dist/esm/icons/x.mjs';
+import ArrowLeft from 'lucide-react/dist/esm/icons/arrow-left.mjs';
+import { Button } from '../button/Button';
 import { forwardRef, useEffect, useId, useRef, type ReactNode } from 'react';
 
 import { IconButton } from '../button/IconButton';
@@ -18,10 +20,16 @@ export type DialogProps = Readonly<{
   footer?: ReactNode;
   /** 关闭按钮的可访问名称。 */
   closeLabel?: string;
+  /** 全屏子页面使用左上角返回，普通对话框保留关闭按钮。 */
+  navigation?: 'close' | 'back';
   /** 主体内容附加样式。 */
   className?: string;
   /** 由容器选择宽度，避免调用方追加相互冲突的 Tailwind 宽度类。 */
-  size?: 'standard' | 'wide';
+  size?: 'standard' | 'wide' | 'fullscreen';
+  /** 紧凑工作区将操作放入标题栏，减少常驻垂直占用。 */
+  headerActions?: ReactNode;
+  /** 画布类工作区减少容器留白。 */
+  compact?: boolean;
 }>;
 
 /** 基于原生 dialog 的受控模态容器，集中处理 Escape、遮罩和焦点恢复。 */
@@ -33,8 +41,11 @@ export const Dialog = forwardRef<HTMLDialogElement, DialogProps>(function Dialog
   children,
   footer,
   closeLabel = '关闭对话框',
+  navigation = 'close',
   className = '',
   size = 'standard',
+  headerActions,
+  compact = false,
 }, forwardedRef) {
   const localRef = useRef<HTMLDialogElement>(null);
   const titleId = useId();
@@ -80,7 +91,7 @@ export const Dialog = forwardRef<HTMLDialogElement, DialogProps>(function Dialog
       ref={setDialogRef}
       aria-labelledby={titleId}
       aria-describedby={description ? descriptionId : undefined}
-      className={`m-auto ${size === 'wide' ? 'w-[min(100%-2rem,76rem)] max-w-none' : 'w-[min(100%-2rem,32rem)]'} rounded-lg border border-slate-200 bg-white p-0 text-slate-800 shadow-xl outline-none backdrop:bg-slate-900/30 ${className}`}
+      className={`m-auto ${size === 'fullscreen' ? 'h-dvh max-h-none w-screen max-w-none overflow-hidden open:flex open:flex-col' : size === 'wide' ? 'w-[min(100%-2rem,76rem)] max-w-none rounded-lg' : 'w-[min(100%-2rem,32rem)] rounded-lg'} border border-slate-200 bg-white p-0 text-slate-800 shadow-xl outline-none backdrop:bg-slate-900/30 ${className}`}
       onCancel={(event) => {
         event.preventDefault();
         close();
@@ -90,7 +101,15 @@ export const Dialog = forwardRef<HTMLDialogElement, DialogProps>(function Dialog
         if (event.target === event.currentTarget) close();
       }}
     >
-      <header className="flex items-start gap-3 border-b border-slate-200 px-4 py-3">
+      <header className={`flex shrink-0 items-center gap-3 border-b border-slate-200 px-4 ${compact ? 'py-1' : 'py-3'}`}>
+        {navigation === 'back' ? (
+          <Button
+            icon={ArrowLeft}
+            variant="ghost"
+            onClick={close}
+            aria-label={closeLabel}
+          >返回</Button>
+        ) : null}
         <div className="min-w-0 flex-1">
           <h2
             id={titleId}
@@ -104,14 +123,15 @@ export const Dialog = forwardRef<HTMLDialogElement, DialogProps>(function Dialog
             </div>
           ) : null}
         </div>
-        <IconButton
+        {headerActions}
+        {navigation === 'close' ? <IconButton
           icon={X}
           label={closeLabel}
           size="compact"
           onClick={close}
-        />
+        /> : null}
       </header>
-      {children ? <div className="px-4 py-4">{children}</div> : null}
+      {children ? <div className={`${size === 'fullscreen' ? 'flex min-h-0 flex-1 flex-col ' : ''}${compact ? 'p-2' : 'px-4 py-4'}`}>{children}</div> : null}
       {footer ? (
         <footer className="flex items-center justify-end gap-2 border-t border-slate-200 px-4 py-3">
           {footer}

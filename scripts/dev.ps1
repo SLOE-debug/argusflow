@@ -19,6 +19,10 @@ $lockfilePath = Join-Path $projectRoot "pnpm-lock.yaml"
 $visionWorker = $null
 $usesManagedVisionWorker = $false
 $usesManagedVisionDiagnostics = $false
+# Restore inherited settings even when startup fails.
+$previousDevPort = $env:ARGUSFLOW_DEV_PORT
+$devConfigPath = $null
+. (Join-Path $PSScriptRoot 'dev-server.ps1')
 
 if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
     throw "pnpm was not found. Install pnpm before starting ArgusFlow."
@@ -88,12 +92,20 @@ try {
     Write-Host "Vision failure diagnostics: $configuredDiagnosticsDirectory" -ForegroundColor DarkCyan
 
     Write-Host "Starting ArgusFlow (Tauri + Vite)..." -ForegroundColor Cyan
-    & pnpm exec tauri dev
+    $devPort = Get-ArgusFlowDevPort
+    $env:ARGUSFLOW_DEV_PORT = [string]$devPort
+    $devConfigPath = New-ArgusFlowDevConfig -ProjectRoot $projectRoot -Port $devPort
+    Write-Host "Development server: http://127.0.0.1:$devPort" -ForegroundColor Cyan
+    & pnpm exec tauri dev --config $devConfigPath
     if ($LASTEXITCODE -ne 0) {
         throw "ArgusFlow exited with code $LASTEXITCODE."
     }
 }
 finally {
+    $env:ARGUSFLOW_DEV_PORT = $previousDevPort
+    if ($null -ne $devConfigPath) {
+        Remove-Item -LiteralPath $devConfigPath -ErrorAction SilentlyContinue
+    }
     if ($usesManagedVisionWorker) {
         Remove-Item Env:ARGUSFLOW_VISION_PIPE_NAME -ErrorAction SilentlyContinue
         Remove-Item Env:ARGUSFLOW_VISION_SESSION_TOKEN -ErrorAction SilentlyContinue

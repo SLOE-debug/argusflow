@@ -4,6 +4,12 @@ import { defineConfig } from 'vitest/config';
 
 /** 本机开发服务器固定使用 IPv4，避免 WebView2 优先连接未监听的 IPv6 localhost。 */
 const DEV_SERVER_HOST = '127.0.0.1' as const;
+/** 桌面启动脚本选定端口后同步传给 Vite；独立前端开发允许自动递增。 */
+const configuredDevPort = process.env.ARGUSFLOW_DEV_PORT;
+const devPort = configuredDevPort === undefined ? 5173 : Number(configuredDevPort);
+if (!Number.isInteger(devPort) || devPort < 1 || devPort > 65535) {
+  throw new Error('ARGUSFLOW_DEV_PORT must be an integer between 1 and 65535.');
+}
 
 /**
  * 不属于前端模块图的工作区目录。
@@ -41,8 +47,8 @@ export default defineConfig({
     noDiscovery: true,
   },
   server: {
-    port: 5173,
-    strictPort: true,
+    port: devPort,
+    strictPort: configuredDevPort !== undefined,
     host: DEV_SERVER_HOST,
     /** 原始 HTML 已内联启动页，不应等待 React 模块图的后台预转换。 */
     preTransformRequests: false,

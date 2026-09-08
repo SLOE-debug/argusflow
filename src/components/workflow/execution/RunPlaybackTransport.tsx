@@ -39,7 +39,7 @@ export function RunPlaybackTransport({
     ? `${summary.nodeLabel ?? '工作流'} · ${summary.eventLabel}${summary.detail ? ` — ${summary.detail}` : ''}`
     : '运行开始后，当前事件会显示在这里。';
   return (
-    <footer className="grid h-[112px] shrink-0 grid-cols-[36px_minmax(0,1fr)_36px] items-center gap-3 border-t border-slate-200 bg-white px-4 py-2">
+    <footer className="grid shrink-0 grid-cols-[36px_minmax(0,1fr)_36px] items-center gap-3 border-t border-slate-200 bg-white px-4 py-2">
       <IconButton
         icon={ChevronLeft}
         label="上一个事件"

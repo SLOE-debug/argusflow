@@ -3,6 +3,7 @@
 mod evidence_storage;
 mod fixtures;
 mod motion;
+mod privacy_edit;
 mod redaction;
 mod resolution;
 mod worker;

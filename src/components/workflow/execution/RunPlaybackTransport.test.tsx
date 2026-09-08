@@ -27,7 +27,7 @@ describe('RunPlaybackTransport', () => {
     expect(slider).toHaveAttribute('aria-valuetext', '检查界面：开始执行');
     fireEvent.change(slider, { target: { value: '2' } });
     expect(onCursorChange).toHaveBeenCalledWith(2);
-    expect(screen.getAllByTestId('run-event-tick')).toHaveLength(3);
+    expect(screen.getAllByTitle(/^事件 \d+$/)).toHaveLength(3);
 
     fireEvent.mouseEnter(screen.getByTestId('run-event-scale'));
     fireEvent.keyDown(window, { key: 'ArrowRight' });

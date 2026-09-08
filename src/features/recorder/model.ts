@@ -2,6 +2,18 @@ import type { KeyChord } from '../workflow';
 import type { RecordingDiagnostic, EventEvidence, ScreenPoint } from './inspectionContracts';
 import type { PointerMotion } from './motion';
 
+/** 录制前配置的遮盖范围，关闭总开关时保留原始内容。 */
+export type RecordingPrivacy = Readonly<{
+  enabled: boolean;
+  sensitive_input: boolean;
+  clipboard: boolean;
+  screenshots: boolean;
+}>;
+/** 子项只在用户显式开启遮盖后生效。 */
+export const DEFAULT_RECORDING_PRIVACY: RecordingPrivacy = {
+  enabled: false, sensitive_input: true, clipboard: true, screenshots: true,
+};
+
 /** 后端实际生命周期；保存失败不冒充仍在监听。 */
 export type RecorderPhase = 'idle' | 'recording' | 'finishing' | 'awaiting_save';
 /** 轮询仅传输计数，不传输输入内容。 */

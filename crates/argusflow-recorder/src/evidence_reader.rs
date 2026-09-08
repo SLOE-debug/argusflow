@@ -17,9 +17,17 @@ pub(crate) async fn read(
         .iter()
         .find(|event| event.sequence == sequence)
         .and_then(|event| event.evidence.as_ref())
-        .and_then(|evidence| evidence.screenshot.as_ref())
+        .and_then(|evidence| match kind {
+            ScreenshotKind::Target | ScreenshotKind::TargetCrop => evidence.click_target.as_ref(),
+            ScreenshotKind::Window | ScreenshotKind::Crop => evidence.screenshot.as_ref(),
+        })
         .ok_or(RecorderError::InvalidRecording)?;
     let name = match kind {
+        ScreenshotKind::Target => format!("{sequence}-target.png"),
+        ScreenshotKind::TargetCrop if screenshot.crop.is_some() => {
+            format!("{sequence}-target-crop.png")
+        }
+        ScreenshotKind::TargetCrop => return Err(RecorderError::InvalidRecording),
         ScreenshotKind::Window => format!("{sequence}.png"),
         ScreenshotKind::Crop if screenshot.crop.is_some() => format!("{sequence}-crop.png"),
         ScreenshotKind::Crop => return Err(RecorderError::InvalidRecording),

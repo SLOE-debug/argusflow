@@ -51,11 +51,13 @@ pub enum RecordingDiagnostic {
 /// 一个事件的独立证据，可只含窗口与截图。
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct EventEvidence {
+    /// 点击通知时保存的目标证据，不能由随后同坐标的另一个窗口替代。
+    pub click_target: Option<ScreenshotEvidence>,
     /// 事件发生时冻结的应用及窗口身份。
     pub context: Option<InspectionContext>,
     /// UIA/CDP 观察值及采样时间，不产生 selector 或执行目标。
     pub ui_snapshot: Option<UiSnapshot>,
-    /// 在结构化查询之前冻结并落盘的图像证据。
+    /// 独立的操作后主要图像，保留实际采样时间与稳定状态。
     pub screenshot: Option<ScreenshotEvidence>,
     /// 完整保留缺失原因，失败不使事件消失。
     pub diagnostics: Vec<RecordingDiagnostic>,

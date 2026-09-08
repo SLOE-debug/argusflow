@@ -1,45 +1,46 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import { RECORDING_FIXTURE } from '../../features/recorder/testFixtures';
-import type { CompletedRecording, PointerMotion } from '../../features/recorder';
 import { RecordingTraceViewer } from './RecordingTraceViewer';
 
-/** 同一连续移动的源事件仍可追溯，只有关键点进入时间线 JSON。 */
-const motion: PointerMotion = {
-  sample_count: 1738, end_sequence: 1738, ended_ms: 1737, distance_px: 1737, pressed_buttons: [],
-  points: [
-    { sequence: 1, elapsed_ms: 0, point: { x: -2000, y: -100 } },
-    { sequence: 1738, elapsed_ms: 1737, point: { x: -263, y: -100 } },
-  ],
-};
-const recording: CompletedRecording = {
-  ...RECORDING_FIXTURE,
-  trace: { ...RECORDING_FIXTURE.trace, timeline: { events: [
-    { sequence: 1, timestamp_ms: 0, elapsed_ms: 0, input: { type: 'pointer_motion', ...motion }, evidence: null, diagnostics: [] },
-    { ...RECORDING_FIXTURE.trace.timeline.events[0], sequence: 1739, elapsed_ms: 1800 },
-  ] } },
-};
-
-it('shows a whole movement as one row without empty evidence warnings or dozens of pages', () => {
-  render(<RecordingTraceViewer recording={recording} />);
-  expect(screen.getByText('鼠标移动轨迹')).toBeInTheDocument();
-  expect(screen.getByText('1738 个采样点 → 2 个轨迹点')).toBeInTheDocument();
-  expect(screen.getByText(/来自 1739 个原始采样/)).toBeInTheDocument();
-  expect(screen.queryByText('窗口信息缺失')).not.toBeInTheDocument();
-  expect(screen.queryByText('未保存截图')).not.toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: '下一页' })).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: /^2\. 键盘按下/ }));
-  expect(screen.getByText('事件 1739 · 证据详情')).toBeInTheDocument();
+it('opens playback directly and shows only the current event summary', () => {
+  render(<RecordingTraceViewer recording={RECORDING_FIXTURE} onSaved={vi.fn()} />);
+  expect(screen.getByRole('slider', { name: '录制时间轴' })).toBeInTheDocument();
+  expect(screen.queryByText('时间线 JSON')).not.toBeInTheDocument();
+  fireEvent.change(screen.getByRole('slider', { name: '录制时间轴' }), { target: { value: '10' } });
+  expect(screen.getByText(/键盘按下/)).toBeInTheDocument();
+  expect(screen.getByText(/测试窗口/)).toBeInTheDocument();
+  expect(screen.getByText('UIA')).toBeInTheDocument();
+  expect(screen.getByText('AutomationId')).toBeInTheDocument();
+  expect(screen.getByText('password')).toBeInTheDocument();
+  expect(screen.queryByText('OCR：未记录')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: '下一操作' })).not.toBeInTheDocument();
 });
 
-it('copies and displays the same compact timeline with source counts and point coordinates', async () => {
-  const writeText = vi.fn().mockResolvedValue(undefined);
-  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
-  render(<RecordingTraceViewer recording={recording} />);
-  await act(async () => { fireEvent.click(screen.getByRole('button', { name: '复制时间线' })); });
-  expect(JSON.parse(writeText.mock.calls[0][0])).toEqual(recording.trace);
-  fireEvent.click(screen.getByRole('button', { name: '时间线 JSON' }));
-  const json = JSON.parse(screen.getByLabelText('时间线 JSON').textContent ?? '{}');
-  expect(json.timeline.events).toHaveLength(2);
-  expect(json.timeline.events[0].input).toMatchObject({ type: 'pointer_motion', sample_count: 1738, end_sequence: 1738 });
+it('provides editable endpoints and keyboard-operable range handles', () => {
+  const source = RECORDING_FIXTURE.trace.timeline.events[0];
+  const recording = { ...RECORDING_FIXTURE, trace: { ...RECORDING_FIXTURE.trace, timeline: { events: [source, { ...source, sequence: 2, elapsed_ms: 10000 }] } } };
+  render(<RecordingTraceViewer recording={recording} onSaved={vi.fn()} />);
+  fireEvent.click(screen.getByRole('button', { name: '选择时间段' }));
+  expect(screen.queryByRole('spinbutton')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '调整时间' }));
+  expect(screen.getByRole('spinbutton', { name: '片段终点（秒）' })).toHaveValue(2);
+  fireEvent.change(screen.getByRole('spinbutton', { name: '片段终点（秒）' }), { target: { value: '4.5' } });
+  expect(screen.getByRole('slider', { name: '片段终点' })).toHaveAttribute('aria-valuenow', '4500');
+  fireEvent.keyDown(screen.getByRole('slider', { name: '片段起点' }), { key: 'ArrowRight' });
+  expect(screen.getByRole('spinbutton', { name: '片段起点（秒）' })).toHaveValue(0.001);
+  fireEvent.click(screen.getByRole('button', { name: '取消选择片段 1' }));
+  expect(screen.queryByRole('slider', { name: '片段起点' })).not.toBeInTheDocument();
+});
+
+it('preserves the selected interval while browsing and does not duplicate it when switching modes', () => {
+  render(<RecordingTraceViewer recording={RECORDING_FIXTURE} onSaved={vi.fn()} />);
+  fireEvent.click(screen.getByRole('button', { name: '选择时间段' }));
+  expect(screen.getByRole('combobox', { name: '选择要处理的内容' })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '浏览画面' }));
+  expect(screen.getByRole('button', { name: '浏览画面' })).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByRole('slider', { name: '片段起点' })).toBeInTheDocument();
+  expect(screen.getByRole('combobox', { name: '选择要处理的内容' })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '选择时间段' }));
+  expect(screen.getAllByRole('button', { name: /取消选择片段/ })).toHaveLength(1);
 });

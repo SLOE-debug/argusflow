@@ -48,6 +48,7 @@ pub(super) fn entity() -> InspectedEntity {
 
 pub(super) fn target() -> EventEvidence {
     EventEvidence {
+        click_target: None,
         context: Some(context()),
         ui_snapshot: Some(UiSnapshot {
             backend: EvidenceBackend::Uia,
@@ -73,6 +74,9 @@ pub(super) fn raw(sequence: u64, input: RawInput) -> RawTraceEvent {
 
 pub(super) struct NoCapture;
 impl WindowEvidenceCapture for NoCapture {
+    fn capture_desktop(&self) -> Result<Option<EvidenceFrame>, InspectionFailure> {
+        Err(InspectionFailure::Unavailable)
+    }
     fn capture(&self, _: &InspectionContext) -> Result<EvidenceFrame, InspectionFailure> {
         Err(InspectionFailure::Unavailable)
     }

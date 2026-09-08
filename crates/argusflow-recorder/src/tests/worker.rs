@@ -55,6 +55,7 @@ fn captured(sequence: u64, phase: InputPhase, x: i32) -> CapturedInput {
     let point = ScreenPoint { x, y: 20 };
     let probe = (phase == InputPhase::Down).then_some(InspectionProbe::Point(point));
     CapturedInput {
+        click_target: None,
         event: PhysicalEvent {
             sequence,
             timestamp_ms: sequence as u32,
@@ -113,6 +114,47 @@ async fn worker_compacts_movement_before_returning_the_recording() {
         "intentional aggregation is not event loss"
     );
     assert_eq!(calls.load(Ordering::Relaxed), 0);
+}
+
+#[tokio::test]
+async fn clipboard_is_raw_by_default_and_removed_only_when_scope_is_enabled() {
+    for enabled in [false, true] {
+        let (sender, receiver) = tokio::sync::mpsc::channel(1);
+        let mut input = captured(1, InputPhase::Up, 0);
+        input.event.input = PhysicalInput::Clipboard { sequence_number: 7 };
+        input.clipboard = Some(ClipboardContent::Text {
+            value: "clipboard fixture".into(),
+            truncated: false,
+        });
+        sender.send(input).await.ok().unwrap();
+        drop(sender);
+        let trace = crate::worker::record_with_privacy(
+            receiver,
+            resolver(Arc::new(AtomicUsize::new(0))),
+            Arc::new(AtomicU64::new(0)),
+            uuid::Uuid::new_v4(),
+            0,
+            Arc::new(AtomicU64::new(0)),
+            RecordingPrivacy {
+                enabled,
+                clipboard: true,
+                ..Default::default()
+            },
+        )
+        .await;
+        assert_eq!(
+            serde_json::to_string(&trace)
+                .unwrap()
+                .contains("clipboard fixture"),
+            !enabled
+        );
+        assert_eq!(
+            trace.timeline.events[0]
+                .diagnostics
+                .contains(&RecordingDiagnostic::Redacted),
+            enabled
+        );
+    }
 }
 
 #[tokio::test]
@@ -195,13 +237,18 @@ async fn late_events_skip_provider_and_focus_change_redacts_pending_keys() {
         }
         sender.send(input).await.ok().unwrap();
         drop(sender);
-        let trace = crate::worker::record(
+        let trace = crate::worker::record_with_privacy(
             receiver,
             resolver(calls.clone()),
             Arc::new(AtomicU64::new(0)),
             uuid::Uuid::new_v4(),
             0,
             Arc::new(AtomicU64::new(0)),
+            RecordingPrivacy {
+                enabled: true,
+                sensitive_input: true,
+                ..Default::default()
+            },
         )
         .await;
         assert!(!serde_json::to_string(&trace).unwrap().contains("SECRET"));
@@ -228,6 +275,8 @@ async fn cross_application_timeline_preserves_clipboard_window_wheel_and_frozen_
     let (saved, screenshot) = tokio::sync::oneshot::channel();
     saved
         .send(Ok(ScreenshotEvidence {
+            stabilized: true,
+            click_color: None,
             path: "evidence/1.png".into(),
             captured_at_ms: 1,
             capture_duration_ms: 1,

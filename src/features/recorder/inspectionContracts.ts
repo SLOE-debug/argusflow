@@ -57,7 +57,7 @@ export type InspectedEntity = Readonly<{
   bounds: InspectionRect;
   /** 可编辑事实，不代表支持完整 SetValue。 */
   editable: boolean;
-  /** 未知字段也必须遮盖输入。 */
+  /** 开启敏感输入遮盖时，未知字段也执行遮盖。 */
   sensitivity: 'normal' | 'sensitive' | 'unknown';
   /** 当前已附加的资源 ID；其他后端为空。 */
   browser_session: string | null;
@@ -80,6 +80,10 @@ export type KeyboardDecodeFailure = 'invalid_key' | 'unsupported_chord' | 'missi
   | 'missing_thread' | 'input_method_active' | 'dead_key' | 'no_character';
 /** PNG 图像与点击 crop；路径相对于演示包根目录。 */
 export type ScreenshotEvidence = Readonly<{
+  /** 操作后的画面是否在采样预算内稳定。 */
+  stabilized: boolean;
+  /** 按点击附近实际像素选择的高对比 RGB。 */
+  click_color: readonly [number, number, number] | null;
   /** 完整可见窗口区域 PNG。 */
   path: string;
   /** 图像采样开始的相对毫秒数。 */
@@ -112,11 +116,13 @@ export type UiSnapshot = Readonly<{
 }>;
 /** 一个事件的证据，不要求图像有对应元素。 */
 export type EventEvidence = Readonly<{
+  /** 点击时的目标像素，与随后出现的结果窗口分开。 */
+  click_target: ScreenshotEvidence | null;
   /** 输入发生时采集的实际窗口上下文。 */
   context: InspectionContext | null;
   /** 缺少可靠结构化信息时为空。 */
   ui_snapshot: UiSnapshot | null;
-  /** 事件摄入时冻结并保存的图像证据。 */
+  /** 操作后的主要图像，采样时间独立于输入与结构化观察。 */
   screenshot: ScreenshotEvidence | null;
   /** 按后端尝试次序保存失败原因。 */
   diagnostics: readonly RecordingDiagnostic[];

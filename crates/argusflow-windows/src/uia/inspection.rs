@@ -111,7 +111,7 @@ pub(super) fn inspect_element(
     {
         return Err(InspectionFailure::NoElement);
     }
-    let mut semantics = read_semantics(&element)?;
+    let semantics = read_semantics(&element)?;
     let password = unsafe { element.CachedIsPassword() }
         .map_err(unavailable)?
         .as_bool();
@@ -130,10 +130,7 @@ pub(super) fn inspect_element(
             belongs_to_window = true;
         }
         if depth > 0 {
-            let mut ancestor = read_semantics(&current)?;
-            // 容器 Accessible Name 可能包含子输入的聚合文本，只使用其标识构造祖先关系。
-            ancestor.name = None;
-            ancestors.push(ancestor);
+            ancestors.push(read_semantics(&current)?);
         }
         if native == hwnd {
             break;
@@ -153,10 +150,7 @@ pub(super) fn inspect_element(
     {
         return Err(InspectionFailure::NoElement);
     }
-    if sensitive {
-        semantics.name = None;
-        ancestors.iter_mut().for_each(|item| item.name = None);
-    }
+    // 观察层只报告敏感性；是否遮盖由录制会话的显式隐私策略决定。
     Ok(InspectedEntity {
         identity: format!(
             "uia:{:?}",

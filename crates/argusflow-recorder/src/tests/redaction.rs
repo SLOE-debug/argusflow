@@ -2,6 +2,45 @@ use super::fixtures::target;
 use crate::{input::DecodedKey, redaction::InputRedactor, *};
 use argusflow_core::{FieldSensitivity, KeyChord, KeyboardKey, KeyboardModifier};
 
+#[test]
+fn default_raw_recording_preserves_unknown_and_sensitive_down_and_up() {
+    for target in [
+        None,
+        Some({
+            let mut evidence = target();
+            evidence.ui_snapshot.as_mut().unwrap().entity.sensitivity = FieldSensitivity::Sensitive;
+            evidence
+        }),
+    ] {
+        let mut redactor = InputRedactor::default();
+        for phase in [InputPhase::Down, InputPhase::Up] {
+            let recorded = redactor.sanitize(
+                event(1, phase),
+                1,
+                DecodedKey {
+                    text: Some("原始内容".into()),
+                    ..Default::default()
+                },
+                target.clone(),
+                vec![],
+            );
+            assert!(matches!(
+                recorded.input,
+                RawInput::Key {
+                    virtual_key: Some(65),
+                    text: Some(RecordedText::Plain(_)),
+                    ..
+                }
+            ));
+            assert!(
+                !recorded
+                    .diagnostics
+                    .contains(&RecordingDiagnostic::Redacted)
+            );
+        }
+    }
+}
+
 fn event(sequence: u64, phase: InputPhase) -> PhysicalEvent {
     PhysicalEvent {
         sequence,
@@ -17,7 +56,7 @@ fn event(sequence: u64, phase: InputPhase) -> PhysicalEvent {
 
 #[test]
 fn ime_failure_survives_in_ai_trace_without_leaking_down_or_up_codes() {
-    let mut redactor = InputRedactor::default();
+    let mut redactor = InputRedactor::new(true);
     let down = redactor.sanitize(
         event(1, InputPhase::Down),
         1,
@@ -66,7 +105,7 @@ fn ime_failure_survives_in_ai_trace_without_leaking_down_or_up_codes() {
 #[test]
 fn password_and_unknown_redact_both_down_and_up_and_normalized_trace() {
     for sensitivity in [FieldSensitivity::Sensitive, FieldSensitivity::Unknown] {
-        let mut redactor = InputRedactor::default();
+        let mut redactor = InputRedactor::new(true);
         let mut target = target();
         target.ui_snapshot.as_mut().unwrap().entity.sensitivity = sensitivity;
         let down = redactor.sanitize(
@@ -113,7 +152,7 @@ fn password_and_unknown_redact_both_down_and_up_and_normalized_trace() {
 
 #[test]
 fn normal_text_is_retained_but_gap_revokes_release_permission() {
-    let mut redactor = InputRedactor::default();
+    let mut redactor = InputRedactor::new(true);
     let down = redactor.sanitize(
         event(1, InputPhase::Down),
         1,
@@ -152,7 +191,7 @@ fn normal_text_is_retained_but_gap_revokes_release_permission() {
 
 #[test]
 fn shortcuts_are_semantic_and_auto_repeat_cannot_unredact_a_held_key() {
-    let mut redactor = InputRedactor::default();
+    let mut redactor = InputRedactor::new(true);
     redactor.sanitize(
         event(1, InputPhase::Down),
         1,

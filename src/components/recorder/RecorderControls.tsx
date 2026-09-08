@@ -27,9 +27,9 @@ export function RecorderControls({ recorder, workflowRunning }: Readonly<{
               : recorder.completed ? '录制已保存' : '未开始录制';
 
   return (
-    <section className="flex flex-wrap items-center gap-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+    <section className="flex items-center gap-3">
       <div className="min-w-0 flex-1">
-        <p className="flex items-center gap-2 text-sm font-semibold" role="status">
+        <p className="flex items-center gap-1.5 text-[11px] font-normal text-slate-400" role="status">
           <span
             aria-hidden="true"
             className={`size-2 rounded-full ${recording && !stopping ? 'animate-pulse bg-red-500' : 'bg-slate-400'}`}
@@ -41,17 +41,15 @@ export function RecorderControls({ recorder, workflowRunning }: Readonly<{
             </span>
           ) : null}
         </p>
-        <p className="mt-1 text-xs leading-5 text-slate-500">
-          开始后，切换到目标应用并操作。返回这里停止，结果会自动保存。
-        </p>
         {needsStop ? (
           <p className="text-xs leading-5 text-slate-600">
-            已处理 {recorder.status.processed_events} 个原始事件 · 丢弃 {recorder.status.dropped_events} 个
+            已处理 {recorder.status.processed_events} 条操作记录 · 丢弃 {recorder.status.dropped_events} 个
           </p>
         ) : null}
         {workflowRunning ? <p className="text-xs text-amber-700">请先等待工作流运行结束，再开始录制。</p> : null}
       </div>
       <Button
+        size="compact"
         icon={needsStop ? Square : Circle}
         variant={needsStop ? 'danger' : 'primary'}
         loading={recorder.pending !== null}

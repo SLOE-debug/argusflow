@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { recordingDate, type RecorderController } from '../../features/recorder';
 import { Button, Dialog } from '../ui';
 import { RecorderControls } from './RecorderControls';
@@ -12,29 +12,37 @@ export function RecorderPanel({ open, onOpenChange, recorder, workflowRunning }:
   workflowRunning: boolean;
 }>) {
   useEffect(() => { if (open) void recorder.refreshHistory(); }, [open, recorder.refreshHistory]);
+  const [historyOpen, setHistoryOpen] = useState(false);
   return (
     <Dialog
       open={open}
       onOpenChange={onOpenChange}
       title="操作演示录制器"
-      description="记录鼠标、键盘、窗口与剪贴板变化，并保存当时的界面证据。"
       closeLabel="收起录制面板"
-      size="wide"
+      size="fullscreen"
       className="select-text"
+      compact
+      headerActions={(
+        <>
+          {recorder.error ? (
+            <span
+              role="alert"
+              title={recorder.error}
+              className="max-w-80 truncate text-[11px] text-red-600"
+            >{recorder.error}</span>
+          ) : null}
+          <Button
+            size="compact"
+            aria-expanded={historyOpen}
+            onClick={() => setHistoryOpen((value) => !value)}
+          >{historyOpen ? '收起历史' : '录制历史'}</Button>
+          <RecorderControls recorder={recorder} workflowRunning={workflowRunning} />
+        </>
+      )}
     >
-      <div className="flex h-[min(76vh,52rem)] min-h-0 flex-col gap-3">
-        <RecorderControls
-          recorder={recorder}
-          workflowRunning={workflowRunning}
-        />
-        {recorder.error ? (
-          <p
-            role="alert"
-            className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700"
-          >{recorder.error}</p>
-        ) : null}
-        <div className="grid min-h-0 flex-1 grid-cols-[11rem_minmax(0,1fr)] gap-3">
-          <aside className="flex min-h-0 flex-col rounded-lg border border-slate-200">
+      <div className="flex min-h-0 flex-1 flex-col gap-2">
+        <div className={`grid min-h-0 flex-1 gap-2 ${historyOpen ? 'grid-cols-[11rem_minmax(0,1fr)]' : 'grid-cols-[minmax(0,1fr)]'}`}>
+          {historyOpen ? <aside className="flex min-h-0 flex-col rounded-lg border border-slate-200">
             <header className="flex items-center justify-between border-b border-slate-200 p-2">
               <h3 className="text-xs font-semibold">录制历史</h3>
               <Button
@@ -51,18 +59,18 @@ export function RecorderPanel({ open, onOpenChange, recorder, workflowRunning }:
                     variant={recorder.completed?.trace.recording_id === item.recording_id ? 'secondary' : 'ghost'}
                     className="h-auto w-full justify-start p-2 text-left"
                     disabled={recorder.pending !== null}
-                    onClick={() => void recorder.selectHistory(item.recording_id)}
+                    onClick={() => { void recorder.selectHistory(item.recording_id); setHistoryOpen(false); }}
                   >
                     <span className="block text-[11px]">
                       <span className="block">{recordingDate(item.started_at_unix_ms)}</span>
-                      <span className="mt-1 block font-normal text-slate-500">{item.event_count} 个事件 · {item.screenshot_count} 份截图</span>
+                      <span className="mt-1 block font-normal text-slate-500">{item.event_count} 条操作记录 · {item.screenshot_count} 份截图</span>
                     </span>
                   </Button>
                 </li>
               ))}
               {recorder.history.length === 0 ? <li className="p-3 text-xs text-slate-500">暂无已保存的录制</li> : null}
             </ul>
-          </aside>
+          </aside> : null}
           {recorder.loadingHistory ? (
             <p
               role="status"
@@ -72,22 +80,23 @@ export function RecorderPanel({ open, onOpenChange, recorder, workflowRunning }:
             <RecordingTraceViewer
               key={recorder.completed.trace.recording_id}
               recording={recorder.completed}
+              onSaved={recorder.updateRecording}
             />
           ) : (
             <div className="flex items-center justify-center rounded-lg border border-dashed border-slate-300 p-8">
               <div className="max-w-md text-center">
                 <h3 className="text-sm font-semibold">{recorder.status.phase === 'recording' ? '操作正在后台录制' : '记录一次完整的跨应用演示'}</h3>
                 <p className="mt-2 text-xs leading-6 text-slate-500">
-                  停止后可查看事件时间线、界面快照和截图。将完整演示包交给多模态 AI，理解任务后再生成工作流。
+                  停止后，可按顺序查看操作和截图，检查哪些内容需要保留或删除。
                 </p>
                 <p className="mt-2 text-xs leading-6 text-slate-500">
-                  键盘敏感内容会遮盖；截图和剪贴板文本按实际内容保存。中文输入法最终提交文字仍可能缺失。
+                  录制会保留原始内容。分享前，可以删除不想公开的操作记录，也可以给截图打马赛克。部分中文输入可能未被记录，请留意检查。
                 </p>
               </div>
             </div>
           )}
         </div>
-        <p className="text-[11px] text-slate-500">收起面板会继续录制。请使用“停止并保存”结束监听。</p>
+        {recorder.status.phase === 'recording' ? <p className="text-[11px] text-slate-500">收起面板后会继续录制。完成后点击“停止并保存”。</p> : null}
       </div>
     </Dialog>
   );

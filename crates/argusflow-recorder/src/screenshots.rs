@@ -14,6 +14,10 @@ use std::{
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ScreenshotKind {
+    /// 点击时保留的目标画面。
+    Target,
+    /// 点击目标的局部图。
+    TargetCrop,
     /// 完整可见窗口区域。
     Window,
     /// 点击附近局部区域。
@@ -32,6 +36,10 @@ pub struct ScreenshotCrop {
 /// 图像证据有明确采样时间与坐标空间，不包含假想元素。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ScreenshotEvidence {
+    /// 操作后连续稳定；false 表示预算内仍有变化，不宣称视觉结果已完成。
+    pub stabilized: bool,
+    /// 点击框根据实际附近像素计算的 RGB 色；未点击时为空。
+    pub click_color: Option<[u8; 3]>,
     /// 相对于演示包根目录的 PNG 路径。
     pub path: String,
     /// 像素采集开始时间，相对录制开始的毫秒数。
@@ -52,7 +60,7 @@ pub struct ScreenshotEvidence {
     pub crop_failure: Option<InspectionFailure>,
 }
 
-/// 每次录制独占目录，像素在摄入时保存，停止后仅发布 JSON 清单。
+/// 每次录制独占目录，像素在操作后采样期间保存，停止后仅发布 JSON 清单。
 pub(crate) struct ScreenshotStore {
     directory: PathBuf,
 }
@@ -72,10 +80,48 @@ impl ScreenshotStore {
         pointer: Option<ScreenPoint>,
         crop_click: bool,
     ) -> Result<ScreenshotEvidence, InspectionFailure> {
+        self.save_named(
+            &sequence.to_string(),
+            frame,
+            captured_at_ms,
+            capture_duration_ms,
+            pointer,
+            crop_click,
+        )
+    }
+
+    /// 目标帧和结果帧使用不同文件名，不能覆盖同一事件的原始点击证据。
+    pub(crate) fn save_target(
+        &self,
+        sequence: u64,
+        frame: &EvidenceFrame,
+        captured_at_ms: u64,
+        capture_duration_ms: u64,
+        pointer: Option<ScreenPoint>,
+    ) -> Result<ScreenshotEvidence, InspectionFailure> {
+        self.save_named(
+            &format!("{sequence}-target"),
+            frame,
+            captured_at_ms,
+            capture_duration_ms,
+            pointer,
+            true,
+        )
+    }
+
+    fn save_named(
+        &self,
+        name: &str,
+        frame: &EvidenceFrame,
+        captured_at_ms: u64,
+        capture_duration_ms: u64,
+        pointer: Option<ScreenPoint>,
+        crop_click: bool,
+    ) -> Result<ScreenshotEvidence, InspectionFailure> {
         if frame.format() != EvidencePixelFormat::Rgba8 {
             return Err(InspectionFailure::InvalidGeometry);
         }
-        let path = format!("evidence/{sequence}.png");
+        let path = format!("evidence/{name}.png");
         write_png(
             &self.directory.join(&path),
             frame.width(),
@@ -86,7 +132,7 @@ impl ScreenshotStore {
             pointer
                 .and_then(|point| crop_pixels(frame, point))
                 .map(|(bounds, pixels)| {
-                    let path = format!("evidence/{sequence}-crop.png");
+                    let path = format!("evidence/{name}-crop.png");
                     write_png(
                         &self.directory.join(&path),
                         bounds.width as u32,
@@ -104,6 +150,12 @@ impl ScreenshotStore {
             Err(reason) => (None, Some(reason)),
         };
         Ok(ScreenshotEvidence {
+            stabilized: false,
+            click_color: if crop_click {
+                pointer.and_then(|point| crate::click_contrast::color(frame, point))
+            } else {
+                None
+            },
             path,
             captured_at_ms,
             capture_duration_ms,

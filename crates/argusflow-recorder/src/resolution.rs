@@ -1,10 +1,9 @@
-//! 只读 UIA/CDP 证据采集；截图在 ingestion 阶段预先冻结。
+//! 只读 UIA/CDP 证据采集；操作后截图由独立线程执行。
 
 use crate::{EventEvidence, EvidenceBackend, RecordingDiagnostic, UiSnapshot};
 use argusflow_core::{
-    ElementRole, EvidenceFrame, FieldSensitivity, InspectedEntity, InspectionContext,
-    InspectionFailure, InspectionProbe, TargetInspector, WindowEvidenceCapture, WindowIdentity,
-    WindowInspector,
+    ElementRole, EvidenceFrame, InspectedEntity, InspectionContext, InspectionFailure,
+    InspectionProbe, TargetInspector, WindowEvidenceCapture, WindowIdentity, WindowInspector,
 };
 use std::{sync::Arc, time::Duration};
 
@@ -16,11 +15,15 @@ pub struct EvidenceCollector {
     browser: Arc<dyn TargetInspector>,
     /// UIA 专用 worker 门面。
     uia: Arc<dyn TargetInspector>,
-    /// 事件到达时同步冻结像素。
+    /// 独立采样线程使用的同步像素能力。
     capture: Arc<dyn WindowEvidenceCapture>,
 }
 
 impl EvidenceCollector {
+    /// 独立观察线程的完整屏幕采样，不调用结构化 provider。
+    pub(crate) fn capture_desktop(&self) -> Result<Option<EvidenceFrame>, InspectionFailure> {
+        self.capture.capture_desktop()
+    }
     /// 复用宿主结构化观察实例，截图使用独立快速能力。
     pub fn new(
         windows: Arc<dyn WindowInspector>,
@@ -47,14 +50,6 @@ impl EvidenceCollector {
         window: WindowIdentity,
     ) -> Result<InspectionContext, InspectionFailure> {
         self.windows.window_context(window)
-    }
-
-    /// 同步冻结像素，绝不等待异步元素检查失败后再拍摄。
-    pub(crate) fn capture(
-        &self,
-        context: &InspectionContext,
-    ) -> Result<EvidenceFrame, InspectionFailure> {
-        self.capture.capture(context)
     }
 
     /// 尝试结构化证据；不可用时返回窗口事实，图像由调用方保留。
@@ -89,13 +84,13 @@ impl EvidenceCollector {
             }
             let provider_started_ms = observed_at_ms + started.elapsed().as_millis() as u64;
             let provider_started = tokio::time::Instant::now();
-            // 图像证据已经冻结，不受 provider 等待影响。
+            // 操作后截图独立调度，不受 provider 等待影响。
             // UIA 外层预算须大于自身 800ms 恢复预算，避免提前取消导致阻塞 worker 无法恢复。
             let result = tokio::time::timeout(timeout, inspector.inspect(&context, probe))
                 .await
                 .unwrap_or(Err(InspectionFailure::Timeout));
             match result {
-                Ok(mut entity) if reliable(&entity, probe) => {
+                Ok(entity) if reliable(&entity, probe) => {
                     let current = if matches!(probe, InspectionProbe::Window) {
                         self.window_context(context.window)
                     } else {
@@ -111,14 +106,6 @@ impl EvidenceCollector {
                                 reason: InspectionFailure::ContextChanged,
                             });
                         break;
-                    }
-                    if entity.sensitivity == FieldSensitivity::Sensitive {
-                        entity.semantics.name = None;
-                        entity
-                            .ancestors
-                            .iter_mut()
-                            .for_each(|item| item.name = None);
-                        evidence.diagnostics.push(RecordingDiagnostic::Redacted);
                     }
                     evidence.ui_snapshot = Some(UiSnapshot {
                         backend,

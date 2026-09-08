@@ -17,6 +17,8 @@ export function RecordingEventDetails({ event, recordingId }: Readonly<{ event: 
   const snapshot = evidence?.ui_snapshot;
   const entity = snapshot?.entity;
   const screenshot = evidence?.screenshot;
+  /** 原窗口仍是点击目标时优先展示焦点切换后的图；换窗口则优先展示目标帧。 */
+  const postStillShowsTarget = screenshot?.click_color != null;
   /** 缺失字段不以推测值填充。 */
   const facts = [
     ['时间', `${event.elapsed_ms} ms`], ['应用', context?.executable_path], ['窗口', context?.title],
@@ -34,7 +36,10 @@ export function RecordingEventDetails({ event, recordingId }: Readonly<{ event: 
   const diagnostics = [...event.diagnostics, ...evidence?.diagnostics ?? []];
   return (
     <article className="min-w-0 space-y-4 p-4">
-      <h3 className="text-sm font-semibold">事件 {event.sequence} · 证据详情</h3>
+      <h3 className="text-sm font-semibold">操作记录 {event.sequence} · 详情</h3>
+      {event.input.type === 'window' && event.input.change === 'appeared' ? (
+        <p className="text-xs text-slate-500">检测到窗口显示，不一定是新打开的窗口。操作记录按发生时间排列。</p>
+      ) : null}
       <dl className="grid grid-cols-[7rem_minmax(0,1fr)] gap-x-3 gap-y-2 text-xs">
         {facts.filter(([, value]) => value !== null && value !== undefined && value !== '').map(([label, value]) => (
           <div
@@ -46,7 +51,26 @@ export function RecordingEventDetails({ event, recordingId }: Readonly<{ event: 
           </div>
         ))}
       </dl>
-      {screenshot ? (
+      {screenshot && postStillShowsTarget ? (
+        <ScreenshotPreview
+          recordingId={recordingId}
+          sequence={event.sequence}
+          screenshot={screenshot}
+        />
+      ) : null}
+      {evidence?.click_target ? (
+        <ScreenshotPreview
+          recordingId={recordingId}
+          sequence={event.sequence}
+          screenshot={evidence.click_target}
+          target
+        />
+      ) : null}
+      {event.input.type === 'mouse' && event.input.button === 'left' && event.input.phase === 'down'
+        && !evidence?.click_target && !postStillShowsTarget ? (
+          <p className="text-xs text-amber-800">未取得点击目标画面，下方仅为操作结果。</p>
+        ) : null}
+      {screenshot && !postStillShowsTarget ? (
         <ScreenshotPreview
           recordingId={recordingId}
           sequence={event.sequence}
@@ -59,7 +83,7 @@ export function RecordingEventDetails({ event, recordingId }: Readonly<{ event: 
         </ul>
       ) : null}
       <details className="text-xs">
-        <summary className="cursor-pointer text-slate-600">原始事件与 UI 证据</summary>
+        <summary className="cursor-pointer text-slate-600">查看技术详情</summary>
         <pre className="mt-2 overflow-auto rounded-md bg-slate-50 p-2">{JSON.stringify(event, null, 2)}</pre>
       </details>
     </article>

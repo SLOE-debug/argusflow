@@ -37,7 +37,7 @@ function element(attributes = {}, options = {}) {
 test('password metadata is retained without reading or returning the field value', () => {
     const result = inspect.call(element({ type: 'password', id: 'password', 'aria-label': '密码', 'data-testid': 'login-password' }));
     assert.equal(result.sensitive, true);
-    assert.equal(result.semantics.name, null);
+    assert.equal(result.semantics.name, '密码');
     assert.equal(result.semantics.test_id, 'login-password');
     assert.equal(result.semantics.role, 'text_box');
     assert.equal(result.editable, true);

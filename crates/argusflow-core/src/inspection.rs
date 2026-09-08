@@ -77,7 +77,7 @@ pub enum InspectionProbe {
 pub struct ElementSemantics {
     /// 可由 AQL 表达的角色；未知角色保留为 None。
     pub role: Option<ElementRole>,
-    /// Accessible name，敏感元素会清空。
+    /// Accessible name；调用方根据显式隐私策略决定是否遮盖。
     pub name: Option<String>,
     /// UIA AutomationId。
     pub automation_id: Option<String>,
@@ -91,7 +91,7 @@ pub struct ElementSemantics {
     pub framework_id: Option<String>,
 }
 
-/// 字段敏感性三态；未知时录制器必须遮盖键盘内容。
+/// 字段敏感性三态；录制器显式开启输入遮盖时将未知字段视为敏感。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FieldSensitivity {

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-edit-recording-privacy"
+description = "Enables the edit_recording_privacy command without any pre-configured scope."
+commands.allow = ["edit_recording_privacy"]
+
+[[permission]]
+identifier = "deny-edit-recording-privacy"
+description = "Denies the edit_recording_privacy command without any pre-configured scope."
+commands.deny = ["edit_recording_privacy"]
