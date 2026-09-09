@@ -5,7 +5,7 @@ import { readRecordingScreenshot } from './api';
 type ImageState = Readonly<{ type: 'loading' }> | Readonly<{ type: 'failed' }> | Readonly<{ type: 'ready'; url: string }>;
 
 /** 按事件身份读取 PNG，并回收过期 URL。 */
-export function useEvidenceImage(recordingId: string, sequence: number, kind: 'window' | 'crop' | 'target' | 'target_crop') {
+export function useEvidenceImage(recordingId: string, sequence: number, kind: 'window' | 'crop' | 'target' | 'target_crop' | 'screen') {
   const [state, setState] = useState<ImageState>({ type: 'loading' });
   useEffect(() => {
     let cancelled = false;

@@ -35,18 +35,19 @@ impl RecordingSummary {
                 .iter()
                 .map(|event| event.ended_ms())
                 .max()
-                .unwrap_or(0),
+                .unwrap_or(0)
+                .max(
+                    trace
+                        .screen
+                        .frames
+                        .iter()
+                        .map(|frame| frame.presented_us / 1000)
+                        .max()
+                        .unwrap_or(0),
+                )
+                .max(trace.screen.duration_us / 1000),
             event_count: trace.timeline.events.len(),
-            screenshot_count: trace
-                .timeline
-                .events
-                .iter()
-                .filter(|event| {
-                    event.evidence.as_ref().is_some_and(|evidence| {
-                        evidence.screenshot.is_some() || evidence.click_target.is_some()
-                    })
-                })
-                .count(),
+            screenshot_count: trace.screen.frames.len(),
             dropped_events: trace.dropped_events,
         }
     }
@@ -75,7 +76,7 @@ pub(crate) async fn list(root: &Path) -> Result<Vec<RecordingSummary>, RecorderE
         else {
             continue;
         };
-        if summary.schema_version != 2 {
+        if summary.schema_version != 3 {
             continue;
         }
         validate_identity(&summary, id)?;
@@ -107,6 +108,7 @@ pub(crate) async fn load(root: &Path, id: uuid::Uuid) -> Result<CompletedRecordi
         serde_json::from_slice(&tokio::fs::read(&files.manifest).await?)?;
     validate_identity(&summary, id)?;
     let mut trace = RecordingTrace {
+        screen: serde_json::from_slice(&tokio::fs::read(directory.join("screen.json")).await?)?,
         schema_version: summary.schema_version,
         recording_id: id,
         started_at_unix_ms: summary.started_at_unix_ms,
@@ -124,7 +126,7 @@ pub(crate) async fn load(root: &Path, id: uuid::Uuid) -> Result<CompletedRecordi
 }
 
 fn validate_identity(summary: &RecordingSummary, id: uuid::Uuid) -> Result<(), RecorderError> {
-    if summary.recording_id != id || summary.schema_version != 2 {
+    if summary.recording_id != id || summary.schema_version != 3 {
         return Err(RecorderError::InvalidRecording);
     }
     Ok(())

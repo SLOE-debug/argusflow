@@ -1,9 +1,10 @@
 //! 事件像素的 PNG 持久化与点击局部裁切，不调用 Vision/OCR。
 
-use argusflow_core::{
-    EvidenceFrame, EvidencePixelFormat, InspectionFailure, InspectionRect, ScreenPoint,
-};
+#[cfg(test)]
+use argusflow_core::{EvidenceFrame, EvidencePixelFormat};
+use argusflow_core::{InspectionFailure, InspectionRect, ScreenPoint};
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
 use std::{
     fs::File,
     io::BufWriter,
@@ -14,6 +15,8 @@ use std::{
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ScreenshotKind {
+    /// 独立时间线中的屏幕帧；序号解释为 ScreenFrameId。
+    Screen,
     /// 点击时保留的目标画面。
     Target,
     /// 点击目标的局部图。
@@ -61,10 +64,12 @@ pub struct ScreenshotEvidence {
 }
 
 /// 每次录制独占目录，像素在操作后采样期间保存，停止后仅发布 JSON 清单。
+#[cfg(test)]
 pub(crate) struct ScreenshotStore {
     directory: PathBuf,
 }
 
+#[cfg(test)]
 impl ScreenshotStore {
     pub(crate) fn new(directory: PathBuf) -> Self {
         Self { directory }
@@ -170,6 +175,7 @@ impl ScreenshotStore {
 }
 
 /// 使用原始像素裁切，不缩放坐标；负屏幕原点先转换为帧本地坐标。
+#[cfg(test)]
 fn crop_pixels(frame: &EvidenceFrame, point: ScreenPoint) -> Option<(InspectionRect, Vec<u8>)> {
     if !frame.bounds().contains(point) {
         return None;
@@ -198,6 +204,7 @@ fn crop_pixels(frame: &EvidenceFrame, point: ScreenPoint) -> Option<(InspectionR
     ))
 }
 
+#[cfg(test)]
 fn write_png(path: &Path, width: u32, height: u32, rgba: &[u8]) -> Result<(), InspectionFailure> {
     let write = || -> Result<(), Box<dyn std::error::Error>> {
         let pending = path.with_extension("pending");

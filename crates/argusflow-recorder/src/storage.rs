@@ -30,6 +30,7 @@ pub(crate) async fn save(
     };
     tokio::fs::create_dir_all(&files.evidence_directory).await?;
     write_json(&files.timeline, &trace.timeline).await?;
+    write_json(&directory.join("screen.json"), &trace.screen).await?;
     let metadata = crate::history::RecordingSummary::from_trace(trace);
     write_json(&files.manifest, &metadata).await?;
     Ok(files)

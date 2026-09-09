@@ -31,6 +31,14 @@ impl VisionRuntime {
         policy: &SceneRefreshPolicy,
         run_trace: Option<&RunTraceContext>,
     ) -> Result<Arc<VisualScene>, VisionError> {
+        let scope = self.scopes.get_or_create(window, policy.capture);
+        let existing_subscription = scope.lock().await.subscription.clone();
+        if let Some(subscription) = existing_subscription {
+            if let Some(latest) = subscription.latest()? {
+                self.update_cache_invalidation(&scope, window, &latest, policy.diff)
+                    .await?;
+            }
+        }
         let cache_lookup = self.lookup_cache(window, policy);
         if !policy.force_refresh {
             if let CacheLookup::Hit(scene) = &cache_lookup {
@@ -104,7 +112,23 @@ impl VisionRuntime {
             })?;
         self.metrics.record_query_pixels(frame.bounds().area());
         let base_scene = cache.current();
-        let pending_regions = cache.pending_dirty_regions();
+        let mut pending_regions = cache.pending_dirty_regions();
+        // 将相交文本框完整纳入 ROI，迭代到闭包，防止长文本被截断。
+        if let Some(scene) = &base_scene {
+            for region in &mut pending_regions {
+                loop {
+                    let before = *region;
+                    for node in &scene.nodes {
+                        if region.intersects(node.bbox) {
+                            *region = region.union(node.bbox).expand_clamped(0, frame.bounds());
+                        }
+                    }
+                    if *region == before {
+                        break;
+                    }
+                }
+            }
+        }
         let pending_area = pending_regions
             .iter()
             .map(|region| region.area())
@@ -116,7 +140,8 @@ impl VisionRuntime {
             compared_samples: dirty.as_ref().map_or(0, |map| map.compared_samples),
             changed_samples: dirty.as_ref().map_or(0, |map| map.changed_samples),
             major_transition: dirty.as_ref().is_some_and(|map| map.major_transition)
-                || pending_ratio >= policy.diff.full_refresh_dirty_ratio,
+                || pending_ratio >= policy.diff.full_refresh_dirty_ratio
+                || pending_regions.len() > 32,
             regions: pending_regions
                 .into_iter()
                 .map(|rect| DirtyRegion {
@@ -223,6 +248,22 @@ impl VisionRuntime {
         );
         self.metrics
             .record_scene_merge_latency(scene_merge_started_at.elapsed());
+        // 提交前检查原生拓扑及共享最新 ROI 版本，过期结果不能清除后来产生的脏区。
+        if subscription.current_topology_generation().await? != frame.topology_generation {
+            return Err(VisionError::SceneStale);
+        }
+        let mut state = scope.lock().await;
+        if let Some(latest) = subscription.latest()? {
+            if latest.topology_generation != frame.topology_generation || latest.window != window {
+                return Err(VisionError::SceneStale);
+            }
+            let changes = crate::compute_dirty_map(Some(&frame), &latest, policy.diff)?;
+            cache.invalidate(&changes);
+            if refresh_regions.iter().any(|roi| changes.intersects(*roi)) {
+                return Err(VisionError::SceneStale);
+            }
+            state.last_stable_frame = Some(latest);
+        }
         if full_refresh {
             cache.replace(scene.clone());
         } else {

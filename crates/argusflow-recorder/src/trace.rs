@@ -51,6 +51,8 @@ pub enum RecordingDiagnostic {
 /// 一个事件的独立证据，可只含窗口与截图。
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct EventEvidence {
+    /// 独立屏幕时间线的前后画面引用。
+    pub screen: crate::EventScreenEvidence,
     /// 点击通知时保存的目标证据，不能由随后同坐标的另一个窗口替代。
     pub click_target: Option<ScreenshotEvidence>,
     /// 事件发生时冻结的应用及窗口身份。
@@ -128,6 +130,8 @@ impl EventTimeline {
 /// 完整多模态演示包：timeline JSON 与引用的 PNG 必须一起传递。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecordingTrace {
+    /// 独立于输入事件的整场屏幕变化。
+    pub screen: crate::ScreenTimeline,
     /// 当前事件协议版本；不兼容旧 Semantic Trace。
     pub schema_version: u16,
     /// 同时作为本地演示包目录 UUID。

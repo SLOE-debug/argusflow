@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+argusflow-capture.workspace = true
 png = "0.18.1"
 argusflow-agent.workspace = true
 argusflow-core.workspace = true

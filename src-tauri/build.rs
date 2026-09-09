@@ -21,6 +21,7 @@ fn main() {
             "list_recordings",
             "get_recording",
             "read_recording_screenshot",
+            "read_recording_screen_frame",
             "recognize_recording_screenshot",
             "edit_recording_privacy",
         ]));

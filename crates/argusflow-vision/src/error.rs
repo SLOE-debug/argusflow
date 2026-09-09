@@ -84,3 +84,18 @@ pub enum VisionError {
         message: String,
     },
 }
+
+impl From<argusflow_core::CaptureError> for VisionError {
+    fn from(error: argusflow_core::CaptureError) -> Self {
+        use argusflow_core::CaptureError;
+        match error {
+            CaptureError::CaptureUnavailable { message } => Self::CaptureUnavailable { message },
+            CaptureError::WindowIdentityChanged { expected, actual } => {
+                Self::WindowIdentityChanged { expected, actual }
+            }
+            CaptureError::FrameTimeout { timeout_ms } => Self::FrameTimeout { timeout_ms },
+            CaptureError::InvalidFrame { message } => Self::InvalidFrame { message },
+            CaptureError::InvalidRoi { rect, frame_id } => Self::InvalidRoi { rect, frame_id },
+        }
+    }
+}

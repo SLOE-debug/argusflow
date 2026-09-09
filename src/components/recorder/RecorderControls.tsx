@@ -18,7 +18,7 @@ export function RecorderControls({ recorder, workflowRunning }: Readonly<{
   const recording = recorder.status.phase === 'recording';
   const needsStop = recorder.status.phase !== 'idle';
   const stopping = recorder.pending === 'stop';
-  const statusLabel = stopping ? '正在停止并保存…'
+  const statusLabel = stopping ? '正在整理画面并保存…'
     : !recorder.available ? '请在 Windows 桌面应用中录制'
       : !recorder.ready ? '正在连接录制服务…'
         : recording ? '正在录制全局输入'
@@ -53,7 +53,7 @@ export function RecorderControls({ recorder, workflowRunning }: Readonly<{
         icon={needsStop ? Square : Circle}
         variant={needsStop ? 'danger' : 'primary'}
         loading={recorder.pending !== null}
-        loadingLabel={stopping ? '正在停止并保存…' : '正在开始…'}
+        loadingLabel={stopping ? '正在整理画面并保存…' : '正在开始…'}
         disabled={!recorder.available || (!needsStop && (!recorder.ready || workflowRunning))}
         onClick={() => void (needsStop ? recorder.stop() : recorder.start())}
       >

@@ -33,9 +33,79 @@ struct OutputState {
     /// 初始几何用于检测分辨率、位置和旋转变化。
     description: OutputDescription,
     capture: Option<DesktopOutput>,
+    /// 流式来源独立持有复制租约，同步截图不能消费掉其变化。
+    stream_capture: Option<DesktopOutput>,
+    updates: super::desktop_updates::DesktopUpdateQueue,
 }
 
 impl EvidenceDesktop {
+    pub(super) fn sources(&mut self) -> Vec<argusflow_core::CaptureSourceId> {
+        for adapter in &mut self.adapters {
+            for output in &mut adapter.outputs {
+                output.updates.request_baseline();
+            }
+        }
+        self.adapters
+            .iter()
+            .flat_map(|adapter| adapter.outputs.iter())
+            .map(|output| argusflow_core::CaptureSourceId(output.description.monitor as u64))
+            .collect()
+    }
+    /// 非阻塞推进全部显示器，保留每个输出独立的呈现时间。
+    pub(super) fn poll_updates(
+        &mut self,
+        generation: argusflow_core::CaptureGeneration,
+    ) -> Result<Vec<argusflow_core::capture::ScreenCaptureUpdate>, InspectionFailure> {
+        self.advance_updates(generation, true)
+    }
+    pub(super) fn drain_updates(
+        &mut self,
+        generation: argusflow_core::CaptureGeneration,
+    ) -> Result<(Vec<argusflow_core::capture::ScreenCaptureUpdate>, bool), InspectionFailure> {
+        let updates = self.advance_updates(generation, false)?;
+        let pending = self
+            .adapters
+            .iter()
+            .flat_map(|adapter| &adapter.outputs)
+            .any(|output| output.updates.pending());
+        Ok((updates, pending))
+    }
+    fn advance_updates(
+        &mut self,
+        generation: argusflow_core::CaptureGeneration,
+        acquire: bool,
+    ) -> Result<Vec<argusflow_core::capture::ScreenCaptureUpdate>, InspectionFailure> {
+        if !unsafe { self.factory.IsCurrent() }.as_bool() {
+            return Err(InspectionFailure::ContextChanged);
+        }
+        let mut updates = Vec::new();
+        for adapter in &mut self.adapters {
+            for output in &mut adapter.outputs {
+                output.validate()?;
+                if output.stream_capture.is_none() {
+                    output.stream_capture =
+                        Some(DesktopOutput::new(&output.output, &adapter.graphics)?);
+                }
+                let capture = output
+                    .stream_capture
+                    .as_mut()
+                    .ok_or(InspectionFailure::Unavailable)?;
+                if let Some(update) = output.updates.poll(
+                    capture,
+                    &adapter.graphics,
+                    output.description.bounds,
+                    Rotation::try_from(output.description.rotation)?,
+                    argusflow_core::CaptureSourceId(output.description.monitor as u64),
+                    generation,
+                    acquire,
+                )? {
+                    updates.push(update);
+                }
+            }
+        }
+        Ok(updates)
+    }
+
     /// 建立当前桌面的显示器清单，不生成后台线程，也不预读屏幕内容。
     pub(super) fn new() -> Result<Self, InspectionFailure> {
         // SAFETY: 工厂返回引用计数接口，由本对象独占使用。
@@ -64,6 +134,8 @@ impl EvidenceDesktop {
                     output: output.cast().map_err(|_| InspectionFailure::Unavailable)?,
                     description: OutputDescription::from(description),
                     capture: None,
+                    stream_capture: None,
+                    updates: Default::default(),
                 });
             }
             if !outputs.is_empty() {

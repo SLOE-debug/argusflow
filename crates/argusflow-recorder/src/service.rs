@@ -33,11 +33,14 @@ pub struct RecorderService {
     /// 默认位于宿主 .argusflow/recordings。
     pub(crate) root: PathBuf,
     /// start/stop 的互斥生命周期边界。
-    pub(crate) session: Mutex<Option<ActiveRecording>>,
+    pub(crate) session: Arc<Mutex<Option<ActiveRecording>>>,
 }
 
 /// Hook、ingestion 与 async worker 均由同一个录制生命周期拥有。
 pub(crate) struct ActiveRecording {
+    /// 精确索引已发布后待删除的候选像素，保存重试不得遗失清理任务。
+    obsolete: Vec<PathBuf>,
+    screen: Option<crate::screen_recording::ScreenRecording>,
     /// 控制面识别本次会话。
     pub(crate) id: uuid::Uuid,
     /// 专用消息线程的停止句柄。
@@ -57,12 +60,25 @@ pub(crate) struct ActiveRecording {
 }
 
 impl RecorderService {
+    /// 应用退出时先完成活动归档，再关闭共享桌面采集主机。
+    pub async fn shutdown(&self) -> Result<(), RecorderError> {
+        let active = self.session.lock().await.is_some();
+        let saved = if active {
+            self.stop().await.map(|_| ())
+        } else {
+            Ok(())
+        };
+        self.resolver
+            .shutdown_capture()
+            .map_err(|_| RecorderError::WorkerUnavailable)?;
+        saved
+    }
     /// 构造只保存配置的控制器，不访问用户输入。
     pub fn new(resolver: Arc<EvidenceCollector>, root: impl Into<PathBuf>) -> Self {
         Self {
             resolver,
             root: root.into(),
-            session: Mutex::new(None),
+            session: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -85,7 +101,6 @@ impl RecorderService {
         // 先确认演示包可写，再安装 Hook；截图在录制期间立即写入此目录。
         let directory = self.root.join(id.to_string());
         tokio::fs::create_dir_all(directory.join("evidence")).await?;
-        let screenshots = crate::screenshot_pipeline::ScreenshotWriter::start(directory)?;
         let dropped = Arc::new(AtomicU64::new(0));
         let processed = Arc::new(AtomicU64::new(0));
         let (hook_sender, hook_receiver) = mpsc::sync_channel(4096);
@@ -99,12 +114,19 @@ impl RecorderService {
             .as_millis() as u64;
         // SAFETY: GetTickCount 与 Hook struct.time 使用相同事件时钟。
         let started_tick = unsafe { GetTickCount() };
-        let screenshots = crate::post_capture::PostCapture::start(
-            self.resolver.clone(),
-            screenshots,
-            std::time::Instant::now(),
-            !privacy.screenshots(),
-        )?;
+        let origin_us = self
+            .resolver
+            .screen_clock_us()
+            .map_err(|_| RecorderError::WorkerUnavailable)?;
+        let screen = if privacy.screenshots() {
+            None
+        } else {
+            Some(crate::screen_recording::ScreenRecording::start(
+                self.resolver.clone(),
+                directory.join("evidence"),
+                origin_us,
+            )?)
+        };
         let ingestion = std::thread::Builder::new()
             .name("argusflow-recorder-ingest".into())
             .spawn(move || {
@@ -114,12 +136,15 @@ impl RecorderService {
                     resolver,
                     ingestion_dropped,
                     started_tick,
-                    screenshots,
                     privacy,
                 )
             })
             .map_err(|_| RecorderError::WorkerUnavailable)?;
-        let hook = match HookCapture::start(hook_sender, dropped.clone()) {
+        let hook = match HookCapture::start_with_wake(
+            hook_sender,
+            dropped.clone(),
+            screen.as_ref().map(|screen| screen.wake()),
+        ) {
             Ok(hook) => hook,
             Err(error) => {
                 let _ = ingestion.join();
@@ -135,7 +160,10 @@ impl RecorderService {
             processed.clone(),
             privacy,
         ));
+        let failure = screen.as_ref().map(|screen| screen.result());
         *session = Some(ActiveRecording {
+            obsolete: Vec::new(),
+            screen,
             id,
             hook,
             ingestion: Some(ingestion),
@@ -145,6 +173,41 @@ impl RecorderService {
             processed,
             started_at_unix_ms,
         });
+        if let Some(failure) = failure {
+            let weak = Arc::downgrade(&self.session);
+            let root = self.root.clone();
+            let collector = self.resolver.clone();
+            tokio::spawn(async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                    let Some(session) = weak.upgrade() else {
+                        break;
+                    };
+                    let mut session = session.lock().await;
+                    let Some(active) = session
+                        .as_mut()
+                        .filter(|active| active.id == id && active.completed.is_none())
+                    else {
+                        break;
+                    };
+                    if failure.failed() {
+                        // 归档失败立即卸载 Hook 并保存有效前缀，不触碰 Workflow 捕获服务。
+                        if Self::finish_active(active).await.is_ok() {
+                            if let Some(trace) = &mut active.completed {
+                                let _ = crate::screen_finalization::finalize(
+                                    &root,
+                                    collector.clone(),
+                                    trace,
+                                    &mut active.obsolete,
+                                )
+                                .await;
+                            }
+                        }
+                        break;
+                    }
+                }
+            });
+        }
         Ok(RecorderStatus {
             phase: RecorderPhase::Recording,
             recording_id: Some(id),
@@ -158,6 +221,26 @@ impl RecorderService {
     pub async fn stop(&self) -> Result<CompletedRecording, RecorderError> {
         let mut session = self.session.lock().await;
         let active = session.as_mut().ok_or(RecorderError::NotRecording)?;
+        Self::finish_active(active).await?;
+        let trace = active
+            .completed
+            .as_mut()
+            .ok_or(RecorderError::WorkerUnavailable)?;
+        let files = crate::screen_finalization::finalize(
+            &self.root,
+            self.resolver.clone(),
+            trace,
+            &mut active.obsolete,
+        )
+        .await?;
+        let trace = session
+            .take()
+            .and_then(|active| active.completed)
+            .ok_or(RecorderError::WorkerUnavailable)?;
+        Ok(CompletedRecording { files, trace })
+    }
+
+    async fn finish_active(active: &mut ActiveRecording) -> Result<(), RecorderError> {
         active.hook.stop()?;
         if let Some(ingestion) = active.ingestion.take() {
             tokio::task::spawn_blocking(move || ingestion.join())
@@ -166,26 +249,30 @@ impl RecorderService {
                 .map_err(|_| RecorderError::WorkerUnavailable)?;
         }
         if active.completed.is_none() {
+            // 先冻结屏幕截止点，OCR/UIA worker 排空不能延长录制视觉区间。
+            let screen = if let Some(mut screen) = active.screen.take() {
+                tokio::task::spawn_blocking(move || screen.finish())
+                    .await
+                    .map_err(|_| RecorderError::WorkerUnavailable)?
+            } else {
+                crate::ScreenTimeline {
+                    completeness: crate::ScreenCompleteness::Disabled,
+                    ..Default::default()
+                }
+            };
             match (&mut active.worker).await {
-                Ok(trace) => active.completed = Some(trace),
+                Ok(mut trace) => {
+                    trace.screen = screen;
+                    crate::screen_association::associate(&mut trace);
+                    active.completed = Some(trace);
+                }
                 Err(_) => {
                     // 已完成的失败 JoinHandle 不能再次 poll；释放 session，允许用户重新开始。
-                    *session = None;
                     return Err(RecorderError::WorkerUnavailable);
                 }
             }
         }
-        let trace = active
-            .completed
-            .as_ref()
-            .ok_or(RecorderError::WorkerUnavailable)?;
-        let files = crate::storage::save(&self.root, trace).await?;
-        // 保存成功后移动结果，避免为大型 Raw Trace 再复制整份输入事实。
-        let trace = session
-            .take()
-            .and_then(|active| active.completed)
-            .ok_or(RecorderError::WorkerUnavailable)?;
-        Ok(CompletedRecording { files, trace })
+        Ok(())
     }
 
     /// 返回只读快照；可用于展示全局录制是否开启和是否丢失事件。

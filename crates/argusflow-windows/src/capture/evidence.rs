@@ -12,6 +12,74 @@ use windows::Win32::UI::HiDpi::{
 pub struct WindowsEventCapture {
     /// immediate context 的全部调用由互斥锁串行化；资源随实例释放，不放进 TLS 析构。
     desktop: Mutex<Option<EvidenceDesktop>>,
+    /// 来源重建代数，旧增量不能应用到新设备或新拓扑。
+    generation: std::sync::atomic::AtomicU64,
+}
+
+impl argusflow_core::capture::ScreenCaptureSource for WindowsEventCapture {
+    fn create_pixel_differ(
+        &self,
+    ) -> Result<
+        Box<dyn argusflow_core::capture::refinement::PixelDiffer>,
+        argusflow_core::CaptureError,
+    > {
+        Ok(Box::new(super::gpu_difference::GpuDifference::new()?))
+    }
+    fn drain(
+        &self,
+    ) -> Result<
+        (Vec<argusflow_core::capture::ScreenCaptureUpdate>, bool),
+        argusflow_core::CaptureError,
+    > {
+        let mut desktop = self.desktop.lock().map_err(|_| capture_failure())?;
+        desktop
+            .as_mut()
+            .ok_or_else(capture_failure)?
+            .drain_updates(argusflow_core::CaptureGeneration(
+                self.generation.load(std::sync::atomic::Ordering::Relaxed),
+            ))
+            .map_err(|_| capture_failure())
+    }
+    fn sources(
+        &self,
+    ) -> Result<Vec<argusflow_core::CaptureSourceId>, argusflow_core::CaptureError> {
+        let _dpi = PhysicalDpiScope::enter();
+        let mut desktop = self.desktop.lock().map_err(|_| capture_failure())?;
+        if desktop.is_none() {
+            *desktop = Some(EvidenceDesktop::new().map_err(|_| capture_failure())?);
+            self.generation
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        Ok(desktop.as_mut().ok_or_else(capture_failure)?.sources())
+    }
+    fn clock_us(&self) -> Result<u64, argusflow_core::CaptureError> {
+        super::clock::now_us().map_err(|_| capture_failure())
+    }
+    fn poll(
+        &self,
+    ) -> Result<Vec<argusflow_core::capture::ScreenCaptureUpdate>, argusflow_core::CaptureError>
+    {
+        use std::sync::atomic::Ordering;
+        let _dpi = PhysicalDpiScope::enter();
+        let mut desktop = self.desktop.lock().map_err(|_| capture_failure())?;
+        if desktop.is_none() {
+            *desktop = Some(EvidenceDesktop::new().map_err(|_| capture_failure())?);
+            self.generation.fetch_add(1, Ordering::Relaxed);
+        }
+        let result = desktop.as_mut().ok_or_else(capture_failure)?.poll_updates(
+            argusflow_core::CaptureGeneration(self.generation.load(Ordering::Relaxed)),
+        );
+        if result.is_err() {
+            *desktop = None;
+        }
+        result.map_err(|_| capture_failure())
+    }
+}
+
+fn capture_failure() -> argusflow_core::CaptureError {
+    argusflow_core::CaptureError::CaptureUnavailable {
+        message: "desktop capture source is unavailable".into(),
+    }
 }
 
 impl WindowEvidenceCapture for WindowsEventCapture {

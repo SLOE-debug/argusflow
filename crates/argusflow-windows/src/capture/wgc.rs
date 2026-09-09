@@ -8,11 +8,11 @@ use std::{
     time::{Duration, Instant},
 };
 
-use argusflow_core::WindowIdentity;
-use argusflow_vision::{
-    CaptureHealth, CaptureLifecycle, CapturePolicy, CapturedFrame, FrameId, FrameSubscription,
-    TopologyGeneration, VisionError, WindowFrameSource,
+use argusflow_capture::{
+    CaptureError, CaptureHealth, CaptureLifecycle, CapturePolicy, CapturedFrame, FrameId,
+    FrameSubscription, TopologyGeneration, WindowFrameSource,
 };
+use argusflow_core::WindowIdentity;
 use async_trait::async_trait;
 use tokio::sync::Notify;
 
@@ -42,7 +42,7 @@ impl WindowFrameSource for WindowsGraphicsCapture {
         &self,
         window: WindowIdentity,
         policy: CapturePolicy,
-    ) -> Result<Arc<dyn FrameSubscription>, VisionError> {
+    ) -> Result<Arc<dyn FrameSubscription>, CaptureError> {
         let opened = self.client.open(window, policy).await?;
         Ok(Arc::new(WindowFrameSubscription {
             window,
@@ -71,7 +71,7 @@ struct WindowFrameSubscription {
 
 #[async_trait]
 impl FrameSubscription for WindowFrameSubscription {
-    async fn next(&self, timeout: Duration) -> Result<Arc<CapturedFrame>, VisionError> {
+    async fn next(&self, timeout: Duration) -> Result<Arc<CapturedFrame>, CaptureError> {
         let deadline = Instant::now()
             .checked_add(timeout)
             .ok_or_else(|| frame_timeout(timeout))?;
@@ -91,13 +91,15 @@ impl FrameSubscription for WindowFrameSubscription {
             if remaining.is_zero() {
                 return Err(frame_timeout(timeout));
             }
-            tokio::time::timeout(remaining, self.notify.notified())
-                .await
-                .map_err(|_| frame_timeout(timeout))?;
+            // GPU 完成不会产生 FrameArrived，短时调度和到帧通知共同唤醒。
+            tokio::select! {
+                _ = self.notify.notified() => {},
+                _ = tokio::time::sleep(remaining.min(Duration::from_millis(2))) => {},
+            }
         }
     }
 
-    async fn current_topology_generation(&self) -> Result<TopologyGeneration, VisionError> {
+    async fn current_topology_generation(&self) -> Result<TopologyGeneration, CaptureError> {
         self.client
             .current_topology_generation(self.subscription_id)
             .await
@@ -115,8 +117,8 @@ impl Drop for WindowFrameSubscription {
 }
 
 /// 把等待时限转换为视觉层统一的超时错误。
-fn frame_timeout(timeout: Duration) -> VisionError {
-    VisionError::FrameTimeout {
+fn frame_timeout(timeout: Duration) -> CaptureError {
+    CaptureError::FrameTimeout {
         timeout_ms: timeout.as_millis().min(u128::from(u64::MAX)) as u64,
     }
 }

@@ -60,8 +60,18 @@ pub(crate) async fn apply(
     edits: Vec<PrivacyEdit>,
 ) -> Result<CompletedRecording, RecorderError> {
     let mut recording = crate::history::load(root, id).await?;
+    let masks = crate::screen_privacy::masks(&recording.trace, &edits)?;
     // 完整验证后才写盘，防止批量中后面的非法序号导致前面的内容被修改。
     for edit in &edits {
+        if matches!(
+            edit,
+            PrivacyEdit::Mosaic {
+                kind: ScreenshotKind::Screen,
+                ..
+            }
+        ) {
+            continue;
+        }
         let sequence = match edit {
             PrivacyEdit::EraseEvent { sequence } | PrivacyEdit::Mosaic { sequence, .. } => sequence,
         };
@@ -105,7 +115,9 @@ pub(crate) async fn apply(
             rect,
         } = edit
         {
-            crate::privacy_image::mosaic(root, id, *sequence, *kind, *rect).await?;
+            if !matches!(kind, ScreenshotKind::Screen) {
+                crate::privacy_image::mosaic(root, id, *sequence, *kind, *rect).await?;
+            }
         }
     }
     // 固定文件名覆盖所有截图变体，不能只移除 JSON 引用而遗留原图。
@@ -130,6 +142,18 @@ pub(crate) async fn apply(
         !edits.iter().any(|edit|
             matches!(edit, PrivacyEdit::EraseEvent { sequence } if *sequence == event.sequence))
     });
+    let directory = recording.files.evidence_directory.clone();
+    let mut screen = recording.trace.screen.clone();
+    let (screen, obsolete) = tokio::task::spawn_blocking(move || {
+        let obsolete = crate::screen_privacy::stage(&directory, &mut screen, &masks)?;
+        Ok::<_, RecorderError>((screen, obsolete))
+    })
+    .await
+    .map_err(|_| RecorderError::WorkerUnavailable)??;
+    recording.trace.screen = screen;
     recording.files = crate::storage::save(root, &recording.trace).await?;
+    for path in obsolete {
+        tokio::fs::remove_file(path).await?;
+    }
     Ok(recording)
 }

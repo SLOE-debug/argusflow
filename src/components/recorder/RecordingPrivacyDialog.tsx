@@ -12,7 +12,7 @@ export function RecordingPrivacyDialog({ recording, onSaved }: Readonly<{
   onClose?: () => void;
 }>) {
   const events = recording.trace.timeline.events;
-  const playback = usePrivacyPlayback(events);
+  const playback = usePrivacyPlayback(events, recording.trace.screen);
   const [ranges, setRanges] = useState<readonly PrivacyTimeRange[]>([]);
   const [treatment, setTreatment] = useState<PrivacyTreatment>('screenshots');
   const [confirmation, setConfirmation] = useState<readonly PrivacyEdit[]>([]);
@@ -47,8 +47,28 @@ export function RecordingPrivacyDialog({ recording, onSaved }: Readonly<{
   return (
     <section aria-label="录制回看" className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <div className="flex min-h-0 flex-1 flex-col gap-2">
+        {recording.trace.screen.completeness.state === 'incomplete' && (
+          <p role="alert" className="rounded bg-amber-50 p-2 text-xs text-amber-900">录制已提前停止，仅保留停止前的有效画面。原因：{recording.trace.screen.completeness.reason}</p>
+        )}
+        {recording.trace.screen.refinement.state !== 'complete' && recording.trace.screen.frames.length > 0 && (
+          <p role="status" className="rounded bg-amber-50 p-2 text-xs text-amber-900">
+            {recording.trace.screen.refinement.state === 'failed'
+              ? `画面精确处理未完成，已保留原始画面和候选区域。原因：${recording.trace.screen.refinement.message}`
+              : '已保留原始画面，当前标记为候选区域，尚未完成精确处理。'}
+          </p>
+        )}
         <div className="flex flex-wrap items-center gap-2">
           <p role="status" className="mr-auto text-xs text-slate-600">{notice}</p>
+          <Button disabled={saving || !frame} onClick={() => playback.step(-1)}>上一帧</Button>
+          <Button disabled={saving || !frame} onClick={() => playback.step(1)}>下一帧</Button>
+          {playback.sources.length > 1 && (
+            <Select
+              aria-label="显示来源"
+              value={String(playback.selectedSource)}
+              options={playback.sources.map((source) => ({ value: String(source), label: `显示器 ${source}` }))}
+              onValueChange={(value) => playback.setSource(Number(value))}
+            />
+          )}
           <Button
             disabled={saving || !frame}
             variant={editing ? 'primary' : 'secondary'}
@@ -64,13 +84,13 @@ export function RecordingPrivacyDialog({ recording, onSaved }: Readonly<{
                 sequence={frame.sequence}
                 kind={frame.kind}
                 screenshot={frame.shot}
-                highlights={[]}
+                highlights={editing ? [] : frame.changes ?? []}
                 disabled={saving}
                 editing={editing}
                 overlay={editing ? undefined : <PrivacyPlaybackOverlay events={events} time={playback.time} frame={frame} />}
                 onMosaic={(rect) => setConfirmation([{ type: 'mosaic', sequence: frame.sequence, kind: frame.kind, rect }])}
               />
-              <p className="mt-2 text-center text-xs text-slate-500">屏幕采样于 {preciseDurationLabel(frame.shot.captured_at_ms)} · 下一张采样出现前保留此画面</p>
+              <p className="mt-2 text-center text-xs text-slate-500">帧 {frame.sequence} · {preciseDurationLabel(frame.shot.captured_at_ms)} · {frame.changes?.length ?? 0} 个{recording.trace.screen.refinement.state === 'complete' ? '变化' : '候选'}区域 · 各显示器独立计时</p>
             </div>
           ) : (
             <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-slate-500">

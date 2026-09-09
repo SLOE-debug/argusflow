@@ -95,6 +95,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "argusflow-capture"
+version = "0.1.0"
+dependencies = [
+ "argusflow-core",
+ "async-trait",
+ "tokio",
+]
+
+[[package]]
 name = "argusflow-core"
 version = "0.1.0"
 dependencies = [
@@ -151,6 +160,7 @@ dependencies = [
 name = "argusflow-recorder"
 version = "0.1.0"
 dependencies = [
+ "argusflow-capture",
  "argusflow-core",
  "argusflow-windows",
  "async-trait",
@@ -186,6 +196,7 @@ name = "argusflow-vision"
 version = "0.1.0"
 dependencies = [
  "argusflow-agent",
+ "argusflow-capture",
  "argusflow-core",
  "argusflow-query",
  "async-trait",
@@ -205,6 +216,7 @@ name = "argusflow-windows"
 version = "0.1.0"
 dependencies = [
  "argusflow-agent",
+ "argusflow-capture",
  "argusflow-core",
  "argusflow-query",
  "argusflow-runtime",

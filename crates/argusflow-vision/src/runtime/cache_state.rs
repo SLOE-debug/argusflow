@@ -50,7 +50,7 @@ impl VisionRuntime {
         }
         let frame = match subscription.next(timeout).await {
             Ok(frame) => frame,
-            Err(VisionError::FrameTimeout { .. }) => {
+            Err(argusflow_core::CaptureError::FrameTimeout { .. }) => {
                 let current_topology = subscription.current_topology_generation().await?;
                 let last_frame = scope.lock().await.last_stable_frame.clone();
                 return match last_frame {
@@ -63,7 +63,7 @@ impl VisionRuntime {
                     _ => Err(VisionError::SceneStale),
                 };
             }
-            Err(error) => return Err(error),
+            Err(error) => return Err(error.into()),
         };
         if frame.window != window {
             return Err(VisionError::WindowIdentityChanged {
@@ -140,6 +140,11 @@ impl VisionRuntime {
     ) -> Result<Option<crate::DirtyMap>, VisionError> {
         let mut state = scope.lock().await;
         let previous = state.last_stable_frame.clone();
+        if previous.as_ref().is_some_and(|old| {
+            old.frame_id > frame.frame_id && old.topology_generation == frame.topology_generation
+        }) {
+            return Err(VisionError::SceneStale);
+        }
         let dirty = if let Some(previous_frame) = previous {
             if previous_frame.window != window
                 || previous_frame.topology_generation != frame.topology_generation

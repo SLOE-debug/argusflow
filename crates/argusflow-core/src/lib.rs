@@ -6,6 +6,7 @@ mod action_options;
 mod application;
 mod automation;
 mod browser;
+pub mod capture;
 mod command;
 mod component;
 mod condition;
@@ -35,6 +36,10 @@ pub use automation::{
 };
 pub use browser::{
     AcquireBrowserSpec, BrowserAcquireMode, BrowserCleanupPolicy, BrowserOperation, BrowserSpec,
+};
+pub use capture::{
+    CaptureDelivery, CaptureError, CaptureFailure, CaptureGeneration, CaptureRevision,
+    CaptureSourceId, CaptureTiming,
 };
 pub use command::{
     CommandOperation, CommandRunner, EnvironmentBinding, WorkflowCapabilityId, WorkflowPermissions,

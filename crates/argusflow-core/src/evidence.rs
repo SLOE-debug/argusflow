@@ -118,7 +118,7 @@ mod tests {
 }
 
 /// 快速同步截图边界；采集发生在慢速 UIA/CDP 检查前，不调用 OCR。
-pub trait WindowEvidenceCapture: Send + Sync {
+pub trait WindowEvidenceCapture: crate::capture::ScreenCaptureSource + Send + Sync {
     /// 采集完整虚拟桌面，用于独立屏幕变化观察；不依赖某个输入事件。
     fn capture_desktop(&self) -> Result<Option<EvidenceFrame>, InspectionFailure>;
     /// 保存用户当时可见的窗口区域；遮挡也属于观察事实，不承诺离屏窗口内容。

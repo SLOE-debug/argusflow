@@ -39,7 +39,8 @@ async fn fixture() -> (std::path::PathBuf, uuid::Uuid) {
     crate::storage::save(
         &root,
         &RecordingTrace {
-            schema_version: 2,
+            screen: crate::ScreenTimeline::default(),
+            schema_version: 3,
             recording_id: id,
             started_at_unix_ms: 0,
             timeline: EventTimeline {

@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { CompletedRecording, RawTraceEvent } from './model';
 
 /** 完整截图来源；局部图由后端从处理后的完整图同步生成。 */
-export type PrivacyImageKind = 'window' | 'target';
+export type PrivacyImageKind = 'window' | 'target' | 'screen';
 /** 原图像素坐标中的遮盖区域。 */
 export type PrivacyRect = Readonly<{ x: number; y: number; width: number; height: number }>;
 /** Paddle 返回的原图坐标文字框。 */

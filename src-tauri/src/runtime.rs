@@ -159,12 +159,17 @@ impl AppState {
 
     /// 在 Tauri 最终退出事件中确定性销毁全部 WGC 资源并等待主机线程结束。
     pub fn shutdown(&self) -> Result<(), VisionError> {
+        tauri::async_runtime::block_on(self.recorder.shutdown()).map_err(|error| {
+            VisionError::CaptureUnavailable {
+                message: error.to_string(),
+            }
+        })?;
         // 应用退出前先排空事件和图像写入，再销毁其他共享能力。
         match tauri::async_runtime::block_on(self.recorder.stop()) {
             Ok(_) | Err(argusflow_recorder::RecorderError::NotRecording) => {}
             Err(error) => eprintln!("ArgusFlow recorder shutdown failed: {error}"),
         }
-        self.capture_service.shutdown()
+        Ok(self.capture_service.shutdown()?)
     }
 
     /// 在 Tauri 异步运行时上发送 OCR 初始化命令，等待管道期间不占用 WebView 线程。

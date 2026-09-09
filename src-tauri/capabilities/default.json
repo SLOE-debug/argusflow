@@ -26,6 +26,7 @@
     "allow-list-recordings",
     "allow-get-recording",
     "allow-read-recording-screenshot",
+    "allow-read-recording-screen-frame",
     "allow-recognize-recording-screenshot",
     "allow-edit-recording-privacy"
   ]

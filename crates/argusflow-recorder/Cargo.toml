@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+argusflow-capture.workspace = true
 argusflow-core.workspace = true
 png = "0.18.1"
 async-trait.workspace = true
@@ -27,4 +28,5 @@ windows = { workspace = true, features = [
     "Win32_System_SystemInformation",
     "Win32_UI_Accessibility", "Win32_System_DataExchange", "Win32_System_Memory",
     "Win32_Graphics_Gdi",
+    "Win32_Security",
 ] }

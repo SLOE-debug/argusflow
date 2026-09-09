@@ -6,8 +6,8 @@ use argusflow_core::WindowIdentity;
 use async_trait::async_trait;
 use tokio::sync::Mutex;
 
-use crate::frame::TopologyGeneration;
-use crate::{error::VisionError, image::CapturedFrame};
+use argusflow_core::capture::frame::TopologyGeneration;
+use argusflow_core::{CaptureError, capture::image::CapturedFrame};
 
 /// 捕获实现的生命周期状态。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -78,11 +78,15 @@ impl Default for CapturePolicy {
 /// 由捕获后端提供的可复用窗口帧订阅。
 #[async_trait]
 pub trait FrameSubscription: fmt::Debug + Send + Sync {
+    /// 不推进游标读取共享源最新快照；离线顺序源没有独立发布任务。
+    fn latest(&self) -> Result<Option<Arc<CapturedFrame>>, CaptureError> {
+        Ok(None)
+    }
     /// 在明确的超时时间内取得下一张帧。
-    async fn next(&self, timeout: Duration) -> Result<Arc<CapturedFrame>, VisionError>;
+    async fn next(&self, timeout: Duration) -> Result<Arc<CapturedFrame>, CaptureError>;
 
     /// 读取当前窗口拓扑代数，不消费捕获帧。
-    async fn current_topology_generation(&self) -> Result<TopologyGeneration, VisionError>;
+    async fn current_topology_generation(&self) -> Result<TopologyGeneration, CaptureError>;
 
     /// 返回订阅建立时冻结的窗口身份。
     fn window(&self) -> WindowIdentity;
@@ -99,7 +103,7 @@ pub trait WindowFrameSource: fmt::Debug + Send + Sync {
         &self,
         window: WindowIdentity,
         policy: CapturePolicy,
-    ) -> Result<Arc<dyn FrameSubscription>, VisionError>;
+    ) -> Result<Arc<dyn FrameSubscription>, CaptureError>;
 }
 
 /// 供 unit/golden test 和开发期注入使用的内存帧源。
@@ -153,7 +157,7 @@ impl WindowFrameSource for MemoryFrameSource {
         &self,
         window: WindowIdentity,
         _policy: CapturePolicy,
-    ) -> Result<Arc<dyn FrameSubscription>, VisionError> {
+    ) -> Result<Arc<dyn FrameSubscription>, CaptureError> {
         let streams = self
             .streams
             .read()
@@ -162,7 +166,7 @@ impl WindowFrameSource for MemoryFrameSource {
             .iter()
             .find(|(candidate, _)| *candidate == window)
             .map(|(_, frames)| frames.clone())
-            .ok_or_else(|| VisionError::CaptureUnavailable {
+            .ok_or_else(|| CaptureError::CaptureUnavailable {
                 message: "memory frame stream is not registered".to_owned(),
             })?;
         let topology_generation = frames
@@ -179,10 +183,10 @@ impl WindowFrameSource for MemoryFrameSource {
 
 #[async_trait]
 impl FrameSubscription for MemoryFrameSubscription {
-    async fn next(&self, timeout: Duration) -> Result<Arc<CapturedFrame>, VisionError> {
+    async fn next(&self, timeout: Duration) -> Result<Arc<CapturedFrame>, CaptureError> {
         let frame = {
             let mut frames = self.frames.lock().await;
-            frames.pop_front().ok_or(VisionError::FrameTimeout {
+            frames.pop_front().ok_or(CaptureError::FrameTimeout {
                 timeout_ms: timeout.as_millis() as u64,
             })?
         };
@@ -190,7 +194,7 @@ impl FrameSubscription for MemoryFrameSubscription {
         Ok(frame)
     }
 
-    async fn current_topology_generation(&self) -> Result<TopologyGeneration, VisionError> {
+    async fn current_topology_generation(&self) -> Result<TopologyGeneration, CaptureError> {
         Ok(*self.topology_generation.lock().await)
     }
 

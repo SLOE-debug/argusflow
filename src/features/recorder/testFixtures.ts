@@ -4,7 +4,8 @@ import type { CompletedRecording, RecorderStatus, RecordingSummary } from './mod
 export const RECORDING_FIXTURE: CompletedRecording = {
   files: { timeline: 'D:\\recordings\\timeline.json', evidence_directory: 'D:\\recordings\\evidence', manifest: 'D:\\recordings\\manifest.json' },
   trace: {
-    schema_version: 2, recording_id: '11111111-1111-4111-8111-111111111111',
+    schema_version: 3, recording_id: '11111111-1111-4111-8111-111111111111',
+    screen: { duration_us: 0, refinement: { state: 'complete' }, frames: [], completeness: { state: 'complete' }, diagnostics: { queue_peak_items: 0, queue_peak_bytes: 0, readback_bytes: 0, diff_total_us: 0 } },
     started_at_unix_ms: 1788746000000, dropped_events: 0,
     timeline: { events: [{ sequence: 1, timestamp_ms: 100, elapsed_ms: 10,
       input: { type: 'key', virtual_key: null, scan_code: null, flags: null, phase: 'down',
@@ -13,7 +14,7 @@ export const RECORDING_FIXTURE: CompletedRecording = {
         context: { window: { handle: 123, process_id: 42 }, executable_path: 'D:\\Example.exe',
           title: '测试窗口', class_name: 'FixtureWindow', bounds: { x: 0, y: 0, width: 800, height: 600 },
           browser_viewport: null, dpi: 96, has_keyboard_focus: true },
-        click_target: null, screenshot: null, diagnostics: [],
+        click_target: null, screenshot: null, diagnostics: [], screen: { before: [], after: [] },
         ui_snapshot: { backend: 'uia', observed_at_ms: 11, observation_duration_ms: 1,
           entity: { identity: 'uia:42', editable: true, sensitivity: 'sensitive', ancestors: [],
             bounds: { x: 10, y: 10, width: 100, height: 20 }, browser_session: null, page_url: null,
@@ -32,7 +33,7 @@ export const RECORDING_STATUS: RecorderStatus = {
 };
 /** 不携带输入内容的历史摘要。 */
 export const RECORDING_SUMMARY: RecordingSummary = {
-  schema_version: 2, recording_id: RECORDING_FIXTURE.trace.recording_id,
+  schema_version: 3, recording_id: RECORDING_FIXTURE.trace.recording_id,
   started_at_unix_ms: RECORDING_FIXTURE.trace.started_at_unix_ms, duration_ms: 100,
   event_count: 1, screenshot_count: 0, dropped_events: 0,
 };

@@ -8,14 +8,14 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-use argusflow_core::WindowIdentity;
-use argusflow_vision::{
-    CaptureHealth, CaptureLifecycle, CapturePolicy, FrameSubscription, VisionError,
+use argusflow_capture::{
+    CaptureError, CaptureHealth, CaptureLifecycle, CapturePolicy, FrameSubscription,
     WindowFrameSource,
 };
+use argusflow_core::WindowIdentity;
 use async_trait::async_trait;
 
-use super::{host::WindowsCaptureHost, wgc::WindowsGraphicsCapture};
+use super::host::WindowsCaptureHost;
 
 /// 可在 Tauri 首屏完成后异步初始化的 WGC 服务门面。
 #[derive(Debug)]
@@ -35,7 +35,7 @@ enum CaptureServiceState {
     Initializing,
     Ready {
         host: WindowsCaptureHost,
-        source: WindowsGraphicsCapture,
+        source: Arc<argusflow_capture::SharedWindowSource>,
     },
     Failed(String),
     Stopped,
@@ -52,7 +52,7 @@ impl WindowsCaptureService {
     }
 
     /// 在专用线程启动 WinRT、D3D11 与 WGC 主机，不阻塞调用线程。
-    pub fn start(self: &Arc<Self>) -> Result<(), VisionError> {
+    pub fn start(self: &Arc<Self>) -> Result<(), CaptureError> {
         self.reap_finished_initialization()?;
         {
             let mut state = self
@@ -93,12 +93,12 @@ impl WindowsCaptureService {
     }
 
     /// 清除失败状态并重新初始化捕获主机。
-    pub fn retry(self: &Arc<Self>) -> Result<(), VisionError> {
+    pub fn retry(self: &Arc<Self>) -> Result<(), CaptureError> {
         self.start()
     }
 
     /// 停止初始化或已就绪的捕获主机，并等待相关线程退出。
-    pub fn shutdown(&self) -> Result<(), VisionError> {
+    pub fn shutdown(&self) -> Result<(), CaptureError> {
         self.shutdown_requested.store(true, Ordering::Release);
         let initialization = self
             .initialization
@@ -132,7 +132,9 @@ impl WindowsCaptureService {
                     let _ = host.shutdown();
                     return;
                 }
-                let source = host.frame_source();
+                let source = Arc::new(argusflow_capture::SharedWindowSource::new(Arc::new(
+                    host.frame_source(),
+                )));
                 let Ok(mut state) = self.state.write() else {
                     let _ = host.shutdown();
                     return;
@@ -144,7 +146,7 @@ impl WindowsCaptureService {
     }
 
     /// 回收已经结束的初始化线程，以允许失败后再次启动。
-    fn reap_finished_initialization(&self) -> Result<(), VisionError> {
+    fn reap_finished_initialization(&self) -> Result<(), CaptureError> {
         let finished = {
             let mut initialization = self
                 .initialization
@@ -172,7 +174,7 @@ impl WindowsCaptureService {
     }
 
     /// 取得已就绪帧源的克隆，避免跨 await 持有状态锁。
-    fn ready_source(&self) -> Result<WindowsGraphicsCapture, VisionError> {
+    fn ready_source(&self) -> Result<Arc<argusflow_capture::SharedWindowSource>, CaptureError> {
         let state = self
             .state
             .read()
@@ -208,14 +210,14 @@ impl WindowFrameSource for WindowsCaptureService {
         &self,
         window: WindowIdentity,
         policy: CapturePolicy,
-    ) -> Result<Arc<dyn FrameSubscription>, VisionError> {
+    ) -> Result<Arc<dyn FrameSubscription>, CaptureError> {
         self.ready_source()?.open(window, policy).await
     }
 }
 
 /// 构造视觉层统一的捕获不可用错误。
-fn service_error(message: impl Into<String>) -> VisionError {
-    VisionError::CaptureUnavailable {
+fn service_error(message: impl Into<String>) -> CaptureError {
+    CaptureError::CaptureUnavailable {
         message: message.into(),
     }
 }

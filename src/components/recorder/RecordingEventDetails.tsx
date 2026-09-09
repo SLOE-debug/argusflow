@@ -1,6 +1,7 @@
 import { BACKEND_LABELS, diagnosticLabel, type RawTraceEvent } from '../../features/recorder';
 import { ScreenshotPreview } from './ScreenshotPreview';
 import { PointerMotionDetails } from './PointerMotionDetails';
+import { EventScreenFrames } from './EventScreenFrames';
 
 /** 事件输入、窗口、结构化事实与像素证据并列展示，不推断执行目标。 */
 export function RecordingEventDetails({ event, recordingId }: Readonly<{ event: RawTraceEvent; recordingId: string }>) {
@@ -37,6 +38,14 @@ export function RecordingEventDetails({ event, recordingId }: Readonly<{ event: 
   return (
     <article className="min-w-0 space-y-4 p-4">
       <h3 className="text-sm font-semibold">操作记录 {event.sequence} · 详情</h3>
+      {evidence && (
+        <EventScreenFrames
+          key={event.sequence}
+          recordingId={recordingId}
+          before={evidence.screen.before}
+          after={evidence.screen.after}
+        />
+      )}
       {event.input.type === 'window' && event.input.change === 'appeared' ? (
         <p className="text-xs text-slate-500">检测到窗口显示，不一定是新打开的窗口。操作记录按发生时间排列。</p>
       ) : null}

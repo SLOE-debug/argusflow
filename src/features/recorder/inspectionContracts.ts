@@ -116,6 +116,8 @@ export type UiSnapshot = Readonly<{
 }>;
 /** 一个事件的证据，不要求图像有对应元素。 */
 export type EventEvidence = Readonly<{
+  /** 输入前状态及后续实际呈现序列。 */
+  screen: import('./screenContracts').EventScreenEvidence;
   /** 点击时的目标像素，与随后出现的结果窗口分开。 */
   click_target: ScreenshotEvidence | null;
   /** 输入发生时采集的实际窗口上下文。 */

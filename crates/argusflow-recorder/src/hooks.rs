@@ -28,6 +28,7 @@ use windows::Win32::{
 
 /// Hook thread 独占的回调投递状态；没有跨线程可变全局状态或 callback 锁。
 struct HookSink {
+    wake: Option<Arc<dyn argusflow_capture::CaptureScheduler>>,
     /// 有界队列，满时丢弃并计数，不能阻塞真实输入。
     sender: SyncSender<PhysicalEvent>,
     /// 单调原始序号，丢弃也递增。
@@ -58,9 +59,18 @@ impl HookCapture {
     }
 
     /// 安装 hook 并等待安装结果；失败不会留下半安装的键盘/鼠标 hook。
+    #[cfg(test)]
     pub(crate) fn start(
         sender: SyncSender<PhysicalEvent>,
         dropped: Arc<AtomicU64>,
+    ) -> Result<Self, RecorderError> {
+        Self::start_with_wake(sender, dropped, None)
+    }
+
+    pub(crate) fn start_with_wake(
+        sender: SyncSender<PhysicalEvent>,
+        dropped: Arc<AtomicU64>,
+        wake: Option<Arc<dyn argusflow_capture::CaptureScheduler>>,
     ) -> Result<Self, RecorderError> {
         let (ready, result) = mpsc::sync_channel(1);
         let thread = std::thread::Builder::new()
@@ -68,6 +78,7 @@ impl HookCapture {
             .spawn(move || {
                 SINK.with(|sink| {
                     *sink.borrow_mut() = Some(HookSink {
+                        wake,
                         sender,
                         sequence: 0,
                         dropped,
@@ -185,6 +196,9 @@ pub(crate) fn emit(timestamp_ms: u32, input: PhysicalInput) {
             && let Some(sink) = sink.as_mut()
         {
             sink.sequence += 1;
+            if let Some(wake) = &sink.wake {
+                wake.wake();
+            }
             if sink
                 .sender
                 .try_send(PhysicalEvent {

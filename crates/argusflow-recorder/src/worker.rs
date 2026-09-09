@@ -98,7 +98,8 @@ pub(crate) async fn record_with_privacy(
     }
     timeline.compact_pointer_motion();
     RecordingTrace {
-        schema_version: 2,
+        screen: crate::ScreenTimeline::default(),
+        schema_version: 3,
         recording_id,
         started_at_unix_ms,
         timeline,

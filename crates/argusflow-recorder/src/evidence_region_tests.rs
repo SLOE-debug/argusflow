@@ -50,12 +50,12 @@ fn search_changes_crop_with_context_instead_of_whole_desktop() {
         InspectionRect {
             x: -184.0,
             y: 8.0,
-            width: 80.0,
-            height: 80.0
+            width: 49.0,
+            height: 49.0
         }
     );
     assert_eq!(
-        &result.pixels()[(24 * 80 + 24) * 4..(24 * 80 + 24) * 4 + 4],
+        &result.pixels()[(24 * 49 + 24) * 4..(24 * 49 + 24) * 4 + 4],
         &[9, 8, 7, 255]
     );
 }

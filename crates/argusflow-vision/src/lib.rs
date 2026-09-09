@@ -8,8 +8,7 @@ mod backend;
 mod diagnostics;
 mod diff;
 mod error;
-mod frame;
-mod image;
+use argusflow_core::capture::{frame, image};
 mod inspection;
 #[cfg(test)]
 mod inspection_tests;
@@ -21,7 +20,7 @@ mod refresh;
 mod runtime;
 mod scene;
 mod scope;
-mod source;
+use argusflow_capture as source;
 mod stability;
 mod trace;
 mod window;

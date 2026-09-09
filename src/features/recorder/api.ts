@@ -6,6 +6,7 @@ const COMMANDS = {
   start: 'start_recording', stop: 'stop_recording', status: 'get_recording_status',
   list: 'list_recordings', get: 'get_recording',
   screenshot: 'read_recording_screenshot',
+  screenFrame: 'read_recording_screen_frame',
 } as const;
 /** 浏览器预览可查看界面，但不能伪装拥有全局输入能力。 */
 export const recorderAvailable = () => isTauri();
@@ -23,6 +24,8 @@ export const getRecording = (recordingId: string) => (
 );
 
 /** 通过事件身份读取二进制 PNG，前端不能提交任意本地路径。 */
-export const readRecordingScreenshot = (recordingId: string, sequence: number, kind: 'window' | 'crop' | 'target' | 'target_crop') => (
-  invoke<ArrayBuffer>(COMMANDS.screenshot, { recordingId, sequence, kind })
+export const readRecordingScreenshot = (recordingId: string, sequence: number, kind: 'window' | 'crop' | 'target' | 'target_crop' | 'screen') => (
+  kind === 'screen'
+    ? invoke<ArrayBuffer>(COMMANDS.screenFrame, { recordingId, frameId: sequence, regionIndex: null })
+    : invoke<ArrayBuffer>(COMMANDS.screenshot, { recordingId, sequence, kind })
 );

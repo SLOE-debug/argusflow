@@ -49,9 +49,32 @@ PATH_REWRITES = {
     "crate::resource_table": "crate::resource::resource_table",
 }
 
+# 采集基础契约与平台无关实现从视觉业务层下沉，映射可以重复执行。
+CAPTURE_MOVE_MAP = {
+    "crates/argusflow-vision/src/frame.rs": "crates/argusflow-core/src/capture/frame.rs",
+    "crates/argusflow-vision/src/image.rs": "crates/argusflow-core/src/capture/image.rs",
+    "crates/argusflow-vision/src/source.rs": "crates/argusflow-capture/src/source.rs",
+}
+
+
+def migrate_capture(apply: bool) -> None:
+    """只执行显式列出的跨 crate 文件迁移，不修改其他模块。"""
+    for old, new in CAPTURE_MOVE_MAP.items():
+        source, target = WORKSPACE_ROOT / old, WORKSPACE_ROOT / new
+        if source.exists() and target.exists():
+            raise FileExistsError(f"源与目标同时存在: {old} -> {new}")
+        if not source.exists() and not target.exists():
+            raise FileNotFoundError(f"源与目标都不存在: {old} -> {new}")
+        if source.exists():
+            print(f"{old} -> {new}")
+            if apply:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(source, target)
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--capture", action="store_true", help="迁移共享采集基础模块。")
     parser.add_argument(
         "--apply",
         action="store_true",
@@ -96,6 +119,9 @@ def rewrite_content(content: str) -> str:
 
 def main() -> None:
     args = parse_args()
+    if args.capture:
+        migrate_capture(args.apply)
+        return
     pending_moves = validate_manifest()
     print(
         f"{'Applying' if args.apply else 'Dry-run'} "

@@ -61,7 +61,8 @@ fn dense_straight_movement_becomes_one_event_with_timed_anchors() {
         "opening an existing recording must be idempotent"
     );
     let trace = RecordingTrace {
-        schema_version: 2,
+        screen: crate::ScreenTimeline::default(),
+        schema_version: 3,
         recording_id: uuid::Uuid::new_v4(),
         started_at_unix_ms: 0,
         timeline,
@@ -275,7 +276,8 @@ async fn saved_unmerged_recording_is_compacted_on_open_without_rewriting_source(
     let id = uuid::Uuid::new_v4();
     let root = std::env::temp_dir().join(format!("argusflow-motion-test-{id}"));
     let trace = RecordingTrace {
-        schema_version: 2,
+        screen: crate::ScreenTimeline::default(),
+        schema_version: 3,
         recording_id: id,
         started_at_unix_ms: 0,
         timeline: EventTimeline {
@@ -295,6 +297,9 @@ async fn saved_unmerged_recording_is_compacted_on_open_without_rewriting_source(
         tokio::fs::remove_file(path).await.unwrap();
     }
     tokio::fs::remove_dir(&files.evidence_directory)
+        .await
+        .unwrap();
+    tokio::fs::remove_file(root.join(id.to_string()).join("screen.json"))
         .await
         .unwrap();
     tokio::fs::remove_dir(root.join(id.to_string()))

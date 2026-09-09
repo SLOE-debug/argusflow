@@ -80,6 +80,22 @@ pub(crate) async fn read_recording_screenshot(
 
 /// 只识别已有事件截图，复用本地 Paddle OCR worker。
 #[tauri::command]
+pub(crate) async fn read_recording_screen_frame(
+    state: State<'_, AppState>,
+    recording_id: uuid::Uuid,
+    frame_id: argusflow_recorder::ScreenFrameId,
+    region_index: Option<u32>,
+) -> Result<tauri::ipc::Response, String> {
+    state
+        .recorder
+        .screen_region(recording_id, frame_id, region_index)
+        .await
+        .map(tauri::ipc::Response::new)
+        .map_err(|error| error.to_string())
+}
+
+/// 只识别已有事件截图，复用本地 Paddle OCR worker。
+#[tauri::command]
 pub(crate) async fn recognize_recording_screenshot(
     state: State<'_, AppState>,
     recording_id: uuid::Uuid,

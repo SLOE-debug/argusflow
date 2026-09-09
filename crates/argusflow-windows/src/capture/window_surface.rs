@@ -6,16 +6,13 @@ use std::{
     time::{Duration, Instant},
 };
 
+use argusflow_capture::{CaptureError, CapturedFrame, FrameId, PhysicalRect, TopologyGeneration};
 use argusflow_core::{ScreenPoint, WindowIdentity};
-use argusflow_vision::{CapturedFrame, FrameId, PhysicalRect, TopologyGeneration, VisionError};
 use tokio::sync::Notify;
 use windows::{
     Foundation::TypedEventHandler,
     Graphics::{
-        Capture::{
-            Direct3D11CaptureFrame, Direct3D11CaptureFramePool, GraphicsCaptureItem,
-            GraphicsCaptureSession,
-        },
+        Capture::{Direct3D11CaptureFramePool, GraphicsCaptureItem, GraphicsCaptureSession},
         DirectX::DirectXPixelFormat,
         SizeInt32,
     },
@@ -30,7 +27,7 @@ use windows::{
 use super::{
     device::GraphicsDevice,
     error::{capture_error, invalid_capture},
-    readback::{ReadbackState, readback_frame},
+    readback::{ReadbackState, submit_frame},
     window_identity::{native_window, validate_window},
 };
 
@@ -62,7 +59,7 @@ impl WindowCaptureSurface {
         frame_pool_size: i32,
         include_cursor: bool,
         max_dimension: Option<u32>,
-    ) -> Result<Self, VisionError> {
+    ) -> Result<Self, CaptureError> {
         let hwnd = native_window(window.handle);
         validate_window(hwnd, window)?;
         let item = create_capture_item(hwnd)?;
@@ -107,11 +104,7 @@ impl WindowCaptureSurface {
         })
     }
 
-    /// 读取当前积压队列中最新的一张帧；resize 时重建 pool 并等待后续新尺寸帧。
-    ///
-    /// WGC frame pool 是一个有界队列。工作流在 Delay 或 UI 输入期间不会持续消费它，
-    /// 因此一次普通的 `TryGetNextFrame` 很可能拿到动作前的旧帧。场景读取关心的是“当前
-    /// 画面”而非逐帧回放，所以必须先排空队列并只对最新帧执行昂贵的 GPU readback。
+    /// 持续源按呈现顺序读入每一张可用帧，最新消费策略在共享层合并变化历史。
     pub(super) fn poll(
         &mut self,
         graphics: &GraphicsDevice,
@@ -120,8 +113,21 @@ impl WindowCaptureSurface {
         generation: TopologyGeneration,
         deadline: Instant,
         timeout: Duration,
-    ) -> Result<Option<Arc<CapturedFrame>>, VisionError> {
-        let Some(frame) = self.take_latest_pending_frame()? else {
+    ) -> Result<Option<Arc<CapturedFrame>>, CaptureError> {
+        let _ = (deadline, timeout);
+        if let Some(captured) = readback.poll(graphics)? {
+            let bounds = self.bounds()?;
+            return Ok(Some(Arc::new((*captured).clone().with_screen_origin(
+                ScreenPoint {
+                    x: bounds.x,
+                    y: bounds.y,
+                },
+            ))));
+        }
+        if !readback.available() {
+            return Ok(None);
+        }
+        let Some(frame) = self.pool.TryGetNextFrame().ok() else {
             return Ok(None);
         };
         let content_size = frame
@@ -134,42 +140,22 @@ impl WindowCaptureSurface {
             self.recreate(graphics, readback, content_size)?;
             return Ok(None);
         }
-        let captured = readback_frame(
+        let submitted = submit_frame(
             &frame,
             graphics,
             readback,
             self.window,
             frame_id,
             generation,
-            deadline,
-            timeout,
         );
         let close_result = frame.Close();
-        let captured = captured?;
+        submitted?;
         close_result.map_err(|error| capture_error("failed to close WGC frame", error))?;
-        let bounds = window_bounds(native_window(self.window.handle))?;
-        Ok(Some(Arc::new((*captured).clone().with_screen_origin(
-            ScreenPoint {
-                x: bounds.x,
-                y: bounds.y,
-            },
-        ))))
-    }
-
-    /// 排空 WGC 的有界待处理队列，并确定性关闭被更新帧替代的旧资源。
-    fn take_latest_pending_frame(&self) -> Result<Option<Direct3D11CaptureFrame>, VisionError> {
-        drain_latest_available(
-            || self.pool.TryGetNextFrame().ok(),
-            |frame| {
-                frame
-                    .Close()
-                    .map_err(|error| capture_error("failed to close superseded WGC frame", error))
-            },
-        )
+        Ok(None)
     }
 
     /// 返回当前 DWM 可见物理边界，供调用方维护窗口 generation。
-    pub(super) fn bounds(&self) -> Result<PhysicalRect, VisionError> {
+    pub(super) fn bounds(&self) -> Result<PhysicalRect, CaptureError> {
         window_bounds(native_window(self.window.handle))
     }
 
@@ -179,7 +165,7 @@ impl WindowCaptureSurface {
         graphics: &GraphicsDevice,
         readback: &mut ReadbackState,
         size: SizeInt32,
-    ) -> Result<(), VisionError> {
+    ) -> Result<(), CaptureError> {
         validate_size(size, self.max_dimension)?;
         self.pool
             .Recreate(
@@ -196,10 +182,11 @@ impl WindowCaptureSurface {
 }
 
 /// 从有界积压队列保留最新项目，并通过调用方提供的资源释放函数丢弃更旧项目。
+#[cfg(test)]
 fn drain_latest_available<T>(
     mut next: impl FnMut() -> Option<T>,
-    mut discard: impl FnMut(T) -> Result<(), VisionError>,
-) -> Result<Option<T>, VisionError> {
+    mut discard: impl FnMut(T) -> Result<(), CaptureError>,
+) -> Result<Option<T>, CaptureError> {
     let Some(mut latest) = next() else {
         return Ok(None);
     };
@@ -217,7 +204,7 @@ impl Drop for WindowCaptureSurface {
 }
 
 /// 从 WinRT 激活工厂创建 HWND 专用捕获项。
-fn create_capture_item(hwnd: HWND) -> Result<GraphicsCaptureItem, VisionError> {
+fn create_capture_item(hwnd: HWND) -> Result<GraphicsCaptureItem, CaptureError> {
     let class_name = HSTRING::from("Windows.Graphics.Capture.GraphicsCaptureItem");
     let interop: IGraphicsCaptureItemInterop = unsafe { RoGetActivationFactory(&class_name) }
         .map_err(|error| capture_error("failed to get GraphicsCaptureItem factory", error))?;
@@ -226,7 +213,7 @@ fn create_capture_item(hwnd: HWND) -> Result<GraphicsCaptureItem, VisionError> {
 }
 
 /// 校验 WGC item 的非空尺寸和显式资源上限。
-fn validate_size(size: SizeInt32, max_dimension: Option<u32>) -> Result<(), VisionError> {
+fn validate_size(size: SizeInt32, max_dimension: Option<u32>) -> Result<(), CaptureError> {
     let width =
         u32::try_from(size.Width).map_err(|_| invalid_capture("capture width is invalid"))?;
     let height =
@@ -243,7 +230,7 @@ fn validate_size(size: SizeInt32, max_dimension: Option<u32>) -> Result<(), Visi
 }
 
 /// 读取 DWM 可见物理边界，避免 GetWindowRect 的 DPI 虚拟化和透明 resize border。
-fn window_bounds(hwnd: HWND) -> Result<PhysicalRect, VisionError> {
+fn window_bounds(hwnd: HWND) -> Result<PhysicalRect, CaptureError> {
     let mut bounds = RECT::default();
     unsafe {
         DwmGetWindowAttribute(

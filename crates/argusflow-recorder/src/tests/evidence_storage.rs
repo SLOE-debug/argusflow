@@ -31,7 +31,8 @@ async fn timeline_and_png_roundtrip_without_compiled_operations() {
     let mut event = raw(1, text("fixture"));
     event.evidence.as_mut().unwrap().screenshot = Some(screenshot);
     let trace = RecordingTrace {
-        schema_version: 2,
+        screen: crate::ScreenTimeline::default(),
+        schema_version: 3,
         recording_id: id,
         started_at_unix_ms: 123,
         timeline: EventTimeline {
@@ -49,7 +50,7 @@ async fn timeline_and_png_roundtrip_without_compiled_operations() {
     }
     assert_eq!(
         crate::history::list(&root).await.unwrap()[0].screenshot_count,
-        1
+        0
     );
     for kind in [ScreenshotKind::Window, ScreenshotKind::Crop] {
         let png = crate::evidence_reader::read(&root, id, 1, kind)
@@ -94,6 +95,9 @@ async fn timeline_and_png_roundtrip_without_compiled_operations() {
         tokio::fs::remove_file(path).await.unwrap();
     }
     tokio::fs::remove_dir(directory.join("evidence"))
+        .await
+        .unwrap();
+    tokio::fs::remove_file(directory.join("screen.json"))
         .await
         .unwrap();
     tokio::fs::remove_dir(directory).await.unwrap();

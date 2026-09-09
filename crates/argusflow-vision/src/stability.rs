@@ -189,7 +189,7 @@ impl StableFrameGate {
             }
             let frame = match subscription.next(remaining).await {
                 Ok(frame) => frame,
-                Err(VisionError::FrameTimeout { .. }) if observed_frames > 0 => {
+                Err(argusflow_core::CaptureError::FrameTimeout { .. }) if observed_frames > 0 => {
                     // 捕获源在交付最新帧后直到 deadline 都没有新 FrameArrived，等价于该帧
                     // 在完整稳定窗口内保持静止；静态窗口不应被迫制造第二张重复帧。
                     let latest = self.previous.clone().ok_or(VisionError::FrameTimeout {
@@ -202,7 +202,7 @@ impl StableFrameGate {
                     self.state = StabilityState::Stable;
                     return Ok(latest);
                 }
-                Err(error) => return Err(error),
+                Err(error) => return Err(error.into()),
             };
             observed_frames = observed_frames.saturating_add(1);
             if let Some(stable) = self.observe(frame)? {

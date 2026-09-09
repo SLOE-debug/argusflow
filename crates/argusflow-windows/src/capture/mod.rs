@@ -1,11 +1,14 @@
 //! Windows 桌面和窗口画面捕获服务。
 
+mod clock;
+mod desktop_damage;
 mod desktop_device;
 mod desktop_output;
 mod desktop_pixels;
 #[cfg(test)]
 mod desktop_pixels_tests;
 mod desktop_readback;
+mod desktop_updates;
 mod device;
 mod dpi;
 mod error;
@@ -14,7 +17,9 @@ mod evidence_desktop;
 mod evidence_geometry;
 mod host;
 mod host_thread;
+mod gpu_difference;
 mod readback;
+mod readback_queue;
 mod service;
 mod wgc;
 mod window_identity;

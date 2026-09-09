@@ -2,8 +2,8 @@
 
 use std::ffi::c_void;
 
+use argusflow_capture::CaptureError;
 use argusflow_core::WindowIdentity;
-use argusflow_vision::VisionError;
 use windows::Win32::{
     Foundation::HWND,
     UI::WindowsAndMessaging::{GetWindowThreadProcessId, IsWindow},
@@ -15,9 +15,9 @@ pub(super) fn native_window(handle: u64) -> HWND {
 }
 
 /// 只接受仍指向原 PID 的 HWND，防止句柄复用导致跨应用捕获。
-pub(super) fn validate_window(hwnd: HWND, expected: WindowIdentity) -> Result<(), VisionError> {
+pub(super) fn validate_window(hwnd: HWND, expected: WindowIdentity) -> Result<(), CaptureError> {
     if !unsafe { IsWindow(Some(hwnd)) }.as_bool() {
-        return Err(VisionError::WindowIdentityChanged {
+        return Err(CaptureError::WindowIdentityChanged {
             expected,
             actual: None,
         });
@@ -26,7 +26,7 @@ pub(super) fn validate_window(hwnd: HWND, expected: WindowIdentity) -> Result<()
     // SAFETY: process_id 是同步 Win32 调用的独占输出，hwnd 已通过 IsWindow 校验。
     unsafe { GetWindowThreadProcessId(hwnd, Some(&mut process_id)) };
     if process_id != expected.process_id {
-        return Err(VisionError::WindowIdentityChanged {
+        return Err(CaptureError::WindowIdentityChanged {
             expected,
             actual: Some(WindowIdentity {
                 handle: expected.handle,

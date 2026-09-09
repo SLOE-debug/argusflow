@@ -9,8 +9,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+use argusflow_capture::{CaptureError, CapturePolicy, CapturedFrame, FrameId, TopologyGeneration};
 use argusflow_core::WindowIdentity;
-use argusflow_vision::{CapturePolicy, CapturedFrame, FrameId, TopologyGeneration, VisionError};
 use tokio::sync::Notify;
 use windows::{
     Graphics::Capture::GraphicsCaptureSession,
@@ -38,7 +38,7 @@ struct CaptureThreadState {
 
 impl CaptureThreadState {
     /// 在已经初始化的 MTA 中创建共享图形设备。
-    fn new() -> Result<Self, VisionError> {
+    fn new() -> Result<Self, CaptureError> {
         let supported = GraphicsCaptureSession::IsSupported()
             .map_err(|error| capture_error("failed to query WGC support", error))?;
         if !supported {
@@ -56,7 +56,7 @@ impl CaptureThreadState {
         &mut self,
         window: WindowIdentity,
         policy: CapturePolicy,
-    ) -> Result<OpenedCapture, VisionError> {
+    ) -> Result<OpenedCapture, CaptureError> {
         if !matches!(policy.frame_pool_size, 2..=16) {
             return Err(invalid_capture("frame_pool_size must be between 2 and 16"));
         }
@@ -98,7 +98,7 @@ impl CaptureThreadState {
         frame_id: FrameId,
         deadline: Instant,
         timeout: Duration,
-    ) -> Result<Option<Arc<CapturedFrame>>, VisionError> {
+    ) -> Result<Option<Arc<CapturedFrame>>, CaptureError> {
         if Instant::now() >= deadline {
             return Err(frame_timeout(timeout));
         }
@@ -127,7 +127,7 @@ impl CaptureThreadState {
     fn current_topology_generation(
         &mut self,
         subscription_id: CaptureSubscriptionId,
-    ) -> Result<TopologyGeneration, VisionError> {
+    ) -> Result<TopologyGeneration, CaptureError> {
         let subscription = self.subscription_mut(subscription_id)?;
         let bounds = subscription.surface.bounds()?;
         if subscription
@@ -136,6 +136,7 @@ impl CaptureThreadState {
         {
             subscription.generation =
                 TopologyGeneration::new(subscription.generation.get().saturating_add(1));
+            subscription.readback.clear();
         }
         subscription.last_bounds = Some(bounds);
         Ok(subscription.generation)
@@ -145,7 +146,7 @@ impl CaptureThreadState {
     fn subscription_mut(
         &mut self,
         subscription_id: CaptureSubscriptionId,
-    ) -> Result<&mut HostedSubscription, VisionError> {
+    ) -> Result<&mut HostedSubscription, CaptureError> {
         self.subscriptions
             .get_mut(&subscription_id)
             .ok_or_else(|| capture_host_error("capture subscription is no longer available"))
@@ -163,13 +164,13 @@ struct HostedSubscription {
     /// 窗口移动或 resize 时递增。
     generation: TopologyGeneration,
     /// 上次读取到的 DWM 可见物理边界。
-    last_bounds: Option<argusflow_vision::PhysicalRect>,
+    last_bounds: Option<argusflow_capture::PhysicalRect>,
 }
 
 /// 初始化主机线程并串行处理其完整生命周期命令。
 pub(super) fn run_capture_thread(
     commands: Receiver<CaptureCommand>,
-    ready: SyncSender<Result<(), VisionError>>,
+    ready: SyncSender<Result<(), CaptureError>>,
 ) {
     let apartment = match WinRtApartment::initialize() {
         Ok(apartment) => apartment,
@@ -239,7 +240,7 @@ struct WinRtApartment;
 
 impl WinRtApartment {
     /// 把捕获线程初始化为多线程 apartment。
-    fn initialize() -> Result<Self, VisionError> {
+    fn initialize() -> Result<Self, CaptureError> {
         // SAFETY: 每个主机线程只调用一次，并由本类型的 Drop 在同一线程配对释放。
         unsafe { RoInitialize(RO_INIT_MULTITHREADED) }.map_err(|error| {
             capture_error("failed to initialize capture thread WinRT MTA", error)
@@ -256,8 +257,8 @@ impl Drop for WinRtApartment {
 }
 
 /// 把等待时限转换为视觉层统一的超时错误。
-fn frame_timeout(timeout: Duration) -> VisionError {
-    VisionError::FrameTimeout {
+fn frame_timeout(timeout: Duration) -> CaptureError {
+    CaptureError::FrameTimeout {
         timeout_ms: timeout.as_millis().min(u128::from(u64::MAX)) as u64,
     }
 }

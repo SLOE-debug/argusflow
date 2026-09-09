@@ -1,6 +1,7 @@
 import type { KeyChord } from '../workflow';
 import type { RecordingDiagnostic, EventEvidence, ScreenPoint } from './inspectionContracts';
 import type { PointerMotion } from './motion';
+import type { ScreenTimeline } from './screenContracts';
 
 /** 录制前配置的遮盖范围，关闭总开关时保留原始内容。 */
 export type RecordingPrivacy = Readonly<{
@@ -67,7 +68,9 @@ export type RawTraceEvent = Readonly<{
 /** 单次完整录制。 */
 export type RecordingTrace = Readonly<{
   /** 与 AQL v3 无关的录制协议版本。 */
-  schema_version: 2;
+  schema_version: 3;
+  /** 包含无输入时变化的独立屏幕归档。 */
+  screen: ScreenTimeline;
   /** 本地存储目录使用的 UUID。 */
   recording_id: string;
   /** 录制开始时间，Unix 毫秒。 */

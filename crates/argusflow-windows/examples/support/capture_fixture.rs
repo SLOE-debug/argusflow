@@ -127,6 +127,36 @@ impl CaptureFixture {
         Ok(())
     }
     /// 校验已知四个像素，完整帧仍由真实截图 API 获取，绝不保存到磁盘。
+    pub(super) fn paint_patch(&self, iteration: u32) -> windows::core::Result<()> {
+        let dc = unsafe { GetDC(Some(self.window)) };
+        if dc.is_invalid() {
+            return Err(windows::core::Error::from_thread());
+        }
+        let brush = unsafe { CreateSolidBrush(COLORREF(iteration | 10 << 8 | 20 << 16)) };
+        let success = unsafe {
+            FillRect(
+                dc,
+                &RECT {
+                    left: 8,
+                    top: 8,
+                    right: 72,
+                    bottom: 24,
+                },
+                brush,
+            )
+        } != 0;
+        unsafe {
+            let _ = DeleteObject(brush.into());
+            let _ = GdiFlush();
+            ReleaseDC(Some(self.window), dc);
+        }
+        if !success {
+            return Err(windows::core::Error::from_thread());
+        }
+        Ok(())
+    }
+
+    /// 校验已知四个像素，完整帧仍由真实截图 API 获取，绝不保存到磁盘。
     pub(super) fn verify(&self, frame: &EvidenceFrame, iteration: u32) -> bool {
         frame.width() == self.width as u32
             && frame.height() == self.height as u32

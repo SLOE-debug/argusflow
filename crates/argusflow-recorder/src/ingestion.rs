@@ -53,7 +53,6 @@ pub(crate) fn ingest(
     resolver: Arc<EvidenceCollector>,
     dropped: Arc<AtomicU64>,
     started_tick: u32,
-    screenshots: crate::post_capture::PostCapture,
     privacy: crate::RecordingPrivacy,
 ) {
     let mut keyboard = KeyboardDecoder::new();
@@ -101,61 +100,12 @@ pub(crate) fn ingest(
         // 操作后的采样独立运行，摄入不等待绘制、PNG 或元素查询。
         let capture_started = Instant::now();
         let capture_delay = unsafe { GetTickCount() }.wrapping_sub(event.timestamp_ms);
-        let click_target = if !privacy.screenshots() && capture_delay <= 150 {
-            if let PhysicalInput::Mouse {
-                point,
-                button: crate::MouseButton::Left,
-                phase: InputPhase::Down,
-            } = event.input
-            {
-                match screenshots.target(
-                    event.sequence,
-                    elapsed_ms,
-                    point,
-                    context
-                        .as_ref()
-                        .and_then(|value| value.as_ref().ok())
-                        .map(|context| context.bounds),
-                ) {
-                    Ok(target) => Some(target),
-                    Err(reason) => {
-                        diagnostics.push(RecordingDiagnostic::ScreenshotUnavailable { reason });
-                        None
-                    }
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        };
+        // 屏幕流独立归档，事件仅在结束时按真实时间引用已保存画面。
+        let click_target = None;
+        let screenshot = None;
         if privacy.screenshots() && !matches!(event.input, PhysicalInput::Move { .. }) {
             diagnostics.push(RecordingDiagnostic::Redacted);
         }
-        let screenshot =
-            if privacy.screenshots() || matches!(event.input, PhysicalInput::Move { .. }) {
-                None
-            } else if capture_delay > 150 {
-                diagnostics.push(RecordingDiagnostic::ScreenshotUnavailable {
-                    reason: InspectionFailure::Timeout,
-                });
-                None
-            } else {
-                match screenshots.submit(
-                    event,
-                    elapsed_ms + u64::from(capture_delay),
-                    context
-                        .as_ref()
-                        .and_then(|value| value.as_ref().ok())
-                        .map(|context| context.window),
-                ) {
-                    Ok(pending) => Some(pending),
-                    Err(reason) => {
-                        diagnostics.push(RecordingDiagnostic::ScreenshotUnavailable { reason });
-                        None
-                    }
-                }
-            };
         let decoded = match event.input {
             PhysicalInput::Key {
                 virtual_key,

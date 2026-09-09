@@ -2,10 +2,10 @@
 
 use std::{fmt, sync::Arc};
 
-use argusflow_core::{ScreenPoint, WindowIdentity};
+use crate::{ScreenPoint, WindowIdentity};
 
-use crate::{
-    error::VisionError,
+use super::{
+    CaptureError,
     frame::{FrameId, PhysicalRect, PixelFormat, QpcTimestamp, TopologyGeneration},
 };
 
@@ -45,27 +45,26 @@ impl PixelImage {
         stride_bytes: usize,
         format: PixelFormat,
         pixels: impl Into<Arc<[u8]>>,
-    ) -> Result<Self, VisionError> {
+    ) -> Result<Self, CaptureError> {
         if width == 0 || height == 0 {
-            return Err(VisionError::InvalidFrame {
+            return Err(CaptureError::InvalidFrame {
                 message: "pixel image dimensions must be non-zero".to_owned(),
             });
         }
         let minimum_stride = width as usize * format.bytes_per_pixel();
         if stride_bytes < minimum_stride {
-            return Err(VisionError::InvalidFrame {
+            return Err(CaptureError::InvalidFrame {
                 message: format!("stride {stride_bytes} is smaller than {minimum_stride}"),
             });
         }
         let pixels = pixels.into();
-        let required_len =
-            stride_bytes
-                .checked_mul(height as usize)
-                .ok_or_else(|| VisionError::InvalidFrame {
-                    message: "pixel image byte length overflow".to_owned(),
-                })?;
+        let required_len = stride_bytes.checked_mul(height as usize).ok_or_else(|| {
+            CaptureError::InvalidFrame {
+                message: "pixel image byte length overflow".to_owned(),
+            }
+        })?;
         if pixels.len() < required_len {
-            return Err(VisionError::InvalidFrame {
+            return Err(CaptureError::InvalidFrame {
                 message: format!(
                     "pixel buffer has {} bytes, requires {required_len}",
                     pixels.len()
@@ -116,6 +115,8 @@ pub struct CapturedFrame {
     pub stride_bytes: usize,
     /// 短期内存像素存储。
     storage: Arc<[u8]>,
+    /// 共享捕获发布时绑定的变化历史；未绑定的离线帧可在捕获层进行直接比较。
+    history: Option<Arc<[super::changes::FrameChange]>>,
 }
 
 impl fmt::Debug for CapturedFrame {
@@ -152,9 +153,9 @@ impl CapturedFrame {
         dpi_y: u32,
         stride_bytes: usize,
         pixels: impl Into<Arc<[u8]>>,
-    ) -> Result<Self, VisionError> {
+    ) -> Result<Self, CaptureError> {
         let content_rect =
-            PhysicalRect::new(0, 0, width, height).ok_or_else(|| VisionError::InvalidFrame {
+            PhysicalRect::new(0, 0, width, height).ok_or_else(|| CaptureError::InvalidFrame {
                 message: "captured frame dimensions must be non-zero".to_owned(),
             })?;
         let pixels = pixels.into();
@@ -179,7 +180,19 @@ impl CapturedFrame {
             screen_origin: ScreenPoint { x: 0, y: 0 },
             stride_bytes: image.stride_bytes,
             storage: pixels,
+            history: None,
         })
+    }
+
+    /// 返回不带复制的完整像素切片。
+    pub fn with_change_history(mut self, history: Arc<[super::changes::FrameChange]>) -> Self {
+        self.history = Some(history);
+        self
+    }
+
+    /// 读取绑定的变化历史；内部像素与区域集合保持只读。
+    pub fn change_history(&self) -> Option<&[super::changes::FrameChange]> {
+        self.history.as_deref()
     }
 
     /// 返回不带复制的完整像素切片。
@@ -214,9 +227,9 @@ impl CapturedFrame {
     }
 
     /// 从当前帧复制一个 ROI，为 OCR 或调试传输建立独立图片所有权。
-    pub fn crop(&self, roi: PhysicalRect) -> Result<PixelImage, VisionError> {
+    pub fn crop(&self, roi: PhysicalRect) -> Result<PixelImage, CaptureError> {
         if !roi.is_inside(self.bounds()) {
-            return Err(VisionError::InvalidRoi {
+            return Err(CaptureError::InvalidRoi {
                 rect: roi,
                 frame_id: self.frame_id,
             });

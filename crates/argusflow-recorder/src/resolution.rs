@@ -2,13 +2,15 @@
 
 use crate::{EventEvidence, EvidenceBackend, RecordingDiagnostic, UiSnapshot};
 use argusflow_core::{
-    ElementRole, EvidenceFrame, InspectedEntity, InspectionContext, InspectionFailure,
-    InspectionProbe, TargetInspector, WindowEvidenceCapture, WindowIdentity, WindowInspector,
+    ElementRole, InspectedEntity, InspectionContext, InspectionFailure, InspectionProbe,
+    TargetInspector, WindowIdentity, WindowInspector, capture::ScreenCaptureSource,
 };
 use std::{sync::Arc, time::Duration};
 
 /// 后端只通过 core 契约协作，不依赖 OCR 或 selector 编译。
 pub struct EvidenceCollector {
+    /// 应用级共享桌面主机，录制停止不会释放原生采集资源。
+    screen_hub: std::sync::Mutex<Option<Arc<argusflow_capture::DesktopCaptureHub>>>,
     /// 同步窗口身份查询。
     windows: Arc<dyn WindowInspector>,
     /// 已托管页面的只读观察实例。
@@ -16,22 +18,59 @@ pub struct EvidenceCollector {
     /// UIA 专用 worker 门面。
     uia: Arc<dyn TargetInspector>,
     /// 独立采样线程使用的同步像素能力。
-    capture: Arc<dyn WindowEvidenceCapture>,
+    capture: Arc<dyn ScreenCaptureSource>,
 }
 
 impl EvidenceCollector {
-    /// 独立观察线程的完整屏幕采样，不调用结构化 provider。
-    pub(crate) fn capture_desktop(&self) -> Result<Option<EvidenceFrame>, InspectionFailure> {
-        self.capture.capture_desktop()
+    pub(crate) fn pixel_differ(
+        &self,
+    ) -> Result<
+        Box<dyn argusflow_core::capture::refinement::PixelDiffer>,
+        argusflow_core::CaptureError,
+    > {
+        self.capture.create_pixel_differ()
+    }
+    pub(crate) fn shutdown_capture(&self) -> Result<(), argusflow_core::CaptureFailure> {
+        let hub = self
+            .screen_hub
+            .lock()
+            .map_err(|_| argusflow_core::CaptureFailure::Unavailable)?
+            .take();
+        if let Some(hub) = hub {
+            hub.shutdown()?;
+        }
+        Ok(())
+    }
+    pub(crate) fn screen_hub(
+        &self,
+        scheduler: Arc<dyn argusflow_capture::CaptureScheduler>,
+    ) -> Result<Arc<argusflow_capture::DesktopCaptureHub>, argusflow_core::CaptureFailure> {
+        let mut hub = self
+            .screen_hub
+            .lock()
+            .map_err(|_| argusflow_core::CaptureFailure::Unavailable)?;
+        if hub.is_none() {
+            *hub = Some(argusflow_capture::DesktopCaptureHub::start(
+                self.capture.clone(),
+                scheduler,
+            )?);
+        }
+        hub.as_ref()
+            .cloned()
+            .ok_or(argusflow_core::CaptureFailure::Unavailable)
+    }
+    pub(crate) fn screen_clock_us(&self) -> Result<u64, argusflow_core::CaptureError> {
+        self.capture.clock_us()
     }
     /// 复用宿主结构化观察实例，截图使用独立快速能力。
     pub fn new(
         windows: Arc<dyn WindowInspector>,
         browser: Arc<dyn TargetInspector>,
         uia: Arc<dyn TargetInspector>,
-        capture: Arc<dyn WindowEvidenceCapture>,
+        capture: Arc<dyn ScreenCaptureSource>,
     ) -> Self {
         Self {
+            screen_hub: std::sync::Mutex::new(None),
             windows,
             browser,
             uia,

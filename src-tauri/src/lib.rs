@@ -35,6 +35,7 @@ pub fn run() -> tauri::Result<()> {
             commands::recorder::list_recordings,
             commands::recorder::get_recording,
             commands::recorder::read_recording_screenshot,
+            commands::recorder::read_recording_screen_frame,
             commands::recorder::recognize_recording_screenshot,
             commands::recorder::edit_recording_privacy,
         ])

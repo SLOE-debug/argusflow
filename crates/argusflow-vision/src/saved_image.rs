@@ -55,11 +55,11 @@ fn decode(bytes: Vec<u8>) -> Result<PixelImage, VisionError> {
     for pixel in pixels.chunks_exact_mut(4) {
         pixel.swap(0, 2);
     }
-    PixelImage::new(
+    Ok(PixelImage::new(
         info.width,
         info.height,
         info.width as usize * 4,
         PixelFormat::Bgra8Unorm,
         pixels,
-    )
+    )?)
 }

@@ -1,4 +1,4 @@
-//! 低分辨率 tile 差分与 Dirty ROI 合并。
+//! 共享精确差分到 OCR 刷新区域的领域映射。
 
 use serde::{Deserialize, Serialize};
 
@@ -11,14 +11,6 @@ use crate::{
 /// 差分管线的可调参数；默认值对应实施方案中的第一版 benchmark seed。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct DiffConfig {
-    /// 低分辨率采样比例，必须大于 0 且不超过 1。
-    pub scale: f32,
-    /// 逻辑 tile 的边长，单位为捕获像素。
-    pub tile_size: u32,
-    /// 单通道亮度差超过该值才算变化。
-    pub pixel_threshold: u8,
-    /// tile 内采样点达到该比例才把 tile 标成 dirty。
-    pub tile_changed_ratio: f32,
     /// 全局变化超过该比例时直接升级为完整刷新。
     pub full_refresh_dirty_ratio: f32,
     /// 相邻 dirty tile 合并后向外扩展的像素数。
@@ -30,10 +22,6 @@ pub struct DiffConfig {
 impl Default for DiffConfig {
     fn default() -> Self {
         Self {
-            scale: 0.25,
-            tile_size: 32,
-            pixel_threshold: 12,
-            tile_changed_ratio: 0.08,
             full_refresh_dirty_ratio: 0.35,
             roi_padding_px: 16,
             max_regions: 32,
@@ -44,29 +32,17 @@ impl Default for DiffConfig {
 impl DiffConfig {
     /// 检查差分参数，避免无效配置导致除零或无限循环。
     pub fn validate(self) -> Result<Self, VisionError> {
-        if !(self.scale > 0.0 && self.scale <= 1.0) {
-            return Err(VisionError::Protocol {
-                message: "diff scale must be in (0, 1]".to_owned(),
-            });
-        }
-        if self.tile_size == 0 || self.max_regions == 0 {
+        if self.max_regions == 0 {
             return Err(VisionError::Protocol {
                 message: "diff tile size and max regions must be non-zero".to_owned(),
             });
         }
-        if !(0.0..=1.0).contains(&self.tile_changed_ratio)
-            || !(0.0..=1.0).contains(&self.full_refresh_dirty_ratio)
-        {
+        if !(0.0..=1.0).contains(&self.full_refresh_dirty_ratio) {
             return Err(VisionError::Protocol {
                 message: "diff ratios must be in [0, 1]".to_owned(),
             });
         }
         Ok(self)
-    }
-
-    /// 返回低分辨率采样之间的整数步长。
-    fn sample_step(self) -> u32 {
-        (1.0 / self.scale).ceil().max(1.0) as u32
     }
 }
 
@@ -145,60 +121,26 @@ pub fn compute_dirty_map(
         });
     };
 
-    let sample_step = config.sample_step();
-    let mut compared_samples = 0_u64;
-    let mut changed_samples = 0_u64;
-    let mut raw_regions = Vec::new();
-    let mut y = 0_u32;
-    while y < current.height {
-        let tile_height = config.tile_size.min(current.height - y);
-        let mut x = 0_u32;
-        while x < current.width {
-            let tile_width = config.tile_size.min(current.width - x);
-            let mut tile_compared = 0_u64;
-            let mut tile_changed = 0_u64;
-            let mut sample_y = y;
-            while sample_y < y + tile_height {
-                let mut sample_x = x;
-                while sample_x < x + tile_width {
-                    let old = previous.pixel(sample_x, sample_y).ok_or_else(|| {
-                        VisionError::InvalidFrame {
-                            message: "previous frame pixel is outside its storage".to_owned(),
-                        }
-                    })?;
-                    let new = current.pixel(sample_x, sample_y).ok_or_else(|| {
-                        VisionError::InvalidFrame {
-                            message: "current frame pixel is outside its storage".to_owned(),
-                        }
-                    })?;
-                    let old_luma = luma(old);
-                    let new_luma = luma(new);
-                    tile_compared += 1;
-                    compared_samples += 1;
-                    if old_luma.abs_diff(new_luma) > config.pixel_threshold {
-                        tile_changed += 1;
-                        changed_samples += 1;
-                    }
-                    sample_x = sample_x.saturating_add(sample_step);
-                }
-                sample_y = sample_y.saturating_add(sample_step);
-            }
-            let tile_ratio = ratio(tile_changed, tile_compared);
-            if tile_ratio >= config.tile_changed_ratio {
-                raw_regions.push((
-                    PhysicalRect::new(x as i32, y as i32, tile_width, tile_height).ok_or_else(
-                        || VisionError::InvalidFrame {
-                            message: "diff tile has zero area".to_owned(),
-                        },
-                    )?,
-                    tile_ratio,
-                ));
-            }
-            x = x.saturating_add(config.tile_size);
-        }
-        y = y.saturating_add(config.tile_size);
-    }
-
+    // 持续源已完成差分；跳帧时累计中间所有变化，包括变回原色的区域。
+    let regions = match current.change_history() {
+        Some(history) => argusflow_core::capture::changes::changes_since(
+            history,
+            previous.frame_id,
+            current.frame_id,
+        )
+        .unwrap_or_else(|| vec![bounds]),
+        None => argusflow_capture::exact_regions(previous, current)?,
+    };
+    let compared_samples = u64::from(current.width) * u64::from(current.height);
+    let changed_samples = regions
+        .iter()
+        .map(|rect| u64::from(rect.width) * u64::from(rect.height))
+        .sum::<u64>()
+        .min(compared_samples);
+    let raw_regions = regions
+        .into_iter()
+        .map(|rect| (rect, 1.0))
+        .collect::<Vec<_>>();
     let changed_area_ratio = ratio(changed_samples, compared_samples);
     let major_transition = changed_area_ratio >= config.full_refresh_dirty_ratio;
     let regions = if major_transition || raw_regions.len() > config.max_regions {
@@ -247,11 +189,6 @@ fn validate_comparable(
         });
     }
     Ok(())
-}
-
-/// 将 BGRA 四元组转换成无符号亮度，避免差分被单一色道放大。
-fn luma(pixel: [u8; 4]) -> u8 {
-    ((u16::from(pixel[0]) * 11 + u16::from(pixel[1]) * 59 + u16::from(pixel[2]) * 30) / 100) as u8
 }
 
 /// 对整数计数做安全比例计算。

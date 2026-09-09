@@ -6,6 +6,7 @@ fn full_hook_queue_drops_without_blocking_and_preserves_sequence_gap() {
     let dropped = Arc::new(AtomicU64::new(0));
     SINK.with(|sink| {
         *sink.borrow_mut() = Some(HookSink {
+            wake: None,
             sender,
             sequence: 0,
             dropped: dropped.clone(),
@@ -28,6 +29,7 @@ fn system_notifications_share_the_input_sequence_without_becoming_actions() {
     let (sender, receiver) = mpsc::sync_channel(4);
     SINK.with(|sink| {
         *sink.borrow_mut() = Some(HookSink {
+            wake: None,
             sender,
             sequence: 0,
             dropped: Arc::new(AtomicU64::new(0)),

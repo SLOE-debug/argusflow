@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/argusflow-capture",
     "crates/argusflow-agent",
     "crates/argusflow-browser",
     "crates/argusflow-core",
@@ -25,6 +26,7 @@ language-service-target = "wasm32-unknown-unknown"
 platform-policy = "windows-only"
 
 [workspace.dependencies]
+argusflow-capture = { path = "crates/argusflow-capture" }
 argusflow-agent = { path = "crates/argusflow-agent" }
 argusflow-browser = { path = "crates/argusflow-browser" }
 argusflow-core = { path = "crates/argusflow-core" }
@@ -55,6 +57,10 @@ incremental = false
 
 # 像素转换与 PNG 压缩必须在开发构建中也保持实时吞吐，避免编码队列被未优化循环拖满。
 [profile.dev.package.argusflow-core]
+opt-level = 3
+
+# 共享差分从录制器迁入本 crate 后仍在采集热路径上，必须保持相同优化等级。
+[profile.dev.package.argusflow-capture]
 opt-level = 3
 
 [profile.dev.package.argusflow-recorder]

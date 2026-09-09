@@ -17,7 +17,7 @@ use windows::{
     core::Interface,
 };
 
-use argusflow_vision::VisionError;
+use argusflow_capture::CaptureError;
 
 use super::error::capture_error;
 
@@ -33,7 +33,7 @@ pub(super) struct GraphicsDevice {
 }
 
 /// 在当前图形适配器上创建支持 BGRA 的硬件 D3D11 设备。
-pub(super) fn create_graphics_device() -> Result<GraphicsDevice, VisionError> {
+pub(super) fn create_graphics_device() -> Result<GraphicsDevice, CaptureError> {
     let mut device: Option<ID3D11Device> = None;
     let mut context: Option<ID3D11DeviceContext> = None;
     // SAFETY: 输出指针指向当前栈帧中的 Option 接收槽；不传入应用内存地址。

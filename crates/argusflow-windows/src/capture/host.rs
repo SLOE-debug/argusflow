@@ -10,8 +10,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+use argusflow_capture::{CaptureError, CapturePolicy, CapturedFrame, FrameId, TopologyGeneration};
 use argusflow_core::WindowIdentity;
-use argusflow_vision::{CapturePolicy, CapturedFrame, FrameId, TopologyGeneration, VisionError};
 use tokio::sync::{Notify, oneshot};
 
 use super::{host_thread::run_capture_thread, wgc::WindowsGraphicsCapture};
@@ -30,7 +30,7 @@ pub struct WindowsCaptureHost {
 
 impl WindowsCaptureHost {
     /// 启动应用级 MTA 捕获线程，并在返回前完成 WinRT 与 D3D11 初始化。
-    pub fn start() -> Result<Self, VisionError> {
+    pub fn start() -> Result<Self, CaptureError> {
         let (command_sender, command_receiver) = channel();
         // 启动握手确保 AppState 可见前，捕获线程及共享设备已经完全就绪。
         let (ready_sender, ready_receiver) = sync_channel(1);
@@ -67,7 +67,7 @@ impl WindowsCaptureHost {
     }
 
     /// 停止接收新任务，在主机线程上销毁全部 session/pool/device，并等待线程退出。
-    pub fn shutdown(&self) -> Result<(), VisionError> {
+    pub fn shutdown(&self) -> Result<(), CaptureError> {
         let mut thread_slot = self
             .thread
             .lock()
@@ -121,7 +121,7 @@ impl CaptureHostClient {
         &self,
         window: WindowIdentity,
         policy: CapturePolicy,
-    ) -> Result<OpenedCapture, VisionError> {
+    ) -> Result<OpenedCapture, CaptureError> {
         let (reply, response) = oneshot::channel();
         self.send(CaptureCommand::Open {
             window,
@@ -138,7 +138,7 @@ impl CaptureHostClient {
         frame_id: FrameId,
         deadline: Instant,
         timeout: Duration,
-    ) -> Result<Option<Arc<CapturedFrame>>, VisionError> {
+    ) -> Result<Option<Arc<CapturedFrame>>, CaptureError> {
         let (reply, response) = oneshot::channel();
         self.send(CaptureCommand::Poll {
             subscription_id,
@@ -154,7 +154,7 @@ impl CaptureHostClient {
     pub(super) async fn current_topology_generation(
         &self,
         subscription_id: CaptureSubscriptionId,
-    ) -> Result<TopologyGeneration, VisionError> {
+    ) -> Result<TopologyGeneration, CaptureError> {
         let (reply, response) = oneshot::channel();
         self.send(CaptureCommand::CurrentTopology {
             subscription_id,
@@ -173,7 +173,7 @@ impl CaptureHostClient {
     }
 
     /// 仅在主机仍接受业务命令时入队，避免退出阶段创建新资源。
-    fn send(&self, command: CaptureCommand) -> Result<(), VisionError> {
+    fn send(&self, command: CaptureCommand) -> Result<(), CaptureError> {
         if !self.accepting_commands.load(Ordering::Acquire) {
             return Err(host_stopped());
         }
@@ -200,7 +200,7 @@ pub(super) enum CaptureCommand {
     Open {
         window: WindowIdentity,
         policy: CapturePolicy,
-        reply: oneshot::Sender<Result<OpenedCapture, VisionError>>,
+        reply: oneshot::Sender<Result<OpenedCapture, CaptureError>>,
     },
     /// 轮询订阅的独立 surface。
     Poll {
@@ -208,12 +208,12 @@ pub(super) enum CaptureCommand {
         frame_id: FrameId,
         deadline: Instant,
         timeout: Duration,
-        reply: oneshot::Sender<Result<Option<Arc<CapturedFrame>>, VisionError>>,
+        reply: oneshot::Sender<Result<Option<Arc<CapturedFrame>>, CaptureError>>,
     },
     /// 刷新并读取当前窗口拓扑代数。
     CurrentTopology {
         subscription_id: CaptureSubscriptionId,
-        reply: oneshot::Sender<Result<TopologyGeneration, VisionError>>,
+        reply: oneshot::Sender<Result<TopologyGeneration, CaptureError>>,
     },
     /// 销毁单个订阅的 WGC 资源。
     Close {
@@ -224,13 +224,13 @@ pub(super) enum CaptureCommand {
 }
 
 /// 构造捕获主机生命周期错误。
-pub(super) fn capture_host_error(message: impl Into<String>) -> VisionError {
-    VisionError::CaptureUnavailable {
+pub(super) fn capture_host_error(message: impl Into<String>) -> CaptureError {
+    CaptureError::CaptureUnavailable {
         message: message.into(),
     }
 }
 
 /// 主机已停止或正在停止时返回稳定错误。
-fn host_stopped() -> VisionError {
+fn host_stopped() -> CaptureError {
     capture_host_error("application capture host is not running")
 }

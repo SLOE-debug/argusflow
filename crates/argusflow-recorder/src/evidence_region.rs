@@ -107,21 +107,30 @@ pub(crate) fn changes(
     }) else {
         return vec![current.bounds()];
     };
-    let mut regions = Vec::new();
-    crate::screen_diff_kernel::scan(
-        previous.pixels(),
-        current.pixels(),
-        current.width() as usize,
-        current.height() as usize,
-        true,
-        |x, y, width, height| {
-            regions.push(InspectionRect {
-                x: current.bounds().x + x as f64,
-                y: current.bounds().y + y as f64,
-                width: width as f64,
-                height: height as f64,
+    // EvidenceFrame 构造阶段已经验证像素布局；共享精确差分保留细小输入反馈。
+    fn view(frame: &EvidenceFrame) -> Result<argusflow_capture::PixelView<'_>, InspectionFailure> {
+        argusflow_capture::PixelView::new(
+            frame.pixels(),
+            frame.width(),
+            frame.height(),
+            frame.width() as usize * 4,
+            frame.format(),
+        )
+    }
+    let result = view(previous)
+        .and_then(|old| view(current).and_then(|new| argusflow_capture::compare(old, new, None)));
+    match result {
+        Ok(changes) => changes
+            .regions()
+            .iter()
+            .map(|rect| InspectionRect {
+                x: current.bounds().x + f64::from(rect.x),
+                y: current.bounds().y + f64::from(rect.y),
+                width: f64::from(rect.width),
+                height: f64::from(rect.height),
             })
-        },
-    );
-    regions
+            .collect(),
+        // 非法布局不能被解释为没有变化。
+        Err(_) => vec![current.bounds()],
+    }
 }

@@ -48,6 +48,7 @@ pub(super) fn entity() -> InspectedEntity {
 
 pub(super) fn target() -> EventEvidence {
     EventEvidence {
+        screen: crate::EventScreenEvidence::default(),
         click_target: None,
         context: Some(context()),
         ui_snapshot: Some(UiSnapshot {
@@ -73,6 +74,27 @@ pub(super) fn raw(sequence: u64, input: RawInput) -> RawTraceEvent {
 }
 
 pub(super) struct NoCapture;
+impl argusflow_core::capture::ScreenCaptureSource for NoCapture {
+    fn drain(
+        &self,
+    ) -> Result<(Vec<argusflow_core::capture::ScreenCaptureUpdate>, bool), CaptureError> {
+        Ok((Vec::new(), false))
+    }
+    fn sources(&self) -> Result<Vec<CaptureSourceId>, CaptureError> {
+        Ok(Vec::new())
+    }
+    fn clock_us(&self) -> Result<u64, argusflow_core::CaptureError> {
+        Ok(0)
+    }
+    fn poll(
+        &self,
+    ) -> Result<Vec<argusflow_core::capture::ScreenCaptureUpdate>, argusflow_core::CaptureError>
+    {
+        Err(argusflow_core::CaptureError::CaptureUnavailable {
+            message: "fixture has no pixels".into(),
+        })
+    }
+}
 impl WindowEvidenceCapture for NoCapture {
     fn capture_desktop(&self) -> Result<Option<EvidenceFrame>, InspectionFailure> {
         Err(InspectionFailure::Unavailable)
