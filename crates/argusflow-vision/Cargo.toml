@@ -1,0 +1,29 @@
+[package]
+name = "argusflow-vision"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+autotests = false
+
+[[test]]
+name = "native"
+path = "../../tests/argusflow-vision/integration/native.rs"
+
+[dependencies]
+argusflow-core.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "ndarray", "load-dynamic", "cuda", "api-24"] }
+ndarray = "0.17"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "webp"] }
+imageproc = { version = "0.26", default-features = false }
+geo = "0.32"
+serde_yaml = "0.9"
+sha2 = "0.10"
+
+[lints]
+workspace = true

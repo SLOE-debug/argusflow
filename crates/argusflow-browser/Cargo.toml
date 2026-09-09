@@ -1,0 +1,33 @@
+[package]
+name = "argusflow-browser"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+autotests = false
+
+[[test]]
+name = "native"
+path = "../../tests/argusflow-browser/integration/native.rs"
+
+[[test]]
+name = "ownership"
+path = "../../tests/argusflow-browser/integration/ownership.rs"
+
+[dependencies]
+argusflow-core.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+futures-util = "0.3"
+tokio-tungstenite = { version = "0.28", features = ["rustls-tls-native-roots"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tempfile = "3"
+url = "2"
+
+[lints]
+workspace = true
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true, features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Security"] }

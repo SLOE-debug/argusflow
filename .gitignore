@@ -1,0 +1,9 @@
+/target/
+/.deps/
+/.cache/
+/.idea/
+/.vscode/
+*.pdb
+*.onnx
+*.dll
+*.profraw
