@@ -19,11 +19,15 @@ pub enum PixelFormat {
     Rgba,
     /// BGRA 四通道，透明部分合成到白底。
     Bgra,
+    /// BGR 与填充字节；第四通道不代表透明度。
+    Bgrx,
 }
 
 /// 一次独立的图片识别输入；不含截图采集或跨帧状态。
 #[derive(Debug)]
 pub enum ImageInput {
+    /// 采样模块交付的不可变共享像素，保留原始预算租约。
+    Shared(argusflow_capture_contracts::PixelImage),
     /// PNG、JPEG、BMP 或 WebP 图片路径。
     Path(PathBuf),
     /// 支持格式的编码图片字节。
@@ -46,6 +50,7 @@ pub enum ImageInput {
 impl ImageInput {
     pub(crate) fn validate(&self, config: &OcrConfig) -> Result<(), Failure> {
         match self {
+            Self::Shared(image) => dimensions(image.width(), image.height(), config),
             Self::Path(_) => Ok(()),
             Self::Encoded(bytes) => encoded_size(bytes.len(), config),
             Self::Pixels {
@@ -58,7 +63,7 @@ impl ImageInput {
                 dimensions(*width, *height, config)?;
                 let channels = match format {
                     PixelFormat::Rgb | PixelFormat::Bgr => 3,
-                    PixelFormat::Rgba | PixelFormat::Bgra => 4,
+                    PixelFormat::Rgba | PixelFormat::Bgra | PixelFormat::Bgrx => 4,
                 };
                 if *stride < *width as usize * channels
                     || stride.checked_mul(*height as usize) != Some(bytes.len())
@@ -78,6 +83,21 @@ impl ImageInput {
         self.validate(config)?;
         operation.check("image_decode")?;
         match self {
+            Self::Shared(image) => {
+                let format = match image.format() {
+                    argusflow_capture_contracts::PixelFormat::Bgrx8 => PixelFormat::Bgrx,
+                    argusflow_capture_contracts::PixelFormat::Bgra8 => PixelFormat::Bgra,
+                    argusflow_capture_contracts::PixelFormat::Rgba8 => PixelFormat::Rgba,
+                };
+                decode_pixels(
+                    image.width(),
+                    image.height(),
+                    image.stride(),
+                    format,
+                    image.bytes(),
+                    operation,
+                )
+            }
             Self::Path(path) => {
                 let file = std::fs::File::open(path)
                     .map_err(|error| invalid("无法打开图片文件").with_source(error))?;
@@ -95,38 +115,51 @@ impl ImageInput {
                 stride,
                 format,
                 bytes,
-            } => {
-                let channels = match format {
-                    PixelFormat::Rgb | PixelFormat::Bgr => 3,
-                    PixelFormat::Rgba | PixelFormat::Bgra => 4,
-                };
-                let mut image = RgbImage::new(width, height);
-                for (y, row) in bytes.chunks_exact(stride).enumerate() {
-                    operation.check("pixel_decode")?;
-                    for (x, pixel) in row[..width as usize * channels]
-                        .chunks_exact(channels)
-                        .enumerate()
-                    {
-                        let (red, blue) = match format {
-                            PixelFormat::Rgb | PixelFormat::Rgba => (pixel[0], pixel[2]),
-                            PixelFormat::Bgr | PixelFormat::Bgra => (pixel[2], pixel[0]),
-                        };
-                        let alpha = if channels == 4 { pixel[3] } else { 255 };
-                        image.put_pixel(
-                            x as u32,
-                            y as u32,
-                            Rgb([
-                                composite(red, alpha),
-                                composite(pixel[1], alpha),
-                                composite(blue, alpha),
-                            ]),
-                        );
-                    }
-                }
-                Ok(image)
-            }
+            } => decode_pixels(width, height, stride, format, &bytes, operation),
         }
     }
+}
+
+fn decode_pixels(
+    width: u32,
+    height: u32,
+    stride: usize,
+    format: PixelFormat,
+    bytes: &[u8],
+    operation: &Operation,
+) -> Result<RgbImage, Failure> {
+    let channels = match format {
+        PixelFormat::Rgb | PixelFormat::Bgr => 3,
+        _ => 4,
+    };
+    let mut image = RgbImage::new(width, height);
+    for (y, row) in bytes.chunks_exact(stride).enumerate() {
+        operation.check("pixel_decode")?;
+        for (x, pixel) in row[..width as usize * channels]
+            .chunks_exact(channels)
+            .enumerate()
+        {
+            let (red, blue) = match format {
+                PixelFormat::Rgb | PixelFormat::Rgba => (pixel[0], pixel[2]),
+                PixelFormat::Bgr | PixelFormat::Bgra | PixelFormat::Bgrx => (pixel[2], pixel[0]),
+            };
+            let alpha = if matches!(format, PixelFormat::Rgba | PixelFormat::Bgra) {
+                pixel[3]
+            } else {
+                255
+            };
+            image.put_pixel(
+                x as u32,
+                y as u32,
+                Rgb([
+                    composite(red, alpha),
+                    composite(pixel[1], alpha),
+                    composite(blue, alpha),
+                ]),
+            );
+        }
+    }
+    Ok(image)
 }
 
 fn decode_bytes(

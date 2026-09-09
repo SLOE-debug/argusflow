@@ -2,7 +2,7 @@
 
 ## 共用契约
 
-四个 crate 之间只通过 `argusflow-core` 共享实际需要的类型；三个能力 crate 不互相依赖。异步公共接口使用 Tokio，core 不依赖运行时。UIA/OCR/真实输入在各自专用原生线程执行，CDP 使用独立收发任务和一个拥有请求表的 actor。
+通用动作、操作票据和错误基础类型属于 `argusflow-core`；采样领域契约集中在 `argusflow-capture-contracts`。两者不依赖运行时。Windows、Capture 和 Vision 通过采样契约连接，平台后端不依赖 OCR，OCR 不依赖 Windows 或采样服务实现。异步服务使用 Tokio。UIA/OCR/真实输入在各自专用原生线程执行，CDP 使用独立收发任务和一个拥有请求表的 actor。
 
 `OperationOptions::new(Duration)` 接受 0 到 24 小时之间的非零总时限。截止时间从调用开始计算，覆盖排队、连接和所有后续步骤，不因为重试重置。Future 被丢弃会取消排队和后续步骤。原生调用只承诺协作取消；超时不等于底层调用已经退出。
 
@@ -63,8 +63,10 @@ WebSocket 读写相互独立，写入阻塞受自己的时限和操作剩余时�
 
 `OcrConfig::new(dependencies)` 默认 Small + Cpu。显式选择 `ModelTier::Medium` 或 `Device::Cuda { device_id }` 后不自动切换档位或设备。`OcrEngine::load` 校验固定官方模型与配置 SHA-256，加载检测和识别 Session。识别时不会下载资源。
 
-`ImageInput` 接受 Path、Encoded 和 Pixels。Pixels 必须声明宽高、stride、Rgb/Bgr/Rgba/Bgra 格式；透明像素以白色合成。编码格式支持 PNG/JPEG/BMP/WebP，先检查格式尺寸再解码。
+`ImageInput` 接受 Path、Encoded、Pixels 和 Shared。Pixels 必须声明宽高、stride、Rgb/Bgr/Bgrx/Rgba/Bgra 格式；真正透明像素以白色合成，Bgrx 的第四通道完全忽略。Shared 直接持有采样契约的只读 `PixelImage`，不经过编码、临时文件或 Python。编码格式支持 PNG/JPEG/BMP/WebP，先检查格式尺寸再解码。
 
 检测使用 BGR、官方均值/标准差、短边 736、32 倍数缩放，DB 概率阈值/框阈值/外扩来自所选模型 inference.yml。有界连通域提取外边界，最小旋转矩形评分及外扩后转换回原图。读取顺序先按行再按行内位置排序。透视裁剪后竖长区域旋转；识别输入高 48、最小宽 320、最大宽 3200，BGR 归一化到 [-1,1]，CTC 字典来自对应官方配置。极长单行文本会压缩到宽度上限。
 
-结果包含文字、平均保留字符置信度和原图四边形，`text()` 用换行拼接。无文字返回空结果。没有方向分类、去畸变、版面分析或跨图片缓存；本实现不声明与 OpenCV 的逐像素插值/轮廓顺序完全相同，准确性由固定图片验收覆盖。
+结果包含文字、平均保留字符置信度和原图四边形，`text()` 用换行拼接。无文字返回空结果。没有方向分类、去畸变或版面分析；本实现不声明与 OpenCV 的逐像素插值/轮廓顺序完全相同，准确性由固定图片验收覆盖。
+
+`SampledOcr` 将指定区域的稳定采样接到现有引擎。每个实例固定模型配置，容量为八个区域，合并相同区域的在途调用；只在 GPU 精确确认完整区域内容不变后复用结果。结果保留来源版本、本地原点和屏幕坐标转换，区域外变化不重复推理。详见 [采样设计](sampling.md)。

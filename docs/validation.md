@@ -1,5 +1,7 @@
 # 验证记录与复现方法
 
+2026-09-10 最新完整验证：69 项测试全部已执行通过，包含 61 项普通测试和 8 项默认 ignored 原生验收。Chrome/Edge、UIA/真实键鼠、DXGI/GPU、Small/Medium CPU/CUDA OCR 均已自行执行，另外补充了 4 项采样并发、历史和多来源/拓扑故障注入测试。格式检查、Clippy（含全部 target）与全部示例构建通过。详细日志、性能数据和硬件验证限制见 [采样验证与性能报告](sampling-validation.md)。下文 2026-09-09 记录保留为此前验证历史。
+
 ## 已执行
 
 环境：Windows x64，Rust/Cargo 1.98.0，NVIDIA GeForce RTX 4070 Laptop GPU（8188 MiB），驱动 576.52。验证日期 2026-09-09；没有升级驱动，没有使用 Python。用户明确要求代为测试后，已运行真实 UIA/SendInput 验收及独立 Chrome、Edge 的 CDP 验收。

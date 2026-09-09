@@ -8,6 +8,9 @@ use std::{io::Cursor, path::PathBuf};
 const BILINGUAL: &[u8] = include_bytes!("../fixtures/bilingual.png");
 const EXPECTED: &str = "ArgusFlow OCR 123\n中文识别测试 456";
 
+#[path = "../support/region_source.rs"]
+mod region_source;
+
 fn config(tier: ModelTier, device: Device) -> OcrConfig {
     let deps = PathBuf::from(
         std::env::var_os("ARGUSFLOW_TEST_DEPS")
@@ -45,6 +48,67 @@ async fn exercise(tier: ModelTier, device: Device) -> argusflow_vision::OcrResul
     validate(&result);
     assert_eq!(result.text(), EXPECTED, "{tier:?}/{device:?}");
     assert_eq!(result.blocks().len(), 2);
+    // DXGI 的第四通道是填充，零值不得将整张图合成为白色。
+    let original = image::load_from_memory(BILINGUAL).unwrap().to_rgb8();
+    let pixels: Vec<_> = original
+        .pixels()
+        .flat_map(|p| [p[2], p[1], p[0], 0])
+        .collect();
+    let budget = argusflow_capture_contracts::ByteBudget::new(pixels.len()).unwrap();
+    let reservation = budget.reserve(pixels.len()).unwrap();
+    let shared = argusflow_capture_contracts::PixelImage::new(
+        original.width(),
+        original.height(),
+        original.width() as usize * 4,
+        argusflow_capture_contracts::PixelFormat::Bgrx8,
+        pixels,
+        reservation,
+    )
+    .unwrap();
+    let source = region_source::FixtureSource::new(shared.clone());
+    let sampled = engine.recognize(ImageInput::Shared(shared)).await.unwrap();
+    assert_eq!(sampled.text(), result.text());
+    for (a, b) in sampled.blocks().iter().zip(result.blocks()) {
+        assert!((a.confidence() - b.confidence()).abs() < 0.0001);
+        assert_eq!(a.polygon(), b.polygon());
+    }
+    let adapter = argusflow_vision::SampledOcr::new(source.clone(), engine.clone());
+    let area =
+        argusflow_capture_contracts::PixelRect::new(0, 0, original.width(), original.height())
+            .unwrap();
+    let (first, joined) = tokio::join!(
+        adapter.recognize(
+            argusflow_capture_contracts::SourceId(1),
+            area,
+            OperationOptions::default()
+        ),
+        adapter.recognize(
+            argusflow_capture_contracts::SourceId(1),
+            area,
+            OperationOptions::default()
+        )
+    );
+    let first = first.unwrap();
+    let joined = joined.unwrap();
+    assert_eq!(first.result().text(), EXPECTED);
+    assert!(std::ptr::eq(first.result(), joined.result()));
+    assert_eq!(source.calls.load(std::sync::atomic::Ordering::Acquire), 1);
+    source
+        .revision
+        .store(1, std::sync::atomic::Ordering::Release);
+    let reused = adapter
+        .recognize(
+            argusflow_capture_contracts::SourceId(1),
+            area,
+            OperationOptions::default(),
+        )
+        .await
+        .unwrap();
+    assert!(reused.reused());
+    assert_eq!(reused.version().revision, 1);
+    assert!(std::ptr::eq(first.result(), reused.result()));
+    assert_eq!(reused.bounds().x(), -100);
+    adapter.clear_cache();
     assert!(result.blocks()[0].polygon()[0].y < result.blocks()[1].polygon()[0].y);
     // 固定 PNG：文字、数字、中英文、多行、路径和编码字节入口。
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))

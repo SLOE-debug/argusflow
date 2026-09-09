@@ -42,6 +42,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "argusflow-capture"
+version = "0.1.0"
+dependencies = [
+ "argusflow-capture-contracts",
+ "argusflow-core",
+ "tokio",
+]
+
+[[package]]
+name = "argusflow-capture-contracts"
+version = "0.1.0"
+dependencies = [
+ "argusflow-core",
+ "thiserror",
+]
+
+[[package]]
 name = "argusflow-core"
 version = "0.1.0"
 dependencies = [
@@ -52,6 +69,7 @@ dependencies = [
 name = "argusflow-vision"
 version = "0.1.0"
 dependencies = [
+ "argusflow-capture-contracts",
  "argusflow-core",
  "geo",
  "image",
@@ -71,7 +89,10 @@ dependencies = [
 name = "argusflow-windows"
 version = "0.1.0"
 dependencies = [
+ "argusflow-capture",
+ "argusflow-capture-contracts",
  "argusflow-core",
+ "argusflow-vision",
  "thiserror",
  "tokio",
  "tracing",

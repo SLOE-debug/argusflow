@@ -1,0 +1,18 @@
+[package]
+name = "argusflow-capture-contracts"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+autotests = false
+
+[[test]]
+name = "resources"
+path = "../../tests/argusflow-capture-contracts/unit/resources.rs"
+
+[dependencies]
+argusflow-core.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

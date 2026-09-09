@@ -12,6 +12,7 @@ path = "../../tests/argusflow-vision/integration/native.rs"
 
 [dependencies]
 argusflow-core.workspace = true
+argusflow-capture-contracts.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 serde.workspace = true

@@ -1,0 +1,19 @@
+[package]
+name = "argusflow-capture"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+autotests = false
+
+[[test]]
+name = "sampling"
+path = "../../tests/argusflow-capture/integration/sampling.rs"
+
+[dependencies]
+argusflow-core.workspace = true
+argusflow-capture-contracts.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true
