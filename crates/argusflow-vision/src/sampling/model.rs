@@ -17,6 +17,7 @@ pub enum SampledOcrError {
 /// 保留完整区域与来源版本的 OCR 结果。
 #[derive(Debug, Clone)]
 pub struct SampledOcrResult {
+    pub(crate) token: argusflow_capture_contracts::ContentToken,
     pub(crate) result: Arc<OcrResult>,
     pub(crate) version: Version,
     pub(crate) bounds: ScreenRect,

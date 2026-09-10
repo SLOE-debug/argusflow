@@ -7,3 +7,7 @@
 *.onnx
 *.dll
 *.profraw
+/node_modules/
+/dist/
+/src/features/aql/generated/
+*.tsbuildinfo

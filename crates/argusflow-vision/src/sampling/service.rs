@@ -16,15 +16,15 @@ use std::{
 };
 use tokio::sync::watch;
 
-struct Inner {
-    source: Arc<dyn RegionSource>,
+pub(super) struct Inner {
+    pub(super) source: Arc<dyn RegionSource>,
     engine: OcrEngine,
     cache: Mutex<Cache>,
 }
 /// 固定 OCR 引擎和采样来源的区域服务；每个实例缓存最多八个完整区域。
 #[derive(Clone)]
 pub struct SampledOcr {
-    inner: Arc<Inner>,
+    pub(super) inner: Arc<Inner>,
 }
 impl SampledOcr {
     /// 使用现有模型实例，既不下载也不重复加载模型。
@@ -246,8 +246,9 @@ where
         .into());
     }
     Ok(Cached {
-        token: sample.token,
+        token: sample.token.clone(),
         output: SampledOcrResult {
+            token: sample.token,
             result,
             version: sample.observed_version,
             bounds,

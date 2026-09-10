@@ -3,7 +3,7 @@ use super::{action, element::Lease, query, runtime::Shared};
 use crate::WindowsError as Failure;
 use crate::{
     ElementHandle, ElementSnapshot, Query, UiaAction, UiaConfig, UiaState,
-    platform::{Apartment, failure},
+    platform::{Apartment, PhysicalDpi, failure},
 };
 use argusflow_core::{FailureKind, Operation};
 use std::{
@@ -22,11 +22,16 @@ use windows::Win32::{
 };
 
 pub(crate) enum Command {
+    Aql(crate::WindowIdentity, argusflow_aql::BoundQuery),
+    ClickPoint(ElementHandle),
+    FocusAql(ElementHandle),
     Find(Query, bool),
     Read(ElementHandle),
     Act(ElementHandle, UiaAction),
 }
 pub(crate) enum Response {
+    Aql(Vec<super::aql::UiaMatch>),
+    Point(argusflow_core::ScreenPoint),
     Elements(Vec<ElementHandle>),
     Snapshot(ElementSnapshot),
     Done,
@@ -48,6 +53,7 @@ struct Provider {
     id: u64,
     config: UiaConfig,
     _apartment: Apartment,
+    _dpi: PhysicalDpi,
 }
 
 pub(crate) trait Backend {
@@ -65,6 +71,7 @@ impl Backend for Provider {
 
 impl Provider {
     fn new(config: UiaConfig, id: u64) -> Result<Self, Failure> {
+        let dpi = PhysicalDpi::enter()?;
         let apartment = Apartment::new()?;
         // SAFETY: 初始化在专用 MTA 线程，接口和 apartment 一起释放。
         let automation: IUIAutomation2 =
@@ -86,6 +93,7 @@ impl Provider {
             id,
             config,
             _apartment: apartment,
+            _dpi: dpi,
         })
     }
     fn prune(&mut self) {
@@ -101,39 +109,39 @@ impl Provider {
         operation.check("uia_execute")?;
         self.prune();
         match command {
+            Command::Aql(window, query) => {
+                let found =
+                    super::aql::find(&self.automation, &window, &query, operation, &self.config)?;
+                let handles = self.lease(
+                    found.iter().map(|entry| entry.element.clone()).collect(),
+                    &window,
+                )?;
+                Ok(Response::Aql(
+                    found
+                        .into_iter()
+                        .zip(handles)
+                        .map(|(entry, handle)| {
+                            super::aql::UiaMatch::new(handle, entry.snapshot, entry.attributes)
+                        })
+                        .collect(),
+                ))
+            }
+            Command::ClickPoint(handle) => {
+                let element = self.element(&handle, operation)?;
+                Ok(Response::Point(super::aql::click_point(
+                    &self.automation,
+                    &element,
+                    operation,
+                )?))
+            }
+            Command::FocusAql(handle) => {
+                let element = self.element(&handle, operation)?;
+                super::aql::focus(&element, operation)?;
+                Ok(Response::Done)
+            }
             Command::Find(query, unique) => {
                 let found = query::find(&self.automation, &query, operation, &self.config, unique)?;
-                if self.cache.len() + found.len() > self.config.max_results {
-                    return Err(Failure::new(
-                        FailureKind::ResourceLimit,
-                        "element_lease",
-                        "元素租约已满，请释放句柄或等待租约过期",
-                    ));
-                }
-                let mut handles = Vec::with_capacity(found.len());
-                for element in found {
-                    let id = self.next_element;
-                    self.next_element = self.next_element.checked_add(1).ok_or_else(|| {
-                        Failure::new(FailureKind::ResourceLimit, "element_lease", "元素标识耗尽")
-                    })?;
-                    let lease = Arc::new(Lease {
-                        alive: AtomicBool::new(true),
-                    });
-                    self.cache.insert(
-                        id,
-                        Cached {
-                            element,
-                            expires: Instant::now() + self.config.lease_duration,
-                            lease: Arc::downgrade(&lease),
-                        },
-                    );
-                    handles.push(ElementHandle {
-                        runtime: self.id,
-                        id,
-                        window: query.window.clone(),
-                        lease,
-                    });
-                }
+                let handles = self.lease(found, &query.window)?;
                 Ok(Response::Elements(handles))
             }
             Command::Read(handle) => {
@@ -169,6 +177,44 @@ impl Provider {
             self.config.max_depth,
         )?;
         Ok(cached.element.clone())
+    }
+    fn lease(
+        &mut self,
+        found: Vec<IUIAutomationElement>,
+        window: &crate::WindowIdentity,
+    ) -> Result<Vec<ElementHandle>, Failure> {
+        if self.cache.len() + found.len() > self.config.max_results {
+            return Err(Failure::new(
+                FailureKind::ResourceLimit,
+                "element_lease",
+                "元素租约已满",
+            ));
+        }
+        let mut handles = Vec::with_capacity(found.len());
+        for element in found {
+            let id = self.next_element;
+            self.next_element = self.next_element.checked_add(1).ok_or_else(|| {
+                Failure::new(FailureKind::ResourceLimit, "element_lease", "元素标识耗尽")
+            })?;
+            let lease = Arc::new(Lease {
+                alive: AtomicBool::new(true),
+            });
+            self.cache.insert(
+                id,
+                Cached {
+                    element,
+                    expires: Instant::now() + self.config.lease_duration,
+                    lease: Arc::downgrade(&lease),
+                },
+            );
+            handles.push(ElementHandle {
+                runtime: self.id,
+                id,
+                window: window.clone(),
+                lease,
+            });
+        }
+        Ok(handles)
     }
 }
 

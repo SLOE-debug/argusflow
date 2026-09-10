@@ -11,6 +11,7 @@ name = "native"
 path = "../../tests/argusflow-vision/integration/native.rs"
 
 [dependencies]
+argusflow-aql.workspace = true
 argusflow-core.workspace = true
 argusflow-capture-contracts.workspace = true
 tokio.workspace = true

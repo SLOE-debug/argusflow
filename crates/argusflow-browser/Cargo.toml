@@ -15,6 +15,7 @@ name = "ownership"
 path = "../../tests/argusflow-browser/integration/ownership.rs"
 
 [dependencies]
+argusflow-aql.workspace = true
 argusflow-core.workspace = true
 tokio.workspace = true
 tracing.workspace = true

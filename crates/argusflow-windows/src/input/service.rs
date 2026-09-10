@@ -57,6 +57,7 @@ struct State {
     active: Mutex<Option<Operation>>,
 }
 struct Inner {
+    reserved: AtomicBool,
     sender: SyncSender<Request>,
     state: Arc<State>,
     thread: Mutex<Option<std::thread::JoinHandle<()>>>,
@@ -176,6 +177,7 @@ impl InputService {
             })?;
         Ok(Self {
             inner: Arc::new(Inner {
+                reserved: AtomicBool::new(false),
                 sender,
                 state,
                 thread: Mutex::new(Some(thread)),
@@ -189,6 +191,42 @@ impl InputService {
         action: InputAction,
         options: OperationOptions,
     ) -> Result<(), Failure> {
+        let operation = Operation::new(options);
+        self.perform_operation(window, action, &operation).await
+    }
+    /// 使用同一请求票据注入一次输入，保留定位及聚焦已经消耗的时限。
+    pub async fn perform_operation(
+        &self,
+        window: WindowIdentity,
+        action: InputAction,
+        operation: &Operation,
+    ) -> Result<(), Failure> {
+        self.sequence(operation)?.perform(window, action).await
+    }
+    /// 独占同一服务的输入序列，覆盖聚焦到注入之间的间隙；忙时不排队重放。
+    pub fn sequence<'a>(
+        &'a self,
+        operation: &'a Operation,
+    ) -> Result<super::InputSequence<'a>, Failure> {
+        operation.check("input_sequence")?;
+        self.inner
+            .reserved
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .map_err(|_| {
+                Failure::new(FailureKind::Busy, "input_sequence", "另一输入序列正在执行")
+            })?;
+        Ok(super::InputSequence::new(self, operation))
+    }
+    pub(super) fn release_sequence(&self) {
+        self.inner.reserved.store(false, Ordering::Release);
+    }
+    pub(super) async fn submit(
+        &self,
+        window: WindowIdentity,
+        action: InputAction,
+        operation: &Operation,
+    ) -> Result<(), Failure> {
+        operation.check("input_submit")?;
         if matches!(&action,InputAction::Text(text) if text.is_empty() || text.len()>16_384)
             || matches!(&action,InputAction::Chord(keys) if keys.is_empty() || keys.len()>8)
         {
@@ -198,7 +236,6 @@ impl InputService {
                 "文字必须为 1-16384 字节，组合键必须为 1-8 个",
             ));
         }
-        let operation = Operation::new(options);
         let mut guard = operation.cancel_on_drop();
         if self.inner.state.stopping.load(Ordering::Acquire) {
             return Err(Failure::new(
@@ -239,18 +276,18 @@ impl InputService {
                     Failure::new(FailureKind::Closed, "input_queue", "输入线程已退出")
                 }
             })?;
-        let result = match tokio::time::timeout(operation.remaining(), receiver).await {
-            Ok(Ok(result)) => result,
-            Ok(Err(_)) => Err(Failure::new(
+        tokio::pin!(receiver);
+        let result = loop {
+            tokio::select! {
+                result = &mut receiver => break result.unwrap_or_else(|_| Err(Failure::new(
                 FailureKind::Closed,
                 "input_response",
                 "输入线程没有返回结果",
-            )),
-            Err(_) => Err(Failure::new(
-                FailureKind::Timeout,
-                "input_response",
-                "输入操作总时限已到",
-            )),
+                ))),
+                _ = tokio::time::sleep(operation.remaining().min(Duration::from_millis(8))) => {
+                    if let Err(error) = operation.check("input_response") { break Err(error.into()); }
+                }
+            }
         };
         if result.is_ok() {
             operation.check("input_complete").map_err(Failure::from)?;

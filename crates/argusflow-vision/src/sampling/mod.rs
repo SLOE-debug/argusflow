@@ -4,3 +4,4 @@ mod model;
 mod service;
 pub use model::{SampledOcrError, SampledOcrResult};
 pub use service::SampledOcr;
+mod query;

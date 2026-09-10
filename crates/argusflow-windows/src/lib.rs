@@ -12,9 +12,9 @@ mod window;
 pub use argusflow_core::OperationOptions;
 pub use capture::DxgiBackend;
 pub use error::WindowsError;
-pub use input::{InputAction, InputService, InputState};
+pub use input::{InputAction, InputSequence, InputService, InputState};
 pub use uia::{
     ControlType, ElementHandle, ElementSnapshot, Predicate, Query, ScrollAmount, SearchScope,
-    SelectionAction, UiaAction, UiaConfig, UiaRuntime, UiaState,
+    SelectionAction, UiaAction, UiaConfig, UiaMatch, UiaRuntime, UiaState,
 };
 pub use window::{WindowIdentity, WindowInfo, WindowLocator};

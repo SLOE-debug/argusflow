@@ -1,0 +1,21 @@
+[package]
+name = "argusflow-aql"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+autotests = false
+
+[dependencies]
+argusflow-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+regex = "1"
+
+[lints]
+workspace = true
+
+[[test]]
+name = "language"
+path = "../../tests/argusflow-aql/integration/language.rs"

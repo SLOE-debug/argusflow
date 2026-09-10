@@ -10,7 +10,7 @@ pub use argusflow_core::OperationOptions;
 pub use browser::{Browser, BrowserConfig, LaunchOptions};
 pub use cdp::ConnectionState;
 pub use error::BrowserError;
-pub use page::{Element, ElementSnapshot, Page, PageInfo};
+pub use page::{BrowserMatch, Element, ElementSnapshot, Page, PageInfo};
 
 #[cfg(test)]
 #[path = "../../../tests/argusflow-browser/unit/mod.rs"]

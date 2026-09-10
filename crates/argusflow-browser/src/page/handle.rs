@@ -38,7 +38,10 @@ pub(crate) struct Inner {
     pub(crate) session: String,
     pub(crate) state: Arc<PageState>,
     pub(crate) context: Option<String>,
-    document: tokio::sync::Mutex<Option<(u64, i64)>>,
+    pub(crate) document: tokio::sync::Mutex<Option<(u64, i64)>>,
+    pub(crate) aql_frames: tokio::sync::Mutex<
+        std::collections::HashMap<String, std::sync::Weak<super::aql::FrameSession>>,
+    >,
 }
 /// 已附加主文档的页面会话。
 #[derive(Clone)]
@@ -84,6 +87,7 @@ impl Page {
                 state,
                 context: None,
                 document: tokio::sync::Mutex::new(None),
+                aql_frames: tokio::sync::Mutex::new(std::collections::HashMap::new()),
             }),
         };
         for method in [
@@ -92,7 +96,12 @@ impl Page {
             "DOM.enable",
             "Inspector.enable",
         ] {
-            page.command(method, json!({}), false, operation).await?;
+            let params = if method == "DOM.enable" {
+                json!({"includeWhitespace":"all"})
+            } else {
+                json!({})
+            };
+            page.command(method, params, false, operation).await?;
         }
         cleanup.commands.clear();
         Ok(page)

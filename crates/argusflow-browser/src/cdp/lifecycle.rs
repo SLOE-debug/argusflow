@@ -110,18 +110,26 @@ impl Health {
                     page.closed.store(true, Ordering::Release);
                 }
             }
-            "Runtime.executionContextsCleared" | "DOM.documentUpdated" => {
+            "Runtime.executionContextsCleared"
+            | "Runtime.executionContextDestroyed"
+            | "DOM.documentUpdated"
+            | "DOM.childNodeInserted"
+            | "DOM.childNodeRemoved"
+            | "DOM.characterDataModified"
+            | "DOM.attributeModified"
+            | "DOM.attributeRemoved"
+            | "Page.frameDetached" => {
                 if let Some(page) = message["sessionId"].as_str().and_then(|id| pages.get(id)) {
                     page.epoch.fetch_add(1, Ordering::AcqRel);
                 }
             }
             "Page.frameNavigated" => {
-                if params["frame"].get("parentId").is_none()
-                    && let Some(page) = message["sessionId"].as_str().and_then(|id| pages.get(id))
-                {
+                if let Some(page) = message["sessionId"].as_str().and_then(|id| pages.get(id)) {
                     page.epoch.fetch_add(1, Ordering::AcqRel);
-                    *page.main_frame.lock().unwrap_or_else(|p| p.into_inner()) =
-                        params["frame"]["id"].as_str().map(str::to_owned);
+                    if params["frame"].get("parentId").is_none() {
+                        *page.main_frame.lock().unwrap_or_else(|p| p.into_inner()) =
+                            params["frame"]["id"].as_str().map(str::to_owned);
+                    }
                 }
             }
             _ => {}

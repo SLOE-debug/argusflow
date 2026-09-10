@@ -108,6 +108,43 @@ async fn exercise(tier: ModelTier, device: Device) -> argusflow_vision::OcrResul
     assert_eq!(reused.version().revision, 1);
     assert!(std::ptr::eq(first.result(), reused.result()));
     assert_eq!(reused.bounds().x(), -100);
+    let operation = argusflow_core::Operation::new(OperationOptions::default());
+    let query = argusflow_aql::compile("text(text contains $内容, confidence >= 0.8)")
+        .unwrap()
+        .bind(&argusflow_aql::Bindings::from([(
+            "内容".into(),
+            argusflow_aql::Value::Text("中文".into()),
+        )]))
+        .unwrap();
+    let (sample, matches) = adapter
+        .query_aql(
+            argusflow_capture_contracts::SourceId(1),
+            area,
+            &query,
+            &operation,
+        )
+        .await
+        .unwrap();
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].text(), "中文识别测试 456");
+    assert!(sample.screen_polygon(matches[0].index()).is_some());
+    adapter
+        .confirm_aql_result(
+            argusflow_capture_contracts::SourceId(1),
+            &sample,
+            &operation,
+        )
+        .await
+        .unwrap();
+    source
+        .valid
+        .store(false, std::sync::atomic::Ordering::Release);
+    assert!(
+        matches!(adapter.confirm_aql_result(argusflow_capture_contracts::SourceId(1), &sample, &operation).await, Err(argusflow_vision::SampledOcrError::Capture(error)) if error.kind() == FailureKind::StaleHandle)
+    );
+    source
+        .valid
+        .store(true, std::sync::atomic::Ordering::Release);
     adapter.clear_cache();
     assert!(result.blocks()[0].polygon()[0].y < result.blocks()[1].polygon()[0].y);
     // 固定 PNG：文字、数字、中英文、多行、路径和编码字节入口。

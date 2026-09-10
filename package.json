@@ -1,0 +1,33 @@
+{
+  "name": "argusflow",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.15.1",
+  "scripts": {
+    "build:aql-wasm": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-aql-wasm.ps1",
+    "dev": "pnpm build:aql-wasm && vite",
+    "build": "pnpm build:aql-wasm && tsc --noEmit && vite build",
+    "test": "pnpm build:aql-wasm && vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "monaco-editor": "^0.55.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@types/node": "^22.18.0",
+    "@vitejs/plugin-react": "^4.7.0",
+    "vite": "^6.4.3",
+    "typescript": "^5.9.3",
+    "tailwindcss": "^4.1.18",
+    "@tailwindcss/vite": "^4.1.18",
+    "vitest": "^3.2.4",
+    "jsdom": "^26.1.0",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/jest-dom": "6.9.1"
+  }
+}

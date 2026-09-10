@@ -247,15 +247,23 @@ impl UiaRuntime {
         }
         Ok(())
     }
-    async fn call(
+    pub(super) async fn call(
         &self,
         command: worker::Command,
         options: OperationOptions,
     ) -> Result<Response, Failure> {
+        let operation = Operation::new(options);
+        self.call_operation(command, &operation).await
+    }
+    pub(super) async fn call_operation(
+        &self,
+        command: worker::Command,
+        operation: &Operation,
+    ) -> Result<Response, Failure> {
+        operation.check("uia_dispatch")?;
         if let worker::Command::Find(query, _) = &command {
             super::query::validate_predicate(&query.predicate, 0, &mut 0)?;
         }
-        let operation = Operation::new(options);
         let mut guard = operation.cancel_on_drop();
         match self.state() {
             UiaState::Ready => {}
@@ -290,18 +298,14 @@ impl UiaRuntime {
                     Failure::new(FailureKind::Closed, "uia_queue", "UIA 线程已经退出")
                 }
             })?;
-        let result = match tokio::time::timeout(operation.remaining(), receiver).await {
-            Ok(Ok(result)) => result,
-            Ok(Err(_)) => Err(Failure::new(
-                FailureKind::Unavailable,
-                "uia_response",
-                "UIA 线程未返回响应",
-            )),
-            Err(_) => Err(Failure::new(
-                FailureKind::Timeout,
-                "uia_response",
-                "UIA 操作总时限已到",
-            )),
+        tokio::pin!(receiver);
+        let result = loop {
+            tokio::select! {
+                result = &mut receiver => break result.unwrap_or_else(|_| Err(Failure::new(FailureKind::Unavailable, "uia_response", "UIA 线程未返回响应"))),
+                _ = tokio::time::sleep(operation.remaining().min(Duration::from_millis(8))) => {
+                    if let Err(error) = operation.check("uia_response") { break Err(error.into()); }
+                }
+            }
         };
         if result.is_ok() {
             operation.check("uia_response")?;

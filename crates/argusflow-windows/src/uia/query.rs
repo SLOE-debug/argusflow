@@ -97,7 +97,7 @@ pub(crate) fn matches(predicate: &Predicate, value: &ElementSnapshot) -> bool {
 
 /// windows-core 0.62 的 Type::from_abi 把成功返回的 null COM 指针转成 Error::empty (S_OK)。
 /// 仅导航 API 允许此表示“没有节点”；真正失败的 HRESULT 必须传播。
-fn optional_navigation(
+pub(super) fn optional_navigation(
     result: windows::core::Result<IUIAutomationElement>,
 ) -> Result<Option<IUIAutomationElement>, Failure> {
     match result {

@@ -2,6 +2,8 @@
 
 ## 共用契约
 
+英文查询契约属于 `argusflow-aql`，平台适配留在各能力 crate；`argusflow-automation` 只绑定来源和编排 Locator 动作。中文转换属于前端使用的 `argusflow-aql-wasm`。语言、使用示例、来源能力及限制见 [AQL 说明](aql.md)。
+
 通用动作、操作票据和错误基础类型属于 `argusflow-core`；采样领域契约集中在 `argusflow-capture-contracts`。两者不依赖运行时。Windows、Capture 和 Vision 通过采样契约连接，平台后端不依赖 OCR，OCR 不依赖 Windows 或采样服务实现。异步服务使用 Tokio。UIA/OCR/真实输入在各自专用原生线程执行，CDP 使用独立收发任务和一个拥有请求表的 actor。
 
 `OperationOptions::new(Duration)` 接受 0 到 24 小时之间的非零总时限。截止时间从调用开始计算，覆盖排队、连接和所有后续步骤，不因为重试重置。Future 被丢弃会取消排队和后续步骤。原生调用只承诺协作取消；超时不等于底层调用已经退出。
@@ -38,6 +40,8 @@
 `perform` 支持 Invoke、SetValue、Focus、Toggle、Selection（选择/添加/移除）、Expand、Collapse、Scroll、ScrollIntoView。缺少 Pattern 返回 `Unsupported`；不会隐式改成坐标点击。
 
 `InputService` 独立提供 Move、Click（左右键、单双击）、Wheel（水平/垂直）、Text、Chord。鼠标坐标是屏幕物理像素，接受负坐标；按当前虚拟桌面尺寸归一化并在工作线程启用 Per Monitor V2 DPI 上下文。目标窗口必须已在前台，点击点必须在目标窗口且没有被其他顶层窗口遮挡。不会自动激活窗口。组合键拒绝重复键和用户已经按住的键。
+
+`InputService::sequence(&Operation)` 独占从焦点建立到最后一次注入的整个序列；同服务并发输入返回 `Busy`，释放不重放动作。`perform_operation` 与 UIA AQL 接口接受共享票据。UIA MTA 同样固定为物理 DPI 上下文，防止缩放后的 UIA 矩形与 SendInput 偏移。
 
 SendInput 一次性提交有限事件序列并核对实际注入数量。部分注入只释放已注入序列中仍然按下的键；不重放按下或文本。UIPI 权限不匹配会明确失败，库不提升权限。
 

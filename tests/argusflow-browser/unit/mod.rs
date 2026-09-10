@@ -1,4 +1,5 @@
 //! 本地协议替身，不启动浏览器。
+mod aql;
 mod managed;
 #[path = "../support/mock.rs"]
 mod mock;

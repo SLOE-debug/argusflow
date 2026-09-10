@@ -23,6 +23,7 @@ name = "sample_ocr"
 path = "../../tests/argusflow-windows/support/sample_ocr.rs"
 
 [dependencies]
+argusflow-aql.workspace = true
 argusflow-core.workspace = true
 argusflow-capture-contracts.workspace = true
 tokio.workspace = true

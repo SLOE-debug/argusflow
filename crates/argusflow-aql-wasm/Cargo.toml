@@ -1,0 +1,23 @@
+[package]
+name = "argusflow-aql-wasm"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+autotests = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+argusflow-aql.workspace = true
+serde.workspace = true
+serde-wasm-bindgen = "0.6"
+wasm-bindgen = "=0.2.127"
+
+[lints]
+workspace = true
+
+[[test]]
+name = "localization"
+path = "../../tests/argusflow-aql-wasm/integration/localization.rs"
