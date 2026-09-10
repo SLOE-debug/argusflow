@@ -1,0 +1,28 @@
+[package]
+name = "argusflow-runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+autotests = false
+
+[dependencies]
+argusflow-core.workspace = true
+argusflow-workflow.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true
+
+[[test]]
+name = "workflow"
+path = "../../tests/argusflow-runtime/integration/workflow.rs"
+
+[[example]]
+name = "nested_loops"
+path = "../../tests/argusflow-runtime/support/examples/nested_loops.rs"
+
+[[example]]
+name = "subflow"
+path = "../../tests/argusflow-runtime/support/examples/subflow.rs"

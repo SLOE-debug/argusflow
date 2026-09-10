@@ -48,6 +48,8 @@ impl Default for OperationOptions {
 struct Signals {
     cancelled: AtomicBool,
     effect: AtomicBool,
+    /// 子操作仅继承取消，不共享副作用标记。
+    parent: Option<Arc<Signals>>,
 }
 
 /// 同一次请求在队列与执行器间传递的截止时间、取消信号及副作用标记。
@@ -71,6 +73,19 @@ impl Operation {
     pub fn id(&self) -> u64 {
         self.id
     }
+    /// 派生受父级截止时间约束的子操作；取消子级不影响父级或兄弟。
+    ///
+    /// 每次任务尝试独立记录副作用，避免前一个成功动作污染后续只读操作。
+    pub fn child(&self, options: OperationOptions) -> Self {
+        Self {
+            id: NEXT_OPERATION.fetch_add(1, Ordering::Relaxed),
+            deadline: self.deadline.min(Instant::now() + options.timeout()),
+            signals: Arc::new(Signals {
+                parent: Some(Arc::clone(&self.signals)),
+                ..Signals::default()
+            }),
+        }
+    }
     /// 返回包含队列等待的绝对截止时间。
     pub fn deadline(&self) -> Instant {
         self.deadline
@@ -85,7 +100,14 @@ impl Operation {
     }
     /// 返回是否已经请求取消。
     pub fn is_cancelled(&self) -> bool {
-        self.signals.cancelled.load(Ordering::Acquire)
+        let mut current = Some(self.signals.as_ref());
+        while let Some(signals) = current {
+            if signals.cancelled.load(Ordering::Acquire) {
+                return true;
+            }
+            current = signals.parent.as_deref();
+        }
+        false
     }
     /// 返回当前副作用的不确定性。
     pub fn effect(&self) -> Effect {

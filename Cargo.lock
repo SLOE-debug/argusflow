@@ -111,6 +111,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "argusflow-runtime"
+version = "0.1.0"
+dependencies = [
+ "argusflow-core",
+ "argusflow-workflow",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "argusflow-vision"
 version = "0.1.0"
 dependencies = [
@@ -143,6 +153,35 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+ "windows",
+]
+
+[[package]]
+name = "argusflow-workflow"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "argusflow-workflow-automation"
+version = "0.1.0"
+dependencies = [
+ "argusflow-aql",
+ "argusflow-automation",
+ "argusflow-browser",
+ "argusflow-capture-contracts",
+ "argusflow-core",
+ "argusflow-runtime",
+ "argusflow-vision",
+ "argusflow-windows",
+ "argusflow-workflow",
+ "futures-util",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-tungstenite",
  "windows",
 ]
 

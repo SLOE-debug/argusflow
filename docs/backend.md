@@ -1,5 +1,7 @@
 # 后端能力接口与生命周期
 
+结构化工作流的编译、运行句柄、词法作用域和资源所有权见 [Workflow](workflow.md)。运行时通过能力适配 crate 接入本页的现有 API；新增 `Operation::child` 继承父截止时间与取消，子取消和副作用标记独立。Browser 生命周期和页面导航、关闭、附加均提供共享票据入口。
+
 ## 共用契约
 
 英文查询契约属于 `argusflow-aql`，平台适配留在各能力 crate；`argusflow-automation` 只绑定来源和编排 Locator 动作。中文转换属于前端使用的 `argusflow-aql-wasm`。语言、使用示例、来源能力及限制见 [AQL 说明](aql.md)。

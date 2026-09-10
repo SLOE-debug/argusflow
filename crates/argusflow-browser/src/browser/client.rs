@@ -36,11 +36,20 @@ impl Browser {
         config: BrowserConfig,
         options: OperationOptions,
     ) -> Result<Self, Failure> {
-        config.validate()?;
         let operation = Operation::new(options);
-        let _guard = operation.cancel_on_drop();
-        let url = endpoint::resolve(endpoint, &operation, &config).await?;
-        let connection = Connection::connect(&url, config, &operation).await?;
+        Self::connect_with_operation(endpoint, config, &operation).await
+    }
+    /// 连接端点，沿用调用方的截止时间、取消与副作用票据。
+    pub async fn connect_with_operation(
+        endpoint: &str,
+        config: BrowserConfig,
+        operation: &Operation,
+    ) -> Result<Self, Failure> {
+        config.validate()?;
+        let mut guard = operation.cancel_on_drop();
+        let url = endpoint::resolve(endpoint, operation, &config).await?;
+        let connection = Connection::connect(&url, config, operation).await?;
+        guard.disarm();
         Ok(Self {
             inner: Arc::new(Inner {
                 connection,
@@ -52,9 +61,17 @@ impl Browser {
     }
     /// 启动独立配置目录的 Chromium 并连接；失败时回收本次创建的资源。
     pub async fn launch(options: LaunchOptions, config: BrowserConfig) -> Result<Self, Failure> {
-        config.validate()?;
         let operation = Operation::new(OperationOptions::new(options.timeout)?);
-        let _guard = operation.cancel_on_drop();
+        Self::launch_with_operation(options, config, &operation).await
+    }
+    /// 创建自有浏览器，使用外层总时限；取消时回收未交付的自有资源。
+    pub async fn launch_with_operation(
+        options: LaunchOptions,
+        config: BrowserConfig,
+        operation: &Operation,
+    ) -> Result<Self, Failure> {
+        config.validate()?;
+        let mut guard = operation.cancel_on_drop();
         let profile_root = endpoint::profile_root();
         let permit = process::reserve()?;
         tokio::fs::create_dir_all(&profile_root)
@@ -78,15 +95,17 @@ impl Browser {
                 )
                 .with_source(error)
             })?;
+        operation.begin_effect("browser_launch")?;
         let child = endpoint::launch(&options, profile.path())?;
         let mut managed = Managed::new(child, profile, permit)?;
         let url = endpoint::wait_endpoint(
             managed.child.as_mut().expect("owned child"),
             managed.profile.as_ref().expect("owned profile").path(),
-            &operation,
+            operation,
         )
         .await?;
-        let connection = Connection::connect(&url, config, &operation).await?;
+        let connection = Connection::connect(&url, config, operation).await?;
+        guard.disarm();
         Ok(Self {
             inner: Arc::new(Inner {
                 connection,
@@ -103,23 +122,32 @@ impl Browser {
     /// 列举普通 page targets，不猜测用户希望使用哪个页面。
     pub async fn pages(&self, options: OperationOptions) -> Result<Vec<PageInfo>, Failure> {
         let operation = Operation::new(options);
-        let _guard = operation.cancel_on_drop();
+        self.pages_with_operation(&operation).await
+    }
+    /// 使用共享票据列举页面，不延长父级时限。
+    pub async fn pages_with_operation(
+        &self,
+        operation: &Operation,
+    ) -> Result<Vec<PageInfo>, Failure> {
+        let mut guard = operation.cancel_on_drop();
         let result = self
             .inner
             .connection
-            .command(None, "Target.getTargets", json!({}), false, &operation)
+            .command(None, "Target.getTargets", json!({}), false, operation)
             .await?;
         let targets = result["targetInfos"]
             .as_array()
             .ok_or_else(|| protocol("Target.getTargets 缺少 targetInfos"))?;
-        targets
+        let pages = targets
             .iter()
             .filter(|target| target["type"].as_str() == Some("page"))
             .map(|target| {
                 serde_json::from_value(target.clone())
                     .map_err(|error| protocol("page target 格式错误").with_source(error))
             })
-            .collect()
+            .collect::<Result<Vec<_>, _>>()?;
+        guard.disarm();
+        Ok(pages)
     }
     /// 附加明确指定的页面 ID；重复附加复用同一个页面会话。
     pub async fn attach(
@@ -129,13 +157,16 @@ impl Browser {
     ) -> Result<Page, Failure> {
         let operation = Operation::new(options);
         let _guard = operation.cancel_on_drop();
-        self.attach_operation(target_id, &operation).await
+        self.attach_with_operation(target_id, &operation).await
     }
-    async fn attach_operation(
+    /// 使用共享票据附加指定页面。
+    pub async fn attach_with_operation(
         &self,
         target_id: &str,
         operation: &Operation,
     ) -> Result<Page, Failure> {
+        let mut guard = operation.cancel_on_drop();
+        operation.check("page_attach")?;
         if target_id.is_empty() || target_id.len() > 1024 {
             return Err(Failure::new(
                 FailureKind::InvalidInput,
@@ -149,6 +180,7 @@ impl Browser {
             })?;
         pages.retain(|page| page.is_open());
         if let Some(page) = pages.iter().find(|page| page.target_id() == target_id) {
+            guard.disarm();
             return Ok(page.clone());
         }
         if pages.len() >= self.inner.connection.inner.config.max_pages {
@@ -160,13 +192,22 @@ impl Browser {
         }
         let page = Page::attach(self.inner.connection.clone(), target_id, operation).await?;
         pages.push(page.clone());
+        guard.disarm();
         Ok(page)
     }
     /// 在独立、断连即释放的 context 中创建新页面并附加。
     pub async fn new_page(&self, url: &str, options: OperationOptions) -> Result<Page, Failure> {
-        endpoint::validate_url(url)?;
         let operation = Operation::new(options);
-        let _guard = operation.cancel_on_drop();
+        self.new_page_with_operation(url, &operation).await
+    }
+    /// 使用共享票据创建自有页面；失败时回收 context 与会话。
+    pub async fn new_page_with_operation(
+        &self,
+        url: &str,
+        operation: &Operation,
+    ) -> Result<Page, Failure> {
+        endpoint::validate_url(url)?;
+        let mut guard = operation.cancel_on_drop();
         let mut pages =
             self.inner.pages.try_lock().map_err(|_| {
                 Failure::new(FailureKind::Busy, "page_create", "正在装配另一个页面")
@@ -193,7 +234,7 @@ impl Browser {
                 "Target.createBrowserContext",
                 json!({"disposeOnDetach":true}),
                 true,
-                &operation,
+                operation,
             )
             .await?;
         let context = context["browserContextId"]
@@ -214,23 +255,29 @@ impl Browser {
                 "Target.createTarget",
                 json!({"url":url,"browserContextId":context}),
                 true,
-                &operation,
+                operation,
             )
             .await?;
         let target = result["targetId"]
             .as_str()
             .ok_or_else(|| protocol("创建页面响应缺少 targetId"))?;
-        let mut page = Page::attach(connection.clone(), target, &operation).await?;
+        let mut page = Page::attach(connection.clone(), target, operation).await?;
         Arc::get_mut(&mut page.inner)
             .expect("new page has one owner")
             .context = Some(context);
         pages.push(page.clone());
         cleanup.commands.clear();
+        guard.disarm();
         Ok(page)
     }
     /// 关闭本次创建的浏览器或脱离外部浏览器，清理仅限自有资源。
     pub async fn shutdown(&self, options: OperationOptions) -> Result<(), Failure> {
         let operation = Operation::new(options);
+        self.shutdown_with_operation(&operation).await
+    }
+    /// 使用调用方的清理预算关闭自建浏览器，或仅脱离外部浏览器。
+    pub async fn shutdown_with_operation(&self, operation: &Operation) -> Result<(), Failure> {
+        operation.check("browser_shutdown")?;
         let _cleanup = tokio::time::timeout(operation.remaining(), self.inner.cleanup.lock())
             .await
             .map_err(|_| {
@@ -239,7 +286,7 @@ impl Browser {
         let mut managed = self.inner.managed.lock().await;
         if let Some(resource) = managed.as_mut() {
             // Browser.close 经常先断开连接再返回响应；以进程真正退出为完成依据。
-            let graceful = Operation::new(OperationOptions::new(
+            let graceful = operation.child(OperationOptions::new(
                 operation
                     .remaining()
                     .min(Duration::from_secs(2))
@@ -250,7 +297,7 @@ impl Browser {
                 .connection
                 .command(None, "Browser.close", json!({}), true, &graceful)
                 .await;
-            resource.reap(&operation).await?;
+            resource.reap(operation).await?;
             self.inner
                 .connection
                 .shutdown(operation.remaining())

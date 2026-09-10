@@ -8,13 +8,16 @@
 | `argusflow-aql` | 英文查询模型、编译、类型绑定、树匹配、诊断与语言服务 |
 | `argusflow-aql-wasm` | 中文标记转换、双向位置映射与编辑器 WASM 接口 |
 | `argusflow-automation` | 显式绑定 UIA/DOM/OCR 来源的 Locator、点击和插入文字 |
+| `argusflow-workflow` | 强类型流程文档、表达式树、词法作用域与结构化控制流 |
+| `argusflow-runtime` | 准备校验、隔离执行帧、取消重试、事件与资源回收 |
+| `argusflow-workflow-automation` | AQL 任务、浏览器和 Windows 应用生命周期适配 |
 | `argusflow-windows` | 窗口身份、专用 MTA UIA、独立真实输入服务、硬件 DXGI 桌面后端 |
 | `argusflow-browser` | 持久 CDP 连接、浏览器进程所有权、AQL 与显式 iframe/Shadow 边界 |
 | `argusflow-vision` | Rust 原生 PP-OCRv6 Small/Medium ONNX、稳定区域采样与结果复用 |
 | `argusflow-capture-contracts` | 无平台和运行时依赖的来源、版本、只读像素、采样契约 |
 | `argusflow-capture` | 共享采样、GPU 历史索引、变化订阅、时间锚点、稳定观察 |
 
-中文编辑页使用 React/Vite/Monaco/Tailwind，通过本地 WASM 校验并导出英文 `.aql`。安装、启动和接口示例见 [AQL 说明](docs/aql.md)。当前不包含工作流、输入录制与持久化、整屏增量文字场景或 Tauri 装配。采样持续维护桌面状态，只有消费者需要视觉结果时才读回区域像素。
+中文编辑页使用 React/Vite/Monaco/Tailwind，通过本地 WASM 校验并导出英文 `.aql`。安装、启动和接口示例见 [AQL 说明](docs/aql.md)。Rust 工作流引擎支持 Let 词法作用域、全局/局部变量、子流程、循环、异常处理和资源生命周期，见 [Workflow 使用说明](docs/workflow.md)。当前不包含工作流画布、输入录制与持久化、整屏增量文字场景或 Tauri 装配。采样持续维护桌面状态，只有消费者需要视觉结果时才读回区域像素。
 
 ```powershell
 cargo check --workspace --all-targets

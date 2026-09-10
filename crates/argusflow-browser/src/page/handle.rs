@@ -137,12 +137,20 @@ impl Page {
     }
     /// 导航到绝对 URL；等待当前主文档达到 interactive/complete，不等待网络空闲。
     pub async fn navigate(&self, url: &str, options: OperationOptions) -> Result<(), Failure> {
-        validate_url(url)?;
         let operation = Operation::new(options);
-        let _guard = operation.cancel_on_drop();
+        self.navigate_with_operation(url, &operation).await
+    }
+    /// 导航沿用调用方票据，包含等待文档提交的全部时间。
+    pub async fn navigate_with_operation(
+        &self,
+        url: &str,
+        operation: &Operation,
+    ) -> Result<(), Failure> {
+        validate_url(url)?;
+        let mut guard = operation.cancel_on_drop();
         self.inner.state.epoch.fetch_add(1, Ordering::AcqRel);
         let result = self
-            .command("Page.navigate", json!({"url":url}), true, &operation)
+            .command("Page.navigate", json!({"url":url}), true, operation)
             .await?;
         if result.get("errorText").is_some() {
             return Err(operation.contextualize(protocol("浏览器导航失败")));
@@ -151,7 +159,7 @@ impl Page {
         if let Some(loader) = result["loaderId"].as_str() {
             loop {
                 let tree = self
-                    .command("Page.getFrameTree", json!({}), false, &operation)
+                    .command("Page.getFrameTree", json!({}), false, operation)
                     .await?;
                 if tree["frameTree"]["frame"]["loaderId"].as_str() == Some(loader) {
                     break;
@@ -172,13 +180,14 @@ impl Page {
                     "Runtime.evaluate",
                     json!({"expression":"document.readyState","returnByValue":true}),
                     false,
-                    &operation,
+                    operation,
                 )
                 .await?;
             if matches!(
                 result.pointer("/result/value").and_then(Value::as_str),
                 Some("interactive" | "complete")
             ) {
+                guard.disarm();
                 return Ok(());
             }
             tokio::time::sleep(
@@ -342,18 +351,24 @@ impl Page {
     /// 关闭当前页面，不关闭其他页面或浏览器。
     pub async fn close(&self, options: OperationOptions) -> Result<(), Failure> {
         let operation = Operation::new(options);
-        let _guard = operation.cancel_on_drop();
-        self.inner
-            .connection
-            .command(
-                None,
-                "Target.closeTarget",
-                json!({"targetId":self.target_id()}),
-                true,
-                &operation,
-            )
-            .await?;
-        self.inner.state.closed.store(true, Ordering::Release);
+        self.close_with_operation(&operation).await
+    }
+    /// 使用共享票据关闭页面并清理自有 context。
+    pub async fn close_with_operation(&self, operation: &Operation) -> Result<(), Failure> {
+        let mut guard = operation.cancel_on_drop();
+        if !self.inner.state.closed.load(Ordering::Acquire) {
+            self.inner
+                .connection
+                .command(
+                    None,
+                    "Target.closeTarget",
+                    json!({"targetId":self.target_id()}),
+                    true,
+                    operation,
+                )
+                .await?;
+            self.inner.state.closed.store(true, Ordering::Release);
+        }
         if let Some(context) = &self.inner.context {
             self.inner
                 .connection
@@ -362,10 +377,11 @@ impl Page {
                     "Target.disposeBrowserContext",
                     json!({"browserContextId":context}),
                     true,
-                    &operation,
+                    operation,
                 )
                 .await?;
         }
+        guard.disarm();
         Ok(())
     }
     /// 只脱离当前会话，页面继续存在。
@@ -373,6 +389,13 @@ impl Page {
         let operation = Operation::new(options);
         let _guard = operation.cancel_on_drop();
         self.detach_operation(&operation).await
+    }
+    /// 使用调用方票据仅脱离会话，保留外部页面。
+    pub async fn detach_with_operation(&self, operation: &Operation) -> Result<(), Failure> {
+        let mut guard = operation.cancel_on_drop();
+        self.detach_operation(operation).await?;
+        guard.disarm();
+        Ok(())
     }
     pub(crate) async fn detach_operation(&self, operation: &Operation) -> Result<(), Failure> {
         self.inner

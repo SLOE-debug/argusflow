@@ -1,0 +1,158 @@
+{
+  "schema_version": 1,
+  "name": "参数与返回值",
+  "inputs": {},
+  "outputs": {
+    "first": {
+      "type": "int"
+    },
+    "second": {
+      "type": "int"
+    }
+  },
+  "resources": {},
+  "root": "root",
+  "scopes": [
+    {
+      "id": "root",
+      "entry": "total",
+      "nodes": [
+        {
+          "id": "total",
+          "next": "first",
+          "timeout_ms": null,
+          "action": {
+            "kind": "let",
+            "name": "total",
+            "value_type": {
+              "type": "int"
+            },
+            "value": {
+              "kind": "literal",
+              "value_type": {
+                "type": "int"
+              },
+              "value": {
+                "type": "int",
+                "value": 0
+              }
+            }
+          },
+          "output_bindings": {}
+        },
+        {
+          "id": "first",
+          "next": "second",
+          "timeout_ms": null,
+          "action": {
+            "kind": "call",
+            "subflow": "accumulate",
+            "inputs": {
+              "amount": {
+                "kind": "literal",
+                "value_type": {
+                  "type": "int"
+                },
+                "value": {
+                  "type": "int",
+                  "value": 2
+                }
+              }
+            },
+            "resources": {}
+          },
+          "output_bindings": {}
+        },
+        {
+          "id": "second",
+          "next": null,
+          "timeout_ms": null,
+          "action": {
+            "kind": "call",
+            "subflow": "accumulate",
+            "inputs": {
+              "amount": {
+                "kind": "literal",
+                "value_type": {
+                  "type": "int"
+                },
+                "value": {
+                  "type": "int",
+                  "value": 5
+                }
+              }
+            },
+            "resources": {}
+          },
+          "output_bindings": {}
+        }
+      ],
+      "outputs": {
+        "first": {
+          "kind": "node_output",
+          "node": "first",
+          "output": "sum"
+        },
+        "second": {
+          "kind": "node_output",
+          "node": "second",
+          "output": "sum"
+        }
+      }
+    },
+    {
+      "id": "accumulate-body",
+      "entry": "add",
+      "nodes": [
+        {
+          "id": "add",
+          "next": null,
+          "timeout_ms": null,
+          "action": {
+            "kind": "assign",
+            "assignments": [
+              {
+                "name": "total",
+                "value": {
+                  "kind": "binary",
+                  "op": "add",
+                  "left": {
+                    "kind": "variable",
+                    "name": "total"
+                  },
+                  "right": {
+                    "kind": "input",
+                    "name": "amount"
+                  }
+                }
+              }
+            ]
+          },
+          "output_bindings": {}
+        }
+      ],
+      "outputs": {
+        "sum": {
+          "kind": "variable",
+          "name": "total"
+        }
+      }
+    }
+  ],
+  "subflows": {
+    "accumulate": {
+      "scope": "accumulate-body",
+      "inputs": {
+        "amount": {
+          "type": "int"
+        }
+      },
+      "resources": {},
+      "outputs": {
+        "sum": {
+          "type": "int"
+        }
+      }
+    }
+  }
+}

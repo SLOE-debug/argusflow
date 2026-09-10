@@ -1,0 +1,264 @@
+{
+  "schema_version": 1,
+  "name": "嵌套循环与全局累计",
+  "inputs": {},
+  "outputs": {
+    "total": {
+      "type": "int"
+    }
+  },
+  "resources": {},
+  "root": "root",
+  "scopes": [
+    {
+      "id": "root",
+      "entry": "total",
+      "nodes": [
+        {
+          "id": "total",
+          "next": "outer",
+          "timeout_ms": null,
+          "action": {
+            "kind": "let",
+            "name": "total",
+            "value_type": {
+              "type": "int"
+            },
+            "value": {
+              "kind": "literal",
+              "value_type": {
+                "type": "int"
+              },
+              "value": {
+                "type": "int",
+                "value": 0
+              }
+            }
+          },
+          "output_bindings": {}
+        },
+        {
+          "id": "outer",
+          "next": "outer-loop",
+          "timeout_ms": null,
+          "action": {
+            "kind": "let",
+            "name": "outer",
+            "value_type": {
+              "type": "int"
+            },
+            "value": {
+              "kind": "literal",
+              "value_type": {
+                "type": "int"
+              },
+              "value": {
+                "type": "int",
+                "value": 0
+              }
+            }
+          },
+          "output_bindings": {}
+        },
+        {
+          "id": "outer-loop",
+          "next": null,
+          "timeout_ms": null,
+          "action": {
+            "kind": "while",
+            "condition": {
+              "kind": "binary",
+              "op": "less",
+              "left": {
+                "kind": "variable",
+                "name": "outer"
+              },
+              "right": {
+                "kind": "literal",
+                "value_type": {
+                  "type": "int"
+                },
+                "value": {
+                  "type": "int",
+                  "value": 3
+                }
+              }
+            },
+            "body": "outer-body",
+            "max_iterations": null
+          },
+          "output_bindings": {}
+        }
+      ],
+      "outputs": {
+        "total": {
+          "kind": "variable",
+          "name": "total"
+        }
+      }
+    },
+    {
+      "id": "outer-body",
+      "entry": "inner",
+      "nodes": [
+        {
+          "id": "inner",
+          "next": "inner-loop",
+          "timeout_ms": null,
+          "action": {
+            "kind": "let",
+            "name": "inner",
+            "value_type": {
+              "type": "int"
+            },
+            "value": {
+              "kind": "literal",
+              "value_type": {
+                "type": "int"
+              },
+              "value": {
+                "type": "int",
+                "value": 0
+              }
+            }
+          },
+          "output_bindings": {}
+        },
+        {
+          "id": "inner-loop",
+          "next": "next-outer",
+          "timeout_ms": null,
+          "action": {
+            "kind": "while",
+            "condition": {
+              "kind": "binary",
+              "op": "less",
+              "left": {
+                "kind": "variable",
+                "name": "inner"
+              },
+              "right": {
+                "kind": "literal",
+                "value_type": {
+                  "type": "int"
+                },
+                "value": {
+                  "type": "int",
+                  "value": 2
+                }
+              }
+            },
+            "body": "inner-body",
+            "max_iterations": null
+          },
+          "output_bindings": {}
+        },
+        {
+          "id": "next-outer",
+          "next": null,
+          "timeout_ms": null,
+          "action": {
+            "kind": "assign",
+            "assignments": [
+              {
+                "name": "outer",
+                "value": {
+                  "kind": "binary",
+                  "op": "add",
+                  "left": {
+                    "kind": "variable",
+                    "name": "outer"
+                  },
+                  "right": {
+                    "kind": "literal",
+                    "value_type": {
+                      "type": "int"
+                    },
+                    "value": {
+                      "type": "int",
+                      "value": 1
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "output_bindings": {}
+        }
+      ],
+      "outputs": {}
+    },
+    {
+      "id": "inner-body",
+      "entry": "add-total",
+      "nodes": [
+        {
+          "id": "add-total",
+          "next": "next-inner",
+          "timeout_ms": null,
+          "action": {
+            "kind": "assign",
+            "assignments": [
+              {
+                "name": "total",
+                "value": {
+                  "kind": "binary",
+                  "op": "add",
+                  "left": {
+                    "kind": "variable",
+                    "name": "total"
+                  },
+                  "right": {
+                    "kind": "literal",
+                    "value_type": {
+                      "type": "int"
+                    },
+                    "value": {
+                      "type": "int",
+                      "value": 1
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "output_bindings": {}
+        },
+        {
+          "id": "next-inner",
+          "next": null,
+          "timeout_ms": null,
+          "action": {
+            "kind": "assign",
+            "assignments": [
+              {
+                "name": "inner",
+                "value": {
+                  "kind": "binary",
+                  "op": "add",
+                  "left": {
+                    "kind": "variable",
+                    "name": "inner"
+                  },
+                  "right": {
+                    "kind": "literal",
+                    "value_type": {
+                      "type": "int"
+                    },
+                    "value": {
+                      "type": "int",
+                      "value": 1
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "output_bindings": {}
+        }
+      ],
+      "outputs": {}
+    }
+  ],
+  "subflows": {}
+}

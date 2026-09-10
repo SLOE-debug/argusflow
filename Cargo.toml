@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/argusflow-core", "crates/argusflow-windows", "crates/argusflow-browser", "crates/argusflow-vision", "crates/argusflow-capture-contracts", "crates/argusflow-capture", "crates/argusflow-aql", "crates/argusflow-aql-wasm", "crates/argusflow-automation"]
+members = ["crates/argusflow-core", "crates/argusflow-windows", "crates/argusflow-browser", "crates/argusflow-vision", "crates/argusflow-capture-contracts", "crates/argusflow-capture", "crates/argusflow-aql", "crates/argusflow-aql-wasm", "crates/argusflow-automation", "crates/argusflow-workflow", "crates/argusflow-runtime", "crates/argusflow-workflow-automation"]
 resolver = "3"
 
 [workspace.package]
@@ -11,6 +11,8 @@ license = "MIT"
 [workspace.dependencies]
 argusflow-aql = { path = "crates/argusflow-aql" }
 argusflow-core = { path = "crates/argusflow-core" }
+argusflow-workflow = { path = "crates/argusflow-workflow" }
+argusflow-runtime = { path = "crates/argusflow-runtime" }
 argusflow-capture-contracts = { path = "crates/argusflow-capture-contracts" }
 argusflow-capture = { path = "crates/argusflow-capture" }
 argusflow-vision = { path = "crates/argusflow-vision" }

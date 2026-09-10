@@ -1,0 +1,45 @@
+[package]
+name = "argusflow-workflow-automation"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+autotests = false
+
+[dependencies]
+argusflow-core.workspace = true
+argusflow-workflow.workspace = true
+argusflow-runtime.workspace = true
+argusflow-aql.workspace = true
+argusflow-automation = { path = "../argusflow-automation" }
+argusflow-browser = { path = "../argusflow-browser" }
+argusflow-vision.workspace = true
+argusflow-capture-contracts.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+argusflow-windows = { path = "../argusflow-windows" }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+futures-util = "0.3"
+tokio-tungstenite = "0.28"
+
+[target.'cfg(windows)'.dev-dependencies]
+windows = { workspace = true, features = ["Win32_Foundation", "Win32_System_Threading"] }
+
+[[test]]
+name = "workflow_automation"
+path = "../../tests/argusflow-workflow-automation/integration/workflow.rs"
+
+[[example]]
+name = "process_fixture"
+path = "../../tests/argusflow-workflow-automation/support/process_fixture.rs"
+
+[[example]]
+name = "automation_lifecycle"
+path = "../../tests/argusflow-workflow-automation/support/examples/lifecycle.rs"

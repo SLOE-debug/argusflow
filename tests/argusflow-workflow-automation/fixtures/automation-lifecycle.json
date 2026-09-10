@@ -1,0 +1,224 @@
+{
+  "schema_version": 1,
+  "name": "应用与浏览器作用域清理",
+  "inputs": {},
+  "outputs": {},
+  "resources": {},
+  "root": "root",
+  "scopes": [
+    {
+      "id": "root",
+      "entry": "launch-application",
+      "nodes": [
+        {
+          "id": "launch-application",
+          "next": "browser",
+          "timeout_ms": null,
+          "action": {
+            "kind": "task",
+            "task": {
+              "type_id": "application.launch",
+              "version": 1,
+              "config": {
+                "visible": false
+              },
+              "inputs": {
+                "arguments": {
+                  "kind": "list",
+                  "item_type": {
+                    "type": "text"
+                  },
+                  "items": []
+                },
+                "executable": {
+                  "kind": "literal",
+                  "value_type": {
+                    "type": "text"
+                  },
+                  "value": {
+                    "type": "text",
+                    "value": "C:/ArgusFlow/fixture.exe"
+                  }
+                }
+              },
+              "resources": {},
+              "resource_outputs": {
+                "application": "app"
+              },
+              "retry": null
+            }
+          },
+          "output_bindings": {}
+        },
+        {
+          "id": "browser",
+          "next": "try",
+          "timeout_ms": null,
+          "action": {
+            "kind": "task",
+            "task": {
+              "type_id": "browser.launch",
+              "version": 1,
+              "config": {
+                "headless": true
+              },
+              "inputs": {
+                "executable": {
+                  "kind": "literal",
+                  "value_type": {
+                    "type": "text"
+                  },
+                  "value": {
+                    "type": "text",
+                    "value": "C:/ArgusFlow/chrome.exe"
+                  }
+                }
+              },
+              "resources": {},
+              "resource_outputs": {
+                "browser": "browser"
+              },
+              "retry": null
+            }
+          },
+          "output_bindings": {}
+        },
+        {
+          "id": "try",
+          "next": null,
+          "timeout_ms": null,
+          "action": {
+            "kind": "try",
+            "body": "body",
+            "catches": [
+              {
+                "errors": [
+                  "user"
+                ],
+                "scope": "catch",
+                "error_name": "error"
+              }
+            ],
+            "finally": "finally"
+          },
+          "output_bindings": {}
+        }
+      ],
+      "outputs": {}
+    },
+    {
+      "id": "body",
+      "entry": "new-page",
+      "nodes": [
+        {
+          "id": "new-page",
+          "next": "navigate",
+          "timeout_ms": null,
+          "action": {
+            "kind": "task",
+            "task": {
+              "type_id": "browser.new_page",
+              "version": 1,
+              "config": {},
+              "inputs": {
+                "url": {
+                  "kind": "literal",
+                  "value_type": {
+                    "type": "text"
+                  },
+                  "value": {
+                    "type": "text",
+                    "value": "about:blank"
+                  }
+                }
+              },
+              "resources": {
+                "browser": "browser"
+              },
+              "resource_outputs": {
+                "page": "page"
+              },
+              "retry": null
+            }
+          },
+          "output_bindings": {}
+        },
+        {
+          "id": "navigate",
+          "next": "expected-failure",
+          "timeout_ms": null,
+          "action": {
+            "kind": "task",
+            "task": {
+              "type_id": "browser.navigate",
+              "version": 1,
+              "config": {},
+              "inputs": {
+                "url": {
+                  "kind": "literal",
+                  "value_type": {
+                    "type": "text"
+                  },
+                  "value": {
+                    "type": "text",
+                    "value": "about:blank"
+                  }
+                }
+              },
+              "resources": {
+                "page": "page"
+              },
+              "resource_outputs": {},
+              "retry": null
+            }
+          },
+          "output_bindings": {}
+        },
+        {
+          "id": "expected-failure",
+          "next": null,
+          "timeout_ms": null,
+          "action": {
+            "kind": "fail",
+            "code": "demonstrate_cleanup"
+          },
+          "output_bindings": {}
+        }
+      ],
+      "outputs": {}
+    },
+    {
+      "id": "catch",
+      "entry": null,
+      "nodes": [],
+      "outputs": {}
+    },
+    {
+      "id": "finally",
+      "entry": "finish",
+      "nodes": [
+        {
+          "id": "finish",
+          "next": null,
+          "timeout_ms": null,
+          "action": {
+            "kind": "wait",
+            "milliseconds": {
+              "kind": "literal",
+              "value_type": {
+                "type": "int"
+              },
+              "value": {
+                "type": "int",
+                "value": 0
+              }
+            }
+          },
+          "output_bindings": {}
+        }
+      ],
+      "outputs": {}
+    }
+  ],
+  "subflows": {}
+}

@@ -4,6 +4,20 @@
 
 ```text
 crates/
+  argusflow-workflow/src/
+    model/                  流程文档、控制节点与表达式树
+    value/                  强类型值与空间计量
+  argusflow-runtime/src/
+    compilation/            图所有权、词法绑定、调用依赖与端口检查
+    expression/             纯表达式类型检查与有界求值
+    execution/              显式帧栈、数据事务、调用和异常展开
+    contract/               扩展任务与执行错误
+    resource/               资源依赖与失败清理保留
+  argusflow-workflow-automation/src/
+    query/                  AQL 准备、绑定和快照适配
+    browser/                浏览器任务
+    desktop/                Windows 应用与窗口任务
+    resources/              类型化资源和宿主共享服务
   argusflow-aql/src/
     model/                  角色、属性、表达式和冻结参数
     syntax/                 保留标记的词法与英文解析
@@ -35,6 +49,7 @@ crates/
     regions.rs              区域并集、裁剪、外扩、忽略区
     sampling.rs             稳定区域及内容令牌
   argusflow-windows/src/
+    application/            自有进程 Job、参数编码和窗口等待
     capture/
       gpu/                  设备、精确差分、分块历史、完成检测和读回
       output/               duplication、候选区、版本发布
@@ -65,6 +80,8 @@ crates/
       pipeline.rs           单图推理编排
       result.rs             文本块与阅读顺序
 tests/
+  argusflow-runtime/{unit,integration,support,fixtures}/
+  argusflow-workflow-automation/{unit,integration,support,fixtures}/
   argusflow-aql/integration/
   argusflow-aql-wasm/integration/
   argusflow-automation/{unit,integration,support}/
@@ -76,7 +93,7 @@ tests/
     integration/            版本、稳定、历史、缺口与取消
     support/                确定性像素来源与故障注入
   argusflow-windows/
-    unit/{uia,window,platform,input,capture}/
+    unit/{application,uia,window,platform,input,capture}/
     integration/            真实 UIA、输入、DXGI 验收
     support/                测试专属窗口、采样 OCR 示例
   argusflow-browser/

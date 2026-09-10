@@ -18,6 +18,17 @@ pub struct WindowIdentity {
 }
 
 impl WindowIdentity {
+    /// 显式请求把目标窗口放到前台并复验；Windows 拒绝时明确失败，不绕过前台限制。
+    pub fn activate(&self, operation: &argusflow_core::Operation) -> Result<(), Failure> {
+        self.validate()?;
+        operation.begin_effect("window_activate")?;
+        // SAFETY: 已复验窗口身份，调用仅请求 Windows 正常前台切换。
+        unsafe { windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow(hwnd(self.handle)) }
+            .ok()
+            .map_err(|error| operation.contextualize(failure("window_activate", error)))?;
+        self.require_foreground()
+            .map_err(|error| operation.contextualize(error))
+    }
     /// 验证 HWND、捕获进程身份并建立窗口属性租约；UIPI 权限不足明确失败。
     pub fn from_handle(handle: isize) -> Result<Self, Failure> {
         let mut process_id = 0;

@@ -2,6 +2,7 @@
 
 #![cfg(windows)]
 
+mod application;
 mod capture;
 mod error;
 mod input;
@@ -9,6 +10,7 @@ mod platform;
 mod uia;
 mod window;
 
+pub use application::{Application, ApplicationOptions};
 pub use argusflow_core::OperationOptions;
 pub use capture::DxgiBackend;
 pub use error::WindowsError;
