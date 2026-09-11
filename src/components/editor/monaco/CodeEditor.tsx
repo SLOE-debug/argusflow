@@ -2,9 +2,12 @@ import { useEffect, useRef } from 'react';
 import type * as Monaco from 'monaco-editor/esm/vs/editor/editor.api.js';
 import type { Diagnostic, LanguageService } from '../../../features/aql';
 import { registerLanguage, LANGUAGE_ID } from './language';
+import { bindEditorTheme } from './theme';
 
 /** Monaco 实例的值和生命周期由单一组件维护。 */
-export function CodeEditor({ source, service, diagnostics, onChange, onComposition, onError }: {
+export function CodeEditor({ source, service, diagnostics, onChange, onComposition, onError, compact = false, readOnly = false }: {
+  readonly compact?: boolean;
+  readonly readOnly?: boolean;
   readonly source: string;
   readonly service: LanguageService;
   readonly diagnostics: readonly Diagnostic[];
@@ -27,12 +30,14 @@ export function CodeEditor({ source, service, diagnostics, onChange, onCompositi
     void import('./runtime').then(({ monaco }) => {
       if (cancelled || !host.current) return;
       monacoApi.current = monaco;
+      const releaseTheme = bindEditorTheme(monaco);
       let composing = false;
       const language = registerLanguage(monaco, service, () => composing);
       const model = monaco.editor.createModel(initial.current, LANGUAGE_ID);
       const instance = monaco.editor.create(host.current, {
         model, ariaLabel: '中文 AQL 查询', automaticLayout: true, minimap: { enabled: false },
-        fontSize: 16, lineHeight: 28, padding: { top: 20, bottom: 20 }, scrollBeyondLastLine: false,
+        fontSize: compact ? 13 : 16, lineHeight: compact ? 22 : 28, padding: { top: 12, bottom: 12 }, scrollBeyondLastLine: false,
+        readOnly,
         tabSize: 2, wordWrap: 'on', overviewRulerLanes: 0, contextmenu: true,
         // 原生悬浮和候选浮层按视口定位，避免被圆角卡片的 overflow-hidden 裁切。
         fixedOverflowWidgets: true,
@@ -59,10 +64,12 @@ export function CodeEditor({ source, service, diagnostics, onChange, onCompositi
       dispose = () => {
         changed.dispose(); start.dispose(); end.dispose(); instance.dispose(); model.dispose(); language.dispose();
         editor.current = undefined;
+        releaseTheme();
       };
     }).catch(() => callbacks.current.onError());
     return () => { cancelled = true; dispose?.(); };
   }, [service]);
+  useEffect(() => { editor.current?.updateOptions({ readOnly }); }, [readOnly]);
 
   useEffect(() => {
     initial.current = source;
@@ -82,7 +89,7 @@ export function CodeEditor({ source, service, diagnostics, onChange, onCompositi
 
   return <div
     ref={host}
-    className="h-[420px] min-w-0"
+    className={compact ? 'min-h-0 min-w-0 flex-1' : 'h-[420px] min-w-0'}
     aria-label="中文查询编辑区"
   />;
 }

@@ -1,0 +1,27 @@
+/* WebView 原生滚动条需通过伪元素统一设置；保留原生滚轮、拖动和键盘滚动。 */
+@layer base {
+  ::-webkit-scrollbar {
+    @apply size-2;
+  }
+
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
+    @apply bg-transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full border-2 border-solid border-transparent bg-muted/40 bg-clip-padding;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-muted/60;
+  }
+
+  ::-webkit-scrollbar-thumb:active {
+    @apply bg-muted/80;
+  }
+
+  ::-webkit-scrollbar-button {
+    @apply hidden h-0 w-0;
+  }
+}

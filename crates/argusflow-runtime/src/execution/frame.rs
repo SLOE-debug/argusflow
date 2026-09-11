@@ -31,6 +31,8 @@ pub(super) enum TryStage {
     Finally,
 }
 pub(super) struct Frame {
+    pub plan: Arc<crate::PreparedWorkflow>,
+    pub workflow_root: usize,
     pub scope: usize,
     pub instance: u64,
     pub lexical_parent: Option<usize>,

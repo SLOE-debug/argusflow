@@ -4,7 +4,7 @@ mod contract;
 mod execution;
 mod expression;
 mod resource;
-pub use compilation::{PreparedWorkflow, prepare};
+pub use compilation::{PreparedWorkflow, prepare, prepare_bundle};
 pub use contract::*;
 pub use execution::*;
 pub use resource::*;

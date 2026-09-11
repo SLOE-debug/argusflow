@@ -12,7 +12,7 @@ impl Runner {
     pub async fn step(&mut self) -> Result<(), RunError> {
         self.check()?;
         let current = self.current();
-        let plan = self.plan.clone();
+        let plan = self.frames[current].plan.clone();
         let frame = &self.frames[current];
         let scope = &plan.scopes[frame.scope];
         if frame.pc == scope.nodes.len() {
@@ -148,13 +148,22 @@ impl Runner {
                 self.frames[current].state = NodeState::Call;
                 self.push(
                     *scope,
-                    0,
+                    self.frames[current].workflow_root,
                     inputs,
                     resources,
                     Vec::new(),
                     operation,
                     self.frames[current].cleanup_mode,
                 )
+            }
+            PlanAction::CallWorkflow {
+                plan,
+                inputs,
+                resources,
+            } => {
+                let inputs = Arc::new(self.eval_fields(inputs, &Values::new())?);
+                let resources = self.resources(resources)?;
+                self.enter_workflow(plan.clone(), inputs, resources)
             }
             PlanAction::Try { body, .. } => {
                 if let Err(mut error) = self.enter_child(
@@ -230,7 +239,7 @@ impl Runner {
     pub fn iterate(&mut self) -> Result<(), RunError> {
         self.check()?;
         let current = self.current();
-        let plan = self.plan.clone();
+        let plan = self.frames[current].plan.clone();
         let frame = &self.frames[current];
         let NodeState::Loop { iterations, items } = &frame.state else {
             return Err(RunError::new(ErrorKind::Contract, "循环状态缺失"));

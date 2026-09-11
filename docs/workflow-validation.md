@@ -1,5 +1,7 @@
 # Workflow 验证与示例
 
+本页保留引擎首次交付的验证结果。Tauri 设计器及独立 workflow 调用的最新验证见 [设计器验证记录](workflow-designer-validation.md)。
+
 验证日期：2026-09-10，Windows x64。本次测试范围是 Rust workflow、能力票据入口、CDP 协议替身及隐藏的专属应用进程。没有运行真实浏览器、真实 UIA/键鼠或 OCR/GPU 验收。
 
 ## 执行结果

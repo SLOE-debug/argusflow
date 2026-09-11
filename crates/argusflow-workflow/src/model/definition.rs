@@ -73,6 +73,8 @@ pub struct Subflow {
 /// 可定位的准备阶段诊断。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Diagnostic {
+    /// 独立工作流身份；单文档准备时未绑定。
+    pub workflow: Option<crate::WorkflowId>,
     /// 稳定问题分类。
     pub code: DiagnosticCode,
     /// 不含运行输入的说明。

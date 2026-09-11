@@ -8,11 +8,13 @@ use std::{
 
 /// 可被多次运行共享的只读计划；只有 prepare 可以构造。
 pub struct PreparedWorkflow {
+    pub(crate) identity: Option<argusflow_workflow::WorkflowId>,
     pub(crate) root: usize,
     pub(crate) scopes: Vec<PlanScope>,
     pub(crate) inputs: Fields,
     pub(crate) resource_inputs: BTreeMap<String, String>,
     pub(crate) name: String,
+    pub(crate) output_fields: Fields,
 }
 impl PreparedWorkflow {
     /// 文档名称。
@@ -21,11 +23,7 @@ impl PreparedWorkflow {
     }
     /// 根输出类型。
     pub fn outputs(&self) -> Fields {
-        self.scopes[self.root]
-            .outputs
-            .iter()
-            .map(|(k, e)| (k.clone(), e.ty.clone()))
-            .collect()
+        self.output_fields.clone()
     }
 }
 
@@ -104,6 +102,11 @@ pub(crate) enum PlanAction {
     Continue,
     Call {
         scope: usize,
+        inputs: BTreeMap<String, PlanExpr>,
+        resources: BTreeMap<String, ResourceBinding>,
+    },
+    CallWorkflow {
+        plan: Arc<PreparedWorkflow>,
         inputs: BTreeMap<String, PlanExpr>,
         resources: BTreeMap<String, ResourceBinding>,
     },

@@ -221,6 +221,15 @@ pub enum Action {
         /// 资源端口到词法资源名。
         resources: BTreeMap<String, String>,
     },
+    /// 调用独立工作流；全局变量隔离，仅显式数据和资源参数可跨边界。
+    CallWorkflow {
+        /// 冻结 bundle 中的稳定工作流身份。
+        workflow: crate::WorkflowId,
+        /// 满足目标根输入声明的参数。
+        inputs: BTreeMap<String, Expr>,
+        /// 显式借用资源，所有权保留在调用方。
+        resources: BTreeMap<String, String>,
+    },
     /// 返回当前流程或子流程；嵌套块会先执行 Finally。
     Return {
         /// 满足声明的结果。

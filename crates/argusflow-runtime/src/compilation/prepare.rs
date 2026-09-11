@@ -15,13 +15,18 @@ pub fn prepare(
     workflow: Workflow,
     registry: &NodeRegistry,
 ) -> Result<Arc<PreparedWorkflow>, Vec<Diagnostic>> {
-    compile(workflow, registry)
+    compile(workflow, registry, &BTreeMap::new())
         .map(Arc::new)
         .map_err(|error| vec![error])
 }
 
-fn compile(workflow: Workflow, registry: &NodeRegistry) -> Result<PreparedWorkflow, Diagnostic> {
+pub(super) fn compile(
+    workflow: Workflow,
+    registry: &NodeRegistry,
+    externals: &BTreeMap<argusflow_workflow::WorkflowId, Arc<PreparedWorkflow>>,
+) -> Result<PreparedWorkflow, Diagnostic> {
     let general = |message: &str| Diagnostic {
+        workflow: None,
         code: DiagnosticCode::Structure,
         message: message.into(),
         scope: None,
@@ -63,6 +68,7 @@ fn compile(workflow: Workflow, registry: &NodeRegistry) -> Result<PreparedWorkfl
     let mut compiler = Compiler {
         workflow: &workflow,
         registry,
+        externals,
         root,
         scope_ids,
         symbols: vec![BTreeMap::new(); count],
@@ -113,15 +119,18 @@ fn compile(workflow: Workflow, registry: &NodeRegistry) -> Result<PreparedWorkfl
         .map(|plan| plan.ok_or_else(|| general("作用域未编译")))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(PreparedWorkflow {
+        identity: None,
         root,
         scopes,
         inputs: workflow.inputs,
         resource_inputs: workflow.resources,
         name: workflow.name,
+        output_fields: workflow.outputs,
     })
 }
 
 pub(super) struct Compiler<'a> {
+    pub externals: &'a BTreeMap<argusflow_workflow::WorkflowId, Arc<PreparedWorkflow>>,
     pub workflow: &'a Workflow,
     pub registry: &'a NodeRegistry,
     pub root: usize,
@@ -143,6 +152,7 @@ pub(super) fn valid_name(name: &str) -> bool {
 impl Compiler<'_> {
     pub fn error(&self, code: DiagnosticCode, message: impl Into<String>) -> Diagnostic {
         Diagnostic {
+            workflow: None,
             code,
             message: message.into(),
             scope: Some(self.workflow.scopes[self.position.0].id.clone()),

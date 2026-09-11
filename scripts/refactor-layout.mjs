@@ -27,6 +27,14 @@ function move(source, destination) {
 }
 
 // 内联单元测试仍作为被测模块的子模块编译，保留私有成员访问，不扩大公开 API。
+// 桌面设计器收尾时仅迁移依赖文件读取职责，不重跑历史目录迁移。
+if (process.argv.includes('--workflow-designer')) {
+  split('src-tauri/src/runtime/manager.rs', 'src-tauri/src/runtime/bundle.rs',
+    '/// 从已保存文档加载完整的可达依赖', null,
+    '//! 从工作目录冻结可达依赖，校验草稿与磁盘修订。\nuse crate::document::Workspace;\nuse argusflow_workflow::{Action, WorkflowBundle, WorkflowId};\nuse std::collections::{BTreeMap, BTreeSet};\n\n');
+  process.exit(0);
+}
+
 const inlineTests = [
   ['argusflow-core', 'operation.rs', 'operation/ticket.rs', 'operation.rs'],
   ['argusflow-windows', 'query.rs', 'uia/query.rs', 'uia/query.rs'],

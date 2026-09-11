@@ -14,7 +14,6 @@ use tokio::sync::broadcast;
 
 pub(super) struct Runner {
     pub id: u64,
-    pub plan: Arc<PreparedWorkflow>,
     pub frames: Vec<Frame>,
     pub options: RunOptions,
     pub root_operation: Operation,
@@ -43,6 +42,8 @@ impl Runner {
     ) -> Self {
         let scope = &plan.scopes[plan.root];
         let frame = Frame {
+            plan: plan.clone(),
+            workflow_root: 0,
             scope: plan.root,
             instance: 1,
             lexical_parent: None,
@@ -64,7 +65,6 @@ impl Runner {
         };
         Self {
             id,
-            plan,
             frames: vec![frame],
             options,
             root_operation: operation,
@@ -112,9 +112,10 @@ impl Runner {
         self.frames
             .iter()
             .map(|frame| ExecutionLocation {
-                scope: self.plan.scopes[frame.scope].id.clone(),
+                workflow: frame.plan.identity.clone(),
+                scope: frame.plan.scopes[frame.scope].id.clone(),
                 instance: frame.instance,
-                node: self.plan.scopes[frame.scope]
+                node: frame.plan.scopes[frame.scope]
                     .nodes
                     .get(frame.pc)
                     .map(|node| node.id.clone()),
@@ -149,7 +150,7 @@ impl Runner {
         self.check()?;
         let current = self.current();
         let frame = &self.frames[current];
-        let node = &self.plan.scopes[frame.scope].nodes[frame.pc];
+        let node = &frame.plan.scopes[frame.scope].nodes[frame.pc];
         let mapped = self.eval_fields(&node.mappings, &native)?;
         let mut published = native;
         published.extend(mapped);
@@ -242,12 +243,15 @@ impl Runner {
         if self.frames.len() >= depth_limit {
             return Err(RunError::new(ErrorKind::Limit, "活动调用帧超过预算"));
         }
-        let definition = &self.plan.scopes[scope];
+        let parent = &self.frames[self.current()];
+        let definition = &parent.plan.scopes[scope];
         let mut slots = vec![None; definition.slots.len()];
         for (slot, value) in variables {
             slots[slot] = Some(value);
         }
         let frame = Frame {
+            plan: parent.plan.clone(),
+            workflow_root: parent.workflow_root,
             scope,
             instance: self.next_instance,
             lexical_parent: Some(lexical_parent),

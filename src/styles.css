@@ -1,1 +1,35 @@
-@import "tailwindcss";
+/* 自动检测以 src 为根，避免扫描仓库中的 Rust、文档和测试。 */
+@import "tailwindcss" source("./");
+@import "./styles/scrollbars.css";
+@source "../index.html";
+@theme inline {
+  --font-sans:
+    "Segoe UI Variable Text", "Microsoft YaHei UI", "Segoe UI", sans-serif;
+  --font-mono: "Cascadia Code", Consolas, monospace;
+  --color-app: var(--af-app);
+  --color-panel: var(--af-panel);
+  --color-surface: var(--af-surface);
+  --color-subtle: var(--af-subtle);
+  --color-hover: var(--af-hover);
+  --color-canvas: var(--af-canvas);
+  --color-grid: var(--af-grid);
+  --color-line: var(--af-border);
+  --color-strong: var(--af-strong);
+  --color-ink: var(--af-text);
+  --color-muted: var(--af-muted);
+  --color-accent: var(--af-accent);
+  --color-accent-hover: var(--af-accentHover);
+  --color-accent-soft: var(--af-accentSoft);
+  --color-on-accent: var(--af-onAccent);
+  --color-success: var(--af-success);
+  --color-success-soft: var(--af-successSoft);
+  --color-danger: var(--af-danger);
+  --color-danger-soft: var(--af-dangerSoft);
+  --color-warning: var(--af-warning);
+  --color-structure: var(--af-structure);
+  --color-structure-soft: var(--af-structureSoft);
+  --color-data: var(--af-data);
+  --color-browser: var(--af-browser);
+  --color-desktop: var(--af-desktop);
+  --color-edge: var(--af-edge);
+}

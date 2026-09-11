@@ -1,6 +1,6 @@
 # ArgusFlow
 
-可独立调用的 Rust 自动化能力库，提供中文 AQL 编辑器与英文查询内核。当前 main 从空提交重新建立；experimental 保留旧实现供参考，未引入旧协议兼容层。
+Tauri 工作流设计器与可独立调用的 Rust 自动化能力库，提供结构化画布、中文 AQL 编辑和真实运行。当前 main 使用新的强类型工作流契约；experimental 保留旧实现供参考，未引入旧协议兼容层。
 
 | crate | 能力 |
 | --- | --- |
@@ -16,8 +16,15 @@
 | `argusflow-vision` | Rust 原生 PP-OCRv6 Small/Medium ONNX、稳定区域采样与结果复用 |
 | `argusflow-capture-contracts` | 无平台和运行时依赖的来源、版本、只读像素、采样契约 |
 | `argusflow-capture` | 共享采样、GPU 历史索引、变化订阅、时间锚点、稳定观察 |
+| `argusflow-desktop` | Tauri 工作台、工作目录、自动保存、运行管理与有序日志 |
 
-中文编辑页使用 React/Vite/Monaco/Tailwind，通过本地 WASM 校验并导出英文 `.aql`。安装、启动和接口示例见 [AQL 说明](docs/aql.md)。Rust 工作流引擎支持 Let 词法作用域、全局/局部变量、子流程、循环、异常处理和资源生命周期，见 [Workflow 使用说明](docs/workflow.md)。当前不包含工作流画布、输入录制与持久化、整屏增量文字场景或 Tauri 装配。采样持续维护桌面状态，只有消费者需要视觉结果时才读回区域像素。
+工作台使用 React/Vite/Monaco/Tailwind，支持无限画布、嵌套作用域缩放、复制粘贴、撤销重做、独立 workflow 调用、浅色/深色/系统主题，以及本地自动保存和运行结果查看。启动与操作见 [设计器使用说明](docs/workflow-designer.md)，本轮测试范围见 [设计器验证记录](docs/workflow-designer-validation.md)。
+
+中文 AQL 通过本地 WASM 检查并编译成英文查询，语言接口见 [AQL 说明](docs/aql.md)。Rust 工作流引擎支持 Let 词法作用域、全局/局部变量、子流程、循环、异常处理和资源生命周期，见 [Workflow 使用说明](docs/workflow.md)。输入录制与录制持久化、整屏增量文字场景尚未接入工作台。
+
+开发启动：安装依赖后运行 `pnpm start`。生成桌面程序：`pnpm tauri build --no-bundle`，产物在 `target/release/argusflow.exe`。
+
+开发服务器固定使用 `127.0.0.1:5173`，端口占用时直接报错，保持与 Tauri 的 `devUrl` 一致。Vite 仅从 `index.html` 扫描依赖，排除 Rust 源码、`target` 和本地依赖缓存目录的文件监听；Tailwind 从 `src` 与 `index.html` 检测类名，避免仓库构建产物拖慢前端启动。
 
 ```powershell
 cargo check --workspace --all-targets

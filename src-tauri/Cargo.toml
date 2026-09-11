@@ -1,0 +1,40 @@
+[package]
+name = "argusflow-desktop"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+autotests = false
+
+[lib]
+name = "argusflow_desktop"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[[bin]]
+name = "argusflow"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+argusflow-core.workspace = true
+argusflow-workflow.workspace = true
+argusflow-runtime.workspace = true
+argusflow-workflow-automation = { path = "../crates/argusflow-workflow-automation" }
+argusflow-windows = { path = "../crates/argusflow-windows" }
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-clipboard-manager = "2"
+blake3 = "1"
+tempfile = "3"
+
+[lints]
+workspace = true
+
+[[test]]
+name = "desktop"
+path = "../tests/argusflow-desktop/integration/desktop.rs"

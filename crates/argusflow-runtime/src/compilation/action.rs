@@ -192,6 +192,21 @@ impl Compiler<'_> {
                     resources: self.resource_arguments(resources, &resource_types, env)?,
                 }
             }
+            Action::CallWorkflow {
+                workflow,
+                inputs,
+                resources,
+            } => {
+                let plan = self.externals.get(workflow).cloned().ok_or_else(|| {
+                    self.error(Code::Reference, "独立工作流未加载；请通过完整依赖快照编译")
+                })?;
+                outputs = plan.outputs();
+                PlanAction::CallWorkflow {
+                    inputs: self.arguments(inputs, &plan.inputs, env)?,
+                    resources: self.resource_arguments(resources, &plan.resource_inputs, env)?,
+                    plan,
+                }
+            }
             Action::Return { values } => {
                 if env.in_finally {
                     return Err(self.error(Code::Control, "Finally 不能用 Return 覆盖原始控制转移"));

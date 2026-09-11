@@ -46,6 +46,12 @@ Ok(())
 
 节点输出仅在成功后发布，只有当前作用域已完成节点和可见祖先路径的节点可引用。子流程不捕获调用方节点输出。`output_bindings` 可读取当前任务的 `Result` 和可见变量，不能覆盖原生输出；映射整体成功才发布。节点已经产生的外部副作用不会因为映射错误回滚或重放。
 
+## 独立 workflow 调用
+
+独立文件调用使用 `WorkflowId`、`Action::CallWorkflow` 和 `WorkflowBundle`。将根 ID 与依赖定义交给 `prepare_bundle(bundle, &registry)`，返回同一种可执行计划。准备阶段拒绝缺失引用、直接/间接递归、超出 256 份文档或 64 层调用的依赖。
+
+每次独立 workflow 调用建立隔离根帧，不捕获调用方全局；该文档内部子流程仍绑定自身的根帧。输入、输出和借用资源显式传递，全部调用共享同一执行器的取消、预算和资源收尾。桌面宿主从工作目录冻结依赖，具体文件与编辑流程见 [设计器说明](workflow-designer.md)。
+
 ## 类型与表达式
 
 ValueType 支持 `bool`、`int`（i64）、`float`（有限 f64）、`text`、`list`、`record`、`optional`。Literal 必须携带类型，空列表及 Optional(None) 也无需猜测。资源不属于 Value，不能嵌入记录、全局变量或返回值。

@@ -5,6 +5,8 @@ use argusflow_workflow::ErrorKind;
 /// 运行路径上的精确位置。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecutionLocation {
+    /// 独立文档身份；单文档 prepare 未指定身份时为空。
+    pub workflow: Option<argusflow_workflow::WorkflowId>,
     /// 作用域文档 ID。
     pub scope: String,
     /// 作用域激活实例。

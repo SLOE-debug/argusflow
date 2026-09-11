@@ -80,12 +80,13 @@ crates/
       pipeline.rs           单图推理编排
       result.rs             文本块与阅读顺序
 tests/
+  argusflow-desktop/{unit,integration,support}/
   argusflow-runtime/{unit,integration,support,fixtures}/
   argusflow-workflow-automation/{unit,integration,support,fixtures}/
   argusflow-aql/integration/
   argusflow-aql-wasm/integration/
   argusflow-automation/{unit,integration,support}/
-  frontend/{aql,support}/    草稿、组件、WASM 及固定 DOM 脚本测试
+  frontend/{aql,workflow,support}/ 草稿、组件、画布、WASM 及固定 DOM 脚本测试
   argusflow-core/unit/
   argusflow-capture-contracts/unit/
   argusflow-capture/
@@ -110,7 +111,13 @@ scripts/
   refactor-layout.mjs       本次目录迁移的可重复显式映射
 ```
 
-前端源码在 `src/`：`components/ui/` 为通用控件，`components/editor/` 为工作区及 Monaco 生命周期，`features/aql/` 为 WASM 契约、草稿状态和文件操作。`features/aql/generated/` 由构建脚本生成并忽略提交；入口 `main.tsx` 只装配页面。
+前端源码在 `src/`：`components/ui/` 为通用控件，`components/editor/` 为 Monaco 生命周期，`components/workflow/` 按工作区、画布、配置、节点库、数据和执行展示拆分。`flow/` 保留业务无关的几何、选择、键盘与路由；`features/workflow/` 持有模型、节点、值表达式、传输和 Studio 编排；`features/themes/` 提供主题契约、注册表及切换。
+
+UI 输入、选择、单选／复选、开关和字段容器按控件分文件，`components/ui/select/` 分离选择交互与浮层定位。`components/workflow/palette/` 分离流程列表、节点树和可见行推导；`workspace/WorkflowTabs.tsx` 提供注入标题栏的标签导航。`features/workflow/studio/workspace.ts` 编排自动初始化，`nodes/usage.ts` 持有常用统计。对应测试位于根目录 `tests/frontend/{ui,workflow,support}/`。
+
+`features/aql/` 保存 WASM 契约和中文草稿状态；`features/aql/generated/` 由构建脚本生成并忽略提交。入口 `main.tsx` 只装配主题和页面。
+
+`src-tauri/src/document/` 负责文件、结构和无损传输编译；`runtime/assembly.rs` 装配平台服务，`runtime/bundle.rs` 读取冻结依赖，`runtime/manager.rs` 持有运行生命周期，`runtime/journal.rs` 管理有序日志与最终结果。`commands.rs` 只适配命令参数；`lib.rs` 和 `main.rs` 装配应用。依赖加载职责拆分可通过 `node scripts/refactor-layout.mjs --workflow-designer` 重复执行。
 
 单元测试通过 `#[cfg(test)]` 和 `#[path]` 作为原模块的子模块编译，保留私有成员访问权限；`src/` 中只有挂载声明。集成测试由各 crate 的 `[[test]]` 指向根目录，仍使用原测试目标名，因此 `cargo test --workspace`、`--test native` 和 `--test ownership` 的用法不变。验收窗口仍可通过 `--example test_window` 运行。
 

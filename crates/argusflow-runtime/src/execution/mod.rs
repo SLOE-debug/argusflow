@@ -8,6 +8,7 @@ mod resume;
 mod runner;
 mod state;
 mod task;
+mod workflow_call;
 pub use api::*;
 pub(crate) use guard::guard_future;
 pub use state::*;

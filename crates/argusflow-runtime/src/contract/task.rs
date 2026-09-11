@@ -80,6 +80,14 @@ impl NodeRegistry {
         self.compilers.insert(id.to_owned(), compiler);
         Ok(())
     }
+    /// 仅编译静态配置并返回端口，供编辑器发现动态 AQL 参数；不执行外部动作。
+    pub fn describe(&self, task: &Task) -> Result<TaskSignature, String> {
+        self.compile(task).map(|(_, signature)| signature)
+    }
+    /// 按稳定顺序列出宿主当前注册的任务身份。
+    pub fn type_ids(&self) -> impl Iterator<Item = &str> {
+        self.compilers.keys().map(String::as_str)
+    }
     pub(crate) fn compile(
         &self,
         task: &Task,

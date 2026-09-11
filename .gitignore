@@ -8,6 +8,8 @@
 *.dll
 *.profraw
 /node_modules/
+/.pnpm-store/
 /dist/
 /src/features/aql/generated/
 *.tsbuildinfo
+/src-tauri/gen/

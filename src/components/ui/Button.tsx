@@ -1,14 +1,30 @@
-import type { ButtonHTMLAttributes } from 'react';
+import type { ButtonHTMLAttributes } from "react";
+import { twMerge } from "tailwind-merge";
 
-/** 通用按钮，业务只通过属性和内容组合。 */
-export function Button({ className = '', ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {
+/** 工具栏和业务动作共用的紧凑按钮。 */
+export function Button({
+  className = "",
+  variant = "default",
+  ...props
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
+  readonly variant?: "default" | "primary" | "ghost" | "danger";
+}) {
+  const tone =
+    variant === "primary"
+      ? "bg-accent text-on-accent border-transparent hover:bg-accent-hover"
+      : variant === "ghost"
+        ? "border-transparent hover:bg-hover"
+        : variant === "danger"
+          ? "border-transparent text-danger hover:bg-danger-soft"
+          : "border-line bg-surface hover:bg-hover";
   return (
     <button
       type="button"
-      className={`rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium
-        text-slate-700 transition hover:bg-slate-100 focus-visible:outline-2
-        focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:cursor-not-allowed
-        disabled:opacity-40 ${className}`}
+      className={twMerge(
+        "inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60",
+        tone,
+        className,
+      )}
       {...props}
     />
   );

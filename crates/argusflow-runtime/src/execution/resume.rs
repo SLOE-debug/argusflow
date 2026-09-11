@@ -52,7 +52,7 @@ impl Runner {
         mut signal: Signal,
     ) -> Result<(), RunError> {
         let current = self.current();
-        let plan = self.plan.clone();
+        let plan = self.frames[current].plan.clone();
         let frame = &self.frames[current];
         let PlanAction::Try {
             catches, finally, ..

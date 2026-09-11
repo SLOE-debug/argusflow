@@ -1,4 +1,6 @@
 //! 通过公开 API 验证编译与运行语义。
+#[path = "../unit/bundle.rs"]
+mod bundle;
 #[path = "../unit/control.rs"]
 mod control;
 #[path = "../unit/expressions.rs"]
