@@ -365,7 +365,21 @@ export const CONTROL_NODES = [
     description: "提前关闭当前作用域资源",
   },
 ] as const;
-export const NODE_CATALOG = [...CONTROL_NODES, ...TASKS];
+export const ENDPOINT_NODES = [
+  {
+    id: "start",
+    title: "开始",
+    category: "逻辑控制",
+    description: "流程入口，每个流程只能添加一个",
+  },
+  {
+    id: "end",
+    title: "结束",
+    category: "逻辑控制",
+    description: "流程出口，每个流程只能添加一个",
+  },
+] as const;
+export const NODE_CATALOG = [...ENDPOINT_NODES, ...CONTROL_NODES, ...TASKS];
 export function taskSpec(id: string): TaskSpec | undefined {
   return TASKS.find((item) => item.id === id);
 }

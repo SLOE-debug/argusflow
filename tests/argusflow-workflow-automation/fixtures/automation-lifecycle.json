@@ -1,5 +1,4 @@
 {
-  "schema_version": 1,
   "name": "应用与浏览器作用域清理",
   "inputs": {},
   "outputs": {},
@@ -8,11 +7,9 @@
   "scopes": [
     {
       "id": "root",
-      "entry": "launch-application",
       "nodes": [
         {
           "id": "launch-application",
-          "next": "browser",
           "timeout_ms": null,
           "action": {
             "kind": "task",
@@ -52,7 +49,6 @@
         },
         {
           "id": "browser",
-          "next": "try",
           "timeout_ms": null,
           "action": {
             "kind": "task",
@@ -85,7 +81,6 @@
         },
         {
           "id": "try",
-          "next": null,
           "timeout_ms": null,
           "action": {
             "kind": "try",
@@ -104,15 +99,57 @@
           "output_bindings": {}
         }
       ],
-      "outputs": {}
+      "outputs": {},
+      "edges": [
+        {
+          "id": "root:edge:0",
+          "source": {
+            "kind": "start"
+          },
+          "target": {
+            "kind": "node",
+            "node": "launch-application"
+          }
+        },
+        {
+          "id": "root:edge:1",
+          "source": {
+            "kind": "node",
+            "node": "launch-application"
+          },
+          "target": {
+            "kind": "node",
+            "node": "browser"
+          }
+        },
+        {
+          "id": "root:edge:2",
+          "source": {
+            "kind": "node",
+            "node": "browser"
+          },
+          "target": {
+            "kind": "node",
+            "node": "try"
+          }
+        },
+        {
+          "id": "root:edge:3",
+          "source": {
+            "kind": "node",
+            "node": "try"
+          },
+          "target": {
+            "kind": "end"
+          }
+        }
+      ]
     },
     {
       "id": "body",
-      "entry": "new-page",
       "nodes": [
         {
           "id": "new-page",
-          "next": "navigate",
           "timeout_ms": null,
           "action": {
             "kind": "task",
@@ -145,7 +182,6 @@
         },
         {
           "id": "navigate",
-          "next": "expected-failure",
           "timeout_ms": null,
           "action": {
             "kind": "task",
@@ -176,7 +212,6 @@
         },
         {
           "id": "expected-failure",
-          "next": null,
           "timeout_ms": null,
           "action": {
             "kind": "fail",
@@ -185,21 +220,63 @@
           "output_bindings": {}
         }
       ],
-      "outputs": {}
+      "outputs": {},
+      "edges": [
+        {
+          "id": "body:edge:0",
+          "source": {
+            "kind": "start"
+          },
+          "target": {
+            "kind": "node",
+            "node": "new-page"
+          }
+        },
+        {
+          "id": "body:edge:1",
+          "source": {
+            "kind": "node",
+            "node": "new-page"
+          },
+          "target": {
+            "kind": "node",
+            "node": "navigate"
+          }
+        },
+        {
+          "id": "body:edge:2",
+          "source": {
+            "kind": "node",
+            "node": "navigate"
+          },
+          "target": {
+            "kind": "node",
+            "node": "expected-failure"
+          }
+        }
+      ]
     },
     {
       "id": "catch",
-      "entry": null,
       "nodes": [],
-      "outputs": {}
+      "outputs": {},
+      "edges": [
+        {
+          "id": "catch:edge:0",
+          "source": {
+            "kind": "start"
+          },
+          "target": {
+            "kind": "end"
+          }
+        }
+      ]
     },
     {
       "id": "finally",
-      "entry": "finish",
       "nodes": [
         {
           "id": "finish",
-          "next": null,
           "timeout_ms": null,
           "action": {
             "kind": "wait",
@@ -217,7 +294,29 @@
           "output_bindings": {}
         }
       ],
-      "outputs": {}
+      "outputs": {},
+      "edges": [
+        {
+          "id": "finally:edge:0",
+          "source": {
+            "kind": "start"
+          },
+          "target": {
+            "kind": "node",
+            "node": "finish"
+          }
+        },
+        {
+          "id": "finally:edge:1",
+          "source": {
+            "kind": "node",
+            "node": "finish"
+          },
+          "target": {
+            "kind": "end"
+          }
+        }
+      ]
     }
   ],
   "subflows": {}

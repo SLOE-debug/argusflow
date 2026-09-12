@@ -2,7 +2,8 @@ import { useRef, useState, type KeyboardEvent } from "react";
 import { useStore } from "zustand";
 import { ChevronRight } from "lucide-react";
 import {
-  buildScene,
+  buildCanvasScene,
+  scopeElements,
   commonNodes,
   nodeUsage,
   studio,
@@ -48,8 +49,13 @@ export function NodeTree({
   const add = (row: TreeRow) => {
     if (row.type !== "node" || !tab || !editable) return;
     void studio.safely(() => {
-      const scope = buildScene(tab.file).scopes[tab.scope];
-      const last = scope.nodes.at(-1);
+      const scene = buildCanvasScene(tab.file);
+      const elements = scopeElements(scene, tab.scope);
+      const last = elements.reduce<(typeof elements)[number] | undefined>(
+        (right, node) =>
+          !right || node.x + node.width > right.x + right.width ? node : right,
+        undefined,
+      );
       studio.add(
         row.node.id,
         last ? { x: last.x + last.width + 80, y: last.y } : { x: 80, y: 100 },
@@ -146,7 +152,7 @@ export function NodeTree({
             }}
             onKeyDown={(event) => keyDown(event, row, index)}
             className={
-              "flex select-none items-center rounded-sm text-xs outline-none hover:bg-hover focus-visible:bg-accent-soft focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent " +
+              "flex select-none items-center rounded-sm text-xs outline-none hover:bg-hover focus-visible:bg-accent-soft " +
               (row.type === "category"
                 ? "h-6 cursor-default gap-1 px-1 font-medium text-ink"
                 : "h-7 gap-2 pr-2 text-ink " +
@@ -177,13 +183,7 @@ export function NodeTree({
                 >
                   <span className="w-2 border-t border-line" />
                 </span>
-                <span
-                  className={
-                    row.category === "逻辑控制"
-                      ? "shrink-0 text-structure"
-                      : "shrink-0 text-accent"
-                  }
-                >
+                <span className="shrink-0">
                   <NodeIcon kind={row.node.id} size={14} />
                 </span>
                 <span className="truncate">{row.node.title}</span>

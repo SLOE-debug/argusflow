@@ -13,15 +13,20 @@ import { INITIAL_STATE, type EditorTab, type StudioState } from "./state";
 import { DocumentPersistence } from "./persistence";
 import { WorkspaceSession } from "./workspace";
 import { nodeUsage } from "../nodes/usage";
+import { DocumentLibrary } from "./documents";
+import { removeEdge } from "../model/connections";
+import type { NodeConnection } from "../model/node-creation";
 
 /** 编辑、文档历史和服务编排的唯一门面；组件不直接修改 Store。 */
 export class WorkflowStudio {
   readonly store = createStore<StudioState>(() => INITIAL_STATE);
   private readonly persistence: DocumentPersistence;
   private readonly workspaceSession: WorkspaceSession;
+  private readonly library: DocumentLibrary;
   private clipboard: WorkflowClipboard | null = null;
   constructor(readonly api: DesktopApi = desktopApi) {
     this.persistence = new DocumentPersistence(this.store, api);
+    this.library = new DocumentLibrary(this.store, api, this.persistence);
     this.workspaceSession = new WorkspaceSession(this.store, api, (id) =>
       this.open(id),
     );
@@ -55,6 +60,12 @@ export class WorkflowStudio {
   async refreshDocuments(): Promise<void> {
     this.store.setState({ documents: await this.api.listDocuments() });
   }
+  renameDocument(id: string, name: string): Promise<void> {
+    return this.library.rename(id, name);
+  }
+  deleteDocument(id: string): Promise<void> {
+    return this.library.remove(id);
+  }
   async reference(id: string): Promise<WorkflowFile> {
     const state = this.store.getState();
     const file = state.tabs[id]?.file ?? (await this.api.load(id)).file;
@@ -78,7 +89,8 @@ export class WorkflowStudio {
       future: [],
       scope: file.definition.root,
       selected: [],
-      viewport: { x: 60, y: 70, zoom: 1 },
+      selectedEdge: null,
+      viewport: { x: 260, y: 70, zoom: 1 },
     };
     this.store.setState({
       tabs: { ...this.store.getState().tabs, [file.id]: tab },
@@ -136,6 +148,13 @@ export class WorkflowStudio {
       ...tab,
       file,
       version: tab.version + 1,
+      selectedEdge: file.definition.scopes.some(
+        (scope) =>
+          scope.id === tab.scope &&
+          scope.edges.some((edge) => edge.id === tab.selectedEdge),
+      )
+        ? tab.selectedEdge
+        : null,
       status: tab.status === "conflict" ? "conflict" : "dirty",
       past: history ? [...tab.past.slice(-99), tab.file] : tab.past,
       future: [],
@@ -162,24 +181,33 @@ export class WorkflowStudio {
       return { ...next, editor: { ...next.editor, drafts } };
     });
   }
-  add(kind: string, position: FlowPoint, after?: string | null): void {
+  add(
+    kind: string,
+    position: FlowPoint,
+    after?: NodeConnection | null,
+    scopeId?: string,
+  ): void {
     const tab = this.active;
     if (!tab || this.readonly) return;
     let id = "";
     this.edit((file) => {
-      const result = addNode(file, tab.scope, kind, position, after);
+      const result = addNode(file, scopeId ?? tab.scope, kind, position, after);
       id = result.id;
       return result.file;
     });
     if (id) {
-      this.select([id]);
-      nodeUsage.record(kind);
+      this.select([id], scopeId ?? tab.scope);
+      if (this.active?.file !== tab.file) nodeUsage.record(kind);
     }
   }
   remove(): void {
     const tab = this.active;
     if (tab) {
-      this.edit((file) => deleteNodes(file, new Set(tab.selected)));
+      this.edit((file) =>
+        tab.selectedEdge
+          ? removeEdge(file, tab.scope, tab.selectedEdge)
+          : deleteNodes(file, new Set(tab.selected)),
+      );
       this.select([]);
     }
   }
@@ -195,6 +223,7 @@ export class WorkflowStudio {
       past: tab.past.slice(0, -1),
       future: [tab.file, ...tab.future],
       selected: [],
+      selectedEdge: null,
     });
     this.persistence.schedule(file.id);
   }
@@ -210,6 +239,7 @@ export class WorkflowStudio {
       past: [...tab.past, tab.file],
       future: tab.future.slice(1),
       selected: [],
+      selectedEdge: null,
     });
     this.persistence.schedule(file.id);
   }
@@ -225,21 +255,27 @@ export class WorkflowStudio {
       }
     }
   }
-  async paste(position: FlowPoint): Promise<void> {
+  async paste(position: FlowPoint, scopeId?: string): Promise<void> {
     const tab = this.active;
     if (!tab || this.readonly) return;
+    const targetScope = scopeId ?? tab.scope;
     const source = await this.api.paste();
     if (!source) return;
     const clipboard = await this.api.parseClipboard(source);
-    if (this.active?.file.id !== tab.file.id || this.active.scope !== tab.scope)
+    if (
+      this.active?.file.id !== tab.file.id ||
+      !this.active.file.definition.scopes.some(
+        (scope) => scope.id === targetScope,
+      )
+    )
       return;
     let selected: readonly string[] = [];
     this.edit((file) => {
-      const result = pasteNodes(file, tab.scope, clipboard, position);
+      const result = pasteNodes(file, targetScope, clipboard, position);
       selected = result.selected;
       return result.file;
     });
-    this.select(selected);
+    this.select(selected, targetScope);
   }
   duplicate(): void {
     const tab = this.active;
@@ -254,18 +290,36 @@ export class WorkflowStudio {
     this.edit(() => result.file);
     this.select(result.selected);
   }
-  select(selected: readonly string[]): void {
+  /** 选择仅改变编辑归属，相机始终使用根场景坐标。 */
+  select(selected: readonly string[], scope?: string): void {
     const tab = this.active;
-    if (tab) this.updateTab({ ...tab, selected });
+    if (tab)
+      this.updateTab({
+        ...tab,
+        selected,
+        selectedEdge: null,
+        scope: scope ?? tab.scope,
+      });
   }
-  view(viewport: ViewportTransform, scope?: string): void {
+  /** 连线 ID 不混入节点选择，避免剪贴板与属性面板误读。 */
+  selectEdge(id: string | null, scope: string): void {
+    const tab = this.active;
+    if (tab) this.updateTab({ ...tab, selected: [], selectedEdge: id, scope });
+  }
+  /** 更新根场景相机，不隐式切换编辑作用域或清空选择。 */
+  view(viewport: ViewportTransform): void {
+    if (
+      !Number.isFinite(viewport.x) ||
+      !Number.isFinite(viewport.y) ||
+      !Number.isFinite(viewport.zoom) ||
+      viewport.zoom <= 0
+    )
+      throw new Error("画布坐标或缩放无效");
     const tab = this.active;
     if (tab)
       this.updateTab({
         ...tab,
         viewport,
-        scope: scope ?? tab.scope,
-        selected: scope && scope !== tab.scope ? [] : tab.selected,
       });
   }
   panel(dock: StudioState["dock"], node?: string): void {

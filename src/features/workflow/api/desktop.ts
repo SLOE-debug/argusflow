@@ -59,6 +59,7 @@ export interface DesktopApi {
   listDocuments(): Promise<readonly DocumentSummary[]>;
   load(id: string): Promise<LoadedDocument>;
   save(file: WorkflowFile, revision: string | null): Promise<LoadedDocument>;
+  deleteDocument(id: string, revision: string): Promise<void>;
   validate(id: string): Promise<readonly Problem[]>;
   start(
     id: string,
@@ -93,6 +94,7 @@ export const desktopApi: DesktopApi = {
   listDocuments: () => invoke("list_documents"),
   load: (id) => invoke("load_document", { id }),
   save: (file, revision) => invoke("save_document", { file, revision }),
+  deleteDocument: (id, revision) => invoke("delete_document", { id, revision }),
   validate: (id) => invoke("validate_workflow", { id }),
   start: (id, inputs, revisions, receive) =>
     invoke("start_workflow", {

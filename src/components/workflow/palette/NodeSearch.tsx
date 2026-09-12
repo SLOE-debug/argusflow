@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Search } from "lucide-react";
 import { NODE_CATALOG } from "../../../features/workflow";
 import { Button, Dialog, Input } from "../../ui";
@@ -13,17 +13,18 @@ export function NodeSearch({
 }) {
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(0);
+  const input = useRef<HTMLInputElement>(null);
   const matches = NODE_CATALOG.filter((item) =>
     (item.title + item.id + item.category)
       .toLowerCase()
       .includes(query.toLowerCase()),
   );
   return (
-    <Dialog title="添加节点" onClose={onClose}>
+    <Dialog title="添加节点" onClose={onClose} initialFocus={input}>
       <div className="mb-3">
         <Input
           leading={<Search size={14} />}
-          autoFocus
+          ref={input}
           aria-label="搜索节点"
           placeholder="搜索名称或动作，例如“点击”"
           className="w-full"
@@ -58,7 +59,7 @@ export function NodeSearch({
             }
             onClick={() => onPick(item.id)}
           >
-            <span className="text-accent">
+            <span className="shrink-0">
               <NodeIcon kind={item.id} />
             </span>
             <span className="min-w-0 text-left">

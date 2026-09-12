@@ -27,9 +27,10 @@ export function ResizeHandle({
       aria-valuemin={min}
       aria-valuemax={max}
       className={
-        axis === "x"
-          ? "z-20 w-1 shrink-0 cursor-col-resize hover:bg-accent/40 focus:bg-accent/40"
-          : "z-20 h-1 shrink-0 cursor-row-resize hover:bg-accent/40 focus:bg-accent/40"
+        "group relative z-20 shrink-0 bg-line outline-none before:absolute " +
+        (axis === "x"
+          ? "w-px cursor-col-resize before:inset-y-0 before:-inset-x-1"
+          : "h-px cursor-row-resize before:inset-x-0 before:-inset-y-1")
       }
       onPointerDown={(event) => {
         start.current = {
@@ -50,6 +51,12 @@ export function ResizeHandle({
       onPointerUp={() => {
         start.current = null;
       }}
+      onPointerCancel={() => {
+        start.current = null;
+      }}
+      onLostPointerCapture={() => {
+        start.current = null;
+      }}
       onKeyDown={(event) => {
         if (
           ["ArrowLeft", "ArrowUp", "ArrowRight", "ArrowDown"].includes(
@@ -62,6 +69,16 @@ export function ResizeHandle({
           );
         }
       }}
-    />
+    >
+      <span
+        aria-hidden="true"
+        className={
+          "pointer-events-none absolute rounded-full bg-muted/40 opacity-0 transition-opacity group-hover:opacity-100 group-active:bg-accent/60 group-active:opacity-100 group-focus-visible:bg-accent group-focus-visible:opacity-100 " +
+          (axis === "x"
+            ? "left-1/2 top-1/2 h-7 w-[3px] -translate-x-1/2 -translate-y-1/2"
+            : "left-1/2 top-1/2 h-[3px] w-7 -translate-x-1/2 -translate-y-1/2")
+        }
+      />
+    </div>
   );
 }

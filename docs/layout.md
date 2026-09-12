@@ -117,6 +117,8 @@ UI 输入、选择、单选／复选、开关和字段容器按控件分文件�
 
 `features/aql/` 保存 WASM 契约和中文草稿状态；`features/aql/generated/` 由构建脚本生成并忽略提交。入口 `main.tsx` 只装配主题和页面。
 
+画布使用原生 Canvas 2D：`components/workflow/canvas/rendering/` 保存主场景、卡片、圆弧连线、移动障碍预览和资源生命周期，交互与浮层分别由画布目录的 Hook 管理。`wireGesture.ts` 推导四边吸附与改接预览，`hitTest.ts` 按相同曲线几何命中。`features/workflow/model/canvas-scene.ts` 派生嵌套作用域与可缓存路径；`connections.ts`、`node-creation.ts`、`node-deletion.ts` 分别管理连线约束、拆线插入与删除续接，`validation.ts` 管理保存结构错误。`flow/geometry/` 分离锚点、障碍索引、正交搜索和圆弧几何，不依赖工作流业务。测试集中于 `tests/frontend/workflow/canvas/` 与 `edge-*.test.ts`，绘图和布局替身位于 `tests/frontend/support/`。相机及编辑契约见 [画布实现](workflow-canvas.md)。
+
 `src-tauri/src/document/` 负责文件、结构和无损传输编译；`runtime/assembly.rs` 装配平台服务，`runtime/bundle.rs` 读取冻结依赖，`runtime/manager.rs` 持有运行生命周期，`runtime/journal.rs` 管理有序日志与最终结果。`commands.rs` 只适配命令参数；`lib.rs` 和 `main.rs` 装配应用。依赖加载职责拆分可通过 `node scripts/refactor-layout.mjs --workflow-designer` 重复执行。
 
 单元测试通过 `#[cfg(test)]` 和 `#[path]` 作为原模块的子模块编译，保留私有成员访问权限；`src/` 中只有挂载声明。集成测试由各 crate 的 `[[test]]` 指向根目录，仍使用原测试目标名，因此 `cargo test --workspace`、`--test native` 和 `--test ownership` 的用法不变。验收窗口仍可通过 `--example test_window` 运行。

@@ -5,20 +5,14 @@ use std::{collections::BTreeMap, sync::Arc};
 pub fn node(id: &str, action: Action) -> Node {
     Node::new(id, action)
 }
-pub fn scope(id: &str, mut nodes: Vec<Node>, outputs: Vec<(&str, Expr)>) -> Scope {
-    for index in 0..nodes.len().saturating_sub(1) {
-        nodes[index].next = Some(nodes[index + 1].id.clone());
-    }
+pub fn scope(id: &str, nodes: Vec<Node>, outputs: Vec<(&str, Expr)>) -> Scope {
     Scope {
-        id: id.into(),
-        entry: nodes.first().map(|node| node.id.clone()),
-        nodes,
         outputs: outputs.into_iter().map(|(k, v)| (k.into(), v)).collect(),
+        ..Scope::linear(id, nodes)
     }
 }
 pub fn workflow(scopes: Vec<Scope>, outputs: Fields) -> Workflow {
     Workflow {
-        schema_version: 1,
         name: "test".into(),
         inputs: Fields::new(),
         outputs,

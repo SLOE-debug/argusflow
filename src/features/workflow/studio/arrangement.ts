@@ -4,8 +4,9 @@ import {
   type AlignMode,
   type DistributeMode,
 } from "../../../flow";
-import { buildScene } from "../model/layout";
-import { scopeById, setLayout } from "../model/graph";
+import { buildCanvasScene, scopeElements } from "../model/canvas-scene";
+import { setLayout } from "../model/graph";
+import { tidyScope } from "./tidy";
 import { studio } from "./controller";
 
 export type Arrangement = AlignMode | DistributeMode | "tidy";
@@ -13,31 +14,12 @@ export type Arrangement = AlignMode | DistributeMode | "tidy";
 export function arrangeSelection(mode: Arrangement): void {
   const tab = studio.active;
   if (!tab || studio.readonly) return;
-  const active = buildScene(tab.file).scopes[tab.scope];
+  const scene = buildCanvasScene(tab.file);
   if (mode === "tidy") {
-    const scope = scopeById(tab.file, tab.scope);
-    let id = scope.entry,
-      x = 80;
-    const visited = new Set<string>();
-    studio.edit((file) => {
-      let next = file;
-      while (id && !visited.has(id)) {
-        visited.add(id);
-        next = setLayout(next, id, { x, y: 100 });
-        x += (active.nodes.find((node) => node.id === id)?.width ?? 196) + 80;
-        id = scope.nodes.find((node) => node.id === id)?.next ?? null;
-      }
-      let y = 240;
-      for (const node of active.nodes)
-        if (!visited.has(node.id)) {
-          next = setLayout(next, node.id, { x: 80, y });
-          y += node.height + 48;
-        }
-      return next;
-    });
+    studio.edit((file) => tidyScope(file, tab.scope));
     return;
   }
-  const nodes = active.nodes.map((rect) => ({
+  const nodes = scopeElements(scene, tab.scope).map((rect) => ({
     id: rect.id,
     position: { x: rect.x, y: rect.y },
     size: { width: rect.width, height: rect.height },

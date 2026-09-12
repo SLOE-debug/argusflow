@@ -15,7 +15,7 @@ import { useStore } from "zustand";
 import type { FlowPoint } from "../../../flow";
 import {
   studio,
-  connectNodes,
+  removeEdge,
   commonNodes,
   nodeUsage,
   type EditorTab,
@@ -26,6 +26,7 @@ import { arrangeMenu } from "./arrangeMenu";
 
 /** 菜单的屏幕落点与对应的作用域坐标。 */
 export interface CanvasMenuPosition {
+  readonly scope: string;
   readonly x: number;
   readonly y: number;
   readonly point: FlowPoint;
@@ -54,7 +55,14 @@ export function CanvasMenu({
       label: node.title,
       icon: <NodeIcon kind={node.id} size={14} />,
       action: () => {
-        void studio.safely(() => studio.add(node.id, menu.point, menu.edge));
+        void studio.safely(() =>
+          studio.add(
+            node.id,
+            menu.point,
+            menu.edge ? { kind: "insert", edge: menu.edge } : undefined,
+            menu.scope,
+          ),
+        );
       },
     })),
     { type: "separator", id: "search" },
@@ -122,7 +130,7 @@ export function CanvasMenu({
           disabled: locked,
           reason: "运行快照只读",
           action: () => {
-            void studio.safely(() => studio.paste(menu.point));
+            void studio.safely(() => studio.paste(menu.point, menu.scope));
           },
         },
         {
@@ -155,7 +163,7 @@ export function CanvasMenu({
                 reason: "运行快照只读",
                 action: () =>
                   studio.edit((file) =>
-                    connectNodes(file, tab.scope, menu.edge!, null),
+                    removeEdge(file, menu.scope, menu.edge!),
                   ),
               },
             ]

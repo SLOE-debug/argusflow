@@ -1,12 +1,19 @@
-import type { Expr, WorkflowFile, WorkflowNode } from "./contracts";
+import type {
+  Expr,
+  WorkflowFile,
+  WorkflowNode,
+  EdgeEndpoint,
+} from "./contracts";
 import { childScopes, newId } from "./factory";
 import { scopeById, replaceScope } from "./graph";
 import { availableSymbols } from "../values/symbols";
 import { rewriteAction, rewriteExpression } from "./clipboard-rewrite";
 import { bindingDeclarations } from "./bindings";
+import { endpointId, scopeEndpoints, endpointNodeId } from "./endpoints";
+import { endpointKey } from "./connections";
 
 export interface WorkflowClipboard {
-  readonly format: "argusflow.nodes.v1";
+  readonly format: "argusflow.nodes";
   readonly sourceWorkflow: string;
   readonly sourceScope: string;
   readonly selected: readonly string[];
@@ -21,7 +28,10 @@ export function copyNodes(
 ): WorkflowClipboard | null {
   const scope = scopeById(file, scopeId);
   const roots = scope.nodes.filter((node) => selected.has(node.id));
-  if (!roots.length) return null;
+  const endpoints = scopeEndpoints(file, scopeId).filter((node) =>
+    selected.has(node.id),
+  );
+  if (!roots.length && !endpoints.length) return null;
   const children = new Set<string>();
   const visit = (node: WorkflowNode) =>
     childScopes(node.action).forEach(({ id }) => {
@@ -33,23 +43,28 @@ export function copyNodes(
   const scopes = [
     {
       ...scope,
-      entry: roots[0].id,
+      edges: scope.edges.filter(
+        (edge) =>
+          selected.has(endpointNodeId(scopeId, edge.source)) &&
+          selected.has(endpointNodeId(scopeId, edge.target)),
+      ),
       outputs: {},
-      nodes: roots.map((node) => ({
-        ...node,
-        next: node.next && selected.has(node.next) ? node.next : null,
-      })),
+      nodes: roots,
     },
     ...file.definition.scopes.filter((item) => children.has(item.id)),
   ];
   const ids = new Set(
     scopes.flatMap((item) => item.nodes.map((node) => node.id)),
   );
+  endpoints.forEach((item) => ids.add(item.id));
+  children.forEach((scope) =>
+    scopeEndpoints(file, scope).forEach((item) => ids.add(item.id)),
+  );
   return {
-    format: "argusflow.nodes.v1",
+    format: "argusflow.nodes",
     sourceWorkflow: file.id,
     sourceScope: scopeId,
-    selected: roots.map((node) => node.id),
+    selected: [...roots, ...endpoints].map((node) => node.id),
     bindings: Object.fromEntries(
       scopes.map((scope) => [scope.id, bindingDeclarations(file, scope.id)]),
     ),
@@ -57,6 +72,11 @@ export function copyNodes(
       ...file,
       definition: { ...file.definition, root: scopeId, scopes, subflows: {} },
       editor: {
+        edges: Object.fromEntries(
+          scopes.flatMap((scope) =>
+            scope.edges.map((edge) => [edge.id, file.editor.edges[edge.id]]),
+          ),
+        ),
         nodes: Object.fromEntries(
           Object.entries(file.editor.nodes).filter(([id]) => ids.has(id)),
         ),
@@ -77,6 +97,11 @@ export function pasteNodes(
   at: { readonly x: number; readonly y: number },
 ): { readonly file: WorkflowFile; readonly selected: readonly string[] } {
   const source = clipboard.file;
+  const edgeIds = new Map(
+    source.definition.scopes.flatMap((scope) =>
+      scope.edges.map((edge) => [edge.id, newId("edge")] as const),
+    ),
+  );
   const ids = new Map(
     source.definition.scopes.flatMap((scope) =>
       scope.nodes.map((node) => [node.id, newId("node")] as const),
@@ -88,6 +113,24 @@ export function pasteNodes(
       scope.id === clipboard.sourceScope ? scopeId : newId("scope"),
     ]),
   );
+  for (const scope of source.definition.scopes)
+    for (const endpoint of scopeEndpoints(source, scope.id)) {
+      const id = endpointId(scopes.get(scope.id)!, endpoint.kind);
+      // 粘贴到已有起止标记的作用域时保留原标记及其位置。
+      if (!target.editor.nodes[id]) ids.set(endpoint.id, id);
+    }
+  if (!ids.size) {
+    const existing = scopeById(target, scopeId).edges;
+    const changed = scopeById(source, clipboard.sourceScope).edges.some(
+      (edge) =>
+        !existing.some(
+          (item) =>
+            endpointKey(item.source) === endpointKey(edge.source) &&
+            endpointKey(item.target) === endpointKey(edge.target),
+        ),
+    );
+    if (!changed) return { file: target, selected: [] };
+  }
   const crossScope =
     clipboard.sourceWorkflow !== target.id || clipboard.sourceScope !== scopeId;
   const drafts: Record<string, string> = { ...target.editor.drafts };
@@ -217,14 +260,23 @@ export function pasteNodes(
     return {
       ...scope,
       id: scopes.get(scope.id)!,
-      entry: scope.entry ? (ids.get(scope.entry) ?? null) : null,
+      edges: scope.edges.map((edge) => {
+        const remap = (endpoint: EdgeEndpoint): EdgeEndpoint =>
+          endpoint.kind === "node"
+            ? { kind: "node", node: ids.get(endpoint.node)! }
+            : endpoint;
+        return {
+          id: edgeIds.get(edge.id)!,
+          source: remap(edge.source),
+          target: remap(edge.target),
+        };
+      }),
       nodes: scope.nodes.map((node) => {
         const id = ids.get(node.id)!,
           rewrite = rewriteFor(id);
         return {
           ...node,
           id,
-          next: node.next ? (ids.get(node.next) ?? null) : null,
           action: rewriteAction(node.action, rewrite),
           output_bindings: Object.fromEntries(
             Object.entries(node.output_bindings).map(([name, expr]) => [
@@ -274,7 +326,17 @@ export function pasteNodes(
   }
   let file = replaceScope(target, {
     ...scope,
-    entry: scope.entry ?? roots.entry ?? roots.nodes[0]?.id ?? null,
+    edges: [
+      ...scope.edges,
+      ...roots.edges.filter(
+        (edge) =>
+          !scope.edges.some(
+            (existing) =>
+              endpointKey(existing.source) === endpointKey(edge.source) &&
+              endpointKey(existing.target) === endpointKey(edge.target),
+          ),
+      ),
+    ],
     nodes: [...scope.nodes, ...roots.nodes],
   });
   file = {
@@ -286,7 +348,31 @@ export function pasteNodes(
         ...copied.filter((item) => item.id !== scopeId),
       ],
     },
-    editor: { nodes: layout, drafts },
+    editor: {
+      nodes: layout,
+      drafts,
+      edges: {
+        ...target.editor.edges,
+        ...Object.fromEntries(
+          source.definition.scopes.flatMap((scope) =>
+            scope.edges.flatMap((edge) => {
+              const id = edgeIds.get(edge.id)!;
+              const kept =
+                scope.id !== clipboard.sourceScope ||
+                file.definition.scopes.some((scope) =>
+                  scope.edges.some((edge) => edge.id === id),
+                );
+              return kept ? [[id, source.editor.edges[edge.id]]] : [];
+            }),
+          ),
+        ),
+      },
+    },
   };
-  return { file, selected: clipboard.selected.map((id) => ids.get(id)!) };
+  return {
+    file,
+    selected: clipboard.selected.flatMap((id) =>
+      ids.has(id) ? [ids.get(id)!] : [],
+    ),
+  };
 }

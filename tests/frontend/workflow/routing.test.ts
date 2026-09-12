@@ -1,3 +1,4 @@
+import { RoutingObstacles } from "../../../src/flow";
 import { expect, it } from "vitest";
 import { routeEdge } from "../../../src/flow/geometry/routing";
 import { bindingDeclarations } from "../../../src/features/workflow/model/bindings";
@@ -14,7 +15,11 @@ import {
 
 it("routes a horizontal connection around an unrelated obstacle", () => {
   const obstacle = { x: 180, y: 10, width: 150, height: 100 };
-  const points = routeEdge({ x: 100, y: 60 }, { x: 500, y: 60 }, [obstacle]);
+  const { points } = routeEdge(
+    { point: { x: 100, y: 60 }, side: "right" },
+    { point: { x: 500, y: 60 }, side: "left" },
+    new RoutingObstacles([{ ...obstacle, id: "obstacle" }]),
+  );
   expect(points[0]).toEqual({ x: 100, y: 60 });
   expect(points.at(-1)).toEqual({ x: 500, y: 60 });
   expect(

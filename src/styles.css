@@ -22,6 +22,8 @@
   --color-accent-soft: var(--af-accentSoft);
   --color-on-accent: var(--af-onAccent);
   --color-success: var(--af-success);
+  --color-node-start: var(--af-nodeStart);
+  --color-node-end: var(--af-nodeEnd);
   --color-success-soft: var(--af-successSoft);
   --color-danger: var(--af-danger);
   --color-danger-soft: var(--af-dangerSoft);

@@ -1,5 +1,4 @@
 {
-  "schema_version": 1,
   "name": "参数与返回值",
   "inputs": {},
   "outputs": {
@@ -15,11 +14,9 @@
   "scopes": [
     {
       "id": "root",
-      "entry": "total",
       "nodes": [
         {
           "id": "total",
-          "next": "first",
           "timeout_ms": null,
           "action": {
             "kind": "let",
@@ -42,7 +39,6 @@
         },
         {
           "id": "first",
-          "next": "second",
           "timeout_ms": null,
           "action": {
             "kind": "call",
@@ -65,7 +61,6 @@
         },
         {
           "id": "second",
-          "next": null,
           "timeout_ms": null,
           "action": {
             "kind": "call",
@@ -98,15 +93,57 @@
           "node": "second",
           "output": "sum"
         }
-      }
+      },
+      "edges": [
+        {
+          "id": "root:edge:0",
+          "source": {
+            "kind": "start"
+          },
+          "target": {
+            "kind": "node",
+            "node": "total"
+          }
+        },
+        {
+          "id": "root:edge:1",
+          "source": {
+            "kind": "node",
+            "node": "total"
+          },
+          "target": {
+            "kind": "node",
+            "node": "first"
+          }
+        },
+        {
+          "id": "root:edge:2",
+          "source": {
+            "kind": "node",
+            "node": "first"
+          },
+          "target": {
+            "kind": "node",
+            "node": "second"
+          }
+        },
+        {
+          "id": "root:edge:3",
+          "source": {
+            "kind": "node",
+            "node": "second"
+          },
+          "target": {
+            "kind": "end"
+          }
+        }
+      ]
     },
     {
       "id": "accumulate-body",
-      "entry": "add",
       "nodes": [
         {
           "id": "add",
-          "next": null,
           "timeout_ms": null,
           "action": {
             "kind": "assign",
@@ -136,7 +173,29 @@
           "kind": "variable",
           "name": "total"
         }
-      }
+      },
+      "edges": [
+        {
+          "id": "accumulate-body:edge:0",
+          "source": {
+            "kind": "start"
+          },
+          "target": {
+            "kind": "node",
+            "node": "add"
+          }
+        },
+        {
+          "id": "accumulate-body:edge:1",
+          "source": {
+            "kind": "node",
+            "node": "add"
+          },
+          "target": {
+            "kind": "end"
+          }
+        }
+      ]
     }
   ],
   "subflows": {

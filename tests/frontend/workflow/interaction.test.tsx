@@ -11,6 +11,7 @@ import {
 } from "../../../src/features/workflow";
 import { INITIAL_STATE } from "../../../src/features/workflow/studio/state";
 import { worldToScreen } from "../../../src/flow";
+import { mockCanvas } from "../support/canvas";
 import {
   LIGHT_THEME,
   registerTheme,
@@ -35,6 +36,7 @@ function install(): EditorTab {
     future: [],
     scope: file.definition.root,
     selected: [],
+    selectedEdge: null,
     viewport: { x: 20, y: 30, zoom: 1.46 },
   };
   studio.store.setState({
@@ -47,6 +49,7 @@ function install(): EditorTab {
 }
 beforeEach(() => {
   vi.useFakeTimers();
+  mockCanvas();
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
     x: 0,
     y: 0,
@@ -111,7 +114,7 @@ describe("canvas and inspector interaction without browser automation", () => {
     expect(
       screen.queryByRole("button", { name: tab.file.definition.name }),
     ).toBeNull();
-    expect(screen.queryByText("146%")).toBeNull();
+    expect(screen.queryByRole("button", { name: "小地图" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "平移" }));
     expect(screen.getByRole("button", { name: "平移" })).toHaveAttribute(
       "aria-pressed",
@@ -138,7 +141,7 @@ describe("canvas and inspector interaction without browser automation", () => {
       screen.getByRole("textbox", { name: "搜索节点" }),
     ).toBeInTheDocument();
   });
-  it("wheel enters only the pointed loop and exits continuously with hysteresis", () => {
+  it("滚轮保持根相机与编辑归属，子图屏幕锚点连续缩放", () => {
     const tab = install(),
       scene = buildScene(tab.file);
     const child = Object.values(scene.scopes).find((scope) => scope.parent)!;
@@ -152,27 +155,28 @@ describe("canvas and inspector interaction without browser automation", () => {
       tab.viewport,
     );
     fireEvent.wheel(canvas, { deltaY: -1, clientX: point.x, clientY: point.y });
-    expect(studio.active?.scope).toBe(child.id);
+    expect(studio.active?.scope).toBe(tab.scope);
     const entered = studio.active!;
     const before = worldToScreen(
-      { x: child.bounds.x + 100, y: child.bounds.y + 70 },
+      worldToScreen(
+        { x: child.bounds.x + 100, y: child.bounds.y + 70 },
+        child.transform,
+      ),
       entered.viewport,
     );
     expect(before.x).toBeCloseTo(point.x, 0);
-    act(() => studio.view({ ...entered.viewport, zoom: 0.59 }));
-    const beforeExit = studio.active!;
     fireEvent.wheel(canvas, { deltaY: 1, clientX: point.x, clientY: point.y });
     expect(studio.active?.scope).toBe(tab.scope);
-    expect(studio.active!.viewport.zoom).toBeCloseTo(
-      (beforeExit.viewport.zoom * Math.exp(-0.0015)) / 0.55,
-    );
+    expect(studio.active!.viewport.zoom).toBeCloseTo(tab.viewport.zoom);
+    expect(studio.active!.viewport.x).toBeCloseTo(tab.viewport.x);
+    expect(studio.active!.viewport.y).toBeCloseTo(tab.viewport.y);
   });
   it("canvas shortcuts perform one transaction and input composition retains native editing", async () => {
     const tab = install();
     render(<Canvas tab={tab} />);
     const canvas = screen.getByRole("application");
     fireEvent.keyDown(canvas, { key: "a", ctrlKey: true });
-    const selected = studio.active!.selected.length;
+    const selected = studio.active!.file.definition.scopes[0].nodes.length;
     expect(selected).toBeGreaterThan(0);
     fireEvent.keyDown(canvas, { key: "d", ctrlKey: true });
     expect(studio.active!.past).toHaveLength(1);

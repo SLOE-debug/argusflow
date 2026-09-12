@@ -59,18 +59,16 @@ export function Toolbar({
         </>
       )}
       {tab && (
-        <Button
-          variant="ghost"
+        <span
+          role="status"
+          aria-label="保存状态"
           className={
-            "text-[11px] " +
+            "inline-flex cursor-default items-center gap-1.5 px-1.5 text-[11px] " +
             (["failed", "conflict"].includes(tab.status)
               ? "text-danger"
               : "text-muted")
           }
           title={tab.error}
-          onClick={() => {
-            void studio.safely(() => studio.flushAll());
-          }}
         >
           {tab.status === "saved" ? (
             <Check size={12} className="text-success" />
@@ -78,7 +76,7 @@ export function Toolbar({
             <Save size={12} />
           )}
           {SAVE_LABELS[tab.status]}
-        </Button>
+        </span>
       )}
       <span className="flex-1" />
       {running && (

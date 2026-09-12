@@ -95,6 +95,28 @@ pub async fn save_document(
         .save(&file, revision.as_deref())
 }
 #[tauri::command]
+pub async fn delete_document(
+    id: String,
+    revision: String,
+    state: State<'_, DesktopState>,
+) -> Result<(), String> {
+    if state
+        .runs
+        .snapshot()
+        .await
+        .is_some_and(|run| run.status.is_active() && run.documents.contains(&id))
+    {
+        return Err("运行快照涉及的文档暂时只读".into());
+    }
+    state
+        .workspace
+        .lock()
+        .await
+        .as_ref()
+        .ok_or("工作流数据尚未就绪，请重试初始化")?
+        .remove(&id, &revision)
+}
+#[tauri::command]
 pub async fn validate_workflow(
     id: String,
     state: State<'_, DesktopState>,

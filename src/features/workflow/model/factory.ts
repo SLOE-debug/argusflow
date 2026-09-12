@@ -9,30 +9,41 @@ import {
   text,
 } from "./expressions";
 import { taskSpec } from "../nodes/catalog";
+import { initialScopeLayout } from "./endpoints";
 
 export function newId(prefix: string): string {
   return prefix + "_" + crypto.randomUUID().replaceAll("-", "").slice(0, 16);
 }
 export function emptyScope(id: string): Scope {
-  return { id, entry: null, nodes: [], outputs: {} };
+  return {
+    id,
+    edges: [
+      { id: newId("edge"), source: { kind: "start" }, target: { kind: "end" } },
+    ],
+    nodes: [],
+    outputs: {},
+  };
 }
 /** 新文档不包含执行用伪开始节点。 */
 export function createWorkflow(name = "未命名工作流"): WorkflowFile {
   const root = newId("scope");
+  const scope = emptyScope(root);
   return {
-    format_version: 1,
     id: newId("flow"),
     definition: {
-      schema_version: 1,
       name,
       inputs: {},
       outputs: {},
       resources: {},
       root,
-      scopes: [emptyScope(root)],
+      scopes: [scope],
       subflows: {},
     },
-    editor: { nodes: {}, drafts: {} },
+    editor: {
+      nodes: initialScopeLayout(root),
+      edges: { [scope.edges[0].id]: { source: "right", target: "left" } },
+      drafts: {},
+    },
   };
 }
 /** 创建结构时同时创建独占的子作用域。 */
@@ -154,7 +165,7 @@ export function createNode(kind: string): {
     }
   }
   return {
-    node: { id, next: null, timeout_ms: null, action, output_bindings: {} },
+    node: { id, timeout_ms: null, action, output_bindings: {} },
     scopes,
   };
 }

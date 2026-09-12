@@ -15,8 +15,12 @@ export interface EditorTab {
   readonly error?: string;
   readonly past: readonly WorkflowFile[];
   readonly future: readonly WorkflowFile[];
+  /** 编辑归属，不控制场景显示层级。 */
   readonly scope: string;
   readonly selected: readonly string[];
+  /** 连线选择与节点集合互斥，身份属于当前编辑作用域。 */
+  readonly selectedEdge: string | null;
+  /** 从根场景到画布 CSS 像素的相机变换。 */
   readonly viewport: ViewportTransform;
 }
 export type DockTab = "logs" | "problems" | "data" | "aql";

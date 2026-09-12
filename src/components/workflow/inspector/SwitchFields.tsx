@@ -1,13 +1,11 @@
 import { Plus, Trash2 } from "lucide-react";
 import {
   availableSymbols,
-  childScopes,
+  addSwitchCase,
+  removeSwitchCase,
   defaultValue,
-  emptyScope,
   inferExpression,
   literal,
-  newId,
-  scopeById,
   studio,
   updateNode,
   type Action,
@@ -42,49 +40,7 @@ export function SwitchFields({
       updateNode(file, node.id, (current) => ({ ...current, action: next })),
     );
   const remove = (id: string) =>
-    studio.edit((file) => {
-      const scopes = new Set<string>();
-      const collect = (id: string) => {
-        scopes.add(id);
-        scopeById(file, id).nodes.forEach((node) =>
-          childScopes(node.action).forEach((child) => collect(child.id)),
-        );
-      };
-      collect(id);
-      const nodes = new Set(
-        file.definition.scopes
-          .filter((scope) => scopes.has(scope.id))
-          .flatMap((scope) => scope.nodes.map((node) => node.id)),
-      );
-      const next = updateNode(file, node.id, (current) => ({
-        ...current,
-        action: {
-          ...action,
-          cases: action.cases.filter((item) => item.scope !== id),
-        },
-      }));
-      return {
-        ...next,
-        definition: {
-          ...next.definition,
-          scopes: next.definition.scopes.filter(
-            (scope) => !scopes.has(scope.id),
-          ),
-        },
-        editor: {
-          nodes: Object.fromEntries(
-            Object.entries(next.editor.nodes).filter(([id]) => !nodes.has(id)),
-          ),
-          drafts: Object.fromEntries(
-            Object.entries(next.editor.drafts).filter(
-              ([key]) =>
-                !nodes.has(key.split(":")[0]) &&
-                key !== node.id + ":case." + id,
-            ),
-          ),
-        },
-      };
-    });
+    studio.edit((file) => removeSwitchCase(file, node.id, id));
   return (
     <div className="space-y-3">
       <FormField label="判断类型">
@@ -163,7 +119,6 @@ export function SwitchFields({
         className="h-6 px-0 text-[11px]"
         onClick={() =>
           studio.edit((file) => {
-            const id = newId("scope");
             const value =
               type.type === "text"
                 ? {
@@ -176,20 +131,7 @@ export function SwitchFields({
                       value: String(action.cases.length + 1),
                     }
                   : defaultValue(type);
-            const next = updateNode(file, node.id, (current) => ({
-              ...current,
-              action: {
-                ...action,
-                cases: [...action.cases, { value, scope: id }],
-              },
-            }));
-            return {
-              ...next,
-              definition: {
-                ...next.definition,
-                scopes: [...next.definition.scopes, emptyScope(id)],
-              },
-            };
+            return addSwitchCase(file, node.id, value);
           })
         }
       >

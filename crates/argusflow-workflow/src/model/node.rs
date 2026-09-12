@@ -62,8 +62,6 @@ pub struct Assignment {
 pub struct Node {
     /// 文档内唯一节点 ID。
     pub id: String,
-    /// 本作用域内下一节点；None 表示正常离开。
-    pub next: Option<String>,
     /// 可选节点总时限，含全部重试和子作用域，单位毫秒。
     pub timeout_ms: Option<u64>,
     /// 控制或业务行为。
@@ -72,20 +70,14 @@ pub struct Node {
     pub output_bindings: BTreeMap<String, Expr>,
 }
 impl Node {
-    /// 创建节点；默认无后继、无额外时限、无输出映射。
+    /// 创建独立动作；连接由所属作用域持有。
     pub fn new(id: impl Into<String>, action: Action) -> Self {
         Self {
             id: id.into(),
-            next: None,
             timeout_ms: None,
             action,
             output_bindings: BTreeMap::new(),
         }
-    }
-    /// 设置作用域内后继。
-    pub fn then(mut self, next: impl Into<String>) -> Self {
-        self.next = Some(next.into());
-        self
     }
 }
 

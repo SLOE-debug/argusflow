@@ -3,16 +3,8 @@ use argusflow_workflow::*;
 use serde_json::json;
 use std::collections::BTreeMap;
 
-fn scope(id: &str, mut nodes: Vec<Node>) -> Scope {
-    for index in 0..nodes.len().saturating_sub(1) {
-        nodes[index].next = Some(nodes[index + 1].id.clone());
-    }
-    Scope {
-        id: id.into(),
-        entry: nodes.first().map(|node| node.id.clone()),
-        nodes,
-        outputs: BTreeMap::new(),
-    }
+fn scope(id: &str, nodes: Vec<Node>) -> Scope {
+    Scope::linear(id, nodes)
 }
 fn task(
     id: &str,
@@ -127,7 +119,6 @@ pub fn document(endpoint: &str, application: Option<&str>, browser: Option<&str>
         ],
     );
     Workflow {
-        schema_version: 1,
         name: "应用与浏览器作用域清理".into(),
         inputs: Fields::new(),
         outputs: Fields::new(),

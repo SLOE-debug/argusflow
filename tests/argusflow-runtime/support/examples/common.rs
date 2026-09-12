@@ -3,23 +3,17 @@ use argusflow_runtime::*;
 use argusflow_workflow::*;
 use std::collections::BTreeMap;
 
-pub fn scope(id: &str, mut nodes: Vec<Node>, outputs: Vec<(&str, Expr)>) -> Scope {
-    for index in 0..nodes.len().saturating_sub(1) {
-        nodes[index].next = Some(nodes[index + 1].id.clone());
-    }
+pub fn scope(id: &str, nodes: Vec<Node>, outputs: Vec<(&str, Expr)>) -> Scope {
     Scope {
-        id: id.into(),
-        entry: nodes.first().map(|node| node.id.clone()),
-        nodes,
         outputs: outputs
             .into_iter()
             .map(|(name, value)| (name.into(), value))
             .collect(),
+        ..Scope::linear(id, nodes)
     }
 }
 pub fn workflow(name: &str, scopes: Vec<Scope>, outputs: Fields) -> Workflow {
     Workflow {
-        schema_version: 1,
         name: name.into(),
         inputs: Fields::new(),
         outputs,

@@ -1,6 +1,6 @@
 # Rust Workflow
 
-当前 workflow 使用独立的新版本契约，不加载 experimental 的历史文档。`argusflow-workflow` 拥有文档和数据类型，`argusflow-runtime` 编译与执行，`argusflow-workflow-automation` 装配实际能力。引擎不依赖平台、Tauri、浏览器协议或 OCR 实现。
+当前 workflow 只维护一套契约。`argusflow-workflow` 拥有文档和数据类型，`argusflow-runtime` 编译与执行，`argusflow-workflow-automation` 装配实际能力。引擎不依赖平台、Tauri、浏览器协议或 OCR 实现。
 
 ## 公共入口
 
@@ -27,9 +27,11 @@ Ok(())
 
 ## 文档和结构图
 
-文档包含 `schema_version: 1`、名称、根输入/输出类型、根借用资源、根作用域 ID、扁平 `scopes` 表和 `subflows` 表。JSON 使用 Serde 标记枚举，拒绝未知字段；`Workflow::from_json` 限制 8 MiB。公开 Rust 类型是唯一格式定义，示例的 `--json` 可以导出完整文档。
+文档包含名称、根输入/输出类型、根借用资源、根作用域 ID、扁平 `scopes` 表和 `subflows` 表。JSON 使用 Serde 标记枚举，拒绝未知字段；`Workflow::from_json` 限制 8 MiB。公开 Rust 类型是唯一格式定义，示例的 `--json` 可以导出完整文档。工作流定义与编辑文件不设置格式版本号，节点剪贴板使用 `argusflow.nodes` 类型标识；结构变更直接同步前后端、模板和测试数据，不提供历史结构兼容或自动迁移。
 
-每个 Scope 有入口、节点和正常出口表达式。节点 `next` 只连接同一作用域中的节点；分支通过 If/Switch 拥有子作用域，返回容器后再执行 next。每个子作用域必须有唯一结构拥有者，子流程入口另由子流程定义拥有。拒绝循环连线、跨域边、重复 ID、不可达节点和共享子块；循环必须使用 While/ForEach。图的控制边不携带数据，数据通过表达式引用。
+每个 Scope 包含 `nodes`、显式 `edges` 和正常出口表达式。每条边有文档内唯一 ID、`source` 与 `target`；端点使用 `{kind: "start"}`、`{kind: "end"}` 或 `{kind: "node", node: "节点 ID"}`，只能连接本作用域。新建空作用域显式连接开始与结束，Rust 有序构造使用 `Scope::linear`。`ScopeGraph` 统一检查方向、身份、重复连接与图回环，不决定分支执行策略。编辑布局独立保存卡片与端点边位，完整文件保存要求每个作用域都有起止卡片，允许未连完与多出口草稿。
+
+运行准备要求开始有唯一出口、全部节点可达、普通路径显式连接结束；Return、Fail、Break、Continue 不要求连接结束。当前所有多出口（包括被调用工作流）均返回带作用域/节点位置的诊断并阻止执行，不能默认取某条边。结构化分支通过 If/Switch 拥有子作用域，返回容器后沿唯一后继继续。每个子作用域必须有唯一结构拥有者，子流程入口另由子流程定义拥有。拒绝跨域边、重复 ID 和共享子块；循环必须使用 While/ForEach。控制边不携带数据，数据通过表达式引用。
 
 结构化分支没有任意跨块跳转或 fallthrough；If 的两块和 Switch 的默认块均显式存在，可使用空块。正常完成分支的容器输出类型必须一致；直接 Return、Fail、Break、Continue 的路径不参与正常出口类型合并。循环体与 Finally 不发布容器输出，跨轮累计值应声明在循环外。首期报告首个有作用域/节点位置的准备错误。
 

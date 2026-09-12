@@ -1,6 +1,6 @@
 //! 编辑草稿到当前执行契约的显式编译；不会使用字段的旧成功配置。
 use super::{WorkflowFile, wire::decode_workflow};
-use argusflow_workflow::{Action, Workflow};
+use argusflow_workflow::{Action, EdgeEndpoint, ScopeGraph, Workflow};
 use std::collections::BTreeSet;
 
 #[cfg(test)]
@@ -36,13 +36,16 @@ fn can_complete(workflow: &Workflow, id: &str, ancestors: &BTreeSet<String>) -> 
     let mut ancestors = ancestors.clone();
     ancestors.insert(id.into());
     let completes = |id: &str| can_complete(workflow, id, &ancestors);
-    let mut next = scope.entry.as_deref();
+    let Ok(graph) = ScopeGraph::new(scope) else {
+        return true;
+    };
+    let mut next = graph.successor(&EdgeEndpoint::Start).ok();
     let mut visited = BTreeSet::new();
-    while let Some(id) = next {
+    while let Some(EdgeEndpoint::Node { node: id }) = next {
         if !visited.insert(id) {
             return true;
         }
-        let Some(node) = scope.nodes.iter().find(|node| node.id == id) else {
+        let Some(node) = scope.nodes.iter().find(|node| node.id == *id) else {
             return true;
         };
         let normal = match &node.action {
@@ -71,7 +74,7 @@ fn can_complete(workflow: &Workflow, id: &str, ancestors: &BTreeSet<String>) -> 
         if !normal {
             return false;
         }
-        next = node.next.as_deref();
+        next = graph.successor(&EdgeEndpoint::node(id)).ok();
     }
     true
 }

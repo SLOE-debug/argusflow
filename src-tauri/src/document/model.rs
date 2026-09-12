@@ -6,8 +6,6 @@ use std::collections::BTreeMap;
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WorkflowFile {
-    /// 当前编辑文件版本。
-    pub format_version: u32,
     /// 与文件路径无关的稳定身份。
     pub id: String,
     /// 带十进制整数字符串的前端执行定义。
@@ -21,8 +19,32 @@ pub struct WorkflowFile {
 pub struct EditorData {
     /// 节点对应的布局。
     pub nodes: BTreeMap<String, NodeLayout>,
+    /// 连线身份对应的两端边位。
+    pub edges: BTreeMap<String, EdgeLayout>,
     /// 尚未编译的字段原文，键为节点 ID 和字段名。
     pub drafts: BTreeMap<String, String>,
+}
+/// 卡片边中点方向，与前端端口契约一致。
+#[derive(Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AnchorSide {
+    /// 上边。
+    Top,
+    /// 右边。
+    Right,
+    /// 下边。
+    Bottom,
+    /// 左边。
+    Left,
+}
+/// 连接布局不参与工作流执行。
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EdgeLayout {
+    /// 来源卡片边位。
+    pub source: AnchorSide,
+    /// 目标卡片边位。
+    pub target: AnchorSide,
 }
 /// 单个节点的局部位置和展示文字。
 #[derive(Clone, Serialize, Deserialize)]

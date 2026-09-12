@@ -6,12 +6,16 @@ export function testDesktopApi(
   overrides: Partial<DesktopApi> = {},
 ): DesktopApi {
   return {
-    initializeWorkspace: async () => ({ path: "workspace", documents: [] }),
+    initializeWorkspace: async () => ({
+      path: "workspace",
+      documents: [],
+    }),
     listDocuments: async () => [],
     load: async () => {
       throw new Error("missing");
     },
     save: vi.fn(async (file) => ({ file, revision: crypto.randomUUID() })),
+    deleteDocument: vi.fn(async () => {}),
     validate: async () => [],
     start: async () => "run",
     stop: async () => {},

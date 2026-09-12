@@ -1,5 +1,4 @@
 {
-  "schema_version": 1,
   "name": "嵌套循环与全局累计",
   "inputs": {},
   "outputs": {
@@ -12,11 +11,9 @@
   "scopes": [
     {
       "id": "root",
-      "entry": "total",
       "nodes": [
         {
           "id": "total",
-          "next": "outer",
           "timeout_ms": null,
           "action": {
             "kind": "let",
@@ -39,7 +36,6 @@
         },
         {
           "id": "outer",
-          "next": "outer-loop",
           "timeout_ms": null,
           "action": {
             "kind": "let",
@@ -62,7 +58,6 @@
         },
         {
           "id": "outer-loop",
-          "next": null,
           "timeout_ms": null,
           "action": {
             "kind": "while",
@@ -95,15 +90,57 @@
           "kind": "variable",
           "name": "total"
         }
-      }
+      },
+      "edges": [
+        {
+          "id": "root:edge:0",
+          "source": {
+            "kind": "start"
+          },
+          "target": {
+            "kind": "node",
+            "node": "total"
+          }
+        },
+        {
+          "id": "root:edge:1",
+          "source": {
+            "kind": "node",
+            "node": "total"
+          },
+          "target": {
+            "kind": "node",
+            "node": "outer"
+          }
+        },
+        {
+          "id": "root:edge:2",
+          "source": {
+            "kind": "node",
+            "node": "outer"
+          },
+          "target": {
+            "kind": "node",
+            "node": "outer-loop"
+          }
+        },
+        {
+          "id": "root:edge:3",
+          "source": {
+            "kind": "node",
+            "node": "outer-loop"
+          },
+          "target": {
+            "kind": "end"
+          }
+        }
+      ]
     },
     {
       "id": "outer-body",
-      "entry": "inner",
       "nodes": [
         {
           "id": "inner",
-          "next": "inner-loop",
           "timeout_ms": null,
           "action": {
             "kind": "let",
@@ -126,7 +163,6 @@
         },
         {
           "id": "inner-loop",
-          "next": "next-outer",
           "timeout_ms": null,
           "action": {
             "kind": "while",
@@ -155,7 +191,6 @@
         },
         {
           "id": "next-outer",
-          "next": null,
           "timeout_ms": null,
           "action": {
             "kind": "assign",
@@ -186,15 +221,57 @@
           "output_bindings": {}
         }
       ],
-      "outputs": {}
+      "outputs": {},
+      "edges": [
+        {
+          "id": "outer-body:edge:0",
+          "source": {
+            "kind": "start"
+          },
+          "target": {
+            "kind": "node",
+            "node": "inner"
+          }
+        },
+        {
+          "id": "outer-body:edge:1",
+          "source": {
+            "kind": "node",
+            "node": "inner"
+          },
+          "target": {
+            "kind": "node",
+            "node": "inner-loop"
+          }
+        },
+        {
+          "id": "outer-body:edge:2",
+          "source": {
+            "kind": "node",
+            "node": "inner-loop"
+          },
+          "target": {
+            "kind": "node",
+            "node": "next-outer"
+          }
+        },
+        {
+          "id": "outer-body:edge:3",
+          "source": {
+            "kind": "node",
+            "node": "next-outer"
+          },
+          "target": {
+            "kind": "end"
+          }
+        }
+      ]
     },
     {
       "id": "inner-body",
-      "entry": "add-total",
       "nodes": [
         {
           "id": "add-total",
-          "next": "next-inner",
           "timeout_ms": null,
           "action": {
             "kind": "assign",
@@ -226,7 +303,6 @@
         },
         {
           "id": "next-inner",
-          "next": null,
           "timeout_ms": null,
           "action": {
             "kind": "assign",
@@ -257,7 +333,40 @@
           "output_bindings": {}
         }
       ],
-      "outputs": {}
+      "outputs": {},
+      "edges": [
+        {
+          "id": "inner-body:edge:0",
+          "source": {
+            "kind": "start"
+          },
+          "target": {
+            "kind": "node",
+            "node": "add-total"
+          }
+        },
+        {
+          "id": "inner-body:edge:1",
+          "source": {
+            "kind": "node",
+            "node": "add-total"
+          },
+          "target": {
+            "kind": "node",
+            "node": "next-inner"
+          }
+        },
+        {
+          "id": "inner-body:edge:2",
+          "source": {
+            "kind": "node",
+            "node": "next-inner"
+          },
+          "target": {
+            "kind": "end"
+          }
+        }
+      ]
     }
   ],
   "subflows": {}

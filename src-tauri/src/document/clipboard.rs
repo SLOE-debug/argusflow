@@ -4,6 +4,10 @@ use argusflow_workflow::Action;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
+#[cfg(test)]
+#[path = "../../../tests/argusflow-desktop/unit/document/clipboard.rs"]
+mod tests;
+
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct NodeClipboard {
@@ -20,10 +24,10 @@ pub fn parse(source: &str) -> Result<NodeClipboard, String> {
     }
     let clipboard: NodeClipboard =
         serde_json::from_str(source).map_err(|_| "剪贴板不是工作流节点")?;
-    if clipboard.format != "argusflow.nodes.v1" || clipboard.source_workflow != clipboard.file.id {
+    if clipboard.format != "argusflow.nodes" || clipboard.source_workflow != clipboard.file.id {
         return Err("剪贴板格式或身份无效".into());
     }
-    super::storage::validate(&clipboard.file)?;
+    super::storage::validate_draft(&clipboard.file, false)?;
     let workflow = decode_workflow(&clipboard.file.definition)?;
     if workflow.scopes.len() > 4096 || workflow.root != clipboard.source_scope {
         return Err("剪贴板作用域无效".into());
@@ -38,13 +42,6 @@ pub fn parse(source: &str) -> Result<NodeClipboard, String> {
         for node in &scope.nodes {
             if !nodes.insert(&node.id) || !clipboard.file.editor.nodes.contains_key(&node.id) {
                 return Err("节点身份或布局无效".into());
-            }
-            if node
-                .next
-                .as_ref()
-                .is_some_and(|id| !scope.nodes.iter().any(|node| &node.id == id))
-            {
-                return Err("连线不属于当前作用域".into());
             }
             let children = match &node.action {
                 Action::Block { scope } => vec![scope],
@@ -72,13 +69,6 @@ pub fn parse(source: &str) -> Result<NodeClipboard, String> {
                 }
             }
         }
-        if scope
-            .entry
-            .as_ref()
-            .is_some_and(|id| !scope.nodes.iter().any(|node| &node.id == id))
-        {
-            return Err("作用域入口无效".into());
-        }
     }
     if owned.len() + 1 != scopes.len() || owned.iter().any(|id| !scopes.contains(id)) {
         return Err("容器子图不完整".into());
@@ -88,13 +78,18 @@ pub fn parse(source: &str) -> Result<NodeClipboard, String> {
         .iter()
         .find(|scope| scope.id == workflow.root)
         .ok_or("缺少剪贴板根")?;
+    // 起止标记只有编辑布局，各作用域使用固定键，不作为执行节点解码。
+    let mut selectable: BTreeSet<String> = root.nodes.iter().map(|node| node.id.clone()).collect();
+    for kind in ["start", "end"] {
+        let id = format!("${kind}:{}", root.id);
+        if clipboard.file.editor.nodes.contains_key(&id) {
+            selectable.insert(id);
+        }
+    }
     if clipboard.selected.is_empty()
-        || clipboard.selected.len() != root.nodes.len()
+        || clipboard.selected.len() != selectable.len()
         || clipboard.selected.iter().collect::<BTreeSet<_>>().len() != clipboard.selected.len()
-        || clipboard
-            .selected
-            .iter()
-            .any(|id| !root.nodes.iter().any(|node| &node.id == id))
+        || clipboard.selected.iter().any(|id| !selectable.contains(id))
     {
         return Err("剪贴板选择范围无效".into());
     }

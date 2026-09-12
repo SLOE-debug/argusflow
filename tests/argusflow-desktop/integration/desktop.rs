@@ -1,6 +1,7 @@
 //! 文件服务的公开契约验收。
 use argusflow_desktop::document::{WorkflowFile, Workspace};
 use serde_json::json;
+mod edges;
 #[cfg(windows)]
 #[path = "../support/permissions.rs"]
 mod permissions;
@@ -18,10 +19,10 @@ fn initialization_rejects_unwritable_directory_and_retries_after_permission_repa
 
 fn file() -> WorkflowFile {
     serde_json::from_value(json!({
-        "format_version": 1, "id": "flow_test",
-        "definition": { "schema_version": 1, "name": "草稿", "inputs": {}, "outputs": {}, "resources": {}, "root": "root", "subflows": {},
-          "scopes": [{"id":"root","entry":"node","nodes":[{"id":"node","next":null,"timeout_ms":"18446744073709551615","action":{"kind":"wait","milliseconds":{"kind":"literal","value_type":{"type":"int"},"value":{"type":"int","value":"9007199254740993"}}},"output_bindings":{}}],"outputs":{}}]},
-        "editor": { "nodes": {"node":{"x":-45.5,"y":120,"label":"等待","note":"原始说明"}}, "drafts": {"node:milliseconds":"尚未完成"} }
+        "id": "flow_test",
+        "definition": { "name": "草稿", "inputs": {}, "outputs": {}, "resources": {}, "root": "root", "subflows": {},
+          "scopes": [{"id":"root","edges":[{"id":"entry","source":{"kind":"start"},"target":{"kind":"node","node":"node"}},{"id":"exit","source":{"kind":"node","node":"node"},"target":{"kind":"end"}}],"nodes":[{"id":"node","timeout_ms":"18446744073709551615","action":{"kind":"wait","milliseconds":{"kind":"literal","value_type":{"type":"int"},"value":{"type":"int","value":"9007199254740993"}}},"output_bindings":{}}],"outputs":{}}]},
+        "editor": { "nodes": {"node":{"x":-45.5,"y":120,"label":"等待","note":"原始说明"},"$start:root":{"x":-280,"y":120,"label":"开始","note":""},"$end:root":{"x":720,"y":120,"label":"结束","note":""}}, "edges":{"entry":{"source":"right","target":"left"},"exit":{"source":"right","target":"left"}}, "drafts": {"node:milliseconds":"尚未完成"} }
     })).unwrap()
 }
 #[test]
@@ -134,4 +135,47 @@ fn malformed_identity_numeric_wire_and_nonfinite_layout_are_rejected() {
     let mut value = file();
     value.editor.nodes.get_mut("node").unwrap().x = f64::NAN;
     assert!(workspace.save(&value, None).is_err());
+}
+
+#[test]
+fn editable_endpoints_roundtrip_without_changing_execution_definition() {
+    let directory = tempfile::tempdir().unwrap();
+    let workspace = Workspace::open(directory.path()).unwrap();
+    let mut original = file();
+    for (kind, x) in [("start", -280.0), ("end", 720.0)] {
+        let mut layout = original.editor.nodes["node"].clone();
+        layout.x = x;
+        original
+            .editor
+            .nodes
+            .insert(format!("${kind}:root"), layout);
+    }
+    workspace.save(&original, None).unwrap();
+    let loaded = workspace.load("flow_test").unwrap().file;
+    assert_eq!(loaded.editor.nodes["$start:root"].x, -280.0);
+    assert_eq!(loaded.editor.nodes["$end:root"].x, 720.0);
+    assert_eq!(loaded.definition, original.definition);
+}
+
+#[test]
+fn document_deletion_checks_revision_and_rejects_paths_outside_workspace() {
+    let directory = tempfile::tempdir().unwrap();
+    let workspace = Workspace::open(directory.path()).unwrap();
+    let original = file();
+    let saved = workspace.save(&original, None).unwrap();
+    assert!(workspace.remove("../outside", &saved.revision).is_err());
+    let mut renamed = original;
+    renamed.definition["name"] = json!("外部更名");
+    let updated = workspace.save(&renamed, Some(&saved.revision)).unwrap();
+    assert!(
+        workspace
+            .remove("flow_test", &saved.revision)
+            .unwrap_err()
+            .contains("conflict:")
+    );
+    assert_eq!(workspace.list().unwrap().len(), 1);
+    workspace.remove("flow_test", &updated.revision).unwrap();
+    assert!(workspace.list().unwrap().is_empty());
+    assert!(workspace.load("flow_test").is_err());
+    assert!(workspace.remove("flow_test", &updated.revision).is_err());
 }

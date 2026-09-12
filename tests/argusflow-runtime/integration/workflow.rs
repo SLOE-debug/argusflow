@@ -3,6 +3,8 @@
 mod bundle;
 #[path = "../unit/control.rs"]
 mod control;
+#[path = "../unit/edges.rs"]
+mod edges;
 #[path = "../unit/expressions.rs"]
 mod expressions;
 #[path = "../unit/failure.rs"]

@@ -8,7 +8,7 @@ import {
   type RunLocation,
   type RunSnapshot,
 } from "../../../features/workflow";
-import { fitBounds } from "../../../flow";
+import { compose, inverse, fitBounds } from "../../../flow";
 import { Button, Select } from "../../ui";
 
 /** 日志定位切换文档和作用域，使用真实调用路径。 */
@@ -20,8 +20,13 @@ export async function locate(location: RunLocation): Promise<void> {
     scope = scene.scopes[location.scope];
   if (!scope) return;
   const node = scope.nodes.find((node) => node.id === location.node);
-  studio.view(fitBounds(node ?? scope.bounds, 800, 500), scope.id);
-  studio.select(location.node ? [location.node] : []);
+  studio.view(
+    compose(
+      fitBounds(node ?? scope.bounds, 800, 500),
+      inverse(scope.transform),
+    ),
+  );
+  studio.select(location.node ? [location.node] : [], scope.id);
 }
 export const STATUS_LABELS = {
   running: "运行中",

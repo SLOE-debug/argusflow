@@ -5,6 +5,7 @@ import { childScopes } from "./factory";
 import { scopeById } from "./graph";
 import { PORT_LABELS, taskSpec } from "../nodes/catalog";
 import { expressionLabel } from "./expressions";
+import { scopeEndpoints } from "./endpoints";
 
 export interface NodeGeometry extends FlowRect {
   readonly id: string;
@@ -25,12 +26,6 @@ export interface Scene {
 }
 /** 固定预览比例使变更子图时节点可读性和缩放阈值保持稳定。 */
 const PREVIEW_SCALE = 0.55;
-/** 起止卡片与业务节点间保留完整连线空间，边界计算和渲染共用尺寸。 */
-export const SCOPE_ENDPOINT_LAYOUT = {
-  width: 88,
-  height: 36,
-  gap: 48,
-} as const;
 export function buildScene(file: WorkflowFile): Scene {
   const result: Record<string, ScopeGeometry> = {};
   const measure = (
@@ -47,8 +42,8 @@ export function buildScene(file: WorkflowFile): Scene {
       const children = childScopes(node.action).map((child) =>
         measure(child.id, scopeId, node.id, child.label, depth + 1),
       );
-      let width = 196,
-        height = 64;
+      let width = 232,
+        height = 80;
       if (children.length) {
         width = Math.max(
           300,
@@ -82,17 +77,16 @@ export function buildScene(file: WorkflowFile): Scene {
         children: children.map((child) => child.id),
       };
     });
-    const endpointSpace =
-      SCOPE_ENDPOINT_LAYOUT.width + SCOPE_ENDPOINT_LAYOUT.gap;
-    const x = Math.min(0, ...nodes.map((node) => node.x - endpointSpace));
-    const y = Math.min(0, ...nodes.map((node) => node.y - 40));
+    const elements = [...nodes, ...scopeEndpoints(file, scopeId)];
+    const x = Math.min(0, ...elements.map((node) => node.x - 40));
+    const y = Math.min(0, ...elements.map((node) => node.y - 40));
     const right = Math.max(
       240,
-      ...nodes.map((node) => node.x + node.width + endpointSpace),
+      ...elements.map((node) => node.x + node.width + 40),
     );
     const bottom = Math.max(
       140,
-      ...nodes.map((node) => node.y + node.height + 40),
+      ...elements.map((node) => node.y + node.height + 40),
     );
     const geometry: ScopeGeometry = {
       id: scopeId,

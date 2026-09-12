@@ -164,19 +164,18 @@ export type Action =
   | { readonly kind: "task"; readonly task: TaskDefinition };
 export interface WorkflowNode {
   readonly id: string;
-  readonly next: string | null;
   readonly timeout_ms: string | null;
   readonly action: Action;
   readonly output_bindings: Readonly<Record<string, Expr>>;
 }
 export interface Scope {
   readonly id: string;
-  readonly entry: string | null;
+  /** 所有连接的唯一事实来源，允许保存尚未配置条件的分支。 */
+  readonly edges: readonly WorkflowEdge[];
   readonly nodes: readonly WorkflowNode[];
   readonly outputs: Readonly<Record<string, Expr>>;
 }
 export interface WorkflowDefinition {
-  readonly schema_version: 1;
   readonly name: string;
   readonly inputs: Readonly<Record<string, ValueType>>;
   readonly outputs: Readonly<Record<string, ValueType>>;
@@ -201,12 +200,27 @@ export interface NodeLayout {
   readonly label: string;
   readonly note: string;
 }
+/** 起止是作用域边界，不是可执行动作。 */
+export type EdgeEndpoint =
+  | { readonly kind: "node"; readonly node: string }
+  | { readonly kind: "start" | "end" };
+/** 文档内稳定身份；改接不会创建新的边身份。 */
+export interface WorkflowEdge {
+  readonly id: string;
+  readonly source: EdgeEndpoint;
+  readonly target: EdgeEndpoint;
+}
+/** 指定的端口边位属于展示布局，不改变执行方向。 */
+export interface EdgeLayout {
+  readonly source: import("../../../flow").FlowAnchorSide;
+  readonly target: import("../../../flow").FlowAnchorSide;
+}
 export interface WorkflowFile {
-  readonly format_version: 1;
   readonly id: string;
   readonly definition: WorkflowDefinition;
   readonly editor: {
     readonly nodes: Readonly<Record<string, NodeLayout>>;
+    readonly edges: Readonly<Record<string, EdgeLayout>>;
     /** 未通过字段解析的原文也保存；编译时必须先消除这些草稿。 */
     readonly drafts: Readonly<Record<string, string>>;
   };

@@ -1,5 +1,5 @@
 //! 扁平作用域表与受控文档入口。
-use crate::{Expr, Fields, Node};
+use crate::{Expr, Fields, Node, WorkflowEdge};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -10,8 +10,6 @@ pub type ResourceFields = BTreeMap<String, String>;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Workflow {
-    /// 唯一接受的文档版本为 1，无旧协议映射。
-    pub schema_version: u32,
     /// 面向宿主的稳定工作流名称。
     pub name: String,
     /// 每次运行必须提供的只读数据输入。
@@ -36,7 +34,7 @@ impl Workflow {
         }
         serde_json::from_str(source).map_err(|e| e.to_string())
     }
-    /// 输出唯一当前版本文档。
+    /// 按当前结构输出文档。
     pub fn to_json(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string_pretty(self)
     }
@@ -48,9 +46,9 @@ impl Workflow {
 pub struct Scope {
     /// 文档内唯一作用域 ID。
     pub id: String,
-    /// 入口节点 ID；空作用域为 None。
-    pub entry: Option<String>,
-    /// 仅属于本作用域的节点；next 是作用域内有向边。
+    /// 显式连接，包括作用域的开始与结束边界。
+    pub edges: Vec<WorkflowEdge>,
+    /// 仅属于本作用域的可执行节点。
     pub nodes: Vec<Node>,
     /// 正常离开作用域时原子求值的公开输出。
     pub outputs: BTreeMap<String, Expr>,

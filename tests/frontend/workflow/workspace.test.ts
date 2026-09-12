@@ -47,7 +47,10 @@ it("失败保留原因，重试后可直接新建，不读取旧目录偏好", a
   const initialize = vi
     .fn()
     .mockRejectedValueOnce(new Error("目录不可写"))
-    .mockResolvedValue({ path: "appdata/workflows", documents: [] });
+    .mockResolvedValue({
+      path: "appdata/workflows",
+      documents: [],
+    });
   const studio = new WorkflowStudio(
     testDesktopApi({ initializeWorkspace: initialize }),
   );
@@ -66,7 +69,7 @@ it("失败保留原因，重试后可直接新建，不读取旧目录偏好", a
   localStorage.removeItem("argusflow.workspace");
 });
 
-it("首份文档损坏不会伪装成空目录，修复后允许重试", async () => {
+it("首份文档损坏会报告错误，修复后允许重试", async () => {
   const file = createWorkflow();
   const load = vi
     .fn()
@@ -82,7 +85,11 @@ it("首份文档损坏不会伪装成空目录，修复后允许重试", async (
     }),
   );
   await expect(studio.initializeWorkspace()).rejects.toThrow("文档损坏");
-  expect(studio.store.getState().initialization.status).toBe("failed");
+  expect(studio.store.getState().initialization).toEqual({
+    status: "failed",
+    error: "Error: 文档损坏",
+  });
+  expect(studio.active).toBeUndefined();
   await studio.initializeWorkspace();
   expect(studio.store.getState().initialization.status).toBe("ready");
   expect(studio.active?.file.id).toBe(file.id);

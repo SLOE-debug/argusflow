@@ -1,3 +1,4 @@
+import { edgeFrom, nextNode } from "../support/graph";
 import {
   act,
   createEvent,
@@ -19,10 +20,12 @@ import {
 } from "../../../src/features/workflow";
 import { INITIAL_STATE } from "../../../src/features/workflow/studio/state";
 import { mockUiEnvironment } from "../support/ui";
+import { mockCanvas } from "../support/canvas";
 
 beforeEach(() => {
   vi.useFakeTimers();
   mockUiEnvironment();
+  mockCanvas();
   studio.store.setState({
     ...INITIAL_STATE,
     workspace: "appdata/workflows",
@@ -51,6 +54,12 @@ it("侧栏默认显示节点树，搜索临时展开并恢复折叠，流程入�
     .spyOn(studio.api, "load")
     .mockResolvedValue({ file, revision: "one" });
   render(<Sidebar />);
+  for (const name of ["流程", "节点"]) {
+    const tab = screen.getByRole("tab", { name });
+    expect(tab.textContent).toBe("");
+    expect(tab.querySelector("svg")).not.toBeNull();
+    expect(tab).toHaveAttribute("title", name);
+  }
   const category = screen.getByRole("treeitem", { name: "浏览器" });
   expect(category).toHaveAttribute("aria-expanded", "false");
   fireEvent.change(screen.getByRole("textbox", { name: "搜索节点库" }), {
@@ -88,6 +97,12 @@ it("树方向键导航和 Enter 添加，拖动仅携带节点类型且不提前
   const common = screen.getByRole("treeitem", { name: "常用" });
   common.focus();
   fireEvent.keyDown(common, { key: "ArrowRight" });
+  const start = screen.getByRole("treeitem", { name: "开始" });
+  expect(start).toHaveFocus();
+  fireEvent.keyDown(start, { key: "ArrowDown" });
+  fireEvent.keyDown(screen.getByRole("treeitem", { name: "结束" }), {
+    key: "ArrowDown",
+  });
   const variable = screen.getByRole("treeitem", { name: "声明变量" });
   expect(variable).toHaveFocus();
   fireEvent.keyDown(variable, { key: "Enter" });
@@ -159,21 +174,22 @@ it("标题栏保留标签，工作流操作随编辑区显示，视图偏好集�
   expect(toolbar.closest("header")).toBeNull();
   expect(within(toolbar).getByRole("button", { name: "运行" })).toBeEnabled();
   expect(within(toolbar).getByRole("button", { name: "校验" })).toBeEnabled();
+  const save = within(toolbar).getByRole("status", { name: "保存状态" });
+  expect(save.tagName).toBe("SPAN");
+  expect(save.className).not.toContain("hover:");
+  expect(save).not.toHaveAttribute("tabindex");
+  expect(within(toolbar).queryByRole("button", { name: /保存/ })).toBeNull();
   expect(
     within(footer).getByRole("button", { name: "切换属性面板" }),
   ).toBeInTheDocument();
   const canvas = screen.getByRole("application", { name: "工作流画布" });
   expect(within(canvas).queryByText("开始")).toBeNull();
   expect(within(canvas).queryByText("结束")).toBeNull();
-  expect(
-    within(canvas).getByRole("button", { name: "添加第一个节点" }),
-  ).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "添加节点" })).toBeInTheDocument();
   act(() => studio.add("wait", { x: 100, y: 100 }));
-  expect(within(canvas).getByText("开始")).toBeInTheDocument();
-  expect(within(canvas).getByText("结束")).toBeInTheDocument();
-  expect(
-    within(canvas).queryByRole("button", { name: "添加第一个节点" }),
-  ).toBeNull();
+  expect(canvas.querySelectorAll("canvas")).toHaveLength(1);
+  expect(canvas.querySelector("[data-node]")).toBeNull();
+  expect(screen.queryByRole("button", { name: "添加第一个节点" })).toBeNull();
   fireEvent.click(screen.getByRole("tab", { name: "流程" }));
   fireEvent.click(screen.getByRole("button", { name: "新建流程" }));
   const second = studio.active!.file.id;
@@ -221,7 +237,13 @@ it("二级节点菜单在线路落点插入并保留后继，搜索入口仍可�
   render(
     <CanvasMenu
       tab={tab}
-      menu={{ x: 100, y: 100, point: { x: 300, y: 100 }, edge: first.id }}
+      menu={{
+        scope: tab.scope,
+        x: 100,
+        y: 100,
+        point: { x: 300, y: 100 },
+        edge: edgeFrom(tab.file, tab.scope, first.id).id,
+      }}
       onClose={close}
       onAdd={search}
     />,
@@ -231,8 +253,8 @@ it("二级节点菜单在线路落点插入并保留后继，搜索入口仍可�
   fireEvent.click(screen.getByRole("menuitem", { name: "声明变量" }));
   const nodes = studio.active!.file.definition.scopes[0].nodes;
   const inserted = nodes.find((node) => node.action.kind === "let")!;
-  expect(nodes.find((node) => node.id === first.id)!.next).toBe(inserted.id);
-  expect(inserted.next).toBe(second.id);
+  expect(nextNode(studio.active!.file, first.id)).toBe(inserted.id);
+  expect(nextNode(studio.active!.file, inserted.id)).toBe(second.id);
   expect(studio.active!.file.editor.nodes[inserted.id]).toMatchObject({
     x: 300,
     y: 100,
@@ -252,7 +274,7 @@ it("排列子菜单启用六向对齐并保持单次撤销，运行快照禁用�
   const before = studio.active!;
   const props = {
     tab: before,
-    menu: { x: 0, y: 0, point: { x: 0, y: 0 } },
+    menu: { scope: before.scope, x: 0, y: 0, point: { x: 0, y: 0 } },
     onClose: vi.fn(),
     onAdd: vi.fn(),
   };
@@ -261,7 +283,7 @@ it("排列子菜单启用六向对齐并保持单次撤销，运行快照禁用�
   expect(screen.getByRole("menuitem", { name: "水平分布" })).toBeDisabled();
   fireEvent.click(screen.getByRole("menuitem", { name: "右对齐" }));
   expect(
-    Object.values(studio.active!.file.editor.nodes).map((node) => node.x),
+    before.selected.map((id) => studio.active!.file.editor.nodes[id].x),
   ).toEqual([500, 500]);
   expect(studio.active!.past.length).toBe(before.past.length + 1);
   studio.undo();

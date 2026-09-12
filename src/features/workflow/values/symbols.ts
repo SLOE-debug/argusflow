@@ -7,6 +7,7 @@ import type {
 import { childScopes } from "../model/factory";
 import { scopeById, nodeTitle } from "../model/graph";
 import { taskSpec } from "../nodes/catalog";
+import { graphIndex } from "../model/connections";
 export interface SymbolValue {
   readonly label: string;
   readonly expression: Expr;
@@ -74,10 +75,12 @@ export function availableSymbols(
         type: { type: "int" },
       });
     }
-    let cursor = scope.entry;
-    const visited = new Set<string>();
-    while (cursor && cursor !== item.before && !visited.has(cursor)) {
-      visited.add(cursor);
+    const prefix = graphIndex(scope).prefix();
+    // 孤立节点和分叉之后的节点没有确定执行次序，不假定前缀已执行。
+    for (const cursor of item.before && !prefix.includes(item.before)
+      ? []
+      : prefix) {
+      if (cursor === item.before) break;
       const node = scope.nodes.find((node) => node.id === cursor);
       if (!node) break;
       const action = node.action;
@@ -143,7 +146,6 @@ export function availableSymbols(
           });
       }
       if (action.kind === "release") resources.delete(action.resource);
-      cursor = node.next;
     }
   }
   return { values: [...values.values()], resources: [...resources.values()] };

@@ -44,29 +44,23 @@ fn task(
         },
     )
 }
-fn flow(mut nodes: Vec<Node>, outputs: Vec<(&str, Expr, ValueType)>) -> Workflow {
-    for index in 0..nodes.len().saturating_sub(1) {
-        nodes[index].next = Some(nodes[index + 1].id.clone());
-    }
+fn flow(nodes: Vec<Node>, outputs: Vec<(&str, Expr, ValueType)>) -> Workflow {
     let output_types = outputs
         .iter()
         .map(|(name, _, ty)| ((*name).into(), ty.clone()))
         .collect();
     Workflow {
-        schema_version: 1,
         name: "adapter test".into(),
         inputs: Fields::new(),
         outputs: output_types,
         resources: BTreeMap::new(),
         root: "root".into(),
         scopes: vec![Scope {
-            id: "root".into(),
-            entry: nodes.first().map(|node| node.id.clone()),
-            nodes,
             outputs: outputs
                 .into_iter()
                 .map(|(name, expr, _)| (name.into(), expr))
                 .collect(),
+            ..Scope::linear("root", nodes)
         }],
         subflows: BTreeMap::new(),
     }

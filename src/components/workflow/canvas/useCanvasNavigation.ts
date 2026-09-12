@@ -1,65 +1,123 @@
-import { useEffect, type RefObject } from "react";
+import { useCallback, useEffect, useRef, type RefObject } from "react";
 import {
   compose,
-  contains,
+  fitBounds,
   inverse,
-  screenToWorld,
   zoomAt,
+  type FlowRect,
+  type ViewportTransform,
 } from "../../../flow";
-import { studio, type Scene } from "../../../features/workflow";
-/** 滚轮只改变仿射相机，作用域切换保留相同屏幕投影。 */
+import { studio, type CanvasScene } from "../../../features/workflow";
+
+/** 单个根场景相机，缩放不会改变编辑作用域。 */
 export function useCanvasNavigation(
   host: RefObject<HTMLDivElement | null>,
-  scene: Scene,
+  scene: CanvasScene,
+  size: { readonly width: number; readonly height: number },
 ) {
+  const animation = useRef<number | null>(null);
+  const cancel = useCallback(() => {
+    if (animation.current !== null) cancelAnimationFrame(animation.current);
+    animation.current = null;
+  }, []);
+  const animate = useCallback(
+    (target: ViewportTransform) => {
+      cancel();
+      const tab = studio.active;
+      if (!tab) return;
+      const start = tab.viewport;
+      const began = performance.now();
+      let expected = start;
+      const tick = (now: number) => {
+        // 外部定位或用户手势接管相机时，旧动画立即退出。
+        if (
+          studio.active?.file.id !== tab.file.id ||
+          studio.active.viewport !== expected
+        ) {
+          animation.current = null;
+          return;
+        }
+        const progress = Math.min(1, (now - began) / 180);
+        const t = 1 - (1 - progress) ** 3;
+        expected = {
+          x: start.x + (target.x - start.x) * t,
+          y: start.y + (target.y - start.y) * t,
+          zoom: Math.exp(
+            Math.log(start.zoom) +
+              (Math.log(target.zoom) - Math.log(start.zoom)) * t,
+          ),
+        };
+        studio.view(expected);
+        animation.current = progress < 1 ? requestAnimationFrame(tick) : null;
+      };
+      if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches)
+        studio.view(target);
+      else animation.current = requestAnimationFrame(tick);
+    },
+    [cancel],
+  );
+  const focus = useCallback(
+    (id: string, bounds?: FlowRect) => {
+      const scope = scene.scopes[id];
+      if (!scope) return;
+      studio.select([], id);
+      animate(
+        compose(
+          fitBounds(bounds ?? scope.bounds, size.width, size.height),
+          inverse(scope.transform),
+        ),
+      );
+    },
+    [scene, size.width, size.height, animate],
+  );
+  const zoom = useCallback(
+    (factor: number) => {
+      cancel();
+      const camera = studio.active?.viewport;
+      if (camera)
+        studio.view(
+          zoomAt(
+            camera,
+            { x: size.width / 2, y: size.height / 2 },
+            Math.max(0.000001, Math.min(scene.maxZoom, camera.zoom * factor)),
+          ),
+        );
+    },
+    [cancel, scene.maxZoom, size.width, size.height],
+  );
   useEffect(() => {
     const element = host.current;
     if (!element) return;
     const wheel = (event: WheelEvent) => {
       event.preventDefault();
-      const tab = studio.active;
-      if (!tab) return;
-      const active = scene.scopes[tab.scope];
-      if (!active) return;
+      cancel();
+      const camera = studio.active?.viewport;
+      if (!camera) return;
       const rect = element.getBoundingClientRect();
-      const point = {
-        x: event.clientX - rect.left,
-        y: event.clientY - rect.top,
-      };
+      const delta =
+        event.deltaY *
+        (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? size.height : 1);
       const nextZoom = Math.max(
-        0.03,
-        Math.min(4, tab.viewport.zoom * Math.exp(-event.deltaY * 0.0015)),
+        0.000001,
+        Math.min(
+          scene.maxZoom,
+          camera.zoom * Math.exp(-delta * (event.ctrlKey ? 0.01 : 0.0015)),
+        ),
       );
-      const next = zoomAt(tab.viewport, point, nextZoom);
-      const world = screenToWorld(point, next);
-      if (event.deltaY < 0) {
-        const container = active.nodes.find(
-          (node) => node.children.length && contains(node, world),
-        );
-        const child = container?.children
-          .map((id) => scene.scopes[id])
-          .find((scope) =>
-            contains(
-              {
-                x: scope.local.x + scope.bounds.x * scope.local.zoom,
-                y: scope.local.y + scope.bounds.y * scope.local.zoom,
-                width: scope.bounds.width * scope.local.zoom,
-                height: scope.bounds.height * scope.local.zoom,
-              },
-              world,
-            ),
-          );
-        if (child && nextZoom * child.local.zoom >= 0.8) {
-          studio.view(compose(next, child.local), child.id);
-          return;
-        }
-      } else if (active.parent && nextZoom < 0.6) {
-        studio.view(compose(next, inverse(active.local)), active.parent);
-        return;
-      }
-      studio.view(next);
+      studio.view(
+        zoomAt(
+          camera,
+          { x: event.clientX - rect.left, y: event.clientY - rect.top },
+          nextZoom,
+        ),
+      );
     };
     element.addEventListener("wheel", wheel, { passive: false });
-    return () => element.removeEventListener("wheel", wheel);
-  }, [host, scene]);
+    return () => {
+      element.removeEventListener("wheel", wheel);
+      cancel();
+    };
+  }, [host, scene.maxZoom, size.height, cancel]);
+  useEffect(() => cancel, [cancel]);
+  return { focus, zoom, cancel };
 }

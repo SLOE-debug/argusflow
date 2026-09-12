@@ -38,14 +38,16 @@ export function fitBounds(
   rect: FlowRect,
   width: number,
   height: number,
+  padding = 50,
+  maxZoom = 1.2,
 ): ViewportTransform {
   const zoom = Math.min(
-    1.2,
+    maxZoom,
     Math.max(
-      0.05,
+      0.000001,
       Math.min(
-        (width - 100) / Math.max(100, rect.width),
-        (height - 100) / Math.max(100, rect.height),
+        (width - padding * 2) / Math.max(1, rect.width),
+        (height - padding * 2) / Math.max(1, rect.height),
       ),
     ),
   );

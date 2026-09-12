@@ -70,6 +70,7 @@ it("an old asynchronous AQL application cannot clear a newer query draft", async
     future: [],
     scope: file.definition.root,
     selected: [added.id],
+    selectedEdge: null,
     viewport: { x: 0, y: 0, zoom: 1 },
   };
   studio.store.setState({
@@ -141,6 +142,7 @@ function installQuery() {
     future: [],
     scope: file.definition.root,
     selected: [added.id],
+    selectedEdge: null,
     viewport: { x: 0, y: 0, zoom: 1 },
   };
   studio.store.setState({

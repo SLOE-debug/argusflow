@@ -5,9 +5,9 @@ use serde_json::json;
 
 fn file() -> WorkflowFile {
     serde_json::from_value(json!({
-        "format_version":1,"id":"flow","definition":{"schema_version":1,"name":"返回","inputs":{},"outputs":{"answer":{"type":"int"}},"resources":{},"root":"root","subflows":{},
-        "scopes":[{"id":"root","entry":"return","nodes":[{"id":"return","next":null,"timeout_ms":null,"action":{"kind":"return","values":{"answer":{"kind":"literal","value_type":{"type":"int"},"value":{"type":"int","value":"42"}}}},"output_bindings":{}}],"outputs":{"answer":{"kind":"literal","value_type":{"type":"int"},"value":{"type":"int","value":"9007199254740993"}}}}]},
-        "editor":{"nodes":{"return":{"x":0,"y":0,"label":"返回","note":""}},"drafts":{}}
+        "id":"flow","definition":{"name":"返回","inputs":{},"outputs":{"answer":{"type":"int"}},"resources":{},"root":"root","subflows":{},
+        "scopes":[{"id":"root","edges":[{"id":"entry","source":{"kind":"start"},"target":{"kind":"node","node":"return"}}],"nodes":[{"id":"return","timeout_ms":null,"action":{"kind":"return","values":{"answer":{"kind":"literal","value_type":{"type":"int"},"value":{"type":"int","value":"42"}}}},"output_bindings":{}}],"outputs":{"answer":{"kind":"literal","value_type":{"type":"int"},"value":{"type":"int","value":"9007199254740993"}}}}]},
+        "editor":{"nodes":{"return":{"x":0,"y":0,"label":"返回","note":""},"$start:root":{"x":-200,"y":0,"label":"开始","note":""},"$end:root":{"x":400,"y":0,"label":"结束","note":""}},"edges":{"entry":{"source":"right","target":"left"}},"drafts":{}}
     })).unwrap()
 }
 #[tokio::test]

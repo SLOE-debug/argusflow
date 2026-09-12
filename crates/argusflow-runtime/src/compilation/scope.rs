@@ -1,6 +1,6 @@
 //! 每个节点的唯一后继与结构分支形成有界的结构化图。
 use super::{prepare::Compiler, *};
-use argusflow_workflow::{Diagnostic, DiagnosticCode, Fields, ValueType};
+use argusflow_workflow::{Diagnostic, DiagnosticCode, EdgeEndpoint, Fields, ScopeGraph, ValueType};
 use std::collections::{BTreeMap, BTreeSet};
 
 impl Compiler<'_> {
@@ -30,16 +30,17 @@ impl Compiler<'_> {
             .map(|node| (node.id.as_str(), node))
             .collect::<BTreeMap<_, _>>();
         let mut visited = BTreeSet::new();
-        let mut cursor = definition.entry.as_deref();
+        let graph = ScopeGraph::new(&definition)?;
+        let mut cursor = graph.successor(&EdgeEndpoint::Start)?;
         let mut nodes = Vec::new();
         let mut terminal = false;
-        while let Some(id) = cursor {
+        while let EdgeEndpoint::Node { node: id } = cursor {
             self.position = (scope, Some(id.to_owned()));
             if terminal || !visited.insert(id) {
                 return Err(self.error(DiagnosticCode::Structure, "环或终止节点之后存在连线"));
             }
             let node = by_id
-                .get(id)
+                .get(id.as_str())
                 .ok_or_else(|| self.error(DiagnosticCode::Structure, "后继必须属于当前作用域"))?;
             let (action, native_types) = self.action(&node.action, scope, &mut env)?;
             self.position = (scope, Some(id.to_owned()));
@@ -67,7 +68,16 @@ impl Compiler<'_> {
                 mappings,
                 output_types,
             });
-            cursor = node.next.as_deref();
+            let source = EdgeEndpoint::node(id);
+            cursor = if terminal {
+                graph
+                    .outgoing(&source)
+                    .first()
+                    .map(|edge| &edge.target)
+                    .unwrap_or(&EdgeEndpoint::End)
+            } else {
+                graph.successor(&source)?
+            };
         }
         if visited.len() != definition.nodes.len() {
             return Err(self.error(DiagnosticCode::Structure, "存在不可达节点或入口缺失"));

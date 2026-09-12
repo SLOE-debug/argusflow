@@ -16,6 +16,7 @@ pub fn run() {
             list_documents,
             load_document,
             save_document,
+            delete_document,
             validate_workflow,
             start_workflow,
             stop_workflow,

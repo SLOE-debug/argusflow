@@ -1,20 +1,17 @@
 import { useEffect, type RefObject } from "react";
-import {
-  hasTextSelection,
-  ownsKeyboard,
-  screenToWorld,
-  type FlowPoint,
-} from "../../../flow";
+import { hasTextSelection, ownsKeyboard, type FlowPoint } from "../../../flow";
 import {
   studio,
   scopeById,
+  scopeEndpoints,
   setLayout,
   childScopes,
   nodeById,
 } from "../../../features/workflow";
+import type { CanvasLocation } from "./scene";
 export function useCanvasCommands(
   host: RefObject<HTMLDivElement | null>,
-  pointer: RefObject<FlowPoint | null>,
+  location: () => CanvasLocation,
   add: () => void,
   activate: (scope: string) => void,
   cancel: () => void,
@@ -28,12 +25,7 @@ export function useCanvasCommands(
       if (!tab) return;
       const modifier = event.ctrlKey || event.metaKey;
       const letter = event.key.toLowerCase();
-      const center =
-        pointer.current ??
-        screenToWorld(
-          { x: element.clientWidth / 2, y: element.clientHeight / 2 },
-          tab.viewport,
-        );
+      const center = location();
       const run = (action: () => unknown) => {
         event.preventDefault();
         void studio.safely(action);
@@ -43,14 +35,18 @@ export function useCanvasCommands(
       if (modifier && letter === "a")
         return run(() =>
           studio.select(
-            scopeById(tab.file, tab.scope).nodes.map((node) => node.id),
+            [
+              ...scopeById(tab.file, tab.scope).nodes,
+              ...scopeEndpoints(tab.file, tab.scope),
+            ].map((node) => node.id),
           ),
         );
       if (event.key === "Escape") return run(cancel);
       if (studio.readonly) return;
       if (modifier && letter === "x" && !hasTextSelection())
         return run(() => studio.copy(true));
-      if (modifier && letter === "v") return run(() => studio.paste(center));
+      if (modifier && letter === "v")
+        return run(() => studio.paste(center.point, center.scope));
       if (modifier && letter === "d") return run(() => studio.duplicate());
       if (modifier && letter === "z")
         return run(() => (event.shiftKey ? studio.redo() : studio.undo()));
@@ -103,5 +99,5 @@ export function useCanvasCommands(
     };
     element.addEventListener("keydown", key);
     return () => element.removeEventListener("keydown", key);
-  }, [host, pointer, add, activate, cancel]);
+  }, [host, location, add, activate, cancel]);
 }

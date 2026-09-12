@@ -17,14 +17,14 @@ export interface NodeUsageState {
 }
 /** 尚无统计时的推荐顺序，不伪造使用次数。 */
 export const COMMON_NODE_DEFAULTS = [
+  "start",
+  "end",
   "let",
   "assign",
   "if",
   "for_each",
   "wait",
   "call_workflow",
-  "aql.query",
-  "aql.click",
 ] as const;
 const STORAGE_KEY = "argusflow.nodeUsage";
 type PreferenceStorage = Pick<Storage, "getItem" | "setItem">;

@@ -1,364 +1,257 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useId, useMemo, useRef, useState } from "react";
 import { useStore } from "zustand";
 import { ChevronRight, Plus } from "lucide-react";
-import { compose, inverse, screenToWorld, type FlowPoint } from "../../../flow";
 import {
-  buildScene,
-  childScopes,
-  nodeById,
+  buildCanvasScene,
   studio,
   type EditorTab,
 } from "../../../features/workflow";
-import { Button } from "../../ui";
-import { CanvasMenu } from "./CanvasMenu";
+import { useTheme } from "../../../features/themes";
+import { Button, IconButton } from "../../ui";
 import { NodeSearch } from "../palette/NodeSearch";
-import { ScopeGraph } from "./ScopeGraph";
+import { nodeStates } from "../execution/nodeStates";
+import { CanvasMenu } from "./CanvasMenu";
+import { CanvasErrorBoundary } from "./CanvasErrorBoundary";
+import { CanvasTools } from "./CanvasTools";
+import { editingScope, presentNodes, type CanvasLocation } from "./scene";
 import { useCanvasNavigation } from "./useCanvasNavigation";
 import { useCanvasCommands } from "./useCanvasCommands";
 import { useCanvasPointer, type CanvasToolMode } from "./useCanvasPointer";
-import { CanvasTools } from "./CanvasTools";
+import { useCanvasActions } from "./useCanvasActions";
+import { useCanvasRenderer } from "./rendering/useCanvasRenderer";
+import { InteractionPreview } from "./rendering/interactionPreview";
 import { useElementSize } from "./useElementSize";
-import { nodeStates } from "../execution/nodeStates";
 
-/** 画布入口只编排渲染层和单职责手势模块。 */
+/** 画布入口只装配表面、交互模块与 DOM 浮层。 */
 export function Canvas({ tab }: { readonly tab: EditorTab }) {
+  return (
+    <CanvasErrorBoundary>
+      <CanvasSurface tab={tab} />
+    </CanvasErrorBoundary>
+  );
+}
+
+/** 单个工作流会话的表面与交互状态。 */
+function CanvasSurface({ tab }: { readonly tab: EditorTab }) {
   const host = useRef<HTMLDivElement>(null);
+  const surface = useRef<HTMLCanvasElement>(null);
   const size = useElementSize(host);
+  const { colors } = useTheme();
   const run = useStore(studio.store, (state) => state.run);
   const states = useMemo(
     () => nodeStates(run, tab.file.id),
     [run, tab.file.id],
   );
-  const scene = useMemo(() => buildScene(tab.file), [tab.file]);
-  const active =
-    scene.scopes[tab.scope] ?? scene.scopes[tab.file.definition.root];
-  const rootView = compose(tab.viewport, inverse(active.transform));
-  const [search, setSearch] = useState<{
-    readonly point: FlowPoint;
-    readonly source?: string | null;
-  } | null>(null);
-  const [menu, setMenu] = useState<{
-    readonly x: number;
-    readonly y: number;
-    readonly point: FlowPoint;
-    readonly edge?: string;
-  } | null>(null);
-  const [minimap, setMinimap] = useState(false);
-  const [toolMode, setToolMode] = useState<CanvasToolMode>("select");
+  const scene = useMemo(() => buildCanvasScene(tab.file), [tab.file]);
+  const nodes = useMemo(() => presentNodes(tab.file), [tab.file]);
+  const active = editingScope(scene, tab.scope);
+  const [mode, setMode] = useState<CanvasToolMode>("select");
+  const preview = useMemo(() => new InteractionPreview(), []);
+  const navigation = useCanvasNavigation(host, scene, size);
+  /** 连线手势与浮层分别拥有状态，只通过明确落点回调连接。 */
+  const connected = useRef<(location: CanvasLocation) => void>(() => {});
   const addConnected = useCallback(
-    (point: FlowPoint, source: string) => setSearch({ point, source }),
+    (location: CanvasLocation) => connected.current(location),
     [],
   );
-  const gestures = useCanvasPointer(host, scene, addConnected, toolMode);
-  useCanvasNavigation(host, scene);
-  const activate = useCallback(
-    (scope: string) => {
-      const target = scene.scopes[scope];
-      if (target) studio.view(compose(rootView, target.transform), scope);
-    },
-    [scene, rootView],
+  const gestures = useCanvasPointer(
+    host,
+    scene,
+    nodes,
+    addConnected,
+    mode,
+    navigation.cancel,
+    preview,
   );
-  const cancel = useCallback(() => {
+  const actions = useCanvasActions(
+    host,
+    scene,
+    nodes,
+    gestures.pointer,
+    size,
+    navigation.focus,
+    mode === "pan",
+  );
+  connected.current = actions.setSearch;
+  const cancel = () => {
+    navigation.cancel();
     gestures.cancel();
-    setMenu(null);
-    setSearch(null);
-  }, [gestures]);
-  const add = useCallback(
-    () =>
-      setSearch({
-        point:
-          gestures.pointer.current ??
-          screenToWorld(
-            { x: size.width / 2, y: size.height / 2 },
-            tab.viewport,
-          ),
-      }),
-    [gestures.pointer, size, tab.viewport],
+    actions.close();
+  };
+  useCanvasCommands(
+    host,
+    actions.location,
+    actions.add,
+    navigation.focus,
+    cancel,
   );
-  useCanvasCommands(host, gestures.pointer, add, activate, cancel);
-  const closeMenu = useCallback(() => {
-    setMenu(null);
-    host.current?.focus();
-  }, []);
+  const error = useCanvasRenderer(
+    surface,
+    {
+      scene,
+      nodes,
+      camera: tab.viewport,
+      width: size.width,
+      height: size.height,
+      colors,
+      selected: tab.selected,
+      selectedEdge: tab.selectedEdge,
+      readonly: studio.readonly,
+      scope: active.id,
+      states,
+      runningDocument: Boolean(run?.documents.includes(tab.file.id)),
+      box: gestures.box,
+    },
+    preview,
+  );
+  const description = useId();
   const crumbs = [];
   let current: typeof active | undefined = active;
   while (current) {
     crumbs.unshift(current);
     current = current.parent ? scene.scopes[current.parent] : undefined;
   }
+  const fit = () => navigation.focus(scene.root);
+  const selection = tab.selected
+    .map((id) => nodes.get(id)?.title)
+    .filter(Boolean)
+    .join("、");
   return (
     <section className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-canvas">
-      {active.parent && (
-        <div className="absolute left-4 top-3 z-20 flex max-w-[calc(100%-220px)] items-center gap-1 rounded-md bg-surface/90 px-2 py-1 shadow-sm">
-          {crumbs.map((scope, index) => (
-            <span key={scope.id} className="flex min-w-0 items-center gap-1">
-              {index > 0 && <ChevronRight size={12} className="text-muted" />}
-              <Button
-                variant="ghost"
-                className="h-6 max-w-44 truncate px-1 text-[11px]"
-                onClick={() => activate(scope.id)}
-              >
-                {scope.label}
-              </Button>
-            </span>
-          ))}
-        </div>
-      )}
       <div
         ref={host}
         tabIndex={0}
         role="application"
         aria-label="工作流画布"
+        aria-describedby={description}
         className={
-          "relative min-h-0 min-w-0 flex-1 overflow-hidden outline-none " +
-          (toolMode === "pan" ? "cursor-grab active:cursor-grabbing" : "")
+          "relative min-h-0 min-w-0 flex-1 overflow-hidden outline-none after:pointer-events-none after:absolute after:bottom-2 after:left-1/2 after:h-1 after:w-8 after:-translate-x-1/2 after:rounded-full after:bg-accent/30 after:opacity-0 focus-visible:after:opacity-100 " +
+          (mode === "pan"
+            ? "cursor-grab active:cursor-grabbing"
+            : gestures.cursor)
         }
-        style={{
-          backgroundImage:
-            "radial-gradient(var(--af-grid) 1px, transparent 1px)",
-          backgroundSize:
-            20 * tab.viewport.zoom + "px " + 20 * tab.viewport.zoom + "px",
-          backgroundPosition: tab.viewport.x + "px " + tab.viewport.y + "px",
-        }}
         onPointerDown={gestures.down}
         onPointerMove={gestures.move}
+        onPointerLeave={gestures.leave}
         onPointerUp={gestures.up}
         onPointerCancel={gestures.cancel}
+        onLostPointerCapture={gestures.cancel}
+        onWheelCapture={gestures.cancel}
         onKeyDown={(event) => {
+          if (event.key === "Alt" && gestures.snapModifierChanged(true))
+            event.preventDefault();
           if (event.code === "Space" && event.target === event.currentTarget) {
             event.preventDefault();
             gestures.space.current = true;
           }
         }}
         onKeyUp={(event) => {
+          if (event.key === "Alt" && gestures.snapModifierChanged(false))
+            event.preventDefault();
           if (event.code === "Space") gestures.space.current = false;
         }}
         onBlur={() => {
           gestures.space.current = false;
         }}
-        onContextMenu={(event) => {
-          event.preventDefault();
-          const rect = event.currentTarget.getBoundingClientRect();
-          const element = event.target as Element;
-          const node = element.closest<HTMLElement>("[data-node]");
-          if (
-            node?.dataset.nodeScope === tab.scope &&
-            !tab.selected.includes(node.dataset.node!)
-          )
-            studio.select([node.dataset.node!]);
-          setMenu({
-            x: event.clientX,
-            y: event.clientY,
-            point: screenToWorld(
-              { x: event.clientX - rect.left, y: event.clientY - rect.top },
-              tab.viewport,
-            ),
-            edge: element.closest<HTMLElement>("[data-edge-source]")?.dataset
-              .edgeSource,
-          });
+        onClick={(event) => {
+          if (!gestures.consumeClick()) actions.click(event);
         }}
-        onDoubleClick={(event) => {
-          if (toolMode === "pan") return;
-          const target = event.target as Element;
-          const element = target.closest<HTMLElement>("[data-node]");
-          if (element) {
-            const node = nodeById(tab.file, element.dataset.node!);
-            if (!node) return;
-            const child = childScopes(node.action)[0];
-            if (child) activate(child.id);
-            else if (node.action.kind === "call_workflow")
-              void studio.safely(
-                () =>
-                  node.action.kind === "call_workflow" &&
-                  studio.open(node.action.workflow),
-              );
-            else {
-              studio.select([node.id]);
-              document
-                .querySelector<HTMLInputElement>("[data-node-title]")
-                ?.focus();
-            }
-          } else if (!studio.readonly) {
-            const rect = event.currentTarget.getBoundingClientRect();
-            setSearch({
-              point: screenToWorld(
-                { x: event.clientX - rect.left, y: event.clientY - rect.top },
-                tab.viewport,
-              ),
-              source:
-                target.closest<HTMLElement>("[data-edge-source]")?.dataset
-                  .edgeSource,
-            });
-          }
-        }}
-        onDragOver={(event) => {
-          if (event.dataTransfer.types.includes("application/argusflow-node")) {
-            event.preventDefault();
-            event.dataTransfer.dropEffect = "copy";
-          }
-        }}
-        onDrop={(event) => {
-          event.preventDefault();
-          const kind = event.dataTransfer.getData("application/argusflow-node");
-          const rect = event.currentTarget.getBoundingClientRect();
-          if (kind)
-            void studio.safely(() =>
-              studio.add(
-                kind,
-                screenToWorld(
-                  { x: event.clientX - rect.left, y: event.clientY - rect.top },
-                  tab.viewport,
-                ),
-              ),
-            );
-        }}
+        onContextMenu={actions.openMenu}
+        onDoubleClick={actions.doubleClick}
+        onDragOver={actions.dragOver}
+        onDrop={actions.drop}
       >
-        <div
-          className="absolute origin-top-left"
-          style={{
-            transform:
-              "translate(" +
-              rootView.x +
-              "px," +
-              rootView.y +
-              "px) scale(" +
-              rootView.zoom +
-              ")",
-          }}
-        >
-          <ScopeGraph
-            file={tab.file}
-            scene={scene}
-            scopeId={tab.file.definition.root}
-            activeScope={active.id}
-            selected={tab.selected}
-            rootView={rootView}
-            width={size.width}
-            height={size.height}
-            run={run}
-            states={states}
-          />
-        </div>
-        {gestures.box && (
-          <div
-            className="pointer-events-none absolute border border-accent bg-accent/10"
-            style={{
-              left: gestures.box.x * tab.viewport.zoom + tab.viewport.x,
-              top: gestures.box.y * tab.viewport.zoom + tab.viewport.y,
-              width: gestures.box.width * tab.viewport.zoom,
-              height: gestures.box.height * tab.viewport.zoom,
-            }}
-          />
-        )}
-        {gestures.wire && (
-          <svg className="pointer-events-none absolute inset-0 size-full">
-            <path
-              d={
-                "M " +
-                gestures.wire.from.x +
-                " " +
-                gestures.wire.from.y +
-                " L " +
-                gestures.wire.to.x +
-                " " +
-                gestures.wire.to.y
-              }
-              stroke="var(--af-accent)"
-              strokeWidth={2}
-              fill="none"
-            />
-          </svg>
-        )}
-        {!active.nodes.length && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="text-center">
-              <div className="mb-3 text-sm font-medium">从一个步骤开始</div>
-              <Button variant="primary" onClick={add}>
-                <Plus size={14} />
-                添加第一个节点
-              </Button>
-              <p className="mt-3 text-xs text-muted">
-                也可拖入节点，或按 Tab 搜索
-              </p>
-            </div>
-          </div>
-        )}
+        <canvas
+          ref={surface}
+          aria-hidden="true"
+          className="absolute inset-0 size-full touch-none"
+        />
+        <span id={description} className="sr-only">
+          滚轮缩放，空格或中键拖动平移。Tab 添加节点，Ctrl+A 选择当前流程，Enter
+          聚焦子流程。拖动节点时自动对齐，按住 Alt 暂停吸附。
+        </span>
+        <span role="status" aria-live="polite" className="sr-only">
+          {tab.selectedEdge
+            ? "已选择连线，可拖动两端改接"
+            : selection
+              ? "已选择：" + selection
+              : "当前流程：" + active.label}
+        </span>
       </div>
+      {active.parent && (
+        <nav
+          aria-label="流程层级"
+          className="absolute left-4 top-3 z-20 flex max-w-[calc(100%-280px)] items-center overflow-hidden rounded-lg border border-line bg-surface/95 px-2 py-1 shadow-sm"
+        >
+          {crumbs.map((scope, index) => (
+            <span key={scope.id} className="flex min-w-0 items-center gap-1">
+              {index > 0 && (
+                <ChevronRight size={12} className="shrink-0 text-muted" />
+              )}
+              <Button
+                variant="ghost"
+                className="h-7 max-w-32 truncate px-1 text-xs"
+                onClick={() => navigation.focus(scope.id)}
+              >
+                {scope.label}
+              </Button>
+            </span>
+          ))}
+        </nav>
+      )}
       <CanvasTools
         tab={tab}
-        scope={active}
+        scene={scene}
         size={size}
-        mode={toolMode}
-        onModeChange={(mode) => {
+        mode={mode}
+        onModeChange={(next) => {
           gestures.cancel();
-          setToolMode(mode);
+          setMode(next);
         }}
-        minimap={minimap}
-        onMinimapChange={() => setMinimap(!minimap)}
+        onFit={fit}
       />
-      {minimap && (
-        <svg
-          className="absolute bottom-4 right-4 z-20 h-24 w-40 rounded-lg border border-line bg-surface/95 shadow-sm"
-          preserveAspectRatio="none"
-          viewBox={[
-            active.bounds.x,
-            active.bounds.y,
-            active.bounds.width,
-            active.bounds.height,
-          ].join(" ")}
-          onClick={(event) => {
-            const rect = event.currentTarget.getBoundingClientRect();
-            const x =
-              active.bounds.x +
-              ((event.clientX - rect.left) / rect.width) * active.bounds.width;
-            const y =
-              active.bounds.y +
-              ((event.clientY - rect.top) / rect.height) * active.bounds.height;
-            studio.view({
-              ...tab.viewport,
-              x: size.width / 2 - x * tab.viewport.zoom,
-              y: size.height / 2 - y * tab.viewport.zoom,
-            });
-          }}
+      <IconButton
+        aria-label="添加节点"
+        disabled={studio.readonly}
+        className="absolute bottom-5 right-5 z-20 size-14 rounded-full border-0 bg-accent text-on-accent shadow-lg hover:bg-accent-hover"
+        onClick={actions.add}
+      >
+        <Plus size={28} />
+      </IconButton>
+      {error && (
+        <p
+          role="alert"
+          className="absolute left-1/2 top-1/2 -translate-x-1/2 rounded-lg bg-surface p-4 text-sm text-danger"
         >
-          {active.nodes.map((node) => (
-            <rect
-              key={node.id}
-              x={node.x}
-              y={node.y}
-              width={node.width}
-              height={node.height}
-              rx={6}
-              fill={
-                tab.selected.includes(node.id)
-                  ? "var(--af-accent)"
-                  : "var(--af-strong)"
-              }
-            />
-          ))}
-        </svg>
+          {error}
+        </p>
       )}
-      {search && (
+      {actions.search && (
         <NodeSearch
-          onClose={() => {
-            setSearch(null);
-            host.current?.focus();
-          }}
+          onClose={actions.close}
           onPick={(kind) => {
+            const target = actions.search!;
             void studio.safely(() =>
-              studio.add(kind, search.point, search.source),
+              studio.add(kind, target.point, target.connection, target.scope),
             );
-            setSearch(null);
-            host.current?.focus();
+            actions.close();
           }}
         />
       )}
-      {menu && (
+      {actions.menu && (
         <CanvasMenu
           tab={tab}
-          menu={menu}
-          onClose={closeMenu}
-          onAdd={() => setSearch({ point: menu.point, source: menu.edge })}
+          menu={actions.menu}
+          onClose={actions.closeMenu}
+          onAdd={() =>
+            actions.setSearch({
+              scope: actions.menu!.scope,
+              point: actions.menu!.point,
+              connection: actions.menu!.edge
+                ? { kind: "insert", edge: actions.menu!.edge }
+                : undefined,
+            })
+          }
         />
       )}
     </section>

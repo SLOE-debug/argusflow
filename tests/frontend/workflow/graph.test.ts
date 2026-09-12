@@ -1,10 +1,12 @@
+import { edgeFrom, nextNode } from "../support/graph";
 import { describe, expect, it } from "vitest";
 import {
   createWorkflow,
   scopeById,
   nodeById,
   updateNode,
-  connectNodes,
+  createConnection,
+  endpointId,
   loopTemplate,
   buildScene,
 } from "../../../src/features/workflow";
@@ -31,21 +33,33 @@ describe("workflow graph transactions", () => {
       empty.definition.root,
       "let",
       { x: 150, y: 0 },
-      first.id,
+      {
+        kind: "insert",
+        edge: edgeFrom(second.file, empty.definition.root, first.id).id,
+      },
     );
-    expect(nodeById(inserted.file, first.id)?.next).toBe(inserted.id);
-    expect(nodeById(inserted.file, inserted.id)?.next).toBe(second.id);
+    expect(nextNode(inserted.file, first.id)).toBe(inserted.id);
+    expect(nextNode(inserted.file, inserted.id)).toBe(second.id);
     const entry = addNode(
       inserted.file,
       empty.definition.root,
       "wait",
       { x: -300, y: 0 },
-      "$entry",
+      {
+        kind: "insert",
+        edge: edgeFrom(
+          inserted.file,
+          empty.definition.root,
+          endpointId(empty.definition.root, "start"),
+        ).id,
+      },
     );
-    expect(scopeById(entry.file, empty.definition.root).entry).toBe(entry.id);
-    expect(nodeById(entry.file, entry.id)?.next).toBe(first.id);
+    expect(
+      nextNode(entry.file, endpointId(empty.definition.root, "start")),
+    ).toBe(entry.id);
+    expect(nextNode(entry.file, entry.id)).toBe(first.id);
     expect(() =>
-      connectNodes(entry.file, empty.definition.root, second.id, first.id),
+      createConnection(entry.file, empty.definition.root, second.id, first.id),
     ).toThrow();
   });
   it("deletes owned graphs and reconnects adjacent business steps", () => {
@@ -59,7 +73,7 @@ describe("workflow graph transactions", () => {
     const child = addNode(last.file, action.scope, "wait", { x: 0, y: 0 });
     const deleted = deleteNodes(child.file, new Set([block.id]));
     expect(deleted.definition.scopes).toHaveLength(1);
-    expect(nodeById(deleted, first.id)?.next).toBe(last.id);
+    expect(nextNode(deleted, first.id)).toBe(last.id);
     expect(deleted.editor.nodes[child.id]).toBeUndefined();
   });
   it("copies a loop across documents preserving internal variables and remapping graph identities", () => {
@@ -88,10 +102,12 @@ describe("workflow graph transactions", () => {
     for (const scope of pasted.file.definition.scopes)
       for (const node of scope.nodes) {
         expect(oldIds.has(node.id)).toBe(false);
-        if (node.next)
-          expect(
-            scope.nodes.some((candidate) => candidate.id === node.next),
-          ).toBe(true);
+        for (const edge of scope.edges)
+          for (const endpoint of [edge.source, edge.target])
+            if (endpoint.kind === "node")
+              expect(
+                scope.nodes.some((candidate) => candidate.id === endpoint.node),
+              ).toBe(true);
       }
     const body = pasted.file.definition.scopes.find(
       (scope) => scope.id !== target.definition.root,

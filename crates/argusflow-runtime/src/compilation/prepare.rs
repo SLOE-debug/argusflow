@@ -32,8 +32,8 @@ pub(super) fn compile(
         scope: None,
         node: None,
     };
-    if workflow.schema_version != 1 || workflow.name.trim().is_empty() {
-        return Err(general("文档版本必须为 1 且名称非空"));
+    if workflow.name.trim().is_empty() {
+        return Err(general("工作流名称不能为空"));
     }
     if workflow.scopes.is_empty()
         || workflow.scopes.len() > 1024
@@ -43,9 +43,17 @@ pub(super) fn compile(
     }
     let mut scope_ids = BTreeMap::new();
     let mut node_ids = BTreeSet::new();
+    let mut edge_ids = BTreeSet::new();
     for (index, scope) in workflow.scopes.iter().enumerate() {
         if !valid_name(&scope.id) || scope_ids.insert(scope.id.clone(), index).is_some() {
             return Err(general("作用域 ID 为空、过长或重复"));
+        }
+        let graph = argusflow_workflow::ScopeGraph::new(scope)?;
+        graph.require_single_outputs()?;
+        for edge in &scope.edges {
+            if !edge_ids.insert(&edge.id) {
+                return Err(general("连线 ID 在文档内重复"));
+            }
         }
         for node in &scope.nodes {
             let at_node = |message: &str| Diagnostic {

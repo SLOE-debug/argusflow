@@ -1,6 +1,7 @@
 import { ArrowUpRight, ChevronRight, X } from "lucide-react";
 import {
   nodeById,
+  endpointKind,
   nodeKind,
   nodeTitle,
   setLayout,
@@ -15,6 +16,7 @@ import { TaskFields } from "./TaskFields";
 import { ControlFields } from "./ControlFields";
 import { OutputFields } from "./OutputFields";
 import { arrangeSelection } from "../../../features/workflow/studio/arrangement";
+import { EndpointInspector } from "./EndpointInspector";
 /** 主配置按任务语义排布，次要执行参数按需展开。 */
 export function Inspector({
   tab,
@@ -25,6 +27,10 @@ export function Inspector({
 }) {
   const node =
     tab.selected.length === 1 ? nodeById(tab.file, tab.selected[0]) : undefined;
+  const endpoint =
+    tab.selected.length === 1 ? endpointKind(tab.scope, tab.selected[0]) : null;
+  if (endpoint && tab.file.editor.nodes[tab.selected[0]])
+    return <EndpointInspector kind={endpoint} tab={tab} onClose={onClose} />;
   const pending = node
     ? Object.entries(tab.file.editor.drafts).filter(([key]) =>
         key.startsWith(node.id + ":"),

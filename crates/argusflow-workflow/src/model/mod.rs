@@ -2,8 +2,10 @@
 mod bundle;
 mod definition;
 mod expression;
+mod graph;
 mod node;
 pub use bundle::*;
 pub use definition::*;
 pub use expression::*;
+pub use graph::*;
 pub use node::*;

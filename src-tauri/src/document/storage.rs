@@ -41,11 +41,11 @@ impl Workspace {
     pub fn path(&self) -> String {
         self.root.to_string_lossy().into_owned()
     }
-    /// 读取全部流程列表；坏文件明确报错而非从列表消失。
+    /// 列出目录内通过当前结构校验的文档，读取失败直接报告。
     pub fn list(&self) -> Result<Vec<DocumentSummary>, String> {
         let mut documents = Vec::new();
-        for entry in fs::read_dir(&self.root).map_err(|e| e.to_string())? {
-            let path = entry.map_err(|e| e.to_string())?.path();
+        for entry in fs::read_dir(&self.root).map_err(|error| error.to_string())? {
+            let path = entry.map_err(|error| error.to_string())?.path();
             if !path
                 .file_name()
                 .is_some_and(|name| name.to_string_lossy().ends_with(".workflow.json"))
@@ -111,6 +111,14 @@ impl Workspace {
             revision: blake3::hash(&bytes).to_hex().to_string(),
         })
     }
+    /// 删除指定版本的文件，外部修改过的文档必须重新确认。
+    pub fn remove(&self, id: &str, revision: &str) -> Result<(), String> {
+        let path = self.file_path(id)?;
+        if read(&path)?.revision != revision {
+            return Err("conflict:工作流已在外部修改，请刷新列表后重试删除".into());
+        }
+        fs::remove_file(path).map_err(|error| format!("删除工作流失败：{error}"))
+    }
     fn file_path(&self, id: &str) -> Result<PathBuf, String> {
         if id.is_empty()
             || id.len() > 100
@@ -130,7 +138,7 @@ fn read(path: &Path) -> Result<LoadedDocument, String> {
     }
     let bytes = fs::read(path).map_err(|e| e.to_string())?;
     let file: WorkflowFile =
-        serde_json::from_slice(&bytes).map_err(|e| format!("{}：{e}", path.display()))?;
+        serde_json::from_slice(&bytes).map_err(|error| format!("{}：{error}", path.display()))?;
     validate(&file)?;
     Ok(LoadedDocument {
         file,
@@ -139,11 +147,57 @@ fn read(path: &Path) -> Result<LoadedDocument, String> {
 }
 /// 保存允许未完成的业务配置，但不接受损坏结构和非有限布局。
 pub fn validate(file: &WorkflowFile) -> Result<(), String> {
-    if file.format_version != 1 {
-        return Err("仅支持当前工作流编辑格式".into());
-    }
+    validate_draft(file, true)
+}
+/// 剪贴板局部选区不要求起止布局，其他当前格式结构约束完全相同。
+pub(super) fn validate_draft(file: &WorkflowFile, require_endpoints: bool) -> Result<(), String> {
     let workflow = decode_workflow(&file.definition)?;
     let nodes = super::structure::validate(&workflow)?;
+    let mut edges = std::collections::BTreeSet::new();
+    for scope in &workflow.scopes {
+        argusflow_workflow::ScopeGraph::new(scope)
+            .map_err(|error| format!("{}：{}", scope.id, error.message))?;
+        for edge in &scope.edges {
+            if !edges.insert(edge.id.as_str()) || !file.editor.edges.contains_key(&edge.id) {
+                return Err(format!("{}：连线身份重复或缺少端口布局", scope.id));
+            }
+            if !require_endpoints {
+                for endpoint in [&edge.source, &edge.target] {
+                    let kind = match endpoint {
+                        argusflow_workflow::EdgeEndpoint::Start => "start",
+                        argusflow_workflow::EdgeEndpoint::End => "end",
+                        argusflow_workflow::EdgeEndpoint::Node { .. } => continue,
+                    };
+                    if !file
+                        .editor
+                        .nodes
+                        .contains_key(&format!("${kind}:{}", scope.id))
+                    {
+                        return Err(format!("{}：选区连线引用了未复制的起止卡片", scope.id));
+                    }
+                }
+            }
+        }
+        if require_endpoints {
+            for (kind, label) in [("start", "开始"), ("end", "结束")] {
+                if !file
+                    .editor
+                    .nodes
+                    .contains_key(&format!("${kind}:{}", scope.id))
+                {
+                    return Err(format!("{}：缺少{label}，无法保存", scope.id));
+                }
+            }
+        }
+    }
+    if file
+        .editor
+        .edges
+        .keys()
+        .any(|id| !edges.contains(id.as_str()))
+    {
+        return Err("存在无对应连线的端口布局".into());
+    }
     if nodes.iter().any(|id| !file.editor.nodes.contains_key(*id)) {
         return Err("节点缺少画布布局".into());
     }

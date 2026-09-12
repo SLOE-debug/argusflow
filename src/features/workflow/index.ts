@@ -17,9 +17,27 @@ export {
   updateNode,
   setLayout,
   replaceScope,
-  connectNodes,
 } from "./model/graph";
-export { buildScene, nodeSummary, SCOPE_ENDPOINT_LAYOUT } from "./model/layout";
+export {
+  createConnection,
+  reconnectEdge,
+  removeEdge,
+  connectionError,
+  graphIndex,
+  isTerminal,
+} from "./model/connections";
+export { assertSaveable } from "./model/validation";
+export type { NodeConnection } from "./model/node-creation";
+export { addSwitchCase, removeSwitchCase } from "./model/branches";
+export { buildScene, nodeSummary } from "./model/layout";
+export {
+  endpointId,
+  endpointKind,
+  scopeEndpoints,
+  isEndpointKind,
+  edgeEndpoint,
+  endpointNodeId,
+} from "./model/endpoints";
 export type { Scene, ScopeGeometry, NodeGeometry } from "./model/layout";
 export {
   TEXT,
@@ -54,5 +72,14 @@ export { BINARY_OPS, FUNCTIONS } from "./model/contracts";
 export { loopTemplate, browserTemplate } from "./model/templates";
 export { useQueryEditor } from "./studio/useQueryEditor";
 export { nodeUsage, commonNodes } from "./nodes/usage";
+export { nodeColor } from "./nodes/presentation";
+export { documentReadonly, listedDocuments } from "./studio/documents";
 export { arrangeSelection } from "./studio/arrangement";
 export type { Arrangement } from "./studio/arrangement";
+export { buildCanvasScene, scopeElements } from "./model/canvas-scene";
+export type {
+  CanvasScene,
+  SceneEdge,
+  SceneEndpoint,
+  ScopeDetails,
+} from "./model/canvas-scene";

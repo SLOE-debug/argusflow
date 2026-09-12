@@ -9,24 +9,21 @@ fn fixture(wait: i64) -> WorkflowBundle {
         workflows: BTreeMap::from([(
             WorkflowId("flow".into()),
             Workflow {
-                schema_version: 1,
                 name: "日志验收".into(),
                 inputs: BTreeMap::new(),
                 outputs: BTreeMap::new(),
                 resources: BTreeMap::new(),
                 root: "root".into(),
                 subflows: BTreeMap::new(),
-                scopes: vec![Scope {
-                    id: "root".into(),
-                    entry: Some("wait".into()),
-                    nodes: vec![Node::new(
+                scopes: vec![Scope::linear(
+                    "root",
+                    vec![Node::new(
                         "wait",
                         Action::Wait {
                             milliseconds: Expr::int(wait),
                         },
                     )],
-                    outputs: BTreeMap::new(),
-                }],
+                )],
             },
         )]),
     }

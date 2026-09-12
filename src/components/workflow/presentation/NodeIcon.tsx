@@ -13,7 +13,10 @@ import {
   Box,
   Variable,
   ListFilter,
+  Play,
+  Square,
 } from "lucide-react";
+import { nodeTone } from "./nodeTone";
 /** 图标目录沿用实验分支的 Lucide 系列，节点语义由调用方传入。 */
 export function NodeIcon({
   kind,
@@ -22,6 +25,18 @@ export function NodeIcon({
   readonly kind: string;
   readonly size?: number;
 }) {
+  if (kind === "start" || kind === "end") {
+    const Icon = kind === "start" ? Play : Square;
+    return (
+      <Icon
+        className={nodeTone(kind)}
+        size={size}
+        fill="none"
+        strokeWidth={1.7}
+        aria-hidden="true"
+      />
+    );
+  }
   const Icon =
     kind.startsWith("browser.") || kind === "source.dom"
       ? Globe2
@@ -52,5 +67,12 @@ export function NodeIcon({
                             : kind === "release"
                               ? Box
                               : ListFilter;
-  return <Icon size={size} strokeWidth={1.7} aria-hidden="true" />;
+  return (
+    <Icon
+      className={nodeTone(kind)}
+      size={size}
+      strokeWidth={1.7}
+      aria-hidden="true"
+    />
+  );
 }

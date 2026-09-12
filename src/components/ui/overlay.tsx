@@ -1,4 +1,10 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import {
+  useLayoutEffect,
+  useRef,
+  type KeyboardEventHandler,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { Button } from "./Button";
@@ -8,23 +14,29 @@ export function Dialog({
   children,
   onClose,
   wide = false,
+  initialFocus,
+  onKeyDown,
 }: {
   readonly title: string;
   readonly children: ReactNode;
   readonly onClose: () => void;
   readonly wide?: boolean;
+  readonly initialFocus?: RefObject<HTMLElement | null>;
+  readonly onKeyDown?: KeyboardEventHandler<HTMLDialogElement>;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const dialog = ref.current;
     dialog?.showModal();
+    initialFocus?.current?.focus({ preventScroll: true });
     return () => {
       dialog?.close();
     };
-  }, []);
+  }, [initialFocus]);
   return createPortal(
     <dialog
       ref={ref}
+      onKeyDown={onKeyDown}
       onCancel={(event) => {
         event.preventDefault();
         onClose();

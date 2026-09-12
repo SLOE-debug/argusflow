@@ -1,6 +1,7 @@
 import type { StoreApi } from "zustand/vanilla";
 import type { DesktopApi } from "../api/desktop";
 import type { EditorTab, StudioState } from "./state";
+import { assertSaveable, SaveStructureError } from "../model/validation";
 
 /** 每份文档只有一个保存任务，编辑版本和磁盘版本分开追踪。 */
 export class DocumentPersistence {
@@ -48,6 +49,7 @@ export class DocumentPersistence {
       error: undefined,
     }));
     try {
+      assertSaveable(tab.file);
       const saved = await this.api.save(tab.file, tab.revision);
       this.update(id, (current) => ({
         ...current,
@@ -62,6 +64,10 @@ export class DocumentPersistence {
         revision: saved.revision,
       };
       this.store.setState({
+        problems: state.problems.filter(
+          (problem) =>
+            problem.code !== "missing_endpoint" || problem.workflow !== id,
+        ),
         documents: [
           ...state.documents.filter((item) => item.id !== id),
           summary,
@@ -74,7 +80,25 @@ export class DocumentPersistence {
         status: message.includes("conflict:") ? "conflict" : "failed",
         error: message,
       }));
-      this.store.setState({ message });
+      this.store.setState({
+        message,
+        ...(error instanceof SaveStructureError
+          ? {
+              problems: [
+                ...this.store
+                  .getState()
+                  .problems.filter(
+                    (problem) =>
+                      problem.code !== "missing_endpoint" ||
+                      problem.workflow !== id,
+                  ),
+                ...error.problems,
+              ],
+              dock: "problems" as const,
+              dockOpen: true,
+            }
+          : {}),
+      });
       throw error;
     }
   }
