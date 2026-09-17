@@ -1,9 +1,11 @@
 //! 显式运行时枚举来源，或识别指定来源的完整物理像素区域；不保存图像。
-use argusflow_capture::{CaptureConfig, CaptureService};
-use argusflow_capture_contracts::{BackendConfig, PixelRect, SourceId, SourceState};
-use argusflow_core::OperationOptions;
+use argusflow_capture::FrameSampler;
+use argusflow_capture_contracts::{
+    DesktopFrameSource, FrameConfig, PixelRect, SourceId, SourceState,
+};
+use argusflow_core::{Operation, OperationOptions};
 use argusflow_vision::{OcrConfig, OcrEngine, SampledOcr};
-use argusflow_windows::DxgiBackend;
+use argusflow_windows::DxgiFrameSource;
 use std::{
     error::Error,
     sync::Arc,
@@ -16,19 +18,25 @@ async fn main() -> Result<(), Box<dyn Error>> {
     if arguments.len() != 1 && arguments.len() != 6 {
         return Err("usage: sample_ocr <deps-root> [source-id x y width height]".into());
     }
-    let backend = Arc::new(DxgiBackend::start(BackendConfig::default())?);
-    let service = CaptureService::start(backend, CaptureConfig::default())?;
+    let backend = Arc::new(DxgiFrameSource::start(FrameConfig {
+        width: 3840,
+        height: 2160,
+        ..Default::default()
+    })?);
+    let service = FrameSampler::new(backend.clone())?;
     let result = execute(&service, &arguments).await;
-    service
-        .shutdown(OperationOptions::new(Duration::from_secs(3))?)
+    backend
+        .shutdown(Operation::new(OperationOptions::new(Duration::from_secs(
+            3,
+        ))?))
         .await?;
     result
 }
-async fn execute(service: &CaptureService, arguments: &[String]) -> Result<(), Box<dyn Error>> {
+async fn execute(service: &FrameSampler, arguments: &[String]) -> Result<(), Box<dyn Error>> {
     let deadline = Instant::now() + Duration::from_secs(12);
     loop {
         if service
-            .sources()
+            .sources()?
             .iter()
             .any(|source| source.state == SourceState::Ready)
         {
@@ -39,7 +47,7 @@ async fn execute(service: &CaptureService, arguments: &[String]) -> Result<(), B
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    for source in service.sources() {
+    for source in service.sources()? {
         println!(
             "source={} bounds={:?} state={:?}",
             source.id.0, source.bounds, source.state
@@ -74,6 +82,5 @@ async fn execute(service: &CaptureService, arguments: &[String]) -> Result<(), B
         result.reused()
     );
     println!("{}", result.result().text());
-    println!("stats={:?}", service.stats());
     Ok(())
 }

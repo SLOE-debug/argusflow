@@ -1,6 +1,6 @@
 //! 用固定测试图片验证采样 OCR 装配，不采集用户桌面。
 use argusflow_capture_contracts::*;
-use argusflow_core::{FailureKind, Operation};
+use argusflow_core::Operation;
 use std::{
     sync::{
         Arc,
@@ -48,17 +48,18 @@ impl RegionSource for FixtureSource {
                     acquired: time,
                     frozen: time,
                 },
-                pixels: Arc::new(FixturePixels(valid)),
+                validity: Arc::new(FixtureValidity(valid)),
             });
             let content = if request.previous.is_some() {
                 SampleContent::Unchanged
             } else {
-                SampleContent::Image(image)
+                SampleContent::Image(image.clone())
             };
             Ok(RegionSample {
                 token: ContentToken {
                     snapshot,
                     region: request.region,
+                    image,
                 },
                 content,
                 observed_version: version,
@@ -67,35 +68,9 @@ impl RegionSource for FixtureSource {
         })
     }
 }
-struct FixturePixels(Arc<AtomicBool>);
-impl SnapshotPixels for FixturePixels {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
+struct FixtureValidity(Arc<AtomicBool>);
+impl SourceValidity for FixtureValidity {
     fn valid(&self) -> bool {
         self.0.load(Ordering::Acquire)
-    }
-    fn read(self: Arc<Self>, _: PixelRect, _: Operation) -> CaptureFuture<PixelImage> {
-        Box::pin(async {
-            Err(CaptureError::new(
-                FailureKind::Unsupported,
-                "fixture",
-                "fixture already supplies image",
-            ))
-        })
-    }
-    fn compare(
-        self: Arc<Self>,
-        _: Arc<dyn SnapshotPixels>,
-        _: Vec<PixelRect>,
-        _: Operation,
-    ) -> CaptureFuture<PixelChanges> {
-        Box::pin(async {
-            Err(CaptureError::new(
-                FailureKind::Unsupported,
-                "fixture",
-                "fixture handles content identity",
-            ))
-        })
     }
 }

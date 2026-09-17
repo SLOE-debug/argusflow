@@ -66,7 +66,7 @@ impl SampledOcr {
             }
         };
         if !matches!(sample.content, SampleContent::Unchanged)
-            || !sample.token.snapshot.pixels.valid()
+            || !sample.token.snapshot.validity.valid()
         {
             return Err(CaptureError::new(
                 FailureKind::StaleHandle,

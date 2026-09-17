@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { RecorderBar } from "../../recorder";
 import { useStore } from "zustand";
 import { initializeDesktop } from "./lifecycle";
 import { X, AlertCircle } from "lucide-react";
@@ -41,7 +42,7 @@ export function StudioApp() {
   }, []);
   return (
     <main className="flex h-screen min-h-[600px] min-w-[1000px] flex-col overflow-hidden bg-app font-sans text-ink">
-      <TitleBar tabs={<WorkflowTabs />} />
+      <TitleBar menu={<RecorderBar />} tabs={<WorkflowTabs />} />
       {state.message && (
         <div
           role="status"
@@ -145,6 +146,7 @@ export function StudioApp() {
         tab={tab}
         left={left}
         right={right}
+        dockOpen={state.dockOpen}
         onLeft={() => setLeft(!left)}
         onRight={() => setRight(!right)}
       />

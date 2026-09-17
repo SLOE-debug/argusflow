@@ -1,5 +1,5 @@
 //! 时钟和来源版本不以墙钟或窗口句柄代替。
-use crate::{PixelRect, Rotation, ScreenRect, SnapshotPixels};
+use crate::{Rotation, ScreenRect, SourceValidity};
 use std::{sync::Arc, time::Duration};
 
 /// 同一采样服务共享的单调时钟域；origin/frequency 描述原始 QPC。
@@ -40,7 +40,7 @@ pub struct Version {
     pub source: SourceId,
     /// 重建时递增。
     pub generation: u64,
-    /// 仅真实变化递增，基线为零。
+    /// 完整帧流每次接受桌面帧递增；内容是否相同另作像素比较。
     pub revision: u64,
 }
 /// 来源的明确生命周期。
@@ -89,7 +89,7 @@ pub struct Timing {
     /// 图像复制和比较完成时间。
     pub frozen: ClockTime,
 }
-/// 固定版本的 GPU 或内存图像；storage 只提供安全操作，不暴露原生句柄。
+/// 固定采样版本的身份、时间与来源有效性；图像由内容令牌持有。
 #[derive(Clone)]
 pub struct Snapshot {
     /// 完整身份。
@@ -98,8 +98,8 @@ pub struct Snapshot {
     pub bounds: ScreenRect,
     /// 该版本时间信息。
     pub timing: Timing,
-    /// 只读图像后端。
-    pub pixels: Arc<dyn SnapshotPixels>,
+    /// 来源生命周期检查，不代替当前内容复验。
+    pub validity: Arc<dyn SourceValidity>,
 }
 impl std::fmt::Debug for Snapshot {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -109,14 +109,4 @@ impl std::fmt::Debug for Snapshot {
             .field("timing", &self.timing)
             .finish_non_exhaustive()
     }
-}
-/// GPU 精确比较结果；矩形可包含内部未变像素，但不漏真实变化。
-#[derive(Debug, Clone, Default)]
-pub struct PixelChanges {
-    /// 图像本地变化区域。
-    pub regions: Vec<PixelRect>,
-    /// 被比较的不同像素数。
-    pub compared_pixels: u64,
-    /// 颜色确实改变的像素数。
-    pub changed_pixels: u64,
 }

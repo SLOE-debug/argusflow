@@ -143,6 +143,7 @@ version = "0.1.0"
 dependencies = [
  "argusflow-capture-contracts",
  "argusflow-core",
+ "argusflow-image",
  "tokio",
 ]
 
@@ -165,12 +166,21 @@ dependencies = [
 name = "argusflow-desktop"
 version = "0.1.0"
 dependencies = [
+ "argusflow-browser",
+ "argusflow-capture-contracts",
  "argusflow-core",
+ "argusflow-image",
+ "argusflow-input-contracts",
+ "argusflow-recorder",
  "argusflow-runtime",
+ "argusflow-vision",
  "argusflow-windows",
  "argusflow-workflow",
  "argusflow-workflow-automation",
+ "base64 0.22.1",
  "blake3",
+ "image",
+ "png 0.18.1",
  "serde",
  "serde_json",
  "tauri",
@@ -179,6 +189,35 @@ dependencies = [
  "tauri-plugin-dialog",
  "tempfile",
  "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "argusflow-image"
+version = "0.1.0"
+dependencies = [
+ "argusflow-capture-contracts",
+ "argusflow-core",
+]
+
+[[package]]
+name = "argusflow-input-contracts"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "argusflow-recorder"
+version = "0.1.0"
+dependencies = [
+ "argusflow-capture-contracts",
+ "argusflow-input-contracts",
+ "blake3",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.20",
 ]
 
 [[package]]
@@ -198,6 +237,7 @@ dependencies = [
  "argusflow-aql",
  "argusflow-capture-contracts",
  "argusflow-core",
+ "argusflow-image",
  "geo",
  "image",
  "imageproc",
@@ -220,11 +260,15 @@ dependencies = [
  "argusflow-capture",
  "argusflow-capture-contracts",
  "argusflow-core",
+ "argusflow-input-contracts",
  "argusflow-vision",
+ "serde",
+ "serde_json",
  "thiserror 2.0.20",
  "tokio",
  "tracing",
  "windows 0.62.2",
+ "windows-core 0.62.2",
 ]
 
 [[package]]

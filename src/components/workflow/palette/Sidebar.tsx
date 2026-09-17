@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Blocks, Search, Workflow } from "lucide-react";
 import type { EditorTab } from "../../../features/workflow";
-import { Button, Input } from "../../ui";
+import { IconButton, Input } from "../../ui";
 import { DocumentList } from "./DocumentList";
 import { NodeTree } from "./NodeTree";
 
@@ -14,7 +14,7 @@ export function Sidebar({ tab }: { readonly tab?: EditorTab }) {
       <div
         role="tablist"
         aria-label="侧栏视图"
-        className="flex h-10 shrink-0 items-center gap-1.5 border-b border-line px-2"
+        className="flex h-9 shrink-0 items-center gap-1 border-b border-line px-2"
         onKeyDown={(event) => {
           if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
           event.preventDefault();
@@ -26,26 +26,25 @@ export function Sidebar({ tab }: { readonly tab?: EditorTab }) {
         }}
       >
         {(["documents", "nodes"] as const).map((item) => (
-          <Button
+          <IconButton
             key={item}
-            variant="ghost"
             role="tab"
             aria-label={item === "documents" ? "流程" : "节点"}
             title={item === "documents" ? "流程" : "节点"}
             aria-selected={mode === item}
             tabIndex={mode === item ? 0 : -1}
             className={
-              "h-8 flex-1 rounded-lg border-0 " +
+              "size-7 rounded border-0 p-0 " +
               (mode === item ? "bg-accent-soft text-accent" : "text-muted")
             }
             onClick={() => setMode(item)}
           >
             {item === "documents" ? (
-              <Workflow size={17} />
+              <Workflow size={16} />
             ) : (
-              <Blocks size={17} />
+              <Blocks size={16} />
             )}
-          </Button>
+          </IconButton>
         ))}
       </div>
       <div className="shrink-0 p-2">

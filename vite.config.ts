@@ -10,6 +10,8 @@ export default defineConfig({
     host: '127.0.0.1',
     port: 5173,
     strictPort: true,
+    // 提前转换首屏静态依赖，让原生窗口创建期间即可填充转换缓存。
+    warmup: { clientFiles: ['./src/main.tsx'] },
     watch: {
       // Rust 由 Tauri/Cargo 监听，避免 Vite 重复遍历源码和构建目录。
       ignored: [
@@ -19,6 +21,9 @@ export default defineConfig({
         '**/.deps/**',
         '**/.cache/**',
         '**/.pnpm-store/**',
+        '**/docs/**',
+        '**/scripts/**',
+        '**/tests/**',
       ],
     },
   },

@@ -54,6 +54,7 @@ fn event(key: VIRTUAL_KEY, scan: u16, flags: KEYBD_EVENT_FLAGS) -> INPUT {
         r#type: INPUT_KEYBOARD,
         Anonymous: INPUT_0 {
             ki: KEYBDINPUT {
+                dwExtraInfo: argusflow_input_contracts::OWN_INPUT_TAG,
                 wVk: key,
                 wScan: scan,
                 dwFlags: flags,

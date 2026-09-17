@@ -237,7 +237,7 @@ where
     operation
         .check("sampled_ocr_complete")
         .map_err(CaptureError::from)?;
-    if !sample.token.snapshot.pixels.valid() {
+    if !sample.token.snapshot.validity.valid() {
         return Err(CaptureError::new(
             FailureKind::StaleHandle,
             "sampled_ocr_complete",

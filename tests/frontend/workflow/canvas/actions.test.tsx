@@ -70,6 +70,10 @@ it("Tab 打开搜索后聚焦输入框，弹窗默认焦点不会抢走它", () 
   expect(input).toHaveFocus();
   fireEvent.change(input, { target: { value: "等待" } });
   expect(input).toHaveFocus();
+  expect(
+    screen.getByRole("dialog").querySelector('[data-highlighted="true"]'),
+  ).toBeNull();
+  fireEvent.keyDown(input, { key: "ArrowDown" });
   fireEvent.keyDown(input, { key: "Enter" });
   expect(studio.active!.file.definition.scopes[0].nodes[0].action.kind).toBe(
     "wait",
@@ -80,7 +84,7 @@ it("Tab 打开搜索后聚焦输入框，弹窗默认焦点不会抢走它", () 
 it("子流程拖入节点将屏幕落点转换为所属作用域局部坐标", () => {
   const fixture = nestedFixture();
   const { host } = installCanvas(fixture.file);
-  const point = localPoint(fixture.scope, { x: 350, y: 60 });
+  const point = localPoint(fixture.scope, { x: 350, y: 90 });
   const drop = createEvent.drop(host, {
     dataTransfer: { getData: () => "let" },
   });
@@ -92,7 +96,7 @@ it("子流程拖入节点将屏幕落点转换为所属作用域局部坐标", (
   const id = studio.active!.selected[0];
   expect(studio.active!.scope).toBe(fixture.scope);
   expect(studio.active!.file.editor.nodes[id].x).toBeCloseTo(350);
-  expect(studio.active!.file.editor.nodes[id].y).toBeCloseTo(60);
+  expect(studio.active!.file.editor.nodes[id].y).toBeCloseTo(90);
   expect(
     studio.active!.file.definition.scopes.find(
       (scope) => scope.id === fixture.scope,
@@ -103,12 +107,16 @@ it("子流程拖入节点将屏幕落点转换为所属作用域局部坐标", (
 it("搜索与右键菜单保留打开时的目标作用域，关闭菜单不关闭搜索", () => {
   const fixture = nestedFixture();
   const { host } = installCanvas(fixture.file);
-  fireEvent.contextMenu(host, localPoint(fixture.scope, { x: 350, y: 20 }));
+  fireEvent.contextMenu(host, localPoint(fixture.scope, { x: 350, y: 90 }));
   fireEvent.mouseEnter(screen.getByRole("menuitem", { name: "添加节点" }));
   fireEvent.click(screen.getByRole("menuitem", { name: /搜索全部节点/ }));
   const input = screen.getByRole("textbox", { name: "搜索节点" });
   act(() => studio.select([], fixture.root));
   fireEvent.change(input, { target: { value: "声明变量" } });
+  expect(
+    screen.getByRole("dialog").querySelector('[data-highlighted="true"]'),
+  ).toBeNull();
+  fireEvent.keyDown(input, { key: "ArrowDown" });
   fireEvent.keyDown(input, { key: "Enter" });
   expect(studio.active!.scope).toBe(fixture.scope);
   const node = studio.active!.selected[0];
@@ -140,6 +148,10 @@ it("子流程连线上双击插入保留原后继", () => {
   fireEvent.doubleClick(host, localPoint(fixture.scope, point));
   const input = screen.getByRole("textbox", { name: "搜索节点" });
   fireEvent.change(input, { target: { value: "声明变量" } });
+  expect(
+    screen.getByRole("dialog").querySelector('[data-highlighted="true"]'),
+  ).toBeNull();
+  fireEvent.keyDown(input, { key: "ArrowDown" });
   fireEvent.keyDown(input, { key: "Enter" });
   const inserted = studio.active!.selected[0];
   expect(nextNode(studio.active!.file, fixture.first, fixture.scope)).toBe(

@@ -15,14 +15,14 @@ export function MenuPanel({
   items,
   label,
   anchor,
-  focusOnOpen,
+  initialFocus,
   onBack,
   onClose,
 }: {
   readonly items: readonly MenuItem[];
   readonly label: string;
   readonly anchor: MenuAnchor;
-  readonly focusOnOpen: boolean;
+  readonly initialFocus: "none" | "menu" | "first-item";
   readonly onBack: () => void;
   readonly onClose: () => void;
 }) {
@@ -37,13 +37,16 @@ export function MenuPanel({
   } | null>(null);
   const submenu = open ? items[open.index] : undefined;
   useLayoutEffect(() => {
-    if (focusOnOpen) {
+    if (initialFocus === "none") return;
+    if (initialFocus === "menu") {
+      ref.current?.focus({ preventScroll: true });
+    } else {
       const first = ref.current?.querySelector<HTMLButtonElement>(
         "button:not(:disabled)",
       );
-      (first ?? ref.current)?.focus();
+      (first ?? ref.current)?.focus({ preventScroll: true });
     }
-  }, [focusOnOpen]);
+  }, [initialFocus]);
   const back = () => {
     const trigger = open?.trigger;
     setOpen(null);
@@ -69,9 +72,9 @@ export function MenuPanel({
       (button) => button === document.activeElement,
     );
     const next =
-      event.key === "Home"
+      event.key === "Home" || (index < 0 && event.key === "ArrowDown")
         ? 0
-        : event.key === "End"
+        : event.key === "End" || (index < 0 && event.key === "ArrowUp")
           ? buttons.length - 1
           : (index + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) %
             buttons.length;
@@ -110,13 +113,16 @@ export function MenuPanel({
                 item.type === "submenu" ? open?.index === index : undefined
               }
               className={
-                "h-7 w-full justify-start gap-2 rounded-sm border-0 px-1.5 text-[11px] font-normal focus:bg-hover focus-visible:outline-none disabled:cursor-default disabled:opacity-40 " +
+                "h-7 w-full justify-start gap-2 rounded-sm border-0 px-1.5 text-[11px] font-normal transition-none focus:bg-hover focus-visible:outline-none disabled:cursor-default disabled:opacity-40 " +
                 (open?.index === index ? "bg-hover " : "") +
                 (item.type === "action" && item.danger
                   ? "text-danger hover:bg-danger-soft focus:bg-danger-soft"
                   : "")
               }
               onMouseEnter={(event) => {
+                // 鼠标接管导航后清除旧的键盘项焦点，避免两行同时高亮。
+                if (ref.current?.contains(document.activeElement))
+                  ref.current.focus({ preventScroll: true });
                 if (!item.disabled && item.type === "submenu")
                   setOpen({
                     index,
@@ -137,7 +143,11 @@ export function MenuPanel({
               }}
               onClick={(event) => {
                 if (item.type === "submenu")
-                  setOpen({ index, trigger: event.currentTarget, focus: true });
+                  setOpen({
+                    index,
+                    trigger: event.currentTarget,
+                    focus: event.detail === 0,
+                  });
                 else {
                   onClose();
                   item.action();
@@ -176,7 +186,7 @@ export function MenuPanel({
           items={submenu.items}
           label={submenu.label}
           anchor={{ type: "submenu", trigger: open.trigger }}
-          focusOnOpen={open.focus}
+          initialFocus={open.focus ? "first-item" : "none"}
           onBack={back}
           onClose={onClose}
         />

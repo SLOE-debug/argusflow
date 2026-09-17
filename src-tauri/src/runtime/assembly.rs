@@ -40,6 +40,10 @@ impl Automation {
         }
         Ok(Self { registry, host })
     }
+    /// 录制器仅借用 UIA；全屏采集由录制会话自己管理。
+    pub fn recording_uia(&self) -> Option<argusflow_windows::UiaRuntime> {
+        self.host.uia.clone()
+    }
     /// 关闭共享线程；调用方先取消并收尾所有工作流。
     pub async fn shutdown(&self) -> Result<(), String> {
         let mut errors = Vec::new();

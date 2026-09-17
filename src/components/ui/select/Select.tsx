@@ -54,10 +54,7 @@ export function Select<T extends string>({
   const close = useCallback(() => setOpen(false), []);
   const enabled = options.filter((option) => !option.disabled);
   const selected = options.find((option) => option.value === value);
-  const highlighted =
-    enabled.find((option) => option.value === active) ??
-    enabled.find((option) => option.value === value) ??
-    enabled[0];
+  const highlighted = enabled.find((option) => option.value === active);
   const { layout, host } = useSelectPanel(
     open && !disabled,
     trigger,
@@ -74,11 +71,13 @@ export function Select<T extends string>({
         ?.querySelector<HTMLElement>('[data-highlighted="true"]')
         ?.scrollIntoView?.({ block: "nearest" });
   }, [open, highlighted]);
-  const show = () => {
+  const show = (keyboard: boolean) => {
     if (disabled) return;
     setActive(
-      enabled.find((option) => option.value === value)?.value ??
-        enabled[0]?.value,
+      keyboard
+        ? (enabled.find((option) => option.value === value)?.value ??
+            enabled[0]?.value)
+        : undefined,
     );
     setOpen(true);
   };
@@ -108,7 +107,7 @@ export function Select<T extends string>({
       event.preventDefault();
       event.stopPropagation();
       if (!open) {
-        show();
+        show(true);
         return;
       }
       if (event.key === "Enter" || event.key === " ") {
@@ -119,9 +118,9 @@ export function Select<T extends string>({
         (option) => option.value === highlighted?.value,
       );
       const next =
-        event.key === "Home"
+        event.key === "Home" || (index < 0 && event.key === "ArrowDown")
           ? 0
-          : event.key === "End"
+          : event.key === "End" || (index < 0 && event.key === "ArrowUp")
             ? enabled.length - 1
             : (index + (event.key === "ArrowDown" ? 1 : -1) + enabled.length) %
               enabled.length;
@@ -180,7 +179,7 @@ export function Select<T extends string>({
           "inline-flex items-center justify-between gap-2 px-2.5 text-left outline-none disabled:cursor-not-allowed disabled:bg-subtle disabled:text-muted",
           className,
         )}
-        onClick={() => (open ? close() : show())}
+        onClick={(event) => (open ? close() : show(event.detail === 0))}
         onKeyDown={keyDown}
       >
         <span className="min-w-0 truncate">
@@ -211,6 +210,7 @@ export function Select<T extends string>({
             style={layout}
             className="fixed z-[100] overflow-x-hidden overflow-y-auto rounded-md border border-line bg-surface p-1 text-xs text-ink shadow-lg"
             onPointerDown={(event) => event.preventDefault()}
+            onPointerLeave={() => setActive(undefined)}
           >
             {options.map((option, index) => (
               <div

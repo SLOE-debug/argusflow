@@ -19,50 +19,57 @@ pub(crate) fn recognize(
     config: &OcrConfig,
     operation: &Operation,
     active: &ActiveRun,
+    cache: &mut super::RecognitionCache,
 ) -> Result<OcrResult, Failure> {
     let image = input.decode(config, operation)?;
-    let det_input = preprocessing::detection(&image, config, operation)?;
-    let (shape, values) = run(&mut models.detector, det_input, operation, active)?;
-    if shape.len() != 4 || shape[0] != 1 || shape[1] != 1 {
-        return Err(protocol("检测模型输出维度错误"));
-    }
-    let polygons = detection::boxes(
-        &values,
-        shape[3],
-        shape[2],
-        image.dimensions(),
-        config,
+    let detector = &mut models.detector;
+    let recognizer = &mut models.recognizer;
+    super::incremental::process(
+        image,
+        cache,
         operation,
-        detection::Parameters {
-            threshold: models.threshold,
-            box_threshold: models.box_threshold,
-            unclip: models.unclip,
+        |image| {
+            let det_input = preprocessing::detection(image, config, operation)?;
+            let (shape, values) = run(detector, det_input, operation, active)?;
+            if shape.len() != 4 || shape[0] != 1 || shape[1] != 1 {
+                return Err(protocol("检测模型输出维度错误"));
+            }
+            let polygons = detection::boxes(
+                &values,
+                shape[3],
+                shape[2],
+                image.dimensions(),
+                config,
+                operation,
+                detection::Parameters {
+                    threshold: models.threshold,
+                    box_threshold: models.box_threshold,
+                    unclip: models.unclip,
+                },
+            )?;
+            Ok(polygons)
         },
-    )?;
-    let mut blocks = Vec::with_capacity(polygons.len());
-    for polygon in polygons {
-        operation.check("ocr_region")?;
-        let cropped = preprocessing::crop(&image, &polygon, operation)?;
-        let rec_input = preprocessing::recognition(&cropped, operation)?;
-        let (shape, values) = run(&mut models.recognizer, rec_input, operation, active)?;
-        if shape.len() != 3 || shape[0] != 1 {
-            return Err(protocol("识别模型输出维度错误"));
-        }
-        let (text, confidence) = recognition::ctc(&values, shape[1], shape[2], &models.dictionary)?;
-        if !text.is_empty() && confidence >= config.minimum_confidence {
-            blocks.push(TextBlock {
-                text,
-                confidence,
-                polygon,
-            });
-        }
-    }
-    operation.check("ocr_complete")?;
-    Ok(OcrResult {
-        blocks,
-        width: image.width(),
-        height: image.height(),
-    })
+        |image, polygon| {
+            operation.check("ocr_region")?;
+            let cropped = preprocessing::crop(image, &polygon, operation)?;
+            let rec_input = preprocessing::recognition(&cropped, operation)?;
+            let (shape, values) = run(recognizer, rec_input, operation, active)?;
+            if shape.len() != 3 || shape[0] != 1 {
+                return Err(protocol("识别模型输出维度错误"));
+            }
+            let (text, confidence) =
+                recognition::ctc(&values, shape[1], shape[2], &models.dictionary)?;
+            if !text.is_empty() && confidence >= config.minimum_confidence {
+                Ok(Some(TextBlock {
+                    text,
+                    confidence,
+                    polygon,
+                }))
+            } else {
+                Ok(None)
+            }
+        },
+    )
 }
 
 fn run(

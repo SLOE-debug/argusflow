@@ -18,6 +18,16 @@ path = "src/main.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+argusflow-image.workspace = true
+base64 = "0.22"
+argusflow-recorder.workspace = true
+argusflow-input-contracts.workspace = true
+argusflow-capture-contracts.workspace = true
+argusflow-vision.workspace = true
+argusflow-browser = { path = "../crates/argusflow-browser" }
+image = { version = "0.25", default-features = false, features = ["png"] }
+png = "0.18.1"
+uuid = { version = "1", features = ["v4"] }
 argusflow-core.workspace = true
 argusflow-workflow.workspace = true
 argusflow-runtime.workspace = true
@@ -38,3 +48,7 @@ workspace = true
 [[test]]
 name = "desktop"
 path = "../tests/argusflow-desktop/integration/desktop.rs"
+
+[[test]]
+name = "recorder_process"
+path = "../tests/argusflow-desktop/integration/recorder_process.rs"

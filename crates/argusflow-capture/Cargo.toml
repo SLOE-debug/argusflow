@@ -11,6 +11,7 @@ name = "sampling"
 path = "../../tests/argusflow-capture/integration/sampling.rs"
 
 [dependencies]
+argusflow-image.workspace = true
 argusflow-core.workspace = true
 argusflow-capture-contracts.workspace = true
 tokio.workspace = true

@@ -15,6 +15,8 @@ pub struct DesktopState {
     pub workspace: Mutex<Option<Workspace>>,
     /// 跨页面生命周期的运行服务。
     pub runs: Arc<RunManager>,
+    /// 独立于工作流文档的录制会话。
+    pub recorder: crate::recorder::RecorderManager,
 }
 #[derive(Serialize)]
 pub struct OpenedWorkspace {
@@ -168,6 +170,7 @@ pub async fn shutdown_desktop(
     app: tauri::AppHandle,
     state: State<'_, DesktopState>,
 ) -> Result<(), String> {
+    state.recorder.shutdown().await?;
     state.runs.shutdown().await?;
     app.exit(0);
     Ok(())

@@ -38,6 +38,14 @@ impl Default for RunManager {
     }
 }
 impl RunManager {
+    /// 录制独立于工作流文档，复用同一装配服务所有权。
+    pub async fn recording_uia(&self) -> Result<Option<argusflow_windows::UiaRuntime>, String> {
+        Ok(self
+            .automation
+            .get_or_try_init(Automation::start)
+            .await?
+            .recording_uia())
+    }
     /// 当前宿主的已注册能力，不启动业务动作。
     pub async fn capabilities(&self) -> Result<Vec<String>, String> {
         let automation = self.automation.get_or_try_init(Automation::start).await?;

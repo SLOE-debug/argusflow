@@ -23,6 +23,8 @@ export function initializeDesktop(): Promise<void> {
       });
     });
     await getCurrentWindow().show();
+    // 诊断不占用工作区初始化的关键路径，失败只记录到开发控制台。
+    if (import.meta.env.DEV) void invoke("frontend_ready").catch(console.error);
     // 运行订阅故障不应阻止独立的文档初始化和重试。
     await studio.safely(() => studio.subscribe());
     await studio.initializeWorkspace();

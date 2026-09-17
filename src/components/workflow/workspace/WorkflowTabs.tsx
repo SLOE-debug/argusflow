@@ -16,7 +16,7 @@ export function WorkflowTabs() {
   }, [state.active]);
   if (!tabs.length) return null;
   return (
-    <div className="ml-4 flex min-w-0 shrink items-center self-stretch">
+    <div className="ml-2 flex min-w-0 shrink items-center self-stretch">
       <div
         ref={list}
         role="tablist"
@@ -54,10 +54,10 @@ export function WorkflowTabs() {
           <div
             key={item.file.id}
             className={
-              "group mr-1 flex h-8 min-w-24 max-w-48 shrink-0 items-center rounded-md border " +
+              "group mr-1 flex h-6 min-w-24 max-w-48 shrink-0 items-center rounded-md border hover:bg-hover has-[:focus-visible]:bg-hover " +
               (state.active === item.file.id
                 ? "border-line bg-surface shadow-xs"
-                : "border-transparent hover:bg-hover")
+                : "border-transparent")
             }
           >
             <Button
@@ -67,14 +67,16 @@ export function WorkflowTabs() {
               title={item.file.definition.name}
               variant="ghost"
               className={
-                "h-7 min-w-0 flex-1 justify-start gap-2 px-2 text-[11px] " +
+                "h-full min-w-0 flex-1 justify-start gap-2 border-0 px-2 py-0 text-xs font-medium leading-4 hover:bg-transparent focus-visible:bg-transparent " +
                 (state.active === item.file.id ? "text-ink" : "text-muted")
               }
               onClick={() => {
                 void studio.safely(() => studio.open(item.file.id));
               }}
             >
-              <span className="truncate">{item.file.definition.name}</span>
+              <span className="block truncate leading-4">
+                {item.file.definition.name}
+              </span>
               {item.version !== item.savedVersion && (
                 <span
                   aria-label="未保存"
@@ -84,7 +86,7 @@ export function WorkflowTabs() {
             </Button>
             <IconButton
               aria-label={"关闭 " + item.file.definition.name}
-              className="mr-0.5 size-5 text-muted hover:text-ink"
+              className="mr-0.5 size-5 text-muted hover:bg-transparent focus-visible:bg-transparent group-hover:text-ink focus-visible:text-ink"
               onClick={() => {
                 void studio.safely(() => studio.close(item.file.id));
               }}

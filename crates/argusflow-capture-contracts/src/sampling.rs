@@ -3,13 +3,15 @@ use crate::{CaptureFuture, ClockTime, PixelImage, PixelRect, Snapshot, SourceId,
 use argusflow_core::Operation;
 use std::{sync::Arc, time::Duration};
 
-/// 一份已确认区域内容的比较令牌，固定图像资源直到释放或来源失效。
+/// 一份已确认区域内容的比较令牌，持有图像资源直到令牌释放。
 #[derive(Debug, Clone)]
 pub struct ContentToken {
     /// 内容所属固定版本。
     pub snapshot: Arc<Snapshot>,
     /// 完整请求区域。
     pub region: PixelRect,
+    /// 本次区域的原始分辨率共享像素，用于后续精确内容比较。
+    pub image: PixelImage,
 }
 /// 针对一个屏幕来源的完整区域采样请求。
 #[derive(Clone)]
@@ -20,13 +22,13 @@ pub struct SampleRequest {
     pub region: PixelRect,
     /// 所需无变化时长，默认调用方使用 150ms。
     pub quiet: Duration,
-    /// 已知内容，用于在读回前精确验证复用。
+    /// 已知内容，用于精确验证区域内容复用。
     pub previous: Option<ContentToken>,
 }
 /// 是否需要消费者处理新图像。
 #[derive(Debug, Clone)]
 pub enum SampleContent {
-    /// 与 previous 相同，无像素读回。
+    /// 与 previous 内容相同，消费者无需再次处理图像。
     Unchanged,
     /// 新的共享像素。
     Image(PixelImage),
@@ -45,6 +47,6 @@ pub struct RegionSample {
 }
 /// 视觉模块只依赖取图契约，不依赖采样服务或 Windows。
 pub trait RegionSource: Send + Sync {
-    /// 总截止时间包含稳定等待、排队和像素读回。
+    /// 总截止时间包含稳定等待与像素处理。
     fn sample(&self, request: SampleRequest, operation: Operation) -> CaptureFuture<RegionSample>;
 }

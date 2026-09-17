@@ -12,7 +12,8 @@ export function NodeSearch({
   readonly onClose: () => void;
 }) {
   const [query, setQuery] = useState("");
-  const [index, setIndex] = useState(0);
+  /** -1 表示尚未通过方向键或指针选定结果，打开和改词均不预选首项。 */
+  const [index, setIndex] = useState(-1);
   const input = useRef<HTMLInputElement>(null);
   const matches = NODE_CATALOG.filter((item) =>
     (item.title + item.id + item.category)
@@ -31,7 +32,7 @@ export function NodeSearch({
           value={query}
           onChange={(event) => {
             setQuery(event.target.value);
-            setIndex(0);
+            setIndex(-1);
           }}
           onKeyDown={(event) => {
             if (event.nativeEvent.isComposing) return;
@@ -41,23 +42,29 @@ export function NodeSearch({
             }
             if (event.key === "ArrowUp") {
               event.preventDefault();
-              setIndex(Math.max(0, index - 1));
+              setIndex(index < 0 ? matches.length - 1 : Math.max(0, index - 1));
             }
             if (event.key === "Enter" && matches[index])
               onPick(matches[index].id);
           }}
         />
       </div>
-      <div className="max-h-80 space-y-0.5 overflow-auto">
+      <div
+        className="max-h-80 space-y-0.5 overflow-auto"
+        onPointerLeave={() => setIndex(-1)}
+      >
         {matches.map((item, position) => (
           <Button
             key={item.id}
             variant="ghost"
+            data-highlighted={position === index}
             className={
-              "h-11 w-full justify-start gap-3 " +
+              "h-11 w-full justify-start gap-3 transition-none " +
               (position === index ? "bg-accent-soft" : "")
             }
             onClick={() => onPick(item.id)}
+            onPointerMove={() => setIndex(position)}
+            onFocus={() => setIndex(position)}
           >
             <span className="shrink-0">
               <NodeIcon kind={item.id} />

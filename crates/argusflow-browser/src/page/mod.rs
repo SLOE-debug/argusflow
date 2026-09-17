@@ -6,3 +6,5 @@ pub use element::{Element, ElementSnapshot};
 pub use handle::{Page, PageInfo};
 mod aql;
 pub use aql::BrowserMatch;
+mod observation;
+pub use observation::{PageEvent, PageObservation, PageObserver, PageTarget};

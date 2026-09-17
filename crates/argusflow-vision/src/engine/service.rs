@@ -318,6 +318,8 @@ fn worker(
     operation: Operation,
 ) {
     let loading = operation.clone();
+    // 缓存只属于此模型线程，不跨模型、设备或配置共享。
+    let mut cache = ocr::RecognitionCache::default();
     worker_with(
         receiver,
         ready,
@@ -325,7 +327,7 @@ fn worker(
         operation,
         || Models::load(&config, &loading),
         |models, input, operation, active| {
-            ocr::recognize(models, input, &config, operation, active)
+            ocr::recognize(models, input, &config, operation, active, &mut cache)
         },
     );
 }

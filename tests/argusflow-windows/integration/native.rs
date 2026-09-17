@@ -1,5 +1,6 @@
 #![cfg(windows)]
 //! 用户显式运行的真实 UIA / SendInput 验收，不操作日常应用。
+mod listening;
 #[path = "../support/window.rs"]
 mod support;
 use argusflow_core::{ClickCount, FailureKind, Key, MouseButton, ScreenPoint, ScrollAxis};

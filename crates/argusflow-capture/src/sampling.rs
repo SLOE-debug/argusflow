@@ -1,157 +1,169 @@
-//! 消费者按完整区域取图；先用 GPU 比较令牌，再决定是否读回。
-use crate::{CaptureService, observation::summarize};
+//! 按请求检查完整帧历史；只比较目标区域，不启动额外 GPU 差分后台。
+use crate::{pixels, validity::Validity};
 use argusflow_capture_contracts::*;
 use argusflow_core::{FailureKind, Operation};
+use std::{sync::Arc, time::Duration};
+use tokio::sync::Semaphore;
 
-impl RegionSource for CaptureService {
+/// 多消费者共享的区域采样适配器；原生帧源的启动和关闭由装配层负责。
+#[derive(Clone)]
+pub struct FrameSampler {
+    source: Arc<dyn DesktopFrameSource>,
+    budget: ByteBudget,
+    reads: Arc<Semaphore>,
+}
+impl FrameSampler {
+    /// 区域图像最多占用 128 MiB，并发请求最多 8 个；克隆共享预算。
+    pub fn new(source: Arc<dyn DesktopFrameSource>) -> CaptureResult<Self> {
+        Ok(Self {
+            source,
+            budget: ByteBudget::new(128 * 1024 * 1024)?,
+            reads: Arc::new(Semaphore::new(8)),
+        })
+    }
+    /// 当前来源快照，不触发截图。
+    pub fn sources(&self) -> CaptureResult<Vec<SourceInfo>> {
+        Ok(self
+            .source
+            .history()?
+            .into_iter()
+            .map(|history| history.source)
+            .collect())
+    }
+}
+impl RegionSource for FrameSampler {
     fn sample(&self, request: SampleRequest, operation: Operation) -> CaptureFuture<RegionSample> {
-        let service = self.clone();
+        let sampler = self.clone();
         Box::pin(async move {
             let mut cancel = operation.cancel_on_drop();
-            let _permit = service
-                .inner
+            let _permit = sampler
                 .reads
                 .clone()
                 .try_acquire_owned()
-                .map_err(|_| CaptureError::new(FailureKind::Busy, "sample", "区域采样额度已满"))?;
-            if request.quiet.is_zero() || request.quiet > std::time::Duration::from_secs(30) {
-                return Err(CaptureError::new(
+                .map_err(|_| failure(FailureKind::Busy, "区域采样并发已满"))?;
+            if request.quiet > Duration::from_secs(1) {
+                return Err(failure(
                     FailureKind::InvalidInput,
-                    "sample",
-                    "稳定时间超限",
+                    "稳定观察窗口不能超过一秒",
                 ));
             }
-            let started = service.now();
+            let started = sampler.source.now();
             loop {
-                operation.check("sample")?;
-                let ready = {
-                    let state = service
-                        .inner
-                        .state
-                        .lock()
-                        .unwrap_or_else(|p| p.into_inner());
-                    if let Some(error) = &state.failure {
-                        return Err(error.clone());
-                    }
-                    if state.stopped {
-                        return Err(CaptureError::new(
-                            FailureKind::Closed,
-                            "sample",
-                            "采样已停止",
-                        ));
-                    }
-                    if let Some(entry) = state.sources.get(&request.source) {
-                        if matches!(
-                            entry.info.state,
-                            SourceState::Unavailable | SourceState::Removed | SourceState::Stopped
-                        ) {
-                            return Err(CaptureError::new(
-                                FailureKind::Unavailable,
-                                "sample",
-                                "屏幕来源不可用",
-                            ));
-                        }
-                        if !entry.info.bounds.local().contains(request.region) {
-                            return Err(CaptureError::new(
-                                FailureKind::InvalidInput,
-                                "sample",
-                                "区域超出屏幕",
-                            ));
-                        }
-                        // 至少确认到本次请求时刻；已健康静止的缓存无需重新等待完整窗口。
-                        let from = ClockTime(
-                            entry
-                                .watermark
-                                .0
-                                .saturating_sub(request.quiet.as_nanos() as u64),
-                        );
-                        let summary = summarize(
-                            &state,
-                            request.source,
-                            from,
-                            entry.watermark,
-                            request.region,
-                            &[],
-                        )?;
-                        let baseline_ready = entry
-                            .history
-                            .front()
-                            .is_some_and(|frame| frame.timing.acquired <= from);
-                        let caught_up = entry.history.back().is_some_and(|frame| {
-                            frame.timing.presented.unwrap_or(frame.timing.acquired)
-                                <= entry.watermark
-                        });
-                        if caught_up
-                            && entry.info.state == SourceState::Ready
-                            && entry.watermark >= started
-                            && baseline_ready
-                            && summary.changes == 0
-                            && summary.gaps.is_empty()
-                        {
-                            entry
-                                .history
-                                .back()
-                                .cloned()
-                                .map(|frame| (frame, entry.watermark))
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                };
-                if let Some((snapshot, through)) = ready {
+                operation.check("frame_sample")?;
+                let histories = sampler.source.history()?;
+                let history = histories
+                    .iter()
+                    .find(|history| history.source.id == request.source)
+                    .ok_or_else(|| failure(FailureKind::Unavailable, "屏幕来源不存在"))?;
+                if let Some(error) = &history.source.failure {
+                    return Err(error.clone());
+                }
+                if matches!(
+                    history.source.state,
+                    SourceState::Unavailable | SourceState::Removed | SourceState::Stopped
+                ) {
+                    return Err(failure(FailureKind::Unavailable, "屏幕来源不可用"));
+                }
+                if !history.source.bounds.local().contains(request.region) {
+                    return Err(failure(FailureKind::InvalidInput, "区域超出屏幕"));
+                }
+                if history.source.state == SourceState::Ready
+                    && history.checked >= started
+                    && let Some(frame) = stable(history, request.region, request.quiet, &operation)?
+                {
+                    let image =
+                        pixels::crop(&frame.image, request.region, &sampler.budget, &operation)?;
+                    let local = PixelRect::new(0, 0, image.width(), image.height())?;
                     let reusable = if let Some(previous) = &request.previous {
                         let old = previous.snapshot.version;
-                        let current = snapshot.version;
-                        if previous.region == request.region
-                            && old.session == current.session
-                            && old.source == current.source
-                            && old.generation == current.generation
-                            && previous.snapshot.pixels.valid()
-                        {
-                            snapshot
-                                .pixels
-                                .clone()
-                                .compare(
-                                    previous.snapshot.pixels.clone(),
-                                    vec![request.region],
-                                    operation.clone(),
-                                )
-                                .await?
-                                .changed_pixels
-                                == 0
-                        } else {
-                            false
-                        }
+                        old.session == frame.version.session
+                            && old.source == frame.version.source
+                            && old.generation == frame.version.generation
+                            && previous.snapshot.bounds == frame.source.bounds
+                            && previous.region == request.region
+                            && previous.snapshot.validity.valid()
+                            && !pixels::differs(&previous.image, &image, local, &operation)?
                     } else {
                         false
                     };
-                    let content = if reusable {
-                        SampleContent::Unchanged
-                    } else {
-                        SampleContent::Image(
-                            snapshot
-                                .pixels
-                                .clone()
-                                .read(request.region, operation.clone())
-                                .await?,
-                        )
-                    };
-                    operation.check("sample_complete")?;
+                    let snapshot = Arc::new(Snapshot {
+                        version: frame.version,
+                        bounds: frame.source.bounds,
+                        timing: frame.timing,
+                        validity: Arc::new(Validity {
+                            source: sampler.source.clone(),
+                            version: frame.version,
+                            bounds: frame.source.bounds,
+                        }),
+                    });
+                    if !snapshot.validity.valid() {
+                        return Err(failure(FailureKind::StaleHandle, "采样过程中来源已失效"));
+                    }
+                    operation.check("frame_sample_complete")?;
                     cancel.disarm();
                     return Ok(RegionSample {
-                        observed_version: snapshot.version,
-                        observed_through: through,
                         token: ContentToken {
                             snapshot,
                             region: request.region,
+                            image: image.clone(),
                         },
-                        content,
+                        content: if reusable {
+                            SampleContent::Unchanged
+                        } else {
+                            SampleContent::Image(image)
+                        },
+                        observed_version: frame.version,
+                        observed_through: history.checked,
                     });
                 }
-                service.wait_update(&operation).await?;
+                tokio::time::sleep(operation.remaining().min(Duration::from_millis(10))).await;
             }
         })
     }
+}
+fn failure(kind: FailureKind, message: &str) -> CaptureError {
+    CaptureError::new(kind, "frame_sample", message)
+}
+
+fn stable<'a>(
+    history: &'a FrameHistory,
+    region: PixelRect,
+    quiet: Duration,
+    operation: &Operation,
+) -> CaptureResult<Option<&'a DesktopFrame>> {
+    let Some(latest) = history.frames.last() else {
+        return Ok(None);
+    };
+    let from = ClockTime(history.checked.0.saturating_sub(quiet.as_nanos() as u64));
+    let Some(start) = history
+        .frames
+        .iter()
+        .rposition(|frame| frame.timing.frozen <= from)
+    else {
+        return Ok(None);
+    };
+    for frame in &history.frames[start..] {
+        if frame.version.source != history.source.id
+            || frame.version.generation != history.source.generation
+            || frame.source.bounds != history.source.bounds
+            || frame.version.session != latest.version.session
+        {
+            return Err(failure(FailureKind::StaleHandle, "帧历史跨越来源重建"));
+        }
+        if frame.image.width() != history.source.bounds.width()
+            || frame.image.height() != history.source.bounds.height()
+        {
+            return Err(failure(
+                FailureKind::Unsupported,
+                "OCR 采样要求原始分辨率帧，不能使用缩略图",
+            ));
+        }
+        if frame.timing.frozen > history.checked {
+            return Ok(None);
+        }
+        if pixels::differs(&latest.image, &frame.image, region, operation)? {
+            return Ok(None);
+        }
+    }
+    Ok(Some(latest))
 }

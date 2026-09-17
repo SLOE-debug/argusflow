@@ -7,8 +7,6 @@ use windows::Win32::Graphics::{
 };
 pub(in crate::capture) struct Texture {
     pub native: ID3D11Texture2D,
-    pub width: u32,
-    pub height: u32,
     _bytes: Reservation,
 }
 impl Texture {
@@ -57,8 +55,6 @@ impl Texture {
         .map_err(failure)?;
         Ok(Self {
             native: native.ok_or_else(|| invalid("missing texture"))?,
-            width,
-            height,
             _bytes: bytes,
         })
     }

@@ -1,5 +1,20 @@
 # 验证记录与复现方法
 
+## 2026-09-17 公共差分与 OCR 重构
+
+- `cargo test --workspace`：215 项通过、0 失败、17 项默认 ignored。公共差分 6 项、完整帧区域采样 8 项、OCR 增量识别新增 4 项均已注册并通过；旧 GPU 差分/历史及旧录制证据管线测试随对应实现删除。
+- 显式原生验收 4 项全部通过：Small/Medium CPU、Small/Medium CPU/CUDA 一致性、合成 GPU 缩放旋转、DXGI 原始分辨率区域采样。最后一项不保存图片、不注入输入，检查关闭后的令牌失效。
+- 其余 13 项 ignored 本轮未运行，包括真实浏览器、真实键鼠、录像专用及进程验收；不将历史结果计入本轮。
+- `cargo fmt --all -- --check`、`cargo clippy --workspace --all-targets -- -D warnings`、`git diff --check` 通过。
+- CUDA 首次测试因当前进程未添加依赖目录而加载失败；按原生依赖文档将 `.deps/runtime/cuda` 加入该进程 PATH 后，完整测试通过，未改系统 PATH 或安装驱动。
+- 日志位于忽略提交的 `target/refactor-{tests,clippy,cpu,cuda,gpu,capture}.log`。没有进行浏览器自动化、应用 UI 视觉验收或性能基准；不将旧 GPU 历史采样的性能数字用于新路径。
+
+当前结构、精度策略、删除清单和取图带宽取舍见 [公共变化区域与 Paddle OCR](sampling.md)。
+
+## 历史记录
+
+2026-09-12 桌面录制器的确定性测试、父子进程验收、原生OCR测量和未验证范围见 [录制验证记录](recorder-validation.md)。该记录与下面的历史浏览器验收相互独立；本次没有执行浏览器自动化。
+
 当前 Rust workflow 的测试、协议替身、专属进程验收与未执行场景见 [Workflow 验证记录](workflow-validation.md)。以下保留基础能力的历史记录；AQL 结果见 [AQL 验证记录](aql-validation.md)。
 
 2026-09-10 采样阶段完整验证：69 项测试全部已执行通过，包含 61 项普通测试和 8 项默认 ignored 原生验收。Chrome/Edge、UIA/真实键鼠、DXGI/GPU、Small/Medium CPU/CUDA OCR 均已自行执行，另外补充了 4 项采样并发、历史和多来源/拓扑故障注入测试。格式检查、Clippy（含全部 target）与全部示例构建通过。详细日志、性能数据和硬件验证限制见 [采样验证与性能报告](sampling-validation.md)。下文 2026-09-09 记录保留为此前验证历史。

@@ -33,6 +33,7 @@ it("方向键在当前菜单循环，进入子菜单后 Escape 返回触发项",
       y={100}
       label="画布菜单"
       items={items(action)}
+      initialFocus="first-item"
       onClose={close}
     />,
   );
@@ -55,6 +56,25 @@ it("方向键在当前菜单循环，进入子菜单后 Escape 返回触发项",
   expect(action).not.toHaveBeenCalled();
 });
 
+it("鼠标打开时焦点停在容器，方向键再定位首尾可用项", () => {
+  render(
+    <Menu
+      x={100}
+      y={100}
+      label="录制菜单"
+      items={items(vi.fn())}
+      onClose={vi.fn()}
+    />,
+  );
+  const menu = screen.getByRole("menu");
+  expect(menu).toHaveFocus();
+  fireEvent.keyDown(menu, { key: "ArrowUp" });
+  expect(screen.getByRole("menuitem", { name: "添加节点" })).toHaveFocus();
+  menu.focus();
+  fireEvent.keyDown(menu, { key: "ArrowDown" });
+  expect(screen.getByRole("menuitem", { name: "复制" })).toHaveFocus();
+});
+
 it("悬停展开，子菜单点击只执行一次，外部点击关闭整组菜单", () => {
   const close = vi.fn(),
     action = vi.fn();
@@ -70,6 +90,11 @@ it("悬停展开，子菜单点击只执行一次，外部点击关闭整组菜�
   fireEvent.mouseEnter(screen.getByRole("menuitem", { name: "添加节点" }));
   const child = screen.getByRole("menu", { name: "添加节点" });
   const wait = within(child).getByRole("menuitem", { name: "等待" });
+  expect(wait).not.toHaveFocus();
+  fireEvent.click(screen.getByRole("menuitem", { name: "添加节点" }), {
+    detail: 1,
+  });
+  expect(wait).not.toHaveFocus();
   fireEvent.pointerDown(wait);
   expect(close).not.toHaveBeenCalled();
   fireEvent.click(wait);

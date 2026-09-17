@@ -158,6 +158,7 @@ fn mouse(flags: MOUSE_EVENT_FLAGS, data: u32) -> INPUT {
         r#type: INPUT_MOUSE,
         Anonymous: INPUT_0 {
             mi: MOUSEINPUT {
+                dwExtraInfo: argusflow_input_contracts::OWN_INPUT_TAG,
                 dwFlags: flags,
                 mouseData: data,
                 ..Default::default()

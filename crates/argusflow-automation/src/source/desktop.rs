@@ -166,9 +166,6 @@ fn ocr_error(error: SampledOcrError) -> Failure {
         SampledOcrError::Capture(argusflow_capture_contracts::CaptureError::Failure(error)) => {
             error
         }
-        SampledOcrError::Capture(error) => {
-            Failure::new(error.kind(), "aql_ocr", "采样历史不完整").with_source(error)
-        }
         SampledOcrError::Ocr(error) => error.into(),
     }
 }

@@ -70,6 +70,8 @@ it("模态内的下拉挂载在对话框中，Escape 不关闭所属对话框", 
     </Dialog>,
   );
   const select = screen.getByRole("combobox");
+  expect(screen.getByRole("dialog")).toHaveFocus();
+  expect(screen.getByRole("button", { name: "关闭" })).not.toHaveFocus();
   fireEvent.click(select);
   expect(screen.getByRole("listbox").closest("dialog")).toBe(
     screen.getByRole("dialog"),
@@ -78,6 +80,39 @@ it("模态内的下拉挂载在对话框中，Escape 不关闭所属对话框", 
   expect(close).not.toHaveBeenCalled();
   expect(screen.getByRole("dialog")).toHaveAttribute("open");
 });
+
+it.each(["", "three"])(
+  "鼠标打开下拉不预选首项，也不改变已有值：%s",
+  (value) => {
+    const change = vi.fn();
+    render(
+      <Select
+        aria-label="类型"
+        value={value}
+        options={OPTIONS}
+        onValueChange={change}
+      />,
+    );
+    const select = screen.getByRole("combobox");
+    fireEvent.click(select, { detail: 1 });
+    expect(select).not.toHaveAttribute("aria-activedescendant");
+    expect(
+      screen.getByRole("listbox").querySelector('[data-highlighted="true"]'),
+    ).toBeNull();
+    expect(screen.getByRole("option", { name: "第三项" })).toHaveAttribute(
+      "aria-selected",
+      String(value === "three"),
+    );
+    fireEvent.keyDown(select, { key: "Enter" });
+    expect(change).not.toHaveBeenCalled();
+    fireEvent.keyDown(select, { key: "ArrowUp" });
+    expect(
+      document.getElementById(select.getAttribute("aria-activedescendant")!),
+    ).toHaveTextContent("第三项");
+    fireEvent.keyDown(select, { key: "Enter" });
+    expect(change).toHaveBeenCalledExactlyOnceWith("three");
+  },
+);
 
 it("禁用和空选项不提交，外部点击关闭，监听在卸载后释放", () => {
   const change = vi.fn();

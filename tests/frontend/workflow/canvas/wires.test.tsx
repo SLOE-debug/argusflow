@@ -220,6 +220,10 @@ it("新线空白松手搜索添加并连接，移动无关障碍也重算线路"
   );
   const input = screen.getByRole("textbox", { name: "搜索节点" });
   fireEvent.change(input, { target: { value: "声明变量" } });
+  expect(
+    screen.getByRole("dialog").querySelector('[data-highlighted="true"]'),
+  ).toBeNull();
+  fireEvent.keyDown(input, { key: "ArrowDown" });
   fireEvent.keyDown(input, { key: "Enter" });
   expect(studio.active!.past).toHaveLength(1);
   expect(studio.active!.file.definition.scopes[0].edges).toHaveLength(2);

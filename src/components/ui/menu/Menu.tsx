@@ -9,12 +9,15 @@ export function Menu({
   y,
   label,
   items,
+  initialFocus = "menu",
   onClose,
 }: {
   readonly x: number;
   readonly y: number;
   readonly label: string;
   readonly items: readonly MenuItem[];
+  /** 鼠标打开时聚焦容器，键盘打开时直接定位首个可用项。 */
+  readonly initialFocus?: "menu" | "first-item";
   readonly onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -41,7 +44,7 @@ export function Menu({
         items={items}
         label={label}
         anchor={{ type: "point", x, y }}
-        focusOnOpen
+        initialFocus={initialFocus}
         onBack={onClose}
         onClose={onClose}
       />

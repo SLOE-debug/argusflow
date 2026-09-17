@@ -41,8 +41,8 @@ it.each([0.7, 1, 4])(
       expect(calls.roundRect).toHaveBeenCalledWith(
         80 + distance / zoom,
         100 + distance / zoom,
-        232,
-        80,
+        208,
+        64,
         12,
       );
     }
@@ -80,7 +80,7 @@ it("节点高频移动合并为一帧，取消丢弃未绘制的位移", () => {
   expect(calls.clearRect).toHaveBeenCalledTimes(draws);
   act(() => vi.advanceTimersByTime(16));
   expect(calls.clearRect).toHaveBeenCalledTimes(draws + 1);
-  expect(calls.roundRect).toHaveBeenCalledWith(180, 100, 232, 80, 12);
+  expect(calls.roundRect).toHaveBeenCalledWith(180, 100, 208, 64, 12);
   fireEvent.pointerMove(host, {
     clientX: point.clientX + 150,
     clientY: point.clientY,
@@ -88,8 +88,8 @@ it("节点高频移动合并为一帧，取消丢弃未绘制的位移", () => {
   fireEvent.pointerCancel(host);
   calls.roundRect.mockClear();
   act(() => vi.advanceTimersByTime(16));
-  expect(calls.roundRect).toHaveBeenCalledWith(80, 100, 232, 80, 12);
-  expect(calls.roundRect).not.toHaveBeenCalledWith(230, 100, 232, 80, 12);
+  expect(calls.roundRect).toHaveBeenCalledWith(80, 100, 208, 64, 12);
+  expect(calls.roundRect).not.toHaveBeenCalledWith(230, 100, 208, 64, 12);
   expect(studio.active!.file).toBe(fixture.file);
   expect(studio.active!.past).toHaveLength(0);
 });

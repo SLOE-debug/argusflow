@@ -26,8 +26,8 @@ export function DocumentRow({
   return (
     <div
       className={
-        "group flex items-center rounded-md " +
-        (active ? "bg-accent-soft text-accent" : "text-ink hover:bg-hover")
+        "group flex items-center rounded-md hover:bg-hover has-[:focus-visible]:bg-hover " +
+        (active ? "bg-accent-soft text-accent" : "text-ink")
       }
       onContextMenu={(event) => {
         event.preventDefault();
@@ -45,7 +45,7 @@ export function DocumentRow({
     >
       <Button
         variant="ghost"
-        className="h-8 min-w-0 flex-1 justify-start gap-2 px-2 text-xs text-inherit"
+        className="h-8 min-w-0 flex-1 justify-start gap-2 px-2 text-xs text-inherit hover:bg-transparent focus-visible:bg-transparent"
         title={name}
         disabled={disabled}
         onClick={onOpen}
@@ -58,7 +58,7 @@ export function DocumentRow({
         aria-haspopup="menu"
         disabled={disabled}
         data-document-actions={id}
-        className="mr-1 size-6 text-muted hover:text-ink"
+        className="mr-1 size-6 text-muted hover:bg-transparent focus-visible:bg-transparent group-hover:text-ink focus-visible:text-ink"
         onClick={(event) => {
           const rect = event.currentTarget.getBoundingClientRect();
           onMenu(rect.left, rect.bottom + 4);

@@ -1,5 +1,7 @@
 # 后端能力接口与生命周期
 
+新增 [桌面操作录制器](recorder.md) 独立于工作流，输入契约在 `argusflow-input-contracts`，归一化与存储在 `argusflow-recorder`。Hook 与追加日志运行于独立子进程；桌面装配复用本页的共享 UIA、DXGI 和原生 OCR 能力。
+
 结构化工作流的编译、运行句柄、词法作用域和资源所有权见 [Workflow](workflow.md)。运行时通过能力适配 crate 接入本页的现有 API；新增 `Operation::child` 继承父截止时间与取消，子取消和副作用标记独立。Browser 生命周期和页面导航、关闭、附加均提供共享票据入口。
 
 ## 共用契约
@@ -33,6 +35,8 @@
 
 ## Windows
 
+`InputListener` 是真实输入监听器，区别于输入注入服务 `InputService`。专用消息线程安装低级键鼠Hook及前台／销毁事件，回调只提交有界输入事实。`UiaRuntime::observe_target` 在现有MTA线程执行定点或焦点观察，最多四层祖先，读取角色、名称、AutomationId、类、边界和可用Value；密码不读取值。输入注入统一携带自身标记，录制保留事实并阻止递归派生。
+
 `WindowLocator` 按 PID、精确标题、精确类名筛选可见顶层窗口，`find_unique` 必须唯一。`WindowIdentity` 保存 HWND、PID、进程创建时间，并安装一个属于本库的窗口属性租约；属性随窗口销毁消失，最后一个身份句柄释放时移除。使用前复验标记，阻止同进程 HWND 复用；标记被移除后旧身份不会重新绑定。最多同时持有 4096 个窗口身份。目标权限不允许安装标记时明确报错，不降级校验。窗口枚举与身份建立是同步 Win32 元数据操作；不会切换焦点。目标仍可能在校验后变化，真实输入不是事务。
 
 `UiaRuntime::start` 创建专用 MTA；COM 元素、Pattern、TreeWalker 均在该线程创建和释放。`Query` 由窗口身份、`SearchScope` 和 `Predicate` 组成；条件支持 AutomationId、Name、ClassName、ControlType、All、OneOf、Not。查询不跨越指定窗口树，达到预算返回错误，不把截断结果伪装为完整结果。
@@ -50,6 +54,8 @@ SendInput 一次性提交有限事件序列并核对实际注入数量。部分�
 手动示例：`cargo run -p argusflow-windows --example test_window`，另一个终端执行 `cargo run -p argusflow-windows --example uia`。后者只对精确标题为 `ArgusFlow UIA Test` 的测试窗口调用 Invoke。
 
 ## CDP
+
+`PageObserver` 仅对显式附加的页面安装被动事件监听。返回事件、编辑值、焦点属性、丢失数及target/frame/文档代际；主frame和开放Shadow事件路径有界，iframe和关闭Shadow内部未覆盖。暂停／停止显式卸载，导航通过新文档脚本重装。主机请求区间与页面performance.now一起保存，不混用时钟。完整限制见 [录制格式](recorder-format.md)。
 
 `Browser::connect` 接受显式 HTTP(S) 调试端点或 Browser WS(S) 地址。`Browser::launch` 接受 Chrome/Edge 的绝对路径，用随机本地端口和独立临时配置目录启动；通过 `DevToolsActivePort` 获知端口，不扫描用户端口或使用日常配置目录。Windows 自建进程关联 Job，关闭时回收自有进程树和临时目录。
 
@@ -75,4 +81,4 @@ WebSocket 读写相互独立，写入阻塞受自己的时限和操作剩余时�
 
 结果包含文字、平均保留字符置信度和原图四边形，`text()` 用换行拼接。无文字返回空结果。没有方向分类、去畸变或版面分析；本实现不声明与 OpenCV 的逐像素插值/轮廓顺序完全相同，准确性由固定图片验收覆盖。
 
-`SampledOcr` 将指定区域的稳定采样接到现有引擎。每个实例固定模型配置，容量为八个区域，合并相同区域的在途调用；只在 GPU 精确确认完整区域内容不变后复用结果。结果保留来源版本、本地原点和屏幕坐标转换，区域外变化不重复推理。详见 [采样设计](sampling.md)。
+`SampledOcr` 将指定区域的稳定采样接到现有引擎。每个实例固定模型配置，容量为八个区域，合并相同区域的在途调用；只在公共像素算法精确确认完整区域内容不变后复用结果。结果保留来源版本、本地原点和屏幕坐标转换，区域外变化不重复推理。详见 [采样设计](sampling.md)。

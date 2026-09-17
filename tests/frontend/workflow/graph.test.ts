@@ -158,9 +158,10 @@ describe("workflow graph transactions", () => {
     const childCamera = compose(rootCamera, child.transform);
     const local = { x: 150, y: 122 };
     const rootPosition = worldToScreen(local, child.transform);
-    expect(worldToScreen(local, childCamera)).toEqual(
-      worldToScreen(rootPosition, rootCamera),
-    );
+    const childScreen = worldToScreen(local, childCamera);
+    const rootScreen = worldToScreen(rootPosition, rootCamera);
+    expect(childScreen.x).toBeCloseTo(rootScreen.x, 10);
+    expect(childScreen.y).toBeCloseTo(rootScreen.y, 10);
     const returned = compose(childCamera, inverse(child.transform));
     expect(returned.x).toBeCloseTo(rootCamera.x);
     expect(returned.y).toBeCloseTo(rootCamera.y);

@@ -56,27 +56,27 @@ export function drawCard(
   if (zoom < 0.25 || zoom > 16) return;
   const centerY = rect.y + (container ? 22 : rect.height / 2);
   context.beginPath();
-  context.arc(rect.x + 32, centerY, container ? 15 : 21, 0, Math.PI * 2);
+  context.arc(rect.x + 26, centerY, 16, 0, Math.PI * 2);
   context.fillStyle = tone;
   context.globalAlpha = 0.1;
   context.fill();
   context.globalAlpha = 1;
-  resources.icon(context, node.kind, tone, rect.x + 20, centerY - 12);
+  resources.icon(context, node.kind, tone, rect.x + 14, centerY - 12);
   context.textBaseline = "middle";
   context.fillStyle = colors.text;
   context.font = "600 14px system-ui, sans-serif";
   context.fillText(
-    resources.label(context, node.title, rect.width - 98),
-    rect.x + 64,
-    centerY - (container ? 0 : 10),
+    resources.label(context, node.title, rect.width - 86),
+    rect.x + 52,
+    centerY - (container ? 0 : 9),
   );
   if (!container && zoom >= 0.4) {
     context.font = "12px system-ui, sans-serif";
     context.fillStyle = colors.muted;
     context.fillText(
-      resources.label(context, node.summary, rect.width - 82),
-      rect.x + 64,
-      centerY + 12,
+      resources.label(context, node.summary, rect.width - 64),
+      rect.x + 52,
+      centerY + 10,
     );
   }
   context.fillStyle = colors.muted;
@@ -137,7 +137,7 @@ export function drawEndpoint(
   if (zoom < 0.25 || zoom > 16) return;
   const centerY = rect.y + rect.height / 2;
   context.beginPath();
-  context.arc(rect.x + 32, centerY, 20, 0, Math.PI * 2);
+  context.arc(rect.x + 26, centerY, 16, 0, Math.PI * 2);
   context.fillStyle = tone;
   context.globalAlpha = 0.07;
   context.fill();
@@ -146,19 +146,19 @@ export function drawEndpoint(
     context,
     entry ? "start" : "end",
     tone,
-    rect.x + 20,
+    rect.x + 14,
     centerY - 12,
   );
   context.textBaseline = "middle";
   context.fillStyle = colors.text;
   context.font = "600 14px system-ui, sans-serif";
-  context.fillText(entry ? "开始" : "结束", rect.x + 62, centerY - 10);
+  context.fillText(entry ? "开始" : "结束", rect.x + 52, centerY - 9);
   context.fillStyle = colors.muted;
   context.font = "12px system-ui, sans-serif";
   context.fillText(
     entry ? "工作流入口" : "工作流出口",
-    rect.x + 62,
-    centerY + 12,
+    rect.x + 52,
+    centerY + 10,
   );
 }
 

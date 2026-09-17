@@ -11,3 +11,5 @@ pub use aql::UiaMatch;
 pub use config::UiaConfig;
 pub use element::{ControlType, ElementHandle, ElementSnapshot, Predicate, Query, SearchScope};
 pub use runtime::{UiaRuntime, UiaState};
+mod observation;
+pub use observation::{UiaObservation, UiaObservedNode};

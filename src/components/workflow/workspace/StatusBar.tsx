@@ -1,4 +1,4 @@
-import { PanelLeft, PanelRight } from "lucide-react";
+import { PanelBottom, PanelLeft, PanelRight } from "lucide-react";
 import { studio, type EditorTab } from "../../../features/workflow";
 import { ThemePicker } from "../../shell/ThemePicker";
 import { IconButton } from "../../ui";
@@ -8,12 +8,14 @@ export function StatusBar({
   tab,
   left,
   right,
+  dockOpen,
   onLeft,
   onRight,
 }: {
   readonly tab?: EditorTab;
   readonly left: boolean;
   readonly right: boolean;
+  readonly dockOpen: boolean;
   readonly onLeft: () => void;
   readonly onRight: () => void;
 }) {
@@ -45,6 +47,16 @@ export function StatusBar({
         >
           <PanelLeft size={13} />
         </IconButton>
+        {tab && (
+          <IconButton
+            aria-label={dockOpen ? "收起底部面板" : "展开底部面板"}
+            aria-pressed={dockOpen}
+            className="size-6 aria-pressed:text-accent"
+            onClick={() => studio.toggleDock()}
+          >
+            <PanelBottom size={13} />
+          </IconButton>
+        )}
         {tab && (
           <IconButton
             aria-label="切换属性面板"

@@ -1,14 +1,9 @@
-//! DXGI 可见桌面采样，所有 immediate context 调用属于适配器工作线程。
-mod backend;
+//! 完整桌面帧与视频采集，GPU 资源由所属工作线程持有。
 mod clock;
 mod desktop;
 mod dpi;
+mod frames;
 mod gpu;
-mod lease;
-mod output;
-mod pixels;
-mod queue;
-mod requests;
 mod topology;
-mod worker;
-pub use backend::DxgiBackend;
+pub(crate) mod video;
+pub use frames::DxgiFrameSource;

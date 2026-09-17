@@ -2,7 +2,7 @@ import type { WorkflowFile, EdgeEndpoint, NodeLayout } from "./contracts";
 
 /** 起止标记属于编辑布局，不新增执行动作；固定键确保每个作用域各有一个。 */
 export type EndpointKind = "start" | "end";
-export const ENDPOINT_SIZE = { width: 168, height: 72 } as const;
+export const ENDPOINT_SIZE = { width: 152, height: 56 } as const;
 export function isEndpointKind(kind: string): kind is EndpointKind {
   return kind === "start" || kind === "end";
 }

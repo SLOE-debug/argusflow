@@ -22,6 +22,7 @@ use windows::Win32::{
 };
 
 pub(crate) enum Command {
+    Observe(Option<[i32; 2]>),
     Aql(crate::WindowIdentity, argusflow_aql::BoundQuery),
     ClickPoint(ElementHandle),
     FocusAql(ElementHandle),
@@ -30,6 +31,7 @@ pub(crate) enum Command {
     Act(ElementHandle, UiaAction),
 }
 pub(crate) enum Response {
+    Observation(super::observation::UiaObservation),
     Aql(Vec<super::aql::UiaMatch>),
     Point(argusflow_core::ScreenPoint),
     Elements(Vec<ElementHandle>),
@@ -109,6 +111,11 @@ impl Provider {
         operation.check("uia_execute")?;
         self.prune();
         match command {
+            Command::Observe(point) => Ok(Response::Observation(super::observation::observe(
+                &self.automation,
+                point,
+                operation,
+            )?)),
             Command::Aql(window, query) => {
                 let found =
                     super::aql::find(&self.automation, &window, &query, operation, &self.config)?;

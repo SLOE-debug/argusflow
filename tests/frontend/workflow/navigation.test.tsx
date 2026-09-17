@@ -137,7 +137,14 @@ it("画布拖放和搜索插入各计数一次，中文输入法确认不触发�
   expect(nodeUsage.store.getState().entries.wait.count).toBe(1);
   fireEvent.keyDown(canvas, { key: "Tab" });
   const input = screen.getByRole("textbox", { name: "搜索节点" });
+  expect(input).toHaveFocus();
+  expect(
+    screen.getByRole("dialog").querySelector('[data-highlighted="true"]'),
+  ).toBeNull();
   fireEvent.change(input, { target: { value: "条件循环" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(nodeUsage.store.getState().entries.while).toBeUndefined();
+  fireEvent.keyDown(input, { key: "ArrowDown" });
   fireEvent.keyDown(input, { key: "Enter", isComposing: true });
   expect(nodeUsage.store.getState().entries.while).toBeUndefined();
   fireEvent.keyDown(input, { key: "Enter" });
@@ -147,13 +154,16 @@ it("画布拖放和搜索插入各计数一次，中文输入法确认不触发�
 it("标题栏保留标签，工作流操作随编辑区显示，视图偏好集中在状态栏", async () => {
   render(<StudioApp />);
   const header = screen.getByRole("banner");
+  expect(
+    within(header).getByRole("button", { name: "录制菜单" }),
+  ).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "运行" })).toBeNull();
   expect(screen.queryByRole("button", { name: "校验" })).toBeNull();
   expect(within(header).queryByRole("button", { name: /新建/ })).toBeNull();
   expect(screen.queryByRole("toolbar", { name: "工作流操作" })).toBeNull();
   const footer = screen.getByText("本地工作区").closest("footer")!;
   expect(
-    within(footer).getByRole("combobox", { name: "主题" }),
+    within(footer).getByRole("button", { name: /切换到(浅|深)色/ }),
   ).toBeInTheDocument();
   expect(
     within(footer).queryByRole("button", { name: "切换属性面板" }),
@@ -249,6 +259,7 @@ it("二级节点菜单在线路落点插入并保留后继，搜索入口仍可�
     />,
   );
   const trigger = screen.getByRole("menuitem", { name: "在线路上插入节点" });
+  expect(screen.getByRole("menu", { name: "画布菜单" })).toHaveFocus();
   fireEvent.mouseEnter(trigger);
   fireEvent.click(screen.getByRole("menuitem", { name: "声明变量" }));
   const nodes = studio.active!.file.definition.scopes[0].nodes;

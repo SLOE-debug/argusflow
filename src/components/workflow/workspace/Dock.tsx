@@ -1,5 +1,5 @@
 import { useStore } from "zustand";
-import { ChevronDown, ChevronUp, Maximize2, Minimize2 } from "lucide-react";
+import { Maximize2, Minimize2 } from "lucide-react";
 import { studio, type EditorTab } from "../../../features/workflow";
 import { Button, ResizeHandle } from "../../ui";
 import { LogPanel, locate } from "../execution/LogPanel";
@@ -17,6 +17,7 @@ export function Dock({
 }) {
   const state = useStore(studio.store);
   const [maximized, setMaximized] = useState(false);
+  if (!state.dockOpen) return null;
   const tabs: readonly {
     readonly id: typeof state.dock;
     readonly title: string;
@@ -29,7 +30,7 @@ export function Dock({
   return (
     <section
       className="flex shrink-0 flex-col border-t border-line bg-surface"
-      style={{ height: state.dockOpen ? (maximized ? "65vh" : height) : 34 }}
+      style={{ height: maximized ? "65vh" : height }}
     >
       {state.dockOpen && (
         <ResizeHandle
@@ -78,14 +79,6 @@ export function Dock({
             {maximized ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
           </Button>
         )}
-        <Button
-          variant="ghost"
-          aria-label={state.dockOpen ? "收起底部面板" : "展开底部面板"}
-          className="h-6 px-1"
-          onClick={() => studio.toggleDock()}
-        >
-          {state.dockOpen ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
-        </Button>
       </div>
       {state.dockOpen && (
         <div className="min-h-0 flex-1">

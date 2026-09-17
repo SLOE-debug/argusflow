@@ -68,8 +68,8 @@ it("同时显示横纵参考线，连续更新合并为一帧，松手一次提�
   expect(calls.clearRect).toHaveBeenCalledTimes(draws + 1);
   expect(draw).toHaveBeenCalledOnce();
   expect(draw.mock.calls[0][1]).toEqual([
-    { axis: "x", position: 536, start: 300, end: 580 },
-    { axis: "y", position: 340, start: 420, end: 1032 },
+    { axis: "x", position: 524, start: 300, end: 564 },
+    { axis: "y", position: 332, start: 420, end: 1008 },
   ]);
   expect(changed).not.toHaveBeenCalled();
   expect(studio.active!.file).toBe(data.file);
@@ -114,7 +114,7 @@ it.each([0.7, 1, 4])(
       });
       act(() => vi.advanceTimersByTime(16));
       const drawn = calls.roundRect.mock.calls.find(
-        ([, y, width]) => y === 210 && width === 232,
+        ([, y, width]) => y === 210 && width === 208,
       );
       expect(drawn?.[0]).toBeCloseTo(
         Math.abs(pixels) <= 5 ? 420 : 420 + pixels / zoom,
@@ -152,7 +152,7 @@ it("按住 Alt 立即释放吸附，松开恢复；单击不移动节点", () =>
     calls.roundRect.mockClear();
     fireEvent(host, new KeyboardEvent(type, { key: "Alt", bubbles: true }));
     act(() => vi.advanceTimersByTime(16));
-    expect(calls.roundRect).toHaveBeenCalledWith(x, y, 232, 80, 12);
+    expect(calls.roundRect).toHaveBeenCalledWith(x, y, 208, 64, 12);
   }
   fireEvent.pointerUp(host, {
     clientX: point.clientX + 316,
@@ -240,9 +240,9 @@ it("嵌套作用域只匹配同层节点，阈值包含作用域缩放", () => {
   expect(result.delta.x).toBeCloseTo(360);
   expect(result.guides).toContainEqual({
     axis: "x",
-    position: 556,
+    position: 544,
     start: 80,
-    end: 360,
+    end: 344,
   });
   /** 第二次离开阈值；父层节点不会被加入该作用域的对齐目标。 */
   expect(

@@ -24,7 +24,9 @@ Tauri 工作流设计器与可独立调用的 Rust 自动化能力库，提供�
 
 开发启动：安装依赖后运行 `pnpm start`。生成桌面程序：`pnpm tauri build --no-bundle`，产物在 `target/release/argusflow.exe`。
 
-开发服务器固定使用 `127.0.0.1:5173`，端口占用时直接报错，保持与 Tauri 的 `devUrl` 一致。Vite 仅从 `index.html` 扫描依赖，排除 Rust 源码、`target` 和本地依赖缓存目录的文件监听；Tailwind 从 `src` 与 `index.html` 检测类名，避免仓库构建产物拖慢前端启动。
+`pnpm start` 直接启动 Tauri，保留 Rust 构建缓存；开发模式开启增量编译，图像处理等现有优化等级保持不变。缓存占用需要清理时，手动执行 `pnpm cache:prune`：仓库 `target` 超过 **10 GiB** 才执行 `cargo clean`，未超限保留缓存。预览用 `pnpm cache:prune -DryRun`，调整本次阈值用 `pnpm cache:prune -MaxGiB 40`。清理包含 release 可执行文件与增量结果，不删除 `.deps` 模型和 Cargo 下载缓存；清理后的首次构建会更慢。有 Cargo、rustc、rustdoc 或 ArgusFlow 进程时跳过清理，空闲后需重新执行命令。该阈值不是磁盘硬配额，仅管理默认 `target`。启动耗时排查见 [启动性能](docs/startup-performance.md)。
+
+开发服务器固定使用 `127.0.0.1:5173`，端口占用时直接报错，保持与 Tauri 的 `devUrl` 一致。Vite 仅从 `index.html` 扫描依赖，排除 Rust 源码、`target`、本地依赖缓存以及 `docs`、`scripts`、`tests` 目录的文件监听；Vitest 独立配置仍监听前端测试。Tailwind 从 `src` 与 `index.html` 检测类名，避免仓库构建产物拖慢前端启动。
 
 ```powershell
 cargo check --workspace --all-targets

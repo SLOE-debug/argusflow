@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/argusflow-core", "crates/argusflow-windows", "crates/argusflow-browser", "crates/argusflow-vision", "crates/argusflow-capture-contracts", "crates/argusflow-capture", "crates/argusflow-aql", "crates/argusflow-aql-wasm", "crates/argusflow-automation", "crates/argusflow-workflow", "crates/argusflow-runtime", "crates/argusflow-workflow-automation", "src-tauri"]
+members = ["crates/argusflow-image", "crates/argusflow-input-contracts", "crates/argusflow-recorder", "crates/argusflow-core", "crates/argusflow-windows", "crates/argusflow-browser", "crates/argusflow-vision", "crates/argusflow-capture-contracts", "crates/argusflow-capture", "crates/argusflow-aql", "crates/argusflow-aql-wasm", "crates/argusflow-automation", "crates/argusflow-workflow", "crates/argusflow-runtime", "crates/argusflow-workflow-automation", "src-tauri"]
 resolver = "3"
 
 [workspace.package]
@@ -9,6 +9,9 @@ rust-version = "1.91"
 license = "MIT"
 
 [workspace.dependencies]
+argusflow-image = { path = "crates/argusflow-image" }
+argusflow-input-contracts = { path = "crates/argusflow-input-contracts" }
+argusflow-recorder = { path = "crates/argusflow-recorder" }
 argusflow-aql = { path = "crates/argusflow-aql" }
 argusflow-core = { path = "crates/argusflow-core" }
 argusflow-workflow = { path = "crates/argusflow-workflow" }
@@ -29,7 +32,8 @@ unsafe_op_in_unsafe_fn = "deny"
 
 [profile.dev]
 debug = "line-tables-only"
-incremental = false
+# 开发时保留本地 crate 的增量结果，避免每次编辑后重新编译整个 crate。
+incremental = true
 
 [profile.dev.package.argusflow-vision]
 opt-level = 2
@@ -38,4 +42,35 @@ opt-level = 2
 opt-level = 2
 
 [profile.dev.package.imageproc]
+opt-level = 2
+
+# 回看像素转换及PNG压缩必须在开发模式下也保持交互速度。
+[profile.dev.package.argusflow-windows]
+opt-level = 2
+
+[profile.dev.package.png]
+opt-level = 2
+
+[profile.dev.package.fdeflate]
+opt-level = 2
+
+[profile.dev.package.miniz_oxide]
+opt-level = 2
+
+[profile.dev.package.argusflow-desktop]
+opt-level = 2
+
+[profile.dev.package.flate2]
+opt-level = 2
+
+[profile.dev.package.adler2]
+opt-level = 2
+
+[profile.dev.package.crc32fast]
+opt-level = 2
+
+[profile.dev.package.base64]
+opt-level = 2
+
+[profile.dev.package.serde_json]
 opt-level = 2

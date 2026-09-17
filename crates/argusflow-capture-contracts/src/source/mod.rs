@@ -1,10 +1,7 @@
-//! 来源身份、不可变版本以及原生后台能力。
+//! 单调时钟、来源身份与固定图像的有效性。
 mod backend;
 mod model;
-pub use backend::{
-    BackendConfig, BackendEvent, CaptureFuture, CaptureStats, DesktopBackend, SnapshotPixels,
-};
+pub use backend::{CaptureFuture, SourceValidity};
 pub use model::{
-    ClockDomain, ClockTime, PixelChanges, Snapshot, SourceId, SourceInfo, SourceState, Timing,
-    Version,
+    ClockDomain, ClockTime, Snapshot, SourceId, SourceInfo, SourceState, Timing, Version,
 };

@@ -1,0 +1,23 @@
+[package]
+name = "argusflow-recorder"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+autotests = false
+[dependencies]
+argusflow-capture-contracts.workspace = true
+argusflow-input-contracts.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+blake3 = "1"
+tempfile = "3"
+[lints]
+workspace = true
+[[test]]
+name = "recorder"
+path = "../../tests/argusflow-recorder/integration/recorder.rs"
+
+[[example]]
+name = "recorder_bench"
+path = "../../tests/argusflow-recorder/support/benchmark.rs"

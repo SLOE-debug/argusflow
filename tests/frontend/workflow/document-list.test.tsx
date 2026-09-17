@@ -43,6 +43,8 @@ it("列表立即提供新建与打开，操作菜单重命名更新列表，删�
   fireEvent.click(
     screen.getByRole("button", { name: "工作流操作：未命名工作流" }),
   );
+  expect(screen.getByRole("menu", { name: "工作流操作菜单" })).toHaveFocus();
+  expect(screen.getByRole("menuitem", { name: "打开" })).not.toHaveFocus();
   fireEvent.click(screen.getByRole("menuitem", { name: /重命名/ }));
   expect(screen.getByRole("textbox", { name: "工作流名称" })).toHaveFocus();
   fireEvent.change(screen.getByRole("textbox", { name: "工作流名称" }), {

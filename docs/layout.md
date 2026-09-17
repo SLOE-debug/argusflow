@@ -4,6 +4,14 @@
 
 ```text
 crates/
+  argusflow-input-contracts/src/
+    event.rs                真实输入事实、来源、窗口与坐标契约
+  argusflow-recorder/src/
+    model/                  记录、观察、状态、像素及OCR身份
+    normalize/              操作归一化、时间共现索引和写者编排
+    storage/                校验追加日志、恢复、相对附件与回看缓存
+    protocol.rs             父子私有管道命令与通知
+    policy.rs               可解释的前后截图规则
   argusflow-workflow/src/
     model/                  流程文档、控制节点与表达式树
     value/                  强类型值与空间计量
@@ -43,23 +51,25 @@ crates/
     image.rs                带资源租约的只读共享图像
     resource.rs             原子字节预算
     sampling.rs             视觉消费者契约
+    frames.rs               独立全屏帧流、缓存快照和缩放预算契约
+  argusflow-image/src/
+    view.rs                 借用像素视图、格式与区域校验
+    difference.rs           通道差分、四连通区域及可配置过滤
   argusflow-capture/src/
-    service/                共享服务、来源状态、顺序校验、变化订阅
-    observation/            锚点、过程摘要、稳定等待和净变化
-    regions.rs              区域并集、裁剪、外扩、忽略区
-    sampling.rs             稳定区域及内容令牌
+    sampling.rs             完整帧历史的区域稳定采样与内容令牌
+    pixels.rs               原图裁剪与公共精确比较
+    validity.rs             来源生命周期有效性
   argusflow-windows/src/
     application/            自有进程 Job、参数编码和窗口等待
     capture/
-      gpu/                  设备、精确差分、分块历史、完成检测和读回
-      output/               duplication、候选区、版本发布
-      requests/             区域读取和版本比较任务
-      worker.rs             每适配器采集及有限恢复编排
-      lease.rs              来源撤销与 GPU 资源释放
+      frames/               办公全屏帧采集、缓存及独立生命周期
+      video/                原生GPU硬件视频、QPC索引、本地分片落盘及按需解码
+      gpu/                  设备、纹理资源与完整帧缩放旋转
     uia/                    配置、查询、Pattern、租约、MTA worker
       aql/                  属性、关系、几何和聚焦验证
     window/                 窗口定位、身份、HWND 标记
     input/                  输入服务、事件构造、注入、部分失败清理
+    listening/              真实低级Hook、消息线程、暂停与有界队列
     platform/               COM 生命周期、Win32 错误、实例所有权
   argusflow-browser/src/
     browser/                配置、启动与连接入口、端点解析
@@ -78,21 +88,24 @@ crates/
       recognition/          CTC 解码
       preprocessing.rs      张量预处理与透视裁剪
       pipeline.rs           单图推理编排
+      cache.rs              上次成功图像与文字块复用判定
+      incremental.rs        公共差分、完整检测与增量识别编排
       result.rs             文本块与阅读顺序
 tests/
+  argusflow-recorder/{unit,integration,support}/ 日志故障、归一化、策略、迁移读取和基准
   argusflow-desktop/{unit,integration,support}/
   argusflow-runtime/{unit,integration,support,fixtures}/
   argusflow-workflow-automation/{unit,integration,support,fixtures}/
   argusflow-aql/integration/
   argusflow-aql-wasm/integration/
   argusflow-automation/{unit,integration,support}/
-  frontend/{aql,workflow,support}/ 草稿、组件、画布、WASM 及固定 DOM 脚本测试
+  frontend/{aql,workflow,recorder,support}/ 草稿、组件、画布、WASM、录制关联及固定 DOM 脚本测试
   argusflow-core/unit/
   argusflow-capture-contracts/unit/
+  argusflow-image/unit/      精确差分、格式与录制过滤策略
   argusflow-capture/
-    unit/                   精确区域算法
-    integration/            版本、稳定、历史、缺口与取消
-    support/                确定性像素来源与故障注入
+    integration/            稳定、内容复用、来源撤销和取消
+    support/                确定性完整帧来源
   argusflow-windows/
     unit/{application,uia,window,platform,input,capture}/
     integration/            真实 UIA、输入、DXGI 验收
@@ -121,6 +134,10 @@ UI 输入、选择、单选／复选、开关和字段容器按控件分文件�
 
 `src-tauri/src/document/` 负责文件、结构和无损传输编译；`runtime/assembly.rs` 装配平台服务，`runtime/bundle.rs` 读取冻结依赖，`runtime/manager.rs` 持有运行生命周期，`runtime/journal.rs` 管理有序日志与最终结果。`commands.rs` 只适配命令参数；`lib.rs` 和 `main.rs` 装配应用。依赖加载职责拆分可通过 `node scripts/refactor-layout.mjs --workflow-designer` 重复执行。
 
+`src-tauri/src/recorder/` 分离子进程写者、父进程托管、心跳、管道和读包命令；`evidence/` 负责 UIA 生命周期与结构、页面属性，`context.rs` 负责时间线单项操作与关联结构证据读取。`src/features/recorder/` 持有协议、API、状态、有限缓存、事件帧选择与 `frame-map.ts` 的点击/OCR坐标契约；`src/components/recorder/` 提供录制菜单、状态摘要、事件画面及按需文字坐标详情。
+
 单元测试通过 `#[cfg(test)]` 和 `#[path]` 作为原模块的子模块编译，保留私有成员访问权限；`src/` 中只有挂载声明。集成测试由各 crate 的 `[[test]]` 指向根目录，仍使用原测试目标名，因此 `cargo test --workspace`、`--test native` 和 `--test ownership` 的用法不变。验收窗口仍可通过 `--example test_window` 运行。
 
 运行 `node scripts/refactor-layout.mjs` 可重复执行初版目录迁移；目标已存在时跳过已完成步骤，源/目标冲突时停止，不覆盖已有目标。迁移只改变组织与引用，不改变协议或算法。开发与验收命令见 [验证记录](validation.md)。
+
+`src-tauri/src/recorder/video/`负责视频子进程、片段索引和回看命令；`capture/video/decode.rs`核对原生解码PTS与显示区域；`argusflow-recorder/storage/review_cache.rs`只管理可重建图片缓存。旧 `pipeline.rs` 批量 PNG 链及其测试已删除；`video/analysis/regions.rs` 调用公共 `argusflow-image` 变化区域算法。

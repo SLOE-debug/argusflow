@@ -15,3 +15,5 @@ export { Menu } from "./menu/Menu";
 export type { MenuItem } from "./menu/model";
 export { ResizeHandle } from "./ResizeHandle";
 export { FileInput } from "./FileInput";
+export { Timeline } from "./timeline";
+export type { TimelineRange } from "./timeline";

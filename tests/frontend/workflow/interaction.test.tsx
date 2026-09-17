@@ -3,6 +3,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { Canvas } from "../../../src/components/workflow/canvas/Canvas";
 import { ValueField } from "../../../src/components/workflow/value-editor/ValueField";
 import { Inspector } from "../../../src/components/workflow/inspector/Inspector";
+import { ThemePicker } from "../../../src/components/shell/ThemePicker";
 import {
   studio,
   loopTemplate,
@@ -256,10 +257,27 @@ it("an added theme and same-effective-color preference update work without compo
     useTheme();
     return <span>{selectedTheme()}</span>;
   }
-  render(<Label />);
+  render(
+    <>
+      <Label />
+      <ThemePicker />
+    </>,
+  );
   expect(screen.getByText("system")).toBeInTheDocument();
-  act(() => setTheme("light"));
+  expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+  expect(screen.queryByText("跟随系统")).not.toBeInTheDocument();
+  act(() => {
+    media.matches = true;
+    changeHandlers.forEach((handler) => handler());
+  });
+  fireEvent.click(screen.getByRole("button", { name: "切换到浅色" }));
   expect(screen.getByText("light")).toBeInTheDocument();
+  expect(localStorage.getItem("argusflow.theme")).toBe("light");
+  act(() => initializeTheme());
+  expect(activeTheme().scheme).toBe("light");
+  fireEvent.click(screen.getByRole("button", { name: "切换到深色" }));
+  expect(activeTheme().scheme).toBe("dark");
+  expect(localStorage.getItem("argusflow.theme")).toBe("dark");
   const id = "test-" + crypto.randomUUID();
   registerTheme({
     ...LIGHT_THEME,

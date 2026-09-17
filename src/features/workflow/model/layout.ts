@@ -42,18 +42,18 @@ export function buildScene(file: WorkflowFile): Scene {
       const children = childScopes(node.action).map((child) =>
         measure(child.id, scopeId, node.id, child.label, depth + 1),
       );
-      let width = 232,
-        height = 80;
+      let width = 208,
+        height = 64;
       if (children.length) {
         width = Math.max(
-          300,
-          ...children.map((child) => child.bounds.width * PREVIEW_SCALE + 48),
+          240,
+          ...children.map((child) => child.bounds.width * PREVIEW_SCALE + 24),
         );
         height =
           44 +
           children.reduce(
             (sum, child) =>
-              sum + Math.max(100, child.bounds.height * PREVIEW_SCALE + 48),
+              sum + Math.max(64, child.bounds.height * PREVIEW_SCALE + 24),
             0,
           );
         let top = position.y + 44;
@@ -61,12 +61,12 @@ export function buildScene(file: WorkflowFile): Scene {
           result[child.id] = {
             ...child,
             local: {
-              x: position.x + 24 - child.bounds.x * PREVIEW_SCALE,
-              y: top + 24 - child.bounds.y * PREVIEW_SCALE,
+              x: position.x + 12 - child.bounds.x * PREVIEW_SCALE,
+              y: top + 16 - child.bounds.y * PREVIEW_SCALE,
               zoom: PREVIEW_SCALE,
             },
           };
-          top += Math.max(100, child.bounds.height * PREVIEW_SCALE + 48);
+          top += Math.max(64, child.bounds.height * PREVIEW_SCALE + 24);
         }
       }
       return {
@@ -78,16 +78,19 @@ export function buildScene(file: WorkflowFile): Scene {
       };
     });
     const elements = [...nodes, ...scopeEndpoints(file, scopeId)];
-    const x = Math.min(0, ...elements.map((node) => node.x - 40));
-    const y = Math.min(0, ...elements.map((node) => node.y - 40));
-    const right = Math.max(
-      240,
-      ...elements.map((node) => node.x + node.width + 40),
-    );
-    const bottom = Math.max(
-      140,
-      ...elements.map((node) => node.y + node.height + 40),
-    );
+    // 子图按内容包围，避免把原点到节点的距离计入容器留白。
+    const x = elements.length
+      ? Math.min(...elements.map((node) => node.x - 16))
+      : 0;
+    const y = elements.length
+      ? Math.min(...elements.map((node) => node.y - 16))
+      : 0;
+    const right = elements.length
+      ? Math.max(...elements.map((node) => node.x + node.width + 16))
+      : 240;
+    const bottom = elements.length
+      ? Math.max(...elements.map((node) => node.y + node.height + 16))
+      : 80;
     const geometry: ScopeGeometry = {
       id: scopeId,
       parent,

@@ -27,7 +27,7 @@ export function alignNodes<T>(
     : aligned;
 }
 
-/** 在首尾节点之间等距分布节点中心。 */
+/** 按节点边缘等距分布；空间不足时扩展末端，避免节点重叠。 */
 export function distributeNodes<T>(
   nodes: ReadonlyArray<FlowNode<T>>,
   selectedIds: ReadonlySet<string>,
@@ -35,20 +35,30 @@ export function distributeNodes<T>(
 ): ReadonlyArray<FlowNode<T>> {
   const selected = nodes
     .filter((node) => selectedIds.has(node.id))
-    .sort((a, b) => center(a, mode) - center(b, mode));
+    .sort((a, b) => leading(a, mode) - leading(b, mode));
   if (selected.length < 3) return nodes;
-  const start = center(selected[0], mode);
-  const step = (center(selected.at(-1)!, mode) - start) / (selected.length - 1);
-  const targets = new Map(
-    selected.map((node, index) => [node.id, start + step * index]),
+  const start = leading(selected[0], mode);
+  const last = selected.at(-1)!;
+  const occupied = selected.reduce((sum, node) => sum + extent(node, mode), 0);
+  /** 剩余空间均分为节点之间的净间距，而非中心距离。 */
+  const gap = Math.max(
+    0,
+    (leading(last, mode) + extent(last, mode) - start - occupied) /
+      (selected.length - 1),
   );
+  const targets = new Map<string, number>();
+  let cursor = start;
+  for (const node of selected) {
+    targets.set(node.id, cursor);
+    cursor += extent(node, mode) + gap;
+  }
   const distributed = nodes.map((node) => {
     const target = targets.get(node.id);
     if (target === undefined) return node;
     const nextPosition =
       mode === "horizontal"
-        ? { ...node.position, x: target - node.size.width / 2 }
-        : { ...node.position, y: target - node.size.height / 2 };
+        ? { ...node.position, x: target }
+        : { ...node.position, y: target };
     return nextPosition.x === node.position.x &&
       nextPosition.y === node.position.y
       ? node
@@ -86,8 +96,10 @@ function moveToAlignment<T>(
     : { ...node, position };
 }
 
-function center(node: FlowNode, mode: DistributeMode): number {
-  return mode === "horizontal"
-    ? node.position.x + node.size.width / 2
-    : node.position.y + node.size.height / 2;
+function leading(node: FlowNode, mode: DistributeMode): number {
+  return mode === "horizontal" ? node.position.x : node.position.y;
+}
+
+function extent(node: FlowNode, mode: DistributeMode): number {
+  return mode === "horizontal" ? node.size.width : node.size.height;
 }

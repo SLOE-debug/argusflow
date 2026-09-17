@@ -1,0 +1,10 @@
+[package]
+name = "argusflow-input-contracts"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+autotests = false
+[dependencies]
+serde.workspace = true
+[lints]
+workspace = true

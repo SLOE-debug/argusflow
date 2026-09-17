@@ -75,7 +75,7 @@ it("节点、连线和起止标记实际发出绘制调用，文字测量在平�
   expect(calls.fillText.mock.calls.map(([text]) => text)).toContain("结束");
   expect(calls.fillText.mock.calls.map(([text]) => text)).toContain("循环体");
   expect(calls.lineTo).toHaveBeenCalled();
-  expect(calls.roundRect).toHaveBeenCalledWith(80, 100, 232, 80, 12);
+  expect(calls.roundRect).toHaveBeenCalledWith(80, 100, 208, 64, 12);
   const measured = calls.measureText.mock.calls.length;
   drawScene(context, resources, {
     ...frame,
@@ -97,8 +97,8 @@ it("节点、连线和起止标记实际发出绘制调用，文字测量在平�
       guides: [],
     },
   });
-  expect(calls.roundRect).toHaveBeenCalledWith(120, 276, 168, 72, 12);
-  expect(calls.arc).toHaveBeenCalledWith(288, 312, 4, 0, Math.PI * 2);
+  expect(calls.roundRect).toHaveBeenCalledWith(120, 276, 152, 56, 12);
+  expect(calls.arc).toHaveBeenCalledWith(272, 304, 4, 0, Math.PI * 2);
   resources.dispose();
 });
 

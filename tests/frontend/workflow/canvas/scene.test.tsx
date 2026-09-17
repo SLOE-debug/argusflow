@@ -82,9 +82,13 @@ it("空循环体在所属容器内添加首个节点，不能覆盖成根流程"
       ),
     ),
   );
-  fireEvent.doubleClick(host, localPoint(scope, { x: 120, y: 70 }));
+  fireEvent.doubleClick(host, localPoint(scope, { x: 120, y: 100 }));
   const input = screen.getByRole("textbox", { name: "搜索节点" });
   fireEvent.change(input, { target: { value: "声明变量" } });
+  expect(
+    screen.getByRole("dialog").querySelector('[data-highlighted="true"]'),
+  ).toBeNull();
+  fireEvent.keyDown(input, { key: "ArrowDown" });
   fireEvent.keyDown(input, { key: "Enter" });
   expect(studio.active!.scope).toBe(scope);
   expect(studio.active!.file.definition.scopes[0].nodes).toHaveLength(1);
