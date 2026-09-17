@@ -233,7 +233,7 @@ async fn exercise(tier: ModelTier, device: Device) -> argusflow_vision::OcrResul
 }
 
 #[tokio::test]
-#[ignore = "requires explicitly prepared official models and ONNX Runtime; see docs/backend.md"]
+#[ignore = "requires explicitly prepared official models and ONNX Runtime; see README.md"]
 async fn official_small_and_medium_cpu() {
     for tier in [ModelTier::Small, ModelTier::Medium] {
         exercise(tier, Device::Cpu).await;

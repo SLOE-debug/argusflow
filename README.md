@@ -18,13 +18,13 @@ Tauri 工作流设计器与可独立调用的 Rust 自动化能力库，提供�
 | `argusflow-capture` | 共享采样、GPU 历史索引、变化订阅、时间锚点、稳定观察 |
 | `argusflow-desktop` | Tauri 工作台、工作目录、自动保存、运行管理与有序日志 |
 
-工作台使用 React/Vite/Monaco/Tailwind，支持无限画布、嵌套作用域缩放、复制粘贴、撤销重做、独立 workflow 调用、浅色/深色/系统主题，以及本地自动保存和运行结果查看。启动与操作见 [设计器使用说明](docs/workflow-designer.md)，本轮测试范围见 [设计器验证记录](docs/workflow-designer-validation.md)。
+工作台使用 React/Vite/Monaco/Tailwind，支持无限画布、嵌套作用域缩放、复制粘贴、撤销重做、独立 workflow 调用、浅色/深色/系统主题，以及本地自动保存和运行结果查看。
 
-中文 AQL 通过本地 WASM 检查并编译成英文查询，语言接口见 [AQL 说明](docs/aql.md)。Rust 工作流引擎支持 Let 词法作用域、全局/局部变量、子流程、循环、异常处理和资源生命周期，见 [Workflow 使用说明](docs/workflow.md)。输入录制与录制持久化、整屏增量文字场景尚未接入工作台。
+中文 AQL 通过本地 WASM 检查并编译成英文查询。Rust 工作流引擎支持 Let 词法作用域、全局/局部变量、子流程、循环、异常处理和资源生命周期。输入录制与录制持久化、整屏增量文字场景尚未接入工作台。
 
 开发启动：安装依赖后运行 `pnpm start`。生成桌面程序：`pnpm tauri build --no-bundle`，产物在 `target/release/argusflow.exe`。
 
-`pnpm start` 直接启动 Tauri，保留 Rust 构建缓存；开发模式开启增量编译，图像处理等现有优化等级保持不变。缓存占用需要清理时，手动执行 `pnpm cache:prune`：仓库 `target` 超过 **10 GiB** 才执行 `cargo clean`，未超限保留缓存。预览用 `pnpm cache:prune -DryRun`，调整本次阈值用 `pnpm cache:prune -MaxGiB 40`。清理包含 release 可执行文件与增量结果，不删除 `.deps` 模型和 Cargo 下载缓存；清理后的首次构建会更慢。有 Cargo、rustc、rustdoc 或 ArgusFlow 进程时跳过清理，空闲后需重新执行命令。该阈值不是磁盘硬配额，仅管理默认 `target`。启动耗时排查见 [启动性能](docs/startup-performance.md)。
+`pnpm start` 直接启动 Tauri，保留 Rust 构建缓存；开发模式开启增量编译，图像处理等现有优化等级保持不变。缓存占用需要清理时，手动执行 `pnpm cache:prune`：仓库 `target` 超过 **10 GiB** 才执行 `cargo clean`，未超限保留缓存。预览用 `pnpm cache:prune -DryRun`，调整本次阈值用 `pnpm cache:prune -MaxGiB 40`。清理包含 release 可执行文件与增量结果，不删除 `.deps` 模型和 Cargo 下载缓存；清理后的首次构建会更慢。有 Cargo、rustc、rustdoc 或 ArgusFlow 进程时跳过清理，空闲后需重新执行命令。该阈值不是磁盘硬配额，仅管理默认 `target`。
 
 开发服务器固定使用 `127.0.0.1:5173`，端口占用时直接报错，保持与 Tauri 的 `devUrl` 一致。Vite 仅从 `index.html` 扫描依赖，排除 Rust 源码、`target`、本地依赖缓存以及 `docs`、`scripts`、`tests` 目录的文件监听；Vitest 独立配置仍监听前端测试。Tailwind 从 `src` 与 `index.html` 检测类名，避免仓库构建产物拖慢前端启动。
 
@@ -45,6 +45,6 @@ powershell -ExecutionPolicy Bypass -File scripts/prepare-native-deps.ps1 -Device
 cargo run -p argusflow-vision --example recognize -- .deps tests/argusflow-vision/fixtures/bilingual.png cpu small
 ```
 
-源码按职责分层，测试统一位于根目录 `tests/<crate 名>/`，再分为 `unit/`、`integration/`、`support/` 和 `fixtures/`。目录约定见 [项目结构](docs/layout.md)。
+源码按职责分层，测试统一位于根目录 `tests/<crate 名>/`，再分为 `unit/`、`integration/`、`support/` 和 `fixtures/`。目录约定见 [代理工作规则](AGENTS.md)。
 
-参见 [接口与生命周期](docs/backend.md)、[共享采样与录制器接入设计](docs/sampling.md)、[采样验证及性能报告](docs/sampling-validation.md)、[原生依赖与故障排查](docs/native-dependencies.md)、[验证记录与复现方法](docs/validation.md)。
+编码与通用规则见 [docs/rules](docs/rules/)。
