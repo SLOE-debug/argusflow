@@ -12,7 +12,7 @@ import {
 import { Button, Input, Textarea } from "../../ui";
 import { NodeIcon } from "../presentation/NodeIcon";
 import { NODE_CATALOG } from "../../../features/workflow";
-import { nodeTone } from "../presentation/nodeTone";
+import { nodeBadgeTone, nodeTone } from "../presentation/nodeTone";
 import { TimeoutFields } from "./TimeoutFields";
 import { TaskFields } from "./TaskFields";
 import { ControlFields } from "./ControlFields";
@@ -31,8 +31,11 @@ export function Inspector({
     tab.selected.length === 1 ? nodeById(tab.file, tab.selected[0]) : undefined;
   const endpoint =
     tab.selected.length === 1 ? endpointKind(tab.scope, tab.selected[0]) : null;
-  if (endpoint === "start") return null;
-  if (endpoint && tab.file.editor.nodes[tab.selected[0]])
+  if (
+    endpoint &&
+    endpoint !== "start" &&
+    tab.file.editor.nodes[tab.selected[0]]
+  )
     return <EndpointInspector kind={endpoint} tab={tab} onClose={onClose} />;
   const pending = node
     ? Object.entries(tab.file.editor.drafts).filter(([key]) =>
@@ -46,7 +49,9 @@ export function Inspector({
           <h2 className="text-sm font-semibold">
             {tab.selected.length > 1
               ? "选择了 " + tab.selected.length + " 个节点"
-              : "工作流"}
+              : endpoint === "start"
+                ? "节点属性"
+                : "工作流"}
           </h2>
           <Button variant="ghost" aria-label="关闭属性面板" onClick={onClose}>
             <X size={14} />
@@ -69,6 +74,13 @@ export function Inspector({
               </Button>
             </div>
           </>
+        ) : endpoint === "start" ? (
+          <div className="rounded-lg bg-subtle p-4">
+            <p className="text-sm font-medium">开始节点无需配置</p>
+            <p className="mt-2 text-xs leading-6 text-muted">
+              请选择具有属性的节点，查看或修改配置。
+            </p>
+          </div>
         ) : (
           <>
             <Input
@@ -84,10 +96,10 @@ export function Inspector({
               }
             />
             <p className="mb-5 text-[11px] leading-5 text-muted">
-              选择画布节点查看配置。流程输入、输出和资源端口集中在底部管理。
+              选择画布中的步骤查看设置。运行前填写的内容和需要保留的结果，可在「流程设置」中调整。
             </p>
             <Button onClick={() => studio.panel("data")}>
-              输入输出
+              流程设置
               <ArrowUpRight size={13} />
             </Button>
           </>
@@ -109,17 +121,19 @@ export function Inspector({
             disabled={studio.readonly}
             onChange={(event) => studio.rename(node.id, event.target.value)}
           />
-          <p className="mt-1 text-xs font-medium text-muted">
-            节点类型 ·{" "}
-            {NODE_CATALOG.find((item) => item.id === nodeKind(node))?.title ??
-              nodeKind(node)}
-          </p>
-          <p className="mt-0.5 text-[10px] text-muted">
-            {
+          <span
+            className={
+              "mt-2 inline-flex rounded px-2 py-0.5 text-[11px] font-medium " +
+              nodeBadgeTone(nodeKind(node))
+            }
+            title={
               NODE_CATALOG.find((item) => item.id === nodeKind(node))
                 ?.description
             }
-          </p>
+          >
+            {NODE_CATALOG.find((item) => item.id === nodeKind(node))?.title ??
+              nodeKind(node)}
+          </span>
         </div>
         <Button
           variant="ghost"

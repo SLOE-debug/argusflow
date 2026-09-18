@@ -12,28 +12,33 @@ export interface SelectOption<T extends string> {
   readonly searchText?: string;
 }
 
-/** 下拉面板按可用空间翻转，并限制在视口内。 */
+/** 面板以触发器的垂直中心展开，触及视口边缘时向另一侧平移。 */
 export function selectPlacement(
   rect: Pick<DOMRect, "left" | "top" | "bottom" | "width">,
   viewport: { readonly width: number; readonly height: number },
   desiredHeight: number,
 ) {
-  const gap = 4;
   const margin = 8;
-  const below = Math.max(0, viewport.height - rect.bottom - gap - margin);
-  const above = Math.max(0, rect.top - gap - margin);
-  const flip = below < desiredHeight && above > below;
-  const maxHeight = Math.min(desiredHeight, flip ? above : below);
+  const maxHeight = Math.min(
+    desiredHeight,
+    Math.max(0, viewport.height - margin * 2),
+  );
   const width = Math.min(
     Math.max(rect.width, 120),
-    viewport.width - margin * 2,
+    Math.max(0, viewport.width - margin * 2),
   );
   return {
     left: Math.max(
       margin,
       Math.min(rect.left, viewport.width - width - margin),
     ),
-    top: flip ? rect.top - gap - maxHeight : rect.bottom + gap,
+    top: Math.max(
+      margin,
+      Math.min(
+        (rect.top + rect.bottom - maxHeight) / 2,
+        viewport.height - margin - maxHeight,
+      ),
+    ),
     width,
     maxHeight,
   };

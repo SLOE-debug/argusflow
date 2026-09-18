@@ -3,6 +3,7 @@ import { studio, type EditorTab } from "../../../features/workflow";
 import { Button, ResizeHandle, Tabs } from "../../ui";
 import { LogPanel, locate } from "../execution/LogPanel";
 import { DataPanel } from "../data/DataPanel";
+import { RunResults } from "../execution/results";
 export function Dock({
   tab,
   height,
@@ -20,7 +21,8 @@ export function Dock({
   }[] = [
     { id: "logs", title: "日志" },
     { id: "problems", title: "问题" },
-    { id: "data", title: "输入输出" },
+    { id: "results", title: "运行结果" },
+    { id: "data", title: "流程设置" },
   ];
   const navigation = (
     <Tabs
@@ -65,6 +67,7 @@ export function Dock({
             <LogPanel run={state.run} navigation={navigation} />
           )}
           {state.dock === "data" && <DataPanel tab={tab} />}
+          {state.dock === "results" && <RunResults workflow={tab.file.id} />}
           {state.dock === "problems" && (
             <div className="h-full overflow-auto p-3">
               {!state.problems.length && (

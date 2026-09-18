@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { Settings2 } from "lucide-react";
-import { Select, Button, Dialog } from "../../ui";
+import { ChevronDown } from "lucide-react";
+import { Select, Button } from "../../ui";
 import { TypeShape } from "./TypeShape";
 import { typeLabel, type ValueType } from "../../../features/workflow";
 const TYPES: readonly ValueType[] = [
@@ -10,6 +10,7 @@ const TYPES: readonly ValueType[] = [
   { type: "bool" },
   { type: "list", of: { type: "text" } },
   { type: "list", of: { type: "int" } },
+  { type: "list", of: { type: "record", of: {} } },
   { type: "record", of: {} },
   { type: "optional", of: { type: "text" } },
 ];
@@ -23,43 +24,46 @@ export function TypeSelect({
   const key = JSON.stringify(value);
   const [open, setOpen] = useState(false);
   return (
-    <div className="inline-flex items-start gap-1">
-      <Select
-        aria-label="数据类型"
-        value={key}
-        onValueChange={(selected) => {
-          const type = TYPES.find((item) => JSON.stringify(item) === selected);
-          if (type) onChange(type);
-        }}
-        options={[
-          ...(!TYPES.some((item) => JSON.stringify(item) === key)
-            ? [{ value: key, label: typeLabel(value) }]
-            : []),
-          ...TYPES.map((item) => ({
-            value: JSON.stringify(item),
-            label: typeLabel(item),
-          })),
-        ]}
-      />
-      {["record", "list", "optional"].includes(value.type) && (
-        <Button
-          variant="ghost"
-          aria-label="配置类型结构"
-          className="h-7 px-1"
-          onClick={() => setOpen(true)}
-        >
-          <Settings2 size={12} />
-        </Button>
-      )}
-      {open && (
-        <Dialog title="配置数据类型" wide onClose={() => setOpen(false)}>
-          <TypeShape value={value} onChange={onChange} />
-          <div className="mt-4 flex justify-end">
-            <Button variant="primary" onClick={() => setOpen(false)}>
-              完成
-            </Button>
-          </div>
-        </Dialog>
+    <div className="min-w-0 space-y-2">
+      <div className="flex flex-wrap items-center gap-1">
+        <Select
+          aria-label="数据类型"
+          value={key}
+          onValueChange={(selected) => {
+            const type = TYPES.find(
+              (item) => JSON.stringify(item) === selected,
+            );
+            if (type) onChange(type);
+          }}
+          options={[
+            ...(!TYPES.some((item) => JSON.stringify(item) === key)
+              ? [{ value: key, label: typeLabel(value) }]
+              : []),
+            ...TYPES.map((item) => ({
+              value: JSON.stringify(item),
+              label: typeLabel(item),
+            })),
+          ]}
+        />
+        {["record", "list", "optional"].includes(value.type) && (
+          <Button
+            variant="ghost"
+            aria-expanded={open}
+            className="h-7 px-1 text-xs text-muted"
+            onClick={() => setOpen(!open)}
+          >
+            <ChevronDown size={12} className={open ? "rotate-180" : ""} />
+            {value.type === "record" ||
+            (value.type === "list" && value.of.type === "record")
+              ? "字段设置"
+              : "内容类型"}
+          </Button>
+        )}
+      </div>
+      {open && ["record", "list", "optional"].includes(value.type) && (
+        <div className="rounded-md border border-line bg-surface p-3">
+          <TypeShape value={value} onChange={onChange} showType={false} />
+        </div>
       )}
     </div>
   );

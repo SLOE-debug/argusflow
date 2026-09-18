@@ -1,4 +1,5 @@
 import { SelectOptions } from "./SelectOptions";
+import { SELECT_PANEL_STYLE } from "./panelStyle";
 import {
   useCallback,
   useEffect,
@@ -66,6 +67,12 @@ export function Select<T extends string>({
   useEffect(() => {
     if (disabled) close();
   }, [disabled, close]);
+  useEffect(() => {
+    if (open && host)
+      panel.current
+        ?.querySelector<HTMLElement>('[aria-selected="true"]')
+        ?.scrollIntoView?.({ block: "nearest" });
+  }, [open, host]);
   useEffect(() => {
     if (open && highlighted)
       panel.current
@@ -208,8 +215,13 @@ export function Select<T extends string>({
             role="listbox"
             aria-label={aria["aria-label"]}
             aria-labelledby={aria["aria-labelledby"]}
-            style={layout}
-            className="fixed z-[100] overflow-x-auto overflow-y-auto rounded-md border border-line bg-surface p-1 text-xs text-ink shadow-lg"
+            style={{
+              ...layout,
+              width: "max-content",
+              minWidth: layout.width,
+              maxWidth: "calc(100vw - 16px)",
+            }}
+            className={SELECT_PANEL_STYLE}
             onPointerDown={(event) => event.preventDefault()}
             onPointerLeave={() => setActive(undefined)}
           >

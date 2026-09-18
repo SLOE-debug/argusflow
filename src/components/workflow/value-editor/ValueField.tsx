@@ -77,7 +77,7 @@ export function ValueField({
         ) : mode === "reference" ? (
           <Select
             aria-label="引用值"
-            className="max-w-full text-structure"
+            className="w-full text-structure"
             value={emptyReference ? "" : JSON.stringify(value)}
             onValueChange={(selected) => {
               const item = candidates.find(
@@ -124,7 +124,7 @@ export function ValueField({
       {!listItems && (
         <Select
           aria-label="取值方式"
-          className="w-16 shrink-0 px-1 text-[10px] text-muted"
+          className="order-first w-20 shrink-0 px-2 text-xs text-muted"
           value={mode}
           onValueChange={(next) => {
             if (next === "literal") {

@@ -105,7 +105,8 @@ export function availableSymbols(
             });
         for (const [output, type] of Object.entries(spec?.outputs ?? {}))
           values.set(node.id + ":" + output, {
-            label: nodeTitle(file, node) + " · " + output,
+            label:
+              nodeTitle(file, node) + " · " + (PORT_LABELS[output] ?? output),
             expression: { kind: "node_output", node: node.id, output },
             type,
           });

@@ -205,7 +205,7 @@ export function ControlFields({
           ))}
           {!Object.keys(tab.file.definition.outputs).length && (
             <p className="text-xs text-muted">
-              流程尚未声明输出。可在“输入输出”中添加。
+              还没有设置要保留的结果。请在「流程设置」的「结果设置」中添加。
             </p>
           )}
         </div>

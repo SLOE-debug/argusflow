@@ -25,7 +25,7 @@ export function LaunchArguments({
         onInvalid={onInvalid}
       />
       <p className="text-xs text-muted">
-        每项输入一个参数或文件路径，按顺序传入程序，无需额外加引号。
+        每项填写一个参数或文件路径，按列表顺序传入。路径含空格也不用加引号。
       </p>
     </div>
   );

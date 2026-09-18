@@ -55,7 +55,7 @@ it("声明和赋值编译到原有契约，拒绝未知变量、错误类型和�
   expect(() => compileAssignment('line = "one"', symbols)).toThrow();
   expect(() => compileAssignment("line = 1; alert(1)", symbols)).toThrow();
 });
-it("开始节点不渲染属性内容", () => {
+it("开始节点保留属性面板并提示选择可配置节点", () => {
   const file = createWorkflow();
   const tab: EditorTab = {
     file,
@@ -70,9 +70,15 @@ it("开始节点不渲染属性内容", () => {
     selectedEdge: null,
     viewport: { x: 0, y: 0, zoom: 1 },
   };
+  const close = vi.fn();
+  render(<Inspector tab={tab} onClose={close} />);
+  expect(screen.getByRole("complementary")).toBeInTheDocument();
+  expect(screen.getByText("开始节点无需配置")).toBeInTheDocument();
   expect(
-    render(<Inspector tab={tab} onClose={() => {}} />).container,
-  ).toBeEmptyDOMElement();
+    screen.getByText("请选择具有属性的节点，查看或修改配置。"),
+  ).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "关闭属性面板" }));
+  expect(close).toHaveBeenCalledOnce();
 });
 it("数字自增自减可编译、往返，拒绝非数字和声明中的更新", () => {
   for (const source of ["line++", "line--"]) {

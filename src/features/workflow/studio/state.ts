@@ -23,7 +23,7 @@ export interface EditorTab {
   /** 从根场景到画布 CSS 像素的相机变换。 */
   readonly viewport: ViewportTransform;
 }
-export type DockTab = "logs" | "problems" | "data";
+export type DockTab = "logs" | "problems" | "data" | "results";
 /** 应用数据初始化失败可以重试，错误不会伪装为空工作区。 */
 export type WorkspaceInitialization =
   | { readonly status: "idle" | "loading" | "ready" }

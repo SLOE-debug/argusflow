@@ -1,6 +1,7 @@
 import { SpatialPreview } from "../../../src/components/workflow/data/SpatialPreview";
 import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { spatialViewport } from "../../../src/components/workflow/data/SpatialPlot";
 import {
   parseSpatialPreview,
   isSpatialPreview,
@@ -96,5 +97,27 @@ describe("空间定位预览", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("100.0")).toBeInTheDocument();
     expect(screen.getByText("选中")).toBeInTheDocument();
+  });
+  it("默认围绕对象取景，完整范围由用户显式切换", () => {
+    const preview = parseSpatialPreview(output(sample))![0];
+    const [x, y, width, height] = spatialViewport(preview);
+    expect(width).toBeLessThan(preview.scope[2]);
+    expect(height).toBeLessThan(preview.scope[3]);
+    for (const [left, top, w, h] of [
+      preview.anchor,
+      ...preview.candidates.map((item) => item.bounds),
+    ]) {
+      expect(x).toBeLessThan(left);
+      expect(y).toBeLessThan(top);
+      expect(x + width).toBeGreaterThan(left + w);
+      expect(y + height).toBeGreaterThan(top + h);
+    }
+    render(<SpatialPreview previews={[preview]} />);
+    const plot = screen.getByRole("img", { name: "空间定位预览" });
+    expect(plot).toHaveAttribute("viewBox", spatialViewport(preview).join(" "));
+    fireEvent.click(screen.getByRole("button", { name: "显示整个范围" }));
+    expect(plot).toHaveAttribute("viewBox", "0 0 800 600");
+    fireEvent.click(screen.getByRole("button", { name: "放大目标区域" }));
+    expect(plot).toHaveAttribute("viewBox", spatialViewport(preview).join(" "));
   });
 });

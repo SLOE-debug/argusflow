@@ -35,9 +35,8 @@ export const SPATIAL_PREVIEW_TYPE: ValueType = {
     },
   },
 };
-export function isSpatialPreview(
-  value: Value,
-): value is Extract<Value, { type: "record" }> {
+/** 检查语义标记；普通记录同样合法，false 不应排除整个记录类型。 */
+export function isSpatialPreview(value: Value): boolean {
   return (
     value.type === "record" &&
     value.value.kind?.type === "text" &&

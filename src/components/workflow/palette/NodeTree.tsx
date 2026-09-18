@@ -78,6 +78,8 @@ export function NodeTree({
       return;
     event.preventDefault();
     event.stopPropagation();
+    // 空格保留给画布平移；长按确认键不能反复创建节点。
+    if (event.key === " " || (event.key === "Enter" && event.repeat)) return;
     switch (event.key) {
       case "ArrowUp":
         focusRow(rows[Math.max(0, index - 1)]?.key);

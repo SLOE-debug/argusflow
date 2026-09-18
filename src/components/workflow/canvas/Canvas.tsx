@@ -71,6 +71,7 @@ function CanvasSurface({ tab }: { readonly tab: EditorTab }) {
     size,
     navigation.focus,
     mode === "pan",
+    gestures.space,
   );
   connected.current = actions.setSearch;
   const cancel = () => {
@@ -84,6 +85,7 @@ function CanvasSurface({ tab }: { readonly tab: EditorTab }) {
     actions.add,
     navigation.focus,
     cancel,
+    gestures.space,
   );
   const error = useCanvasRenderer(
     surface,
@@ -136,16 +138,16 @@ function CanvasSurface({ tab }: { readonly tab: EditorTab }) {
             event.preventDefault();
           if (event.code === "Space" && event.target === event.currentTarget) {
             event.preventDefault();
-            gestures.space.current = true;
+            gestures.setSpace(true);
           }
         }}
         onKeyUp={(event) => {
           if (event.key === "Alt" && gestures.snapModifierChanged(false))
             event.preventDefault();
-          if (event.code === "Space") gestures.space.current = false;
+          if (event.code === "Space") gestures.setSpace(false);
         }}
         onBlur={() => {
-          gestures.space.current = false;
+          gestures.setSpace(false);
         }}
         onClick={(event) => {
           if (!gestures.consumeClick()) actions.click(event);

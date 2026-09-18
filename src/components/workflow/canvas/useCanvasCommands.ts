@@ -15,12 +15,17 @@ export function useCanvasCommands(
   add: () => void,
   activate: (scope: string) => void,
   cancel: () => void,
+  space: RefObject<boolean>,
 ) {
   useEffect(() => {
     const element = host.current;
     if (!element) return;
     const key = (event: KeyboardEvent) => {
       if (ownsKeyboard(event)) return;
+      if (space.current && event.key !== "Escape") {
+        event.preventDefault();
+        return;
+      }
       const tab = studio.active;
       if (!tab) return;
       const modifier = event.ctrlKey || event.metaKey;
@@ -99,5 +104,5 @@ export function useCanvasCommands(
     };
     element.addEventListener("keydown", key);
     return () => element.removeEventListener("keydown", key);
-  }, [host, location, add, activate, cancel]);
+  }, [host, location, add, activate, cancel, space]);
 }

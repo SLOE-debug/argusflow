@@ -1,6 +1,6 @@
 import { Check } from "lucide-react";
 import type { SelectOption } from "./model";
-/** 单选和多选共享选项渲染；长文本保持单行，面板随内容扩宽。 */
+/** 单选和多选共享选项渲染；超出视口的长文本换行，避免横向滚动。 */
 export function SelectOptions<T extends string>({
   options,
   selected,
@@ -30,7 +30,7 @@ export function SelectOptions<T extends string>({
             typeof option.label === "string" ? option.label : option.searchText
           }
           className={
-            "flex min-h-7 min-w-max cursor-default items-center gap-2 rounded px-2 py-1 " +
+            "flex min-h-7 min-w-0 cursor-default items-center gap-2 rounded px-2 py-1 " +
             (option.disabled
               ? "text-muted opacity-60"
               : option.value === active
@@ -42,7 +42,9 @@ export function SelectOptions<T extends string>({
           }}
           onClick={() => onSelect(option)}
         >
-          <span className="flex-1 whitespace-nowrap">{option.label}</span>
+          <span className="min-w-0 flex-1 whitespace-normal [overflow-wrap:anywhere]">
+            {option.label}
+          </span>
           <span className="w-3 shrink-0">
             {selected.includes(option.value) && <Check size={13} />}
           </span>

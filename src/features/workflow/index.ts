@@ -3,6 +3,13 @@ export {
   formatAssignment,
 } from "./values/source/assignment";
 export type * from "./model/contracts";
+export {
+  setWorkflowResult,
+  updateWorkflowPort,
+  renameWorkflowPort,
+  nextPortName,
+} from "./model/data-ports";
+export { scopeCanComplete } from "./model/outputs";
 
 export {
   compileExpressionSource,

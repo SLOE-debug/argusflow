@@ -88,14 +88,31 @@ export function useCanvasPointer(
     const active = gesture.current;
     if (active?.kind === "box") studio.select(active.initial, active.scope);
     clear();
-    space.current = false;
+  };
+  const setSpace = (pressed: boolean) => {
+    if (pressed === space.current) return;
+    if (pressed && gesture.current?.kind !== "pan") cancel();
+    space.current = pressed;
+    setCursor(pressed ? "cursor-grab" : "");
   };
   const cancelOnBlur = useRef(cancel);
-  cancelOnBlur.current = cancel;
+  cancelOnBlur.current = () => {
+    cancel();
+    setSpace(false);
+  };
+  const releaseSpace = useRef(() => setSpace(false));
+  releaseSpace.current = () => setSpace(false);
   useEffect(() => {
     const blur = () => cancelOnBlur.current();
+    const keyUp = (event: KeyboardEvent) => {
+      if (event.code === "Space") releaseSpace.current();
+    };
     window.addEventListener("blur", blur);
-    return () => window.removeEventListener("blur", blur);
+    window.addEventListener("keyup", keyUp);
+    return () => {
+      window.removeEventListener("blur", blur);
+      window.removeEventListener("keyup", keyUp);
+    };
   }, []);
   useEffect(
     () => () => {
@@ -120,6 +137,7 @@ export function useCanvasPointer(
     host.current?.focus();
     if (event.button === 1 || space.current || mode === "pan") {
       event.preventDefault();
+      suppressClick.current = true;
       // 平移只需客户端坐标差，不做命中检测或逐事件读取 DOM 布局。
       pointer.current = null;
       gesture.current = {
@@ -225,6 +243,7 @@ export function useCanvasPointer(
       preview.update(active.view, panPosition(active, event));
       return;
     }
+    if (space.current) return;
     if (active?.kind === "nodes") {
       if (studio.readonly || tab.file !== active.file) {
         clear();
@@ -398,6 +417,7 @@ export function useCanvasPointer(
       return suppressed;
     },
     space,
+    setSpace,
     cursor,
     screenPoint,
   };

@@ -25,6 +25,7 @@ export function useCanvasActions(
   size: { readonly width: number; readonly height: number },
   focus: (scope: string) => void,
   pan: boolean,
+  space: RefObject<boolean>,
 ) {
   const [search, setSearch] = useState<CanvasLocation | null>(null);
   const [menu, setMenu] = useState<CanvasMenuPosition | null>(null);
@@ -47,7 +48,7 @@ export function useCanvasActions(
       : hit({ x: size.width / 2, y: size.height / 2 });
   };
   const add = () => {
-    if (!studio.readonly) setSearch(location());
+    if (!studio.readonly && !space.current) setSearch(location());
   };
   const close = useCallback(() => {
     setSearch(null);
@@ -60,6 +61,7 @@ export function useCanvasActions(
   }, [host]);
   const openMenu = (event: MouseEvent<HTMLDivElement>) => {
     event.preventDefault();
+    if (space.current) return;
     const target = hit(screen(event));
     const tab = studio.active!;
     if (target.kind === "edge" || target.kind === "edge-end")
@@ -87,10 +89,11 @@ export function useCanvasActions(
     });
   };
   const click = (event: MouseEvent<HTMLDivElement>) => {
-    if (!pan && hit(screen(event)).kind === "menu") openMenu(event);
+    if (!pan && !space.current && hit(screen(event)).kind === "menu")
+      openMenu(event);
   };
   const doubleClick = (event: MouseEvent<HTMLDivElement>) => {
-    if (pan) return;
+    if (pan || space.current) return;
     const target = hit(screen(event));
     if (target.kind === "node") {
       const node = nodeById(studio.active!.file, target.node);
@@ -115,13 +118,17 @@ export function useCanvasActions(
   const drop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     const kind = event.dataTransfer.getData("application/argusflow-node");
-    if (!kind || studio.readonly) return;
+    if (!kind || studio.readonly || space.current) return;
     const target = hit(screen(event));
     void studio.safely(() =>
       studio.add(kind, target.point, target.connection, target.scope),
     );
   };
   const dragOver = (event: DragEvent<HTMLDivElement>) => {
+    if (space.current) {
+      event.dataTransfer.dropEffect = "none";
+      return;
+    }
     if (
       event.dataTransfer.types.includes("application/argusflow-node") &&
       !studio.readonly

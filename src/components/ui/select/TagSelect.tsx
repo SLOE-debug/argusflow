@@ -11,6 +11,7 @@ import { ChevronDown } from "lucide-react";
 import { Tag } from "../Tag";
 import { useSelectPanel } from "./useSelectPanel";
 import { SelectOptions } from "./SelectOptions";
+import { SELECT_PANEL_STYLE } from "./panelStyle";
 import type { SelectOption } from "./model";
 /** 单一输入外壳内组合标签和搜索；选中后菜单保持打开，支持键盘切换和撤销标签。 */
 export function TagSelect({
@@ -191,8 +192,13 @@ export function TagSelect({
             role="listbox"
             aria-label={label}
             aria-multiselectable="true"
-            style={layout}
-            className="fixed z-[100] overflow-auto rounded-md border border-line bg-surface p-1 text-xs text-ink shadow-lg"
+            style={{
+              ...layout,
+              width: "max-content",
+              minWidth: layout.width,
+              maxWidth: "calc(100vw - 16px)",
+            }}
+            className={SELECT_PANEL_STYLE}
             onPointerDown={(event) => event.preventDefault()}
           >
             <SelectOptions

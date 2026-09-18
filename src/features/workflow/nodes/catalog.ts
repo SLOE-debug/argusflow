@@ -446,4 +446,8 @@ export const PORT_LABELS: Readonly<Record<string, string>> = {
   path: "文件路径",
   expected: "预期文字",
   spatial_preview: "空间定位预览",
+  matches: "找到的内容",
+  exists: "是否找到目标",
+  equal: "文件内容是否一致",
+  pages: "已打开的网页",
 };

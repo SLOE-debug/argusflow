@@ -145,15 +145,40 @@ it("禁用和空选项不提交，外部点击关闭，监听在卸载后释放"
   fireEvent.pointerDown(document.body);
 });
 
-it("下拉在底部翻转并限制到视口内", () => {
+it("下拉在底部向上平移并限制到视口内", () => {
   const position = selectPlacement(
     { left: 970, top: 650, bottom: 682, width: 160 },
     { width: 1000, height: 700 },
     200,
   );
-  expect(position.top).toBe(446);
+  expect(position.top).toBe(492);
   expect(position.left + position.width).toBeLessThanOrEqual(992);
   expect(position.maxHeight).toBe(200);
+});
+
+it("下拉以触发器垂直中心展开，上边缘不足时向下平移", () => {
+  const viewport = { width: 1000, height: 700 };
+  expect(
+    selectPlacement(
+      { left: 100, top: 300, bottom: 332, width: 160 },
+      viewport,
+      200,
+    ).top,
+  ).toBe(216);
+  expect(
+    selectPlacement(
+      { left: 100, top: 10, bottom: 42, width: 160 },
+      viewport,
+      200,
+    ).top,
+  ).toBe(8);
+  const tall = selectPlacement(
+    { left: 100, top: 300, bottom: 332, width: 160 },
+    viewport,
+    900,
+  );
+  expect(tall.top).toBe(8);
+  expect(tall.maxHeight).toBe(684);
 });
 
 it("文字输入保留原生选区、组合事件和错误关联", () => {

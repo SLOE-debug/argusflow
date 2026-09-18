@@ -122,6 +122,28 @@ it("树方向键导航和 Enter 添加，拖动仅携带节点类型且不提前
   ).not.toBeInTheDocument();
 });
 
+it("节点库聚焦条件分支时空格不添加，长按 Enter 不重复添加", () => {
+  studio.create();
+  render(<Sidebar tab={studio.active} />);
+  fireEvent.change(screen.getByRole("textbox", { name: "搜索节点库" }), {
+    target: { value: "条件分支" },
+  });
+  const row = screen.getAllByRole("treeitem", { name: "条件分支" })[0];
+  row.focus();
+  const before = studio.active!.file;
+  fireEvent.keyDown(row, { key: " ", code: "Space" });
+  for (let i = 0; i < 10; i++)
+    fireEvent.keyDown(row, { key: " ", code: "Space", repeat: true });
+  expect(studio.active!.file).toBe(before);
+  fireEvent.keyDown(row, { key: "Enter" });
+  const added = studio.active!.file;
+  expect(added).not.toBe(before);
+  for (let i = 0; i < 10; i++)
+    fireEvent.keyDown(row, { key: "Enter", repeat: true });
+  expect(studio.active!.file).toBe(added);
+  expect(nodeUsage.store.getState().entries.if.count).toBe(1);
+});
+
 it("画布拖放和搜索插入各计数一次，中文输入法确认不触发添加", () => {
   studio.create();
   render(<Canvas tab={studio.active!} />);

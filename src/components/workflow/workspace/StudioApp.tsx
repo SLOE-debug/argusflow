@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { RecorderBar } from "../../recorder";
 import { useStore } from "zustand";
 import { initializeDesktop } from "./lifecycle";
-import { studio, endpointKind } from "../../../features/workflow";
+import { studio } from "../../../features/workflow";
 import { ResizeHandle } from "../../ui";
 import { TitleBar } from "../../shell/TitleBar";
 import { Sidebar } from "../palette/Sidebar";
@@ -79,32 +79,28 @@ export function StudioApp() {
                 />
                 <Canvas key={tab.file.id} tab={tab} />
               </div>
-              {right &&
-                !(
-                  tab.selected.length === 1 &&
-                  endpointKind(tab.scope, tab.selected[0]) === "start"
-                ) && (
-                  <>
-                    <ResizeHandle
-                      axis="x"
-                      value={rightWidth}
-                      min={260}
-                      max={720}
-                      reverse
-                      onChange={setRightWidth}
+              {right && (
+                <>
+                  <ResizeHandle
+                    axis="x"
+                    value={rightWidth}
+                    min={260}
+                    max={720}
+                    reverse
+                    onChange={setRightWidth}
+                  />
+                  <div
+                    className="shrink-0 border-l border-line"
+                    style={{ width: rightWidth }}
+                  >
+                    <Inspector
+                      key={tab.file.id + tab.selected.join(",")}
+                      tab={tab}
+                      onClose={() => setRight(false)}
                     />
-                    <div
-                      className="shrink-0 border-l border-line"
-                      style={{ width: rightWidth }}
-                    >
-                      <Inspector
-                        key={tab.file.id + tab.selected.join(",")}
-                        tab={tab}
-                        onClose={() => setRight(false)}
-                      />
-                    </div>
-                  </>
-                )}
+                  </div>
+                </>
+              )}
             </div>
             <Dock tab={tab} height={dockHeight} onHeight={setDockHeight} />
           </div>

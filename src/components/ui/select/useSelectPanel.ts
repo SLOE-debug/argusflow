@@ -23,11 +23,20 @@ export function useSelectPanel(
             left: rect.left,
             top: rect.top,
             bottom: rect.bottom,
-            width: Math.max(rect.width, panel.current?.scrollWidth ?? 0),
+            width: Math.max(
+              rect.width,
+              panel.current?.getBoundingClientRect().width ?? 0,
+            ),
           },
           { width: window.innerWidth, height: window.innerHeight },
-          // 包含上下 padding（8px）与 border（2px），避免三项菜单也溢出。
-          Math.min(264, Math.max(40, count * 28 + 10)),
+          // 使用换行后的实际内容高度；首次挂载前才按行数估算。
+          Math.min(
+            320,
+            Math.max(
+              40,
+              panel.current ? panel.current.scrollHeight + 2 : count * 28 + 10,
+            ),
+          ),
         ),
       );
     };
