@@ -2,6 +2,7 @@
 use crate::{ImageView, view::invalid};
 use argusflow_capture_contracts::{CaptureError, CaptureResult, PixelRect};
 use argusflow_core::{FailureKind, Operation};
+use std::ops::ControlFlow;
 
 /// 连通分量的包围框与实际变化像素数，坐标相对于输入视图。
 #[derive(Debug, Clone, Copy)]
@@ -39,12 +40,6 @@ fn validate(a: ImageView<'_>, b: ImageView<'_>, threshold: u8) -> CaptureResult<
     }
     Ok(a.width() as usize * a.height() as usize)
 }
-fn differs(a: ImageView<'_>, b: ImageView<'_>, i: usize, threshold: u8) -> bool {
-    a.pixel(i)
-        .into_iter()
-        .zip(b.pixel(i))
-        .any(|(a, b)| a.abs_diff(b) >= threshold)
-}
 /// 只判断是否变化，精确模式阈值为 1；不分配连通分量缓冲。
 pub fn has_changes(
     a: ImageView<'_>,
@@ -52,16 +47,8 @@ pub fn has_changes(
     threshold: u8,
     operation: &Operation,
 ) -> CaptureResult<bool> {
-    let count = validate(a, b, threshold)?;
-    for i in 0..count {
-        if i % 4096 == 0 {
-            operation.check("image_compare")?;
-        }
-        if differs(a, b, i, threshold) {
-            return Ok(true);
-        }
-    }
-    Ok(false)
+    validate(a, b, threshold)?;
+    crate::comparison::visit_changes(a, b, threshold, operation, |_| ControlFlow::Break(()))
 }
 /// 提取四连通变化区域，按面积降序返回；最多 65536 个有效分量，超限明确失败。
 pub fn changed_regions(
@@ -74,25 +61,19 @@ pub fn changed_regions(
     if policy.min_pixels == 0 || policy.min_width == 0 || policy.min_height == 0 {
         return Err(invalid("分量过滤尺寸必须非零"));
     }
-    let mut mask = vec![false; count];
-    for (i, changed) in mask.iter_mut().enumerate() {
-        if i % 4096 == 0 {
-            operation.check("image_difference")?;
-        }
-        *changed = differs(a, b, i, policy.threshold);
-    }
+    let mut mask = crate::change_mask::ChangeMask::new(count);
+    crate::comparison::visit_changes(a, b, policy.threshold, operation, |i| {
+        mask.insert(i);
+        ControlFlow::Continue(())
+    })?;
     let width = a.width() as usize;
     let height = a.height() as usize;
     let mut regions = Vec::new();
     let mut pending = Vec::<u32>::new();
-    for start in 0..count {
-        if start % 4096 == 0 {
-            operation.check("image_components")?;
-        }
-        if !mask[start] {
-            continue;
-        }
-        mask[start] = false;
+    let mut cursor = 0;
+    while let Some(start) = mask.next(&mut cursor) {
+        operation.check("image_components")?;
+        mask.take(start);
         pending.push(start as u32);
         let (mut left, mut top, mut right, mut bottom, mut area) = (width, height, 0, 0, 0);
         while let Some(i) = pending.pop() {
@@ -115,8 +96,7 @@ pub fn changed_regions(
             .into_iter()
             .flatten()
             {
-                if mask[neighbor] {
-                    mask[neighbor] = false;
+                if mask.take(neighbor) {
                     pending.push(neighbor as u32);
                 }
             }
@@ -148,6 +128,12 @@ pub fn changed_regions(
     Ok(regions)
 }
 
+#[cfg(test)]
+#[path = "../../../tests/argusflow-image/unit/components.rs"]
+mod components_tests;
+#[cfg(test)]
+#[path = "../../../tests/argusflow-image/unit/performance.rs"]
+mod performance;
 #[cfg(test)]
 #[path = "../../../tests/argusflow-image/unit/difference.rs"]
 mod tests;

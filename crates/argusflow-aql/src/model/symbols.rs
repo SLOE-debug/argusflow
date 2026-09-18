@@ -68,8 +68,10 @@ symbols!(Role {
     Text => "text"
 });
 symbols!(Attribute {
-    /// 可访问名称；OCR 为识别文字。
+    /// 可访问名称，不等同于屏幕上的文字；OCR 不支持。
     Name => "name",
+    /// 已确认的通用角色，使用中文角色名称。
+    Type => "type",
     /// 文字内容。
     Text => "text",
     /// 来源的逻辑标识。

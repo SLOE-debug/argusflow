@@ -21,7 +21,7 @@ fn file() -> WorkflowFile {
     serde_json::from_value(json!({
         "id": "flow_test",
         "definition": { "name": "草稿", "inputs": {}, "outputs": {}, "resources": {}, "root": "root", "subflows": {},
-          "scopes": [{"id":"root","edges":[{"id":"entry","source":{"kind":"start"},"target":{"kind":"node","node":"node"}},{"id":"exit","source":{"kind":"node","node":"node"},"target":{"kind":"end"}}],"nodes":[{"id":"node","timeout_ms":"18446744073709551615","action":{"kind":"wait","milliseconds":{"kind":"literal","value_type":{"type":"int"},"value":{"type":"int","value":"9007199254740993"}}},"output_bindings":{}}],"outputs":{}}]},
+          "scopes": [{"id":"root","edges":[{"id":"entry","source":{"kind":"start"},"target":{"kind":"node","node":"node"}},{"id":"exit","source":{"kind":"node","node":"node"},"target":{"kind":"end"}}],"nodes":[{"id":"node","timeout_ms":{"kind":"literal","value_type":{"type":"int"},"value":{"type":"int","value":"9223372036854775807"}},"action":{"kind":"wait","milliseconds":{"kind":"literal","value_type":{"type":"int"},"value":{"type":"int","value":"9007199254740993"}}},"output_bindings":{}}],"outputs":{}}]},
         "editor": { "nodes": {"node":{"x":-45.5,"y":120,"label":"等待","note":"原始说明"},"$start:root":{"x":-280,"y":120,"label":"开始","note":""},"$end:root":{"x":720,"y":120,"label":"结束","note":""}}, "edges":{"entry":{"source":"right","target":"left"},"exit":{"source":"right","target":"left"}}, "drafts": {"node:milliseconds":"尚未完成"} }
     })).unwrap()
 }

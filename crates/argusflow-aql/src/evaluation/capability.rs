@@ -42,15 +42,26 @@ impl Capabilities {
     }
     /// 在任何平台查询或图像识别之前检查整棵表达式。
     pub fn check(&self, query: &BoundQuery) -> Result<(), Failure> {
-        if !query.attributes().is_subset(&self.attributes) {
-            return Err(unsupported("来源不支持查询中使用的属性"));
+        let attributes = query.attributes();
+        let missing = attributes
+            .difference(&self.attributes)
+            .map(|attribute| crate::localize(attribute.name()).source().to_owned())
+            .collect::<Vec<_>>();
+        if !missing.is_empty() {
+            return Err(unsupported(&format!(
+                "来源无法确认以下属性：{}",
+                missing.join("、")
+            )));
         }
         self.check_expr(query.expression())
     }
     fn check_expr(&self, expression: &Expr) -> Result<(), Failure> {
         match expression {
             Expr::Match { role, .. } if *role != Role::Element && !self.roles.contains(role) => {
-                return Err(unsupported("来源不支持查询中的角色"));
+                return Err(unsupported(&format!(
+                    "来源无法确认目标类型：{}",
+                    crate::localize(role.name()).source()
+                )));
             }
             Expr::Relation { left, right, .. } => {
                 if !self.relations {
@@ -59,7 +70,17 @@ impl Capabilities {
                 self.check_expr(left)?;
                 self.check_expr(right)?;
             }
-            Expr::Nth { query, .. } => self.check_expr(query)?,
+            Expr::Nth { query, .. } | Expr::Position { query, .. } => self.check_expr(query)?,
+            Expr::Spatial(spatial) => {
+                self.check_expr(&spatial.anchor)?;
+                self.check_expr(&spatial.target)?;
+                for inner in [&spatial.region, &spatial.second_anchor]
+                    .into_iter()
+                    .flatten()
+                {
+                    self.check_expr(inner)?;
+                }
+            }
             Expr::Css(_) if !self.css => return Err(unsupported("该来源不支持 CSS")),
             Expr::Enter { host, boundary } => {
                 if !match boundary {

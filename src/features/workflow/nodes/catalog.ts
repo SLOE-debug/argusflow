@@ -1,12 +1,19 @@
 import type { JsonValue, ValueType } from "../model/contracts";
 import { BOOL, TEXT } from "../model/expressions";
+import { DESKTOP_TASKS } from "./desktop-tasks";
+import { SPATIAL_PREVIEW_TYPE } from "../values/spatial-preview";
 
 export type NodeCategory =
   "逻辑控制" | "数据" | "浏览器" | "桌面自动化" | "查询与操作";
 export interface ConfigField {
   readonly key: string;
   readonly label: string;
-  readonly type: "text" | "boolean" | "number" | "u64" | "aql";
+  readonly type:
+    "text" | "boolean" | "number" | "u64" | "aql" | "select" | "platform";
+  readonly options?: readonly {
+    readonly value: string;
+    readonly label: string;
+  }[];
   readonly initial: JsonValue;
   readonly optional?: boolean;
 }
@@ -31,6 +38,13 @@ const query: ConfigField = {
   label: "目标查询",
   type: "aql",
   initial: "",
+};
+/** 所有目标节点在自身配置中声明平台。 */
+const platform: ConfigField = {
+  key: "platform",
+  label: "平台",
+  type: "platform",
+  initial: "uia",
 };
 const titleFields: readonly ConfigField[] = [
   {
@@ -62,6 +76,33 @@ const match: ValueType = {
 };
 /** 对齐当前 Rust 自动化端口；配置差异只存在于这一份目录。 */
 export const TASKS: readonly TaskSpec[] = [
+  ...DESKTOP_TASKS,
+  {
+    id: "aql.press_keys",
+    title: "发送按键",
+    category: "查询与操作",
+    description: "确认唯一目标仍有焦点后发送组合键，目前支持 UIA",
+    inputs: {},
+    outputs: {},
+    resources: { scope: WINDOW },
+    creates: {},
+    config: [
+      platform,
+      query,
+      { key: "keys", label: "组合键", type: "text", initial: "Control+S" },
+    ],
+  },
+  {
+    id: "aql.preview",
+    title: "预览空间定位",
+    category: "查询与操作",
+    description: "查看锚点、候选距离、排名和排除原因，不执行输入",
+    inputs: {},
+    outputs: { spatial_preview: SPATIAL_PREVIEW_TYPE },
+    resources: { scope: WINDOW },
+    creates: {},
+    config: [platform, query],
+  },
   {
     id: "browser.launch",
     title: "启动浏览器",
@@ -136,17 +177,6 @@ export const TASKS: readonly TaskSpec[] = [
     config: [],
   },
   {
-    id: "source.dom",
-    title: "页面查询来源",
-    category: "浏览器",
-    description: "使用页面元素定位",
-    inputs: {},
-    outputs: {},
-    resources: { page: PAGE },
-    creates: { source: SOURCE },
-    config: [],
-  },
-  {
     id: "application.launch",
     title: "启动应用",
     category: "桌面自动化",
@@ -193,17 +223,6 @@ export const TASKS: readonly TaskSpec[] = [
     config: [],
   },
   {
-    id: "source.uia",
-    title: "窗口查询来源",
-    category: "桌面自动化",
-    description: "使用桌面元素定位",
-    inputs: {},
-    outputs: {},
-    resources: { window: WINDOW },
-    creates: { source: SOURCE },
-    config: [],
-  },
-  {
     id: "source.host",
     title: "宿主查询来源",
     category: "查询与操作",
@@ -221,9 +240,9 @@ export const TASKS: readonly TaskSpec[] = [
     description: "读取匹配元素",
     inputs: {},
     outputs: { matches: { type: "list", of: match } },
-    resources: { source: SOURCE },
+    resources: { scope: WINDOW },
     creates: {},
-    config: [query],
+    config: [platform, query],
   },
   {
     id: "aql.exists",
@@ -232,9 +251,9 @@ export const TASKS: readonly TaskSpec[] = [
     description: "返回存在状态",
     inputs: {},
     outputs: { exists: BOOL },
-    resources: { source: SOURCE },
+    resources: { scope: WINDOW },
     creates: {},
-    config: [query],
+    config: [platform, query],
   },
   {
     id: "aql.wait",
@@ -243,9 +262,10 @@ export const TASKS: readonly TaskSpec[] = [
     description: "等待出现或消失",
     inputs: {},
     outputs: { exists: BOOL },
-    resources: { source: SOURCE },
+    resources: { scope: WINDOW },
     creates: {},
     config: [
+      platform,
       query,
       {
         key: "interval_ms",
@@ -253,7 +273,17 @@ export const TASKS: readonly TaskSpec[] = [
         type: "u64",
         initial: "200",
       },
-      { key: "present", label: "等待出现", type: "boolean", initial: true },
+      {
+        key: "condition",
+        label: "等待条件",
+        type: "select",
+        initial: "exists",
+        options: [
+          { value: "exists", label: "存在" },
+          { value: "absent", label: "不存在" },
+          { value: "unique", label: "唯一" },
+        ],
+      },
     ],
   },
   {
@@ -263,9 +293,9 @@ export const TASKS: readonly TaskSpec[] = [
     description: "重新定位并点击唯一目标",
     inputs: {},
     outputs: {},
-    resources: { source: SOURCE },
+    resources: { scope: WINDOW },
     creates: {},
-    config: [query],
+    config: [platform, query],
   },
   {
     id: "aql.type_text",
@@ -274,9 +304,25 @@ export const TASKS: readonly TaskSpec[] = [
     description: "向定位目标输入",
     inputs: { text: TEXT },
     outputs: {},
-    resources: { source: SOURCE },
+    resources: { scope: WINDOW },
     creates: {},
-    config: [query],
+    config: [
+      platform,
+      query,
+      {
+        key: "mode",
+        label: "输入方式",
+        type: "select",
+        initial: "",
+        options: [
+          { value: "", label: "选择输入方式" },
+          { value: "append", label: "追加" },
+          { value: "replace", label: "替换全部内容" },
+          { value: "selection", label: "当前选区输入" },
+          { value: "focused_selection", label: "保持焦点与选区输入" },
+        ],
+      },
+    ],
   },
 ];
 export const CONTROL_NODES = [
@@ -396,4 +442,8 @@ export const PORT_LABELS: Readonly<Record<string, string>> = {
   source: "查询来源",
   application: "应用",
   window: "窗口",
+  scope: "查找范围",
+  path: "文件路径",
+  expected: "预期文字",
+  spatial_preview: "空间定位预览",
 };

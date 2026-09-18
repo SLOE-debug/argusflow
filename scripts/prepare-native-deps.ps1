@@ -1,10 +1,14 @@
-param([ValidateSet('cpu','cuda','all')][string]$Device = 'cpu')
+param(
+    [ValidateSet('cpu','cuda','all')][string]$Device = 'cpu',
+    [ValidateSet('small','medium','all')][string]$Tier = 'all'
+)
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $depsRoot = Join-Path $repoRoot '.deps'
 $manifest = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'native-deps.lock.json') -Raw | ConvertFrom-Json
 foreach ($artifact in $manifest.artifacts) {
+    if ($artifact.group -eq 'models' -and $Tier -ne 'all' -and !$artifact.path.StartsWith('models/' + $Tier + '/')) { continue }
     if ($artifact.group -ne 'models' -and $Device -ne 'all' -and $artifact.group -ne $Device) { continue }
     $destination = Join-Path $depsRoot $artifact.path
     $destinationDirectory = Split-Path -Parent $destination

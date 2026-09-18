@@ -1,3 +1,4 @@
+import { LinkButton } from "../../ui";
 import { useState } from "react";
 import { Input, Select, Button, Dialog, FormField } from "../../ui";
 import {
@@ -162,7 +163,7 @@ export function LiteralInput({
                     </Button>
                   </div>
                 ))}
-                <Button
+                <LinkButton
                   onClick={() =>
                     commitChild({
                       ...value,
@@ -171,7 +172,7 @@ export function LiteralInput({
                   }
                 >
                   添加一项
-                </Button>
+                </LinkButton>
               </>
             )}
             {value.type === "record" &&

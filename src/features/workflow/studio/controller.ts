@@ -323,19 +323,22 @@ export class WorkflowStudio {
       });
   }
   panel(dock: StudioState["dock"], node?: string): void {
-    this.store.setState({ dock, dockOpen: true, aqlNode: node ?? null });
+    this.store.setState({ dock, dockOpen: true });
   }
   toggleDock(): void {
     this.store.setState({ dockOpen: !this.store.getState().dockOpen });
   }
-  message(message: string | null): void {
-    this.store.setState({ message });
+  message(
+    message: string | null,
+    messageType: StudioState["messageType"] = "info",
+  ): void {
+    this.store.setState({ message, messageType });
   }
   async safely(action: () => Promise<unknown> | unknown): Promise<void> {
     try {
       await action();
     } catch (error) {
-      this.message(String(error));
+      this.message(String(error), "error");
     }
   }
   async flushAll(): Promise<void> {
@@ -363,7 +366,7 @@ export class WorkflowStudio {
       dock: "problems",
       dockOpen: result.length > 0 || this.store.getState().dockOpen,
     });
-    if (!result.length) this.message("校验通过");
+    if (!result.length) this.message("校验通过", "success");
     return result.length === 0;
   }
   async run(inputs: Readonly<Record<string, Value>>): Promise<void> {

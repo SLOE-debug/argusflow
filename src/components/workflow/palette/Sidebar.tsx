@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Blocks, Search, Workflow } from "lucide-react";
 import type { EditorTab } from "../../../features/workflow";
-import { IconButton, Input } from "../../ui";
+import { Tabs, Input } from "../../ui";
 import { DocumentList } from "./DocumentList";
 import { NodeTree } from "./NodeTree";
 
@@ -11,42 +11,24 @@ export function Sidebar({ tab }: { readonly tab?: EditorTab }) {
   const [queries, setQueries] = useState({ documents: "", nodes: "" });
   return (
     <aside className="flex h-full min-h-0 flex-col bg-panel">
-      <div
-        role="tablist"
-        aria-label="侧栏视图"
-        className="flex h-9 shrink-0 items-center gap-1 border-b border-line px-2"
-        onKeyDown={(event) => {
-          if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
-          event.preventDefault();
-          const next = mode === "nodes" ? "documents" : "nodes";
-          setMode(next);
-          event.currentTarget
-            .querySelectorAll<HTMLButtonElement>('[role="tab"]')
-            [next === "documents" ? 0 : 1]?.focus();
-        }}
-      >
-        {(["documents", "nodes"] as const).map((item) => (
-          <IconButton
-            key={item}
-            role="tab"
-            aria-label={item === "documents" ? "流程" : "节点"}
-            title={item === "documents" ? "流程" : "节点"}
-            aria-selected={mode === item}
-            tabIndex={mode === item ? 0 : -1}
-            className={
-              "size-7 rounded border-0 p-0 " +
-              (mode === item ? "bg-accent-soft text-accent" : "text-muted")
-            }
-            onClick={() => setMode(item)}
-          >
-            {item === "documents" ? (
-              <Workflow size={16} />
-            ) : (
-              <Blocks size={16} />
-            )}
-          </IconButton>
-        ))}
-      </div>
+      <Tabs
+        label="侧栏视图"
+        value={mode}
+        onChange={setMode}
+        className="h-9 shrink-0 border-b border-line px-2"
+        items={[
+          {
+            value: "documents" as const,
+            title: "流程",
+            label: <Workflow size={16} />,
+          },
+          {
+            value: "nodes" as const,
+            title: "节点",
+            label: <Blocks size={16} />,
+          },
+        ]}
+      />
       <div className="shrink-0 p-2">
         <Input
           controlSize="compact"

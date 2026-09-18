@@ -9,6 +9,7 @@ import {
   text,
 } from "./expressions";
 import { taskSpec } from "../nodes/catalog";
+import { isTargetTask } from "../nodes/target";
 import { initialScopeLayout } from "./endpoints";
 
 export function newId(prefix: string): string {
@@ -165,7 +166,12 @@ export function createNode(kind: string): {
     }
   }
   return {
-    node: { id, timeout_ms: null, action, output_bindings: {} },
+    node: {
+      id,
+      timeout_ms: isTargetTask(kind) ? integer("10000") : null,
+      action,
+      output_bindings: {},
+    },
     scopes,
   };
 }

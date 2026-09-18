@@ -5,7 +5,7 @@ import { Button, FileInput } from '../ui';
 import { CodeEditor } from './monaco/CodeEditor';
 
 /** 首次进入时的完整可编辑示例。 */
-const INITIAL_SOURCE = '窗口(名称 包含 "设置") >> 按钮(名称 = "保存", 可用 = 真)';
+const INITIAL_SOURCE = '窗口(名称 包含 "设置") >> 按钮(名称 = "保存", 可用 = 是)';
 /** 编辑工作区通过领域控制器维护草稿，视图不解释 AQL。 */
 export function EditorWorkspace({ service }: { readonly service: LanguageService }) {
   const [controller] = useState(() => new DraftController(INITIAL_SOURCE, async (source) => service.inspect(source)));
@@ -19,7 +19,7 @@ export function EditorWorkspace({ service }: { readonly service: LanguageService
     return () => { active.current = false; importVersion.current++; };
   }, [controller]);
   const analysis = state.status === 'ready' ? state.analysis : undefined;
-  const english = exportSource(state);
+  const exported = exportSource(state);
   const status = state.status === 'pending' ? '正在编辑，完成输入后检查' :
     state.status === 'failed' ? state.message :
     state.analysis.diagnostics.length ? `发现 ${state.analysis.diagnostics.length} 处问题` : '语法检查通过';
@@ -40,7 +40,7 @@ export function EditorWorkspace({ service }: { readonly service: LanguageService
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 px-6 py-4">
         <div>
           <h2 className="font-semibold">查询编辑器</h2>
-          <p className="mt-1 text-xs text-slate-500">中文编辑 · 英文导出</p>
+          <p className="mt-1 text-xs text-slate-500">中文查询 · 参数单独绑定</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <FileInput accept=".aql" label="选择 AQL 文件" buttonLabel="导入 .aql" onFile={(file) => void importFile(file)} />
@@ -49,10 +49,10 @@ export function EditorWorkspace({ service }: { readonly service: LanguageService
             onClick={() => { if (analysis?.formatted !== undefined) change(analysis.formatted); }}
           >格式化</Button>
           <Button
-            disabled={english === undefined}
+            disabled={exported === undefined}
             className="border-blue-700 bg-blue-700 text-white hover:bg-blue-800"
-            onClick={() => { if (english !== undefined) downloadAql(english); }}
-          >导出英文 AQL</Button>
+            onClick={() => { if (exported !== undefined) downloadAql(exported); }}
+          >导出 AQL</Button>
         </div>
       </div>
       <div className="grid min-w-0 lg:grid-cols-2">
@@ -70,12 +70,12 @@ export function EditorWorkspace({ service }: { readonly service: LanguageService
         <div className="min-w-0 bg-slate-50/60">
           <div className="border-b border-slate-100 px-6 py-3 text-xs font-medium text-slate-500">导出内容预览</div>
           <pre
-            aria-label="英文 AQL 预览"
+            aria-label="AQL 导出预览"
             className="min-h-48 whitespace-pre-wrap break-words px-6 py-5 font-mono text-sm leading-7 text-slate-700"
-          >{english ?? '完成查询并修正语法后，这里会显示英文 AQL。'}</pre>
+          >{exported ?? '完成查询并修正语法后，这里会显示导出内容。'}</pre>
           <div className="mx-6 rounded-lg border border-slate-200 bg-white p-4 text-xs leading-6 text-slate-500">
-            <p>例如：按钮 → button，名称 → name。</p>
-            <p>引号中的“保存”、参数名和正则内容保持原样。</p>
+            <p>例如：目标(文本=$联系人)。参数值在节点中绑定。</p>
+            <p>平台和查找范围在节点中选择；导出保留中文查询原文。</p>
           </div>
         </div>
       </div>

@@ -7,7 +7,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { useStore } from "zustand";
-import { AqlDock } from "../../../src/components/workflow/workspace/AqlDock";
+import { QueryFields } from "../../../src/components/workflow/inspector/QueryFields";
 import {
   studio,
   createWorkflow,
@@ -44,7 +44,7 @@ vi.mock("../../../src/features/aql", () => ({
 afterEach(() => vi.restoreAllMocks());
 function Editor({ nodeId }: { readonly nodeId: string }) {
   const state = useStore(studio.store);
-  return <AqlDock tab={state.tabs[state.active!]} nodeId={nodeId} />;
+  return <QueryFields tab={state.tabs[state.active!]} nodeId={nodeId} />;
 }
 it("an old asynchronous AQL application cannot clear a newer query draft", async () => {
   const empty = createWorkflow(),

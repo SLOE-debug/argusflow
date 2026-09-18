@@ -151,17 +151,11 @@ pub(super) fn read(
                 .map(|p| p.CurrentIsSelected().map(|b| Value::Boolean(b.as_bool())))
                 .transpose()
                 .map_err(|e| failure("uia_selected", e))?,
+                A::Text if snapshot.offscreen => Some(Value::Text(String::new())),
                 A::Text if snapshot.control_type == 50020 => {
                     Some(Value::Text(snapshot.name.clone()))
                 }
-                A::Text => pattern::<IUIAutomationTextPattern>(element, UIA_TextPatternId)?
-                    .map(|p| {
-                        p.DocumentRange()
-                            .and_then(|r| r.GetText(65_537))
-                            .map(|s| Value::Text(s.to_string()))
-                    })
-                    .transpose()
-                    .map_err(|e| failure("uia_text", e))?,
+                A::Text => visible_text(element)?,
                 _ => None,
             }
         };
@@ -170,4 +164,39 @@ pub(super) fn read(
         }
     }
     Ok(values)
+}
+
+fn visible_text(element: &IUIAutomationElement) -> Result<Option<Value>, WindowsError> {
+    let Some(pattern) = pattern::<IUIAutomationTextPattern>(element, UIA_TextPatternId)? else {
+        return Ok(None);
+    };
+    // SAFETY: Pattern 和文本范围均在调用者 MTA 内使用，不逃逸到其他线程。
+    let ranges =
+        unsafe { pattern.GetVisibleRanges() }.map_err(|e| failure("uia_visible_text", e))?;
+    let count = unsafe { ranges.Length() }.map_err(|e| failure("uia_visible_text", e))?;
+    let limit = || {
+        WindowsError::new(
+            argusflow_core::FailureKind::ResourceLimit,
+            "uia_visible_text",
+            "可见文本范围超过预算",
+        )
+    };
+    if !(0..=1024).contains(&count) {
+        return Err(limit());
+    }
+    let mut text = String::new();
+    for index in 0..count {
+        let part = unsafe {
+            ranges
+                .GetElement(index)
+                .and_then(|range| range.GetText(65_537))
+        }
+        .map_err(|e| failure("uia_visible_text", e))?
+        .to_string();
+        text.push_str(&part);
+        if text.len() > 65_536 {
+            return Err(limit());
+        }
+    }
+    Ok(Some(Value::Text(text)))
 }

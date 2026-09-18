@@ -45,11 +45,12 @@ pub(super) fn role(role: Role) -> &'static str {
 pub(super) fn attribute(attribute: Attribute) -> &'static str {
     use Attribute::*;
     match attribute {
+        Type => "来源确认的通用角色，例如按钮、输入框或文本。未知角色不补为通用类型。",
         Name => {
-            "元素的可访问名称。UIA/浏览器使用来源提供的名称，OCR 使用识别文字。支持精确比较、包含、前后缀和正则。"
+            "元素的可访问名称，不保证是屏幕可读文字。UIA/浏览器使用来源提供的名称，OCR 不支持。"
         }
         Text => {
-            "元素的文字内容。UIA 读取静态文字或 Text Pattern，浏览器读取 DOM 文字，OCR 使用识别文字。"
+            "目标上可读的文字。UIA 读取可见文字范围，浏览器读取渲染文字，OCR 使用识别文字；不会用名称或隐藏属性代替。"
         }
         Key => "来源内的逻辑标识：UIA 对应 AutomationId，浏览器对应 id。OCR 不支持此属性。",
         Value => "控件的当前值，支持 UIA 和浏览器。没有值的元素保持属性缺失，不当作空字符串。",
@@ -80,6 +81,7 @@ pub(super) fn attribute(attribute: Attribute) -> &'static str {
 }
 pub(super) fn attribute_example(attribute: Attribute) -> String {
     let value = match attribute {
+        Attribute::Type => "\"按钮\"",
         Attribute::ClassName => "\"Edit\"",
         Attribute::FrameworkId => "\"Win32\"",
         Attribute::AcceleratorKey => "\"Ctrl+S\"",

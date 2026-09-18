@@ -69,7 +69,6 @@ export function browserTemplate(): WorkflowFile {
   for (const [index, kind] of [
     "browser.launch",
     "browser.new_page",
-    "source.dom",
     "aql.click",
   ].entries()) {
     const result = addNode(file, root, kind, { x: 80 + index * 270, y: 100 });
@@ -104,23 +103,15 @@ export function browserTemplate(): WorkflowFile {
             },
           },
         };
-      if (kind === "source.dom")
-        return {
-          ...node,
-          action: {
-            kind: "task",
-            task: {
-              ...task,
-              resources: { page: "page" },
-              resource_outputs: { source: "source" },
-            },
-          },
-        };
       return {
         ...node,
         action: {
           kind: "task",
-          task: { ...task, resources: { source: "source" } },
+          task: {
+            ...task,
+            config: { ...task.config, platform: "cdp" },
+            resources: { scope: "page" },
+          },
         },
       };
     });

@@ -98,6 +98,17 @@ pub enum Condition {
 /// 已通过语义检查的选择器结构。
 #[derive(Debug, Clone)]
 pub enum Expr {
+    /// 统一几何筛选、排序与选择。
+    Spatial(Box<super::SpatialQuery>),
+    /// 无锚点的位置排序与选择。
+    Position {
+        /// 候选查询。
+        query: Box<Self>,
+        /// 位置排序。
+        order: super::SpatialOrder,
+        /// 从一开始的序号。
+        rank: usize,
+    },
     /// 角色与可选条件。
     Match {
         /// 角色；Element 表示所有真实元素。

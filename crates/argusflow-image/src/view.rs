@@ -53,6 +53,11 @@ impl<'a> ImageView<'a> {
     pub fn height(self) -> u32 {
         self.region.height()
     }
+    pub(crate) fn row_chunk(self, y: usize, start: usize, end: usize) -> &'a [u8] {
+        let offset =
+            (y + self.region.y() as usize) * self.stride + self.region.x() as usize * self.channels;
+        &self.bytes[offset + start * self.channels..offset + end * self.channels]
+    }
     pub(crate) fn pixel(self, index: usize) -> [u8; 3] {
         let x = index % self.width() as usize + self.region.x() as usize;
         let y = index / self.width() as usize + self.region.y() as usize;

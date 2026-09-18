@@ -8,6 +8,8 @@ use std::{io::Cursor, path::PathBuf};
 const BILINGUAL: &[u8] = include_bytes!("../fixtures/bilingual.png");
 const EXPECTED: &str = "ArgusFlow OCR 123\n中文识别测试 456";
 
+#[path = "../support/incremental_native.rs"]
+mod incremental_native;
 #[path = "../support/region_source.rs"]
 mod region_source;
 

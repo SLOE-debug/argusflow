@@ -23,7 +23,7 @@ export interface EditorTab {
   /** 从根场景到画布 CSS 像素的相机变换。 */
   readonly viewport: ViewportTransform;
 }
-export type DockTab = "logs" | "problems" | "data" | "aql";
+export type DockTab = "logs" | "problems" | "data";
 /** 应用数据初始化失败可以重试，错误不会伪装为空工作区。 */
 export type WorkspaceInitialization =
   | { readonly status: "idle" | "loading" | "ready" }
@@ -38,10 +38,10 @@ export interface StudioState {
   readonly run: RunSnapshot | null;
   readonly problems: readonly Problem[];
   readonly message: string | null;
+  readonly messageType: "success" | "warning" | "error" | "info";
   readonly busy: boolean;
   readonly dock: DockTab;
   readonly dockOpen: boolean;
-  readonly aqlNode: string | null;
 }
 export const INITIAL_STATE: StudioState = {
   initialization: { status: "idle" },
@@ -53,8 +53,8 @@ export const INITIAL_STATE: StudioState = {
   run: null,
   problems: [],
   message: null,
+  messageType: "info",
   busy: false,
   dock: "logs",
   dockOpen: false,
-  aqlNode: null,
 };

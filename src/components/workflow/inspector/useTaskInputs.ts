@@ -12,6 +12,7 @@ export function useTaskInputs(
   const [fields, setFields] = useState<Readonly<Record<string, ValueType>>>({});
   const query = task?.config.query;
   const id = task?.type_id;
+  const config = task?.config;
   useEffect(() => {
     let alive = true;
     if (task && typeof query === "string" && query) {
@@ -27,6 +28,6 @@ export function useTaskInputs(
     return () => {
       alive = false;
     };
-  }, [id, query]);
+  }, [id, query, config]);
   return { ...(task ? taskSpec(task.type_id)?.inputs : {}), ...fields };
 }

@@ -1,3 +1,4 @@
+import { Collapse } from "../ui";
 import type { RecordingRecord } from "../../features/recorder/model";
 import type { ReactNode } from "react";
 import {
@@ -39,12 +40,13 @@ export function StructureDetails({
         <p className="mb-3 text-muted">以下是录制时读取的控件信息。</p>
       )}
       {failures.map(({ id, reason }) => (
-        <details key={id} className="mb-2 text-warning">
-          <summary className="cursor-pointer">
-            控件信息读取未完成，查看原因
-          </summary>
+        <Collapse
+          key={id}
+          className="mb-2 text-warning"
+          title={<>控件信息读取未完成，查看原因</>}
+        >
           <p className="mt-2 break-words">{reason}</p>
-        </details>
+        </Collapse>
       ))}
       {groups.map(({ structure, records: snapshots }) => (
         <section
@@ -94,8 +96,7 @@ export function StructureDetails({
                 </div>
               ))}
           </dl>
-          <details className="mt-3">
-            <summary className="cursor-pointer text-muted">技术详情</summary>
+          <Collapse className="mt-3" title={<>技术详情</>}>
             <p className="my-2 text-muted">
               来源：
               {structure.source === "Uia"
@@ -130,12 +131,9 @@ export function StructureDetails({
             <p className="mt-2 text-muted">
               记录编号：{snapshots.map((record) => record.id).join("、")}
             </p>
-          </details>
+          </Collapse>
           {!!structure.ancestors.length && (
-            <details className="mt-3">
-              <summary className="cursor-pointer text-muted">
-                所属窗口与容器
-              </summary>
+            <Collapse className="mt-3" title={<>所属窗口与容器</>}>
               {structure.ancestors.map((ancestor, index) => (
                 <dl
                   key={index}
@@ -149,7 +147,7 @@ export function StructureDetails({
                   ))}
                 </dl>
               ))}
-            </details>
+            </Collapse>
           )}
         </section>
       ))}

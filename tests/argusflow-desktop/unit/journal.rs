@@ -4,6 +4,22 @@ use argusflow_workflow::{ErrorKind, Value, Values};
 use std::sync::{Arc, Mutex as SyncMutex};
 use tauri::ipc::InvokeResponseBody;
 
+#[test]
+fn native_error_reason_is_preserved_in_visible_log() {
+    let error = RunError::from(argusflow_core::Failure::new(
+        argusflow_core::FailureKind::InvalidInput,
+        "input",
+        "目标位置被其他窗口遮挡",
+    ));
+    let messages = errors(&error);
+    assert!(
+        messages
+            .iter()
+            .any(|message| message.contains("目标位置被其他窗口遮挡"))
+    );
+    assert!(messages.iter().any(|message| message.contains("[input]")));
+}
+
 fn snapshot() -> RunSnapshot {
     RunSnapshot {
         id: "1".into(),

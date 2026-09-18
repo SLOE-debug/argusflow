@@ -12,7 +12,7 @@ import {
   type EditorTab,
   type WorkflowNode,
 } from "../../../features/workflow";
-import { Button, FormField, Select } from "../../ui";
+import { LinkButton, Button, FormField, Select } from "../../ui";
 import { ValueField } from "../value-editor/ValueField";
 import { LiteralInput } from "../value-editor/LiteralInput";
 import { useDocuments } from "./useDocuments";
@@ -114,8 +114,7 @@ export function SwitchFields({
           </Button>
         </FormField>
       ))}
-      <Button
-        variant="ghost"
+      <LinkButton
         className="h-6 px-0 text-[11px]"
         onClick={() =>
           studio.edit((file) => {
@@ -137,7 +136,7 @@ export function SwitchFields({
       >
         <Plus size={12} />
         添加分支
-      </Button>
+      </LinkButton>
       <p className="text-[11px] text-muted">
         没有匹配值时执行默认分支。放大容器编辑各分支。
       </p>

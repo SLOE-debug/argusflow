@@ -3,11 +3,9 @@ use crate::{ExecutionLocation, RunError};
 use argusflow_workflow::Values;
 use std::time::Duration;
 
-/// 所有运行预算必须是有限值。
+/// 运行使用步数、数据量和清理预算；等待时限由节点配置。
 #[derive(Debug, Clone)]
 pub struct RunOptions {
-    /// 总时限，默认三十分钟。
-    pub timeout: Duration,
     /// 含循环体的节点执行总数，默认十万。
     pub max_steps: u64,
     /// 未指定轮数时的循环上限，默认一万。
@@ -26,7 +24,6 @@ pub struct RunOptions {
 impl Default for RunOptions {
     fn default() -> Self {
         Self {
-            timeout: Duration::from_secs(1800),
             max_steps: 100_000,
             max_iterations: 10_000,
             max_depth: 64,
@@ -39,9 +36,7 @@ impl Default for RunOptions {
 }
 impl RunOptions {
     pub(super) fn validate(&self) -> Result<(), RunError> {
-        if self.timeout.is_zero()
-            || self.timeout > Duration::from_secs(86_400)
-            || self.max_steps == 0
+        if self.max_steps == 0
             || self.max_steps > 10_000_000
             || self.max_iterations == 0
             || self.max_iterations > 100_000
@@ -77,7 +72,7 @@ pub enum RunStatus {
     Failed,
     /// 用户请求取消。
     Cancelled,
-    /// 总时限或未处理的局部时限耗尽。
+    /// 节点时限耗尽，已经终止整个运行。
     TimedOut,
 }
 /// 最终结果可以独立于事件接收器查询。

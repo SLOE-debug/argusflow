@@ -22,6 +22,22 @@ path = "../../tests/argusflow-windows/integration/capture.rs"
 name = "sample_ocr"
 path = "../../tests/argusflow-windows/support/sample_ocr.rs"
 
+[[example]]
+name = "wechat_ocr_demo"
+path = "../../tests/argusflow-windows/support/wechat_demo/main.rs"
+
+[[test]]
+name = "wechat_spatial"
+path = "../../tests/argusflow-windows/unit/wechat_spatial.rs"
+
+[[test]]
+name = "wechat_incremental"
+path = "../../tests/argusflow-windows/unit/wechat_incremental.rs"
+
+[[test]]
+name = "wechat_sending"
+path = "../../tests/argusflow-windows/unit/wechat_sending.rs"
+
 [dependencies]
 windows-core = "0.62.2"
 serde_json.workspace = true
@@ -33,14 +49,15 @@ argusflow-capture-contracts.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 thiserror.workspace = true
-windows = { workspace = true, features = ["Win32_Foundation", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Threading", "Win32_System_JobObjects", "Win32_System_Variant", "Win32_Security", "Win32_UI_Accessibility", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_HiDpi", "Win32_Graphics_Gdi", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D_Fxc", "Win32_Graphics_Direct3D11", "Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common", "Win32_System_Performance", "Win32_System_StationsAndDesktops", "Win32_Media_MediaFoundation", "Win32_Storage_FileSystem", "Win32_System_Ole"] }
+windows = { workspace = true, features = ["Win32_Foundation", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Threading", "Win32_System_JobObjects", "Win32_System_Variant", "Win32_Security", "Win32_UI_Accessibility", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_HiDpi", "Win32_Graphics_Gdi", "Win32_Graphics_Dwm", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D_Fxc", "Win32_Graphics_Direct3D11", "Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common", "Win32_System_Performance", "Win32_System_StationsAndDesktops", "Win32_Media_MediaFoundation", "Win32_Storage_FileSystem", "Win32_System_Ole"] }
 
 [lints]
 workspace = true
 [dev-dependencies]
+argusflow-image.workspace = true
 argusflow-capture.workspace = true
 argusflow-vision.workspace = true
-windows = { workspace = true, features = ["Win32_System_LibraryLoader", "Win32_UI_Controls"] }
+windows = { workspace = true, features = ["Win32_System_LibraryLoader", "Win32_UI_Controls", "Win32_Storage_Xps", "Win32_System_Diagnostics_ToolHelp"] }
 
 [[example]]
 name = "record_video"

@@ -1,21 +1,15 @@
 //! 物理坐标、前台校验与 SendInput 的最小原生边界。
 use super::{InputAction, keyboard};
 use crate::WindowsError as Failure;
-use crate::{
-    WindowIdentity,
-    platform::{failure, hwnd},
-};
+use crate::{WindowIdentity, platform::failure};
 use argusflow_core::{ClickCount, FailureKind, MouseButton, Operation, ScreenPoint, ScrollAxis};
-use windows::Win32::{
-    Foundation::{POINT, RECT},
-    UI::{
-        HiDpi::{
-            DPI_AWARENESS_CONTEXT, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
-            SetThreadDpiAwarenessContext,
-        },
-        Input::KeyboardAndMouse::*,
-        WindowsAndMessaging::*,
+use windows::Win32::UI::{
+    HiDpi::{
+        DPI_AWARENESS_CONTEXT, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+        SetThreadDpiAwarenessContext,
     },
+    Input::KeyboardAndMouse::*,
+    WindowsAndMessaging::*,
 };
 
 struct DpiGuard(DPI_AWARENESS_CONTEXT);
@@ -98,29 +92,7 @@ pub(super) fn ensure_released(key: VIRTUAL_KEY) -> Result<(), Failure> {
 }
 
 fn validate_point(window: &WindowIdentity, point: ScreenPoint) -> Result<(), Failure> {
-    let mut bounds = RECT::default();
-    // SAFETY: 窗口身份已验证，RECT 是当前线程独占输出。
-    unsafe { GetWindowRect(hwnd(window.handle()), &mut bounds) }
-        .map_err(|e| failure("input_bounds", e))?;
-    if point.x < bounds.left
-        || point.x >= bounds.right
-        || point.y < bounds.top
-        || point.y >= bounds.bottom
-    {
-        return Err(invalid("输入位置在目标窗口之外"));
-    }
-    // SAFETY: 只读命中测试，阻止向遮挡窗口发送输入。
-    let hit = unsafe {
-        WindowFromPoint(POINT {
-            x: point.x,
-            y: point.y,
-        })
-    };
-    // SAFETY: 对命中窗口只查询顶层祖先。
-    if unsafe { GetAncestor(hit, GA_ROOT) } != hwnd(window.handle()) {
-        return Err(invalid("目标位置被其他窗口遮挡"));
-    }
-    Ok(())
+    window.validate_input_point(point)
 }
 
 fn absolute_move(point: ScreenPoint) -> Result<INPUT, Failure> {

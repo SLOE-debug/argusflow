@@ -277,6 +277,9 @@ export function pasteNodes(
         return {
           ...node,
           id,
+          timeout_ms: node.timeout_ms
+            ? rewrite.expression(node.timeout_ms, "timeout")
+            : null,
           action: rewriteAction(node.action, rewrite),
           output_bindings: Object.fromEntries(
             Object.entries(node.output_bindings).map(([name, expr]) => [

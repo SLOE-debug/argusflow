@@ -4,6 +4,7 @@ import {
   nodeSummary,
   scopeEndpoints,
   nodeColor,
+  NODE_CATALOG,
   type CanvasScene,
   type WorkflowFile,
   type NodeConnection,
@@ -59,7 +60,12 @@ export function presentNodes(
           node.id,
           {
             title: nodeTitle(file, node),
-            summary: nodeSummary(node),
+            summary: [
+              NODE_CATALOG.find((item) => item.id === kind)?.title,
+              nodeSummary(node),
+            ]
+              .filter(Boolean)
+              .join(" · "),
             kind,
             tone: nodeColor(kind),
             terminal: ["return", "fail", "break", "continue"].includes(

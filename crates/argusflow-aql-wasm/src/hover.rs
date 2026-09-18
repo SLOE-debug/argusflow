@@ -1,5 +1,5 @@
 //! 英文符号说明映射为中文显示，参数名及源码范围保持原样。
-use crate::{localization::chinese, localize, translate};
+use crate::{localize, translate};
 use argusflow_aql::{EditorPosition, EditorRange, Span, SymbolKind};
 use serde::Serialize;
 
@@ -29,11 +29,14 @@ pub fn hover(source: &str, position: EditorPosition) -> Option<LocalizedHover> {
         EditorPosition::at(translated.source(), generated.start),
     )?;
     let symbol = item.symbol;
+    if symbol.kind != SymbolKind::Parameter && !argusflow_aql::is_target_symbol(&symbol.name) {
+        return None;
+    }
     Some(LocalizedHover {
         title: if symbol.kind == SymbolKind::Parameter {
             symbol.name.clone()
         } else {
-            format!("{} · {}", chinese(&symbol.name), symbol.name)
+            format!("{} · {}", localize(&symbol.name).source(), symbol.name)
         },
         kind: symbol.kind,
         signature: localize(&symbol.signature).source().into(),

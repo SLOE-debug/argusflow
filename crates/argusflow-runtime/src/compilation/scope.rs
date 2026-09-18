@@ -42,6 +42,12 @@ impl Compiler<'_> {
             let node = by_id
                 .get(id.as_str())
                 .ok_or_else(|| self.error(DiagnosticCode::Structure, "后继必须属于当前作用域"))?;
+            // 超时不能引用当前节点即将声明的变量或尚未发布的输出。
+            let timeout_ms = node
+                .timeout_ms
+                .as_ref()
+                .map(|value| self.typed(value, &ValueType::Int, &env))
+                .transpose()?;
             let (action, native_types) = self.action(&node.action, scope, &mut env)?;
             self.position = (scope, Some(id.to_owned()));
             terminal = !self.can_complete(&action);
@@ -63,7 +69,7 @@ impl Compiler<'_> {
                 .insert(id.to_owned(), (scope, nodes.len(), output_types.clone()));
             nodes.push(PlanNode {
                 id: id.to_owned(),
-                timeout_ms: node.timeout_ms,
+                timeout_ms,
                 action,
                 mappings,
                 output_types,

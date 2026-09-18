@@ -1,4 +1,6 @@
 //! 自有真实 Win32 控件，事件计数由窗口过程观察，不使用 UIA 替身。
+#[path = "menu.rs"]
+pub mod menu;
 use std::{
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -190,6 +192,10 @@ unsafe extern "system" fn procedure(
     // SAFETY: 唯一测试窗口过程，未调用任何外部应用窗口。
     unsafe {
         match message {
+            menu::OPEN => {
+                menu::show(window);
+                return LRESULT(0);
+            }
             WM_DESTROY => {
                 PostQuitMessage(0);
                 return LRESULT(0);

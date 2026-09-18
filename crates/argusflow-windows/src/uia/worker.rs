@@ -24,8 +24,10 @@ use windows::Win32::{
 pub(crate) enum Command {
     Observe(Option<[i32; 2]>),
     Aql(crate::WindowIdentity, argusflow_aql::BoundQuery),
+    AqlPreview(crate::WindowIdentity, argusflow_aql::BoundQuery),
     ClickPoint(ElementHandle),
     FocusAql(ElementHandle),
+    ConfirmFocus(ElementHandle),
     Find(Query, bool),
     Read(ElementHandle),
     Act(ElementHandle, UiaAction),
@@ -33,6 +35,7 @@ pub(crate) enum Command {
 pub(crate) enum Response {
     Observation(super::observation::UiaObservation),
     Aql(Vec<super::aql::UiaMatch>),
+    AqlPreview(Vec<argusflow_aql::SpatialPreview>),
     Point(argusflow_core::ScreenPoint),
     Elements(Vec<ElementHandle>),
     Snapshot(ElementSnapshot),
@@ -111,6 +114,13 @@ impl Provider {
         operation.check("uia_execute")?;
         self.prune();
         match command {
+            Command::AqlPreview(window, query) => Ok(Response::AqlPreview(super::aql::preview(
+                &self.automation,
+                &window,
+                &query,
+                operation,
+                &self.config,
+            )?)),
             Command::Observe(point) => Ok(Response::Observation(super::observation::observe(
                 &self.automation,
                 point,
@@ -144,6 +154,20 @@ impl Provider {
             Command::FocusAql(handle) => {
                 let element = self.element(&handle, operation)?;
                 super::aql::focus(&element, operation)?;
+                Ok(Response::Done)
+            }
+            Command::ConfirmFocus(handle) => {
+                let element = self.element(&handle, operation)?;
+                // SAFETY: 元素已验证租约及窗口身份，COM 调用始终在所属 MTA 线程。
+                let focused = unsafe { element.CurrentHasKeyboardFocus() }
+                    .map_err(|e| failure("uia_confirm_focus", e))?;
+                if !focused.as_bool() {
+                    return Err(Failure::new(
+                        FailureKind::StaleHandle,
+                        "uia_confirm_focus",
+                        "目标已失去键盘焦点",
+                    ));
+                }
                 Ok(Response::Done)
             }
             Command::Find(query, unique) => {

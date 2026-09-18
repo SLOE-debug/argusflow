@@ -2,8 +2,10 @@
 mod assembly;
 mod bundle;
 mod journal;
+mod log_file;
 mod manager;
 mod messages;
+mod resources;
 pub(crate) use bundle::load_bundle;
 pub(crate) use manager::RunManager;
 pub(crate) use messages::RunMessage;

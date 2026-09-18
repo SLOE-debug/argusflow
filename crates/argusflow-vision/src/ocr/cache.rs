@@ -1,4 +1,4 @@
-//! 仅缓存当前引擎上一张成功图像；区域复用不改变文字检测与裁剪语义。
+//! 当前引擎成功帧的基线，用精确差分规划检测范围并复用未变化文字。
 use crate::{OcrError, OcrResult, TextBlock};
 use argusflow_core::{ImagePoint, Operation};
 use argusflow_image::{ChangeRegion, DifferencePolicy, ImageView, changed_regions};

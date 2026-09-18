@@ -14,12 +14,10 @@ const service: LanguageService = {
   importEnglish,
 };
 
-it('真实 WASM 保护参数、正则、中文字符串和 CSS，格式化可重复', () => {
-  const selector = JSON.stringify('iframe[title="按钮"]');
-  const source = `/*窗口*/ 框架(css(${selector})) >> 输入框(名称 匹配 /中[文/]😀/i 或 名称 = $名称)`;
+it('真实 WASM 保护参数、正则和中文字符串，格式化可重复', () => {
+  const source = `/*窗口*/ 输入框(名称 匹配 /中[文/]😀/i 或 名称 = $名称)`;
   const analysis: DocumentAnalysis = inspect(source);
   expect(analysis.diagnostics).toEqual([]);
-  expect(analysis.english).toContain('frame(css("iframe[title=\\"按钮\\"]"))');
   expect(analysis.english).toContain('/中[文/]😀/i or name = $名称');
   expect(inspect(analysis.formatted!).formatted).toBe(analysis.formatted);
   expect(inspect(importEnglish(analysis.english!)).english).toBe(analysis.english);
@@ -46,7 +44,7 @@ it('英文输入不会被中文标签二次过滤，候选显示说明并使用�
   expect(completion.insertTextRules).toBe(4);
   expect(completion.detail).toContain('角色');
   expect(completion.documentation).toMatchObject({ value: expect.stringContaining('UIA'), isTrusted: false });
-  expect(service.completions('cla', { line: 0, column: 3 }).map((item) => item.label)).toEqual(expect.arrayContaining(['界面.类名', '网页.类名']));
+  expect(service.completions('cla', { line: 0, column: 3 })).toEqual([]);
 });
 
 it('悬浮展示属性与参数类型、用法和中文示例', () => {
@@ -60,13 +58,23 @@ it('悬浮展示属性与参数类型、用法和中文示例', () => {
   expect(text.signature).toBe('文本: 文本');
 });
 
-it('英文文件导入后只导出当前有效草稿，并拒绝错误文件编码', async () => {
-  const source = await readAqlFile(new File(['button(name = "保存")'], 'query.aql'), service);
+it('中文文件导入后只导出当前有效草稿，并拒绝错误文件编码', async () => {
+  const source = await readAqlFile(new File(['按钮(名称 = "保存")'], 'query.aql'), service);
   expect(source).toBe('按钮(名称 = "保存")');
   const analysis = inspect(source);
-  expect(exportSource({ status: 'ready', source, revision: 1, analysis })).toBe('button(name = "保存")');
+  expect(exportSource({ status: 'ready', source, revision: 1, analysis })).toBe('按钮(名称 = "保存")');
   expect(exportSource({ status: 'pending', source, revision: 2 })).toBeUndefined();
   await expect(readAqlFile(new File([new Uint8Array([0xff])], 'query.aql'), service)).rejects.toThrow('UTF-8');
   await expect(readAqlFile(new File(['button()'], 'query.txt'), service)).rejects.toThrow('.aql');
   await expect(readAqlFile(new File(['x'.repeat(65_537)], 'query.aql'), service)).rejects.toThrow('64 KiB');
+  await expect(readAqlFile(new File(['button()'], 'query.aql'), service)).rejects.toThrow('中文');
+});
+
+it('节点语法支持包含绑定，并拒绝平台专有查询', () => {
+  const source = '目标(文本包含=$联系人, 可用=是)';
+  expect(inspect(source).diagnostics).toEqual([]);
+  expect(inspect(source).english).toContain('text contains $联系人');
+  for (const invalid of ['目标(网页.标识="save")', 'CSS("button")', '按钮(可用=真)']) {
+    expect(inspect(invalid).diagnostics.length).toBeGreaterThan(0);
+  }
 });

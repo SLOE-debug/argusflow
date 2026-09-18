@@ -44,6 +44,13 @@ impl Parser<'_> {
     pub(super) fn current(&self) -> Option<&Token> {
         self.tokens.get(self.position)
     }
+    pub(super) fn selection_follows(&self) -> bool {
+        self.word() == ","
+            && self
+                .tokens
+                .get(self.position + 1)
+                .is_some_and(|t| t.text(self.source) == "select")
+    }
     pub(super) fn word(&self) -> &str {
         self.current().map(|t| t.text(self.source)).unwrap_or("")
     }
@@ -88,7 +95,7 @@ impl Parser<'_> {
     pub(super) fn leave(&mut self) {
         self.depth -= 1;
     }
-    fn relation(&mut self) -> Result<Expr, AqlError> {
+    pub(super) fn relation(&mut self) -> Result<Expr, AqlError> {
         self.enter()?;
         let mut left = self.primary()?;
         while matches!(self.word(), ">" | ">>") {
@@ -130,6 +137,7 @@ impl Parser<'_> {
         self.advance();
         self.expect("(")?;
         let expression = match name.as_str() {
+            "spatial" => self.spatial()?,
             "first" | "nth" => {
                 let query = self.relation()?;
                 let index = if name == "first" {
@@ -180,12 +188,31 @@ impl Parser<'_> {
                         "未知角色或函数；后端只接受英文 AQL 关键字",
                     )
                 })?;
-                let condition = if self.word() == ")" {
+                let condition = if matches!(self.word(), ")" | "select") {
                     None
                 } else {
                     Some(self.condition()?)
                 };
-                Expr::Match { role, condition }
+                let query = Expr::Match { role, condition };
+                if self.selection_follows() {
+                    self.expect(",")?;
+                }
+                if self.take("select") {
+                    self.expect("=")?;
+                    let order = self.spatial_order()?;
+                    if matches!(order, crate::SpatialOrder::Near | crate::SpatialOrder::Far) {
+                        return Err(
+                            self.error(DiagnosticCode::Type, "距离排序需要空间查找中的锚点")
+                        );
+                    }
+                    Expr::Position {
+                        query: Box::new(query),
+                        order,
+                        rank: 1,
+                    }
+                } else {
+                    query
+                }
             }
         };
         self.expect(")")?;

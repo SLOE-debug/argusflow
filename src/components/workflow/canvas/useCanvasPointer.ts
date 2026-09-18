@@ -352,7 +352,7 @@ export function useCanvasPointer(
                 .edges.at(-1)!.id;
             studio.selectEdge(id, active.scope);
           });
-        } else if (wire.error) studio.message(wire.error);
+        } else if (wire.error) studio.message(wire.error, "warning");
         else if (
           !active.edge &&
           hit.scope === active.scope &&

@@ -19,21 +19,31 @@ pub struct Node<T> {
     attributes: BTreeMap<Attribute, Value>,
     css: BTreeSet<String>,
     target: Option<T>,
+    geometry: Option<super::Geometry>,
 }
 impl<T> Node<T> {
     /// 创建元素；父节点必须先于当前节点插入 QueryTree。
     pub fn element(
         parent: Option<usize>,
         role: Role,
-        attributes: BTreeMap<Attribute, Value>,
+        mut attributes: BTreeMap<Attribute, Value>,
         target: T,
     ) -> Self {
+        // 通用目标不是已确认的类型，不能将未知角色伪装成已知角色。
+        attributes.remove(&Attribute::Type);
+        if role != Role::Element {
+            attributes.insert(
+                Attribute::Type,
+                Value::Text(crate::localize(role.name()).source().into()),
+            );
+        }
         Self {
             parent,
             kind: NodeKind::Element(role),
             attributes,
             css: BTreeSet::new(),
             target: Some(target),
+            geometry: None,
         }
     }
     /// 创建 iframe 或 Shadow 的范围根。
@@ -44,6 +54,7 @@ impl<T> Node<T> {
             attributes: BTreeMap::new(),
             css: BTreeSet::new(),
             target: None,
+            geometry: None,
         }
     }
     /// 记录由浏览器原生 CSS 引擎确认的匹配成员。
@@ -58,6 +69,15 @@ impl<T> Node<T> {
     /// 属性缺失表示不可得，不能补空字符串或 false。
     pub fn attributes(&self) -> &BTreeMap<Attribute, Value> {
         &self.attributes
+    }
+    /// 附加本次快照中已验证的几何，不改变原生动作身份。
+    pub fn with_geometry(mut self, geometry: super::Geometry) -> Self {
+        self.geometry = Some(geometry);
+        self
+    }
+    /// 当前快照的可靠几何；缺失时不猜测位置。
+    pub fn geometry(&self) -> Option<&super::Geometry> {
+        self.geometry.as_ref()
     }
     /// 后端身份；边界根没有动作身份。
     pub fn target(&self) -> Option<&T> {

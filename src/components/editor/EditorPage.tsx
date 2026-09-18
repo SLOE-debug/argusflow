@@ -21,7 +21,7 @@ export function EditorPage() {
           <p className="mb-3 text-xs font-semibold tracking-[0.2em] text-blue-700">ARGUSFLOW / AQL</p>
           <h1 className="text-3xl font-semibold tracking-tight">用中文编写查询</h1>
           <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-600">
-            角色和条件使用中文关键字，字符串保持原样。导出为英文 AQL，供定位 API 使用。
+            用中文描述目标，使用 $参数 引用输入值。平台和查找范围在节点中配置。
           </p>
         </header>
         {service

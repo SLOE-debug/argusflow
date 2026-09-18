@@ -82,6 +82,7 @@ export class DocumentPersistence {
       }));
       this.store.setState({
         message,
+        messageType: "error",
         ...(error instanceof SaveStructureError
           ? {
               problems: [

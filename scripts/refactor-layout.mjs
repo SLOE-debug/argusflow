@@ -8,6 +8,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+if (process.argv.includes('--inline-query')) {
+  move('src/components/workflow/workspace/AqlDock.tsx', 'src/components/workflow/inspector/QueryFields.tsx');
+  process.exit(0);
+}
 function resolve(relative) {
   const absolute = path.resolve(root, relative);
   if (!absolute.startsWith(root + path.sep)) throw new Error(`越出仓库：${relative}`);

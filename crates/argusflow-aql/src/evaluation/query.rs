@@ -32,7 +32,7 @@ pub enum QueryProgress {
         boundary: Boundary,
     },
 }
-enum StepError {
+pub(super) enum StepError {
     Failure(Failure),
     Boundary(usize, Boundary),
 }
@@ -48,7 +48,13 @@ pub fn evaluate_step<T>(
     operation: &Operation,
 ) -> Result<QueryProgress, Failure> {
     let candidates = tree.candidates(None, true, operation)?;
-    let result = match eval(query.expression(), tree, &candidates, operation) {
+    let result = match eval(
+        query.expression(),
+        tree,
+        &candidates,
+        operation,
+        &mut Vec::new(),
+    ) {
         Ok(result) => result,
         Err(StepError::Failure(failure)) => return Err(failure),
         Err(StepError::Boundary(host, boundary)) => {
@@ -80,9 +86,50 @@ fn eval<T>(
     tree: &QueryTree<T>,
     candidates: &[usize],
     operation: &Operation,
+    previews: &mut Vec<super::SpatialPreview>,
 ) -> Result<Vec<usize>, StepError> {
     operation.check("aql_evaluate")?;
     match expression {
+        Expr::Spatial(spatial) => {
+            let anchor = super::spatial::unique(
+                &eval(&spatial.anchor, tree, candidates, operation, previews)?,
+                "锚点",
+            )?;
+            let region = spatial
+                .region
+                .as_ref()
+                .map(|q| {
+                    eval(q, tree, candidates, operation, previews)
+                        .and_then(|v| super::spatial::unique(&v, "范围").map_err(Into::into))
+                })
+                .transpose()?;
+            let second = spatial
+                .second_anchor
+                .as_ref()
+                .map(|q| {
+                    eval(q, tree, candidates, operation, previews)
+                        .and_then(|v| super::spatial::unique(&v, "第二锚点").map_err(Into::into))
+                })
+                .transpose()?;
+            let targets = eval(&spatial.target, tree, candidates, operation, previews)?;
+            let (matches, preview) = super::spatial::filter(
+                tree,
+                anchor,
+                &targets,
+                region,
+                second,
+                &spatial.options,
+                operation,
+            )?;
+            previews.push(preview);
+            Ok(matches)
+        }
+        Expr::Position { query, order, rank } => {
+            let targets = eval(query, tree, candidates, operation, previews)?;
+            Ok(super::spatial::position(
+                tree, &targets, *order, *rank, operation,
+            )?)
+        }
         Expr::Match { role, condition } => {
             let mut matches = Vec::new();
             for &index in candidates {
@@ -103,13 +150,13 @@ fn eval<T>(
             .copied()
             .filter(|i| tree.node(*i).is_some_and(|n| n.css_matches(selector)))
             .collect()),
-        Expr::Nth { query, index } => Ok(eval(query, tree, candidates, operation)?
+        Expr::Nth { query, index } => Ok(eval(query, tree, candidates, operation, previews)?
             .get(index.get() - 1)
             .copied()
             .into_iter()
             .collect()),
         Expr::Enter { host, boundary } => {
-            let hosts = eval(host, tree, candidates, operation)?;
+            let hosts = eval(host, tree, candidates, operation, previews)?;
             if hosts.len() != 1 {
                 return Err(Failure::new(
                     if hosts.is_empty() {
@@ -131,7 +178,7 @@ fn eval<T>(
             right,
             relation,
         } => {
-            let roots = eval(left, tree, candidates, operation)?;
+            let roots = eval(left, tree, candidates, operation, previews)?;
             let mut seen = BTreeSet::new();
             for root in roots {
                 for index in
@@ -141,7 +188,42 @@ fn eval<T>(
                 }
             }
             let nested = tree.ordered(seen, operation)?;
-            eval(right, tree, &nested, operation)
+            eval(right, tree, &nested, operation, previews)
         }
+    }
+}
+
+/// 在已捕获的同一快照上预览，不点击、不采集、不重置调用时限。
+pub fn preview<T>(
+    query: &BoundQuery,
+    tree: &QueryTree<T>,
+    operation: &Operation,
+) -> Result<Vec<super::SpatialPreview>, Failure> {
+    let candidates = tree.candidates(None, true, operation)?;
+    let mut previews = Vec::new();
+    match eval(
+        query.expression(),
+        tree,
+        &candidates,
+        operation,
+        &mut previews,
+    ) {
+        Ok(results) => {
+            if results.len() > tree.max_results() {
+                return Err(Failure::new(
+                    FailureKind::ResourceLimit,
+                    "aql_results",
+                    "查询结果超过预算",
+                ));
+            }
+            operation.check("aql_preview_complete")?;
+            Ok(previews)
+        }
+        Err(StepError::Failure(error)) => Err(error),
+        Err(StepError::Boundary(..)) => Err(Failure::new(
+            FailureKind::Unsupported,
+            "aql_preview",
+            "预览快照尚未装载所需文档边界",
+        )),
     }
 }

@@ -80,7 +80,7 @@ async fn cancellation_is_terminal_and_events_close() {
 }
 
 #[tokio::test]
-async fn node_timeout_can_be_caught_by_outer_try() {
+async fn node_timeout_propagates_through_outer_try() {
     let root = scope(
         "root",
         vec![node(
@@ -88,7 +88,7 @@ async fn node_timeout_can_be_caught_by_outer_try() {
             Action::Try {
                 body: "body".into(),
                 catches: vec![Catch {
-                    errors: vec![ErrorKind::Timeout],
+                    errors: vec![ErrorKind::NotFound],
                     scope: "catch".into(),
                     error_name: "error".into(),
                 }],
@@ -103,7 +103,7 @@ async fn node_timeout_can_be_caught_by_outer_try() {
             milliseconds: Expr::int(10_000),
         },
     );
-    wait.timeout_ms = Some(10);
+    wait.timeout_ms = Some(Expr::int(10));
     let flow = workflow(
         vec![
             root,
@@ -113,7 +113,7 @@ async fn node_timeout_can_be_caught_by_outer_try() {
         Fields::new(),
     );
     let result = run(flow).await;
-    assert_eq!(result.status, RunStatus::Completed, "{:?}", result.error);
+    assert_eq!(result.status, RunStatus::TimedOut, "{:?}", result.error);
 }
 
 #[tokio::test]

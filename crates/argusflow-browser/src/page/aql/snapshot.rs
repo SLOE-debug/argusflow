@@ -112,6 +112,9 @@ pub(super) async fn append(
         .map(|facts| (facts.path.clone(), facts))
         .collect::<HashMap<_, _>>();
     let mut pending = vec![(root, String::new(), parent)];
+    let scope = facts
+        .get("")
+        .and_then(|facts| argusflow_aql::Rect::new(facts.bounds).ok());
     let mut visited = 0;
     while let Some((node, path, parent)) = pending.pop() {
         operation.check("aql_dom_snapshot")?;
@@ -135,7 +138,18 @@ pub(super) async fn append(
                 attributes: attributes.clone(),
                 bounds: facts.bounds,
             };
-            Some(tree.push(Node::element(parent, role, attributes, target).with_css(facts.css))?)
+            let mut snapshot = Node::element(parent, role, attributes, target).with_css(facts.css);
+            if let Some(scope) = scope
+                && let Ok(bounds) = argusflow_aql::Rect::new(facts.bounds)
+            {
+                snapshot = snapshot.with_geometry(argusflow_aql::Geometry::new(
+                    bounds,
+                    scope,
+                    context.frame_id.clone(),
+                    Some(1.0),
+                )?);
+            }
+            Some(tree.push(snapshot)?)
         } else {
             parent
         };

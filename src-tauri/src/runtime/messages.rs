@@ -137,6 +137,14 @@ pub(super) fn event(value: ExecutionEvent, elapsed: u128) -> LogEntry {
 }
 pub(super) fn errors(error: &RunError) -> Vec<String> {
     let mut result = vec![format!("{:?}：{}", error.kind, error.message)];
+    if let Some(source) = &error.source {
+        result.push(format!(
+            "{:?} [{}]：{}",
+            source.kind(),
+            source.stage(),
+            source.message()
+        ));
+    }
     for secondary in &error.secondary {
         result.extend(errors(secondary));
     }

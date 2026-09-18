@@ -1,3 +1,4 @@
+import { expressionType } from "./source/types";
 import type {
   Expr,
   ValueType,
@@ -6,7 +7,7 @@ import type {
 } from "../model/contracts";
 import { childScopes } from "../model/factory";
 import { scopeById, nodeTitle } from "../model/graph";
-import { taskSpec } from "../nodes/catalog";
+import { taskSpec, PORT_LABELS } from "../nodes/catalog";
 import { graphIndex } from "../model/connections";
 export interface SymbolValue {
   readonly label: string;
@@ -15,6 +16,8 @@ export interface SymbolValue {
 }
 export interface ResourceValue {
   readonly name: string;
+  /** 来源节点及其资源端口；内部绑定名不作为用户识别资源的唯一依据。 */
+  readonly label: string;
   readonly type: string;
 }
 /** 候选只来自已经执行的同域步骤与可见祖先，运行前仍由 Rust 做权威校验。 */
@@ -37,7 +40,7 @@ export function availableSymbols(
     }),
   );
   Object.entries(file.definition.resources).forEach(([name, type]) =>
-    resources.set(name, { name, type }),
+    resources.set(name, { name, type, label: "流程资源 · " + name }),
   );
   const chain: { scope: string; before?: string; owner?: WorkflowNode }[] = [
     { scope: scopeId, before },
@@ -94,7 +97,12 @@ export function availableSymbols(
         const spec = taskSpec(action.task.type_id);
         for (const [port, name] of Object.entries(action.task.resource_outputs))
           if (spec?.creates[port])
-            resources.set(name, { name, type: spec.creates[port] });
+            resources.set(name, {
+              name,
+              type: spec.creates[port],
+              label:
+                nodeTitle(file, node) + " · " + (PORT_LABELS[port] ?? port),
+            });
         for (const [output, type] of Object.entries(spec?.outputs ?? {}))
           values.set(node.id + ":" + output, {
             label: nodeTitle(file, node) + " · " + output,
@@ -154,41 +162,9 @@ export function inferExpression(
   expr: Expr,
   symbols: readonly SymbolValue[],
 ): ValueType | undefined {
-  if (expr.kind === "literal") return expr.value_type;
-  if (expr.kind === "list") return { type: "list", of: expr.item_type };
-  if (expr.kind === "binary")
-    return [
-      "equal",
-      "not_equal",
-      "less",
-      "less_equal",
-      "greater",
-      "greater_equal",
-      "and",
-      "or",
-    ].includes(expr.op)
-      ? { type: "bool" }
-      : inferExpression(expr.left, symbols);
-  if (expr.kind === "not") return { type: "bool" };
-  if (expr.kind === "record") {
-    const fields = Object.entries(expr.fields).map(
-      ([name, value]) => [name, inferExpression(value, symbols)] as const,
-    );
-    if (fields.every((field) => field[1]))
-      return {
-        type: "record",
-        of: Object.fromEntries(fields) as Record<string, ValueType>,
-      };
+  try {
+    return expressionType(expr, symbols);
+  } catch {
+    return undefined;
   }
-  if (expr.kind === "field") {
-    const type = inferExpression(expr.value, symbols);
-    return type?.type === "record" ? type.of[expr.field] : undefined;
-  }
-  if (expr.kind === "index") {
-    const type = inferExpression(expr.value, symbols);
-    return type?.type === "list" ? type.of : undefined;
-  }
-  return symbols.find(
-    (item) => JSON.stringify(item.expression) === JSON.stringify(expr),
-  )?.type;
 }

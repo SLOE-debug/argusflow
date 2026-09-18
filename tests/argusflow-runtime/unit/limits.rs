@@ -4,7 +4,7 @@ use argusflow_workflow::*;
 use std::time::Duration;
 
 #[tokio::test]
-async fn root_timeout_cannot_be_caught_as_local_timeout() {
+async fn timeout_handler_is_rejected_before_running() {
     let flow = workflow(
         vec![
             scope(
@@ -37,20 +37,7 @@ async fn root_timeout_cannot_be_caught_as_local_timeout() {
         ],
         Fields::new(),
     );
-    let plan = prepare(flow, &NodeRegistry::new()).unwrap();
-    let mut handle = WorkflowEngine::new()
-        .start(
-            plan,
-            RunInputs::default(),
-            RunOptions {
-                timeout: Duration::from_millis(20),
-                ..RunOptions::default()
-            },
-        )
-        .unwrap();
-    let result = handle.wait().await.unwrap();
-    assert_eq!(result.status, RunStatus::TimedOut);
-    assert_eq!(result.error.as_ref().unwrap().kind, ErrorKind::RunTimeout);
+    assert!(prepare(flow, &NodeRegistry::new()).is_err());
 }
 
 #[tokio::test]
@@ -61,14 +48,14 @@ async fn nested_node_deadline_is_bounded_by_ancestor() {
             scope: "body".into(),
         },
     );
-    parent.timeout_ms = Some(20);
+    parent.timeout_ms = Some(Expr::int(20));
     let mut wait = node(
         "child",
         Action::Wait {
             milliseconds: Expr::int(60_000),
         },
     );
-    wait.timeout_ms = Some(60_000);
+    wait.timeout_ms = Some(Expr::int(60_000));
     let flow = workflow(
         vec![
             scope("root", vec![parent], vec![]),

@@ -137,6 +137,17 @@ pub fn tokenize(source: &str) -> Lexed {
                 TokenKind::Regex
             };
         } else if ch == '$' || ch == '_' || ch.is_alphabetic() {
+            let unit = ["范围短边的", "范围宽度的", "范围高度的", "度到", "度"]
+                .into_iter()
+                .find(|unit| source[position..].starts_with(unit));
+            if let Some(unit) = unit {
+                position += unit.len();
+                result.tokens.push(Token {
+                    kind: TokenKind::Identifier,
+                    span: Span::new(start, position),
+                });
+                continue;
+            }
             position += ch.len_utf8();
             while let Some(next) = source[position..]
                 .chars()
@@ -173,7 +184,7 @@ pub fn tokenize(source: &str) -> Lexed {
             {
                 position += 1;
             }
-            kind = if matches!(ch, '(' | ')' | ',' | '=' | '!' | '>' | '<') {
+            kind = if matches!(ch, '(' | ')' | ',' | '=' | '!' | '>' | '<' | '%') {
                 TokenKind::Punctuation
             } else {
                 TokenKind::Invalid

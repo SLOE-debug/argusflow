@@ -25,6 +25,69 @@ async fn stalled_source_obeys_outer_total_deadline() {
 }
 #[path = "../../support/region_source.rs"]
 mod region_source;
+
+#[tokio::test]
+async fn surface_filter_removes_gap_text_before_query_without_mutating_cache() {
+    use argusflow_core::ImagePoint;
+    let budget = ByteBudget::new(400).unwrap();
+    let image = PixelImage::new(
+        10,
+        10,
+        40,
+        argusflow_capture_contracts::PixelFormat::Bgrx8,
+        vec![255; 400],
+        budget.reserve(400).unwrap(),
+    )
+    .unwrap();
+    let cached = run(
+        region_source::FixtureSource::new(image),
+        Key {
+            source: SourceId(1),
+            region: PixelRect::new(0, 0, 10, 10).unwrap(),
+        },
+        None,
+        Operation::new(OperationOptions::default()),
+        |_, _| async {
+            let blocks = [1.0, 4.0, 7.0]
+                .map(|x| crate::TextBlock {
+                    text: format!("{x}"),
+                    confidence: 1.0,
+                    polygon: [
+                        ImagePoint { x, y: 1.0 },
+                        ImagePoint { x: x + 1.0, y: 1.0 },
+                        ImagePoint { x: x + 1.0, y: 2.0 },
+                        ImagePoint { x, y: 2.0 },
+                    ],
+                })
+                .into();
+            Ok(OcrResult {
+                blocks,
+                width: 10,
+                height: 10,
+            })
+        },
+    )
+    .await
+    .unwrap();
+    let output = cached.output.restricted_to(&[
+        ScreenRect::new(-100, 20, 3, 10).unwrap(),
+        ScreenRect::new(-94, 20, 4, 10).unwrap(),
+    ]);
+    assert_eq!(output.result().text(), "1\n7");
+    assert_eq!(cached.output.result().blocks().len(), 3);
+    assert_eq!(output.screen_polygon(1).unwrap()[0].x, -93);
+    let query = argusflow_aql::compile("text(text = \"4\")")
+        .unwrap()
+        .bind(&Default::default())
+        .unwrap();
+    assert!(
+        output
+            .result()
+            .query_aql(&query, &Operation::new(OperationOptions::default()))
+            .unwrap()
+            .is_empty()
+    );
+}
 #[test]
 fn cache_does_not_evict_inflight_work() {
     let key = Key {

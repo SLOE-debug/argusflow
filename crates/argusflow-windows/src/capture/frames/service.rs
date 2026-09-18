@@ -5,7 +5,7 @@ use argusflow_capture_contracts::*;
 use argusflow_core::{FailureKind, Operation};
 use std::sync::{
     Arc, Mutex,
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
 };
 use windows::Win32::Graphics::Dxgi::*;
 #[cfg(test)]
@@ -16,6 +16,8 @@ pub(super) struct Shared {
     pub clock: Clock,
     pub cpu: ByteBudget,
     pub stop: AtomicBool,
+    /// 单调请求代数，各适配器独立观察，避免一个线程抢走其他屏幕的刷新请求。
+    pub refresh: AtomicU64,
     pub store: Mutex<Store>,
 }
 struct Inner {
@@ -56,6 +58,7 @@ impl DxgiFrameSource {
             clock: Clock::new()?,
             cpu: ByteBudget::new(config.cpu_bytes)?,
             stop: AtomicBool::new(false),
+            refresh: AtomicU64::new(0),
             store: Mutex::new(Store::default()),
         });
         let inner = Arc::new(Inner {
@@ -120,6 +123,9 @@ impl DxgiFrameSource {
     }
 }
 impl DesktopFrameSource for DxgiFrameSource {
+    fn request_refresh(&self) {
+        self.inner.shared.refresh.fetch_add(1, Ordering::Release);
+    }
     fn clock(&self) -> ClockDomain {
         self.inner.shared.clock.0
     }

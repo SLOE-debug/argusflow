@@ -1,5 +1,5 @@
 import { Plus, Trash2 } from "lucide-react";
-import { Button, Input, Select } from "../../ui";
+import { LinkButton, Button, Input, Select } from "../../ui";
 import type { ValueType } from "../../../features/workflow";
 /** 嵌套类型定义使用有限深度表单，不要求手写 JSON。 */
 export function TypeShape({
@@ -92,8 +92,7 @@ export function TypeShape({
               </Button>
             </div>
           ))}
-          <Button
-            variant="ghost"
+          <LinkButton
             onClick={() => {
               let index = 1;
               while (value.of["field" + index]) index++;
@@ -105,7 +104,7 @@ export function TypeShape({
           >
             <Plus size={12} />
             添加字段
-          </Button>
+          </LinkButton>
         </div>
       )}
     </div>

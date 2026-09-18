@@ -56,7 +56,7 @@ export function useQueryEditor(tab: EditorTab, nodeId: string) {
 
   const pending = tab.file.editor.drafts[nodeId + ":aql"];
   const source = useMemo(
-    () => pending ?? service?.importEnglish(String(config?.query ?? "")) ?? "",
+    () => pending ?? String(config?.query ?? ""),
     [pending, service, config?.query],
   );
   const analysis = useMemo(
@@ -72,14 +72,13 @@ export function useQueryEditor(tab: EditorTab, nodeId: string) {
     studio.draft(nodeId, "aql", value);
   };
   const apply = async () => {
-    const english = analysis?.english;
-    if (!english || !task || studio.readonly) return;
+    if (!analysis?.english || !task || studio.readonly) return;
     const request = ++version.current;
     setApplying(true);
     try {
       const fields = await studio.api.describeTask(task.type_id, {
         ...task.config,
-        query: english,
+        query: source,
       });
       const current = studio.active;
       const currentNode = current ? nodeById(current.file, nodeId) : undefined;
@@ -93,7 +92,7 @@ export function useQueryEditor(tab: EditorTab, nodeId: string) {
         studio.readonly
       )
         return;
-      studio.edit((file) => applyQuery(file, nodeId, english, fields));
+      studio.edit((file) => applyQuery(file, nodeId, source, fields));
       setError("");
     } catch (failure) {
       if (version.current === request) setError(String(failure));

@@ -103,9 +103,3 @@ export function isExpr(value: unknown, depth = 0): value is Expr {
       return false;
   }
 }
-export function parseExpression(source: string): Expr {
-  const value: unknown = JSON.parse(source);
-  if (!isExpr(value))
-    throw new Error("表达式结构无效，请检查类型、运算符和字段");
-  return value;
-}

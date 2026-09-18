@@ -1,3 +1,4 @@
+import { Collapse } from "../../ui";
 import { Plus, Trash2 } from "lucide-react";
 import {
   availableSymbols,
@@ -171,10 +172,10 @@ export function DataPanel({ tab }: { readonly tab: EditorTab }) {
 function ResourcePorts({ tab }: { readonly tab: EditorTab }) {
   const resources = tab.file.definition.resources;
   return (
-    <details className="mt-5 border-t border-line pt-3">
-      <summary className="cursor-pointer text-xs text-muted">
-        借用资源端口 · {Object.keys(resources).length}
-      </summary>
+    <Collapse
+      className="mt-5 border-t border-line pt-3"
+      title={<>借用资源端口 · {Object.keys(resources).length}</>}
+    >
       <div className="mt-3 space-y-2">
         {Object.entries(resources).map(([name, type]) => (
           <div key={name} className="flex gap-2">
@@ -266,6 +267,6 @@ function ResourcePorts({ tab }: { readonly tab: EditorTab }) {
           借用端口用于被其他流程调用；独立运行时应在流程内部创建资源。
         </p>
       </div>
-    </details>
+    </Collapse>
   );
 }

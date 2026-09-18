@@ -33,6 +33,8 @@ pub trait DesktopFrameSource: Send + Sync {
     fn clock(&self) -> ClockDomain;
     /// 当前单调时间。
     fn now(&self) -> ClockTime;
+    /// 请求提前检查完整帧；来源合并请求并保持自身预算，不代表刷新已经完成。
+    fn request_refresh(&self);
     /// 只读取缓存引用与元数据，不执行图像编码或新截图。
     fn history(&self) -> CaptureResult<Vec<FrameHistory>>;
     /// 立即请求停止采集，返回时原生工作线程已退出。
@@ -46,7 +48,7 @@ pub struct FrameConfig {
     pub width: u32,
     /// 输出最大高度。
     pub height: u32,
-    /// 每个显示器最高采集频率。
+    /// 每个显示器后台采集频率；显式新鲜度请求可提前检查，实际取图仍不超过 30 FPS。
     pub fps: u32,
     /// 每个显示器的短历史帧数；总内存仍受 cpu_bytes 限制。
     pub history: usize,

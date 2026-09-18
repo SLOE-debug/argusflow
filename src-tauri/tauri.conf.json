@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "com.argusflow.desktop",
   "build": {
-    "beforeDevCommand": "pnpm dev",
+    "beforeDevCommand": "pnpm prepare:ocr && pnpm dev",
     "devUrl": "http://127.0.0.1:5173",
-    "beforeBuildCommand": "pnpm build",
+    "beforeBuildCommand": "pnpm prepare:ocr && pnpm build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -31,12 +31,16 @@
     }
   },
   "bundle": {
-    "active": false,
+    "active": true,
     "targets": [
       "nsis"
     ],
     "icon": [
       "icons/icon.ico"
-    ]
+    ],
+    "resources": {
+      "../.deps/models/small/": "ocr/models/small/",
+      "../.deps/runtime/cpu/": "ocr/runtime/cpu/"
+    }
   }
 }

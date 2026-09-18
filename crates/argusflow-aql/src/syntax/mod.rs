@@ -2,5 +2,6 @@
 mod lexer;
 mod parser;
 mod predicate;
+mod spatial;
 pub use lexer::{Lexed, Token, TokenKind, tokenize};
 pub use parser::compile;

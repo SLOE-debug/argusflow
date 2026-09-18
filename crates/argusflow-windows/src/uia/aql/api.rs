@@ -38,6 +38,21 @@ impl UiaMatch {
     }
 }
 impl UiaRuntime {
+    /// 只采集并解释空间定位，不创建元素租约或执行动作。
+    pub async fn preview_aql(
+        &self,
+        window: WindowIdentity,
+        query: BoundQuery,
+        operation: &Operation,
+    ) -> Result<Vec<argusflow_aql::SpatialPreview>, WindowsError> {
+        match self
+            .call_operation(Command::AqlPreview(window, query), operation)
+            .await?
+        {
+            Response::AqlPreview(preview) => Ok(preview),
+            _ => Err(protocol()),
+        }
+    }
     /// 使用调用方的同一操作票据执行 AQL，不重置截止时间。
     pub async fn query_aql(
         &self,
@@ -64,6 +79,20 @@ impl UiaRuntime {
             .await?
         {
             Response::Point(point) => Ok(point),
+            _ => Err(protocol()),
+        }
+    }
+    /// 重新验证元素租约和真实键盘焦点，不改变选区或激活目标。
+    pub async fn confirm_aql_focus(
+        &self,
+        handle: &ElementHandle,
+        operation: &Operation,
+    ) -> Result<(), WindowsError> {
+        match self
+            .call_operation(Command::ConfirmFocus(handle.clone()), operation)
+            .await?
+        {
+            Response::Done => Ok(()),
             _ => Err(protocol()),
         }
     }

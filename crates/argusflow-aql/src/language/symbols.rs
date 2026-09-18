@@ -35,7 +35,7 @@ pub struct Symbol {
 }
 /// 当前语法的唯一符号清单。
 pub fn symbols() -> Vec<Symbol> {
-    let mut symbols = Vec::new();
+    let mut symbols = super::spatial::symbols();
     for role in Role::ALL {
         symbols.push(Symbol {
             name: role.name().into(),

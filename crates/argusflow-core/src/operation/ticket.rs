@@ -56,7 +56,7 @@ struct Signals {
 #[derive(Debug, Clone)]
 pub struct Operation {
     id: u64,
-    deadline: Instant,
+    deadline: Option<Instant>,
     signals: Arc<Signals>,
 }
 
@@ -65,8 +65,27 @@ impl Operation {
     pub fn new(options: OperationOptions) -> Self {
         Self {
             id: NEXT_OPERATION.fetch_add(1, Ordering::Relaxed),
-            deadline: Instant::now() + options.timeout(),
+            deadline: Some(Instant::now() + options.timeout()),
             signals: Arc::default(),
+        }
+    }
+    /// 无全局截止时间的运行根票据；仍支持取消，具体动作可派生有限时限。
+    pub fn unbounded() -> Self {
+        Self {
+            id: NEXT_OPERATION.fetch_add(1, Ordering::Relaxed),
+            deadline: None,
+            signals: Arc::default(),
+        }
+    }
+    /// 继承现有截止时间，独立记录副作用；不会重新开始计时。
+    pub fn branch(&self) -> Self {
+        Self {
+            id: NEXT_OPERATION.fetch_add(1, Ordering::Relaxed),
+            deadline: self.deadline,
+            signals: Arc::new(Signals {
+                parent: Some(Arc::clone(&self.signals)),
+                ..Signals::default()
+            }),
         }
     }
     /// 返回请求关联编号。
@@ -79,20 +98,25 @@ impl Operation {
     pub fn child(&self, options: OperationOptions) -> Self {
         Self {
             id: NEXT_OPERATION.fetch_add(1, Ordering::Relaxed),
-            deadline: self.deadline.min(Instant::now() + options.timeout()),
+            deadline: Some(self.deadline.map_or_else(
+                || Instant::now() + options.timeout(),
+                |deadline| deadline.min(Instant::now() + options.timeout()),
+            )),
             signals: Arc::new(Signals {
                 parent: Some(Arc::clone(&self.signals)),
                 ..Signals::default()
             }),
         }
     }
-    /// 返回包含队列等待的绝对截止时间。
-    pub fn deadline(&self) -> Instant {
+    /// 返回包含队列等待的绝对截止时间；无全局时限的根票据返回 None。
+    pub fn deadline(&self) -> Option<Instant> {
         self.deadline
     }
-    /// 返回剩余预算，过期时为零。
+    /// 返回剩余预算，过期时为零，无截止时间时为 Duration::MAX。
     pub fn remaining(&self) -> Duration {
-        self.deadline.saturating_duration_since(Instant::now())
+        self.deadline.map_or(Duration::MAX, |deadline| {
+            deadline.saturating_duration_since(Instant::now())
+        })
     }
     /// 请求协作取消，不声称原生调用已退出。
     pub fn cancel(&self) {

@@ -1,5 +1,5 @@
 //! 中英文前缀检索与 Monaco 插入契约；不重写查询语法。
-use crate::{localization::chinese, localize};
+use crate::localize;
 use argusflow_aql::{EditorPosition, EditorRange, Span, SymbolKind, TokenKind, symbols, tokenize};
 use serde::Serialize;
 use std::collections::BTreeSet;
@@ -84,10 +84,22 @@ pub fn suggest(source: &str, position: EditorPosition) -> Vec<LocalizedCompletio
                 && !matches!(t.kind, TokenKind::Whitespace | TokenKind::Comment)
         })
         .is_some_and(|t| t.text(source) == "(");
-    symbols()
+    let mut candidates = symbols();
+    for attribute in ["文本", "名称", "当前值"] {
+        candidates.push(argusflow_aql::Symbol {
+            name: format!("{attribute}包含"),
+            kind: SymbolKind::Attribute,
+            description: "检查指定属性中是否包含文字；可绑定文本参数。".into(),
+            signature: format!("{attribute}包含=文本"),
+            example: format!("目标({attribute}包含=$内容)"),
+        });
+    }
+    candidates
         .into_iter()
+        .filter(|symbol| argusflow_aql::is_target_symbol(&symbol.name))
         .filter_map(|symbol| {
-            let label = chinese(&symbol.name);
+            let localized = localize(&symbol.name);
+            let label = localized.source();
             let filter_text = [
                 label,
                 symbol.name.as_str(),

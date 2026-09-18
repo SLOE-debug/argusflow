@@ -1,4 +1,20 @@
+export {
+  compileAssignment,
+  formatAssignment,
+} from "./values/source/assignment";
 export type * from "./model/contracts";
+
+export {
+  compileExpressionSource,
+  formatExpression,
+  sameType,
+} from "./values/source";
+export {
+  SPATIAL_PREVIEW_TYPE,
+  isSpatialPreview,
+  parseSpatialPreview,
+} from "./values/spatial-preview";
+export type { Preview } from "./values/spatial-preview";
 export type * from "./api/desktop";
 export type { EditorTab, StudioState } from "./studio/state";
 export { studio, WorkflowStudio } from "./studio/controller";
@@ -60,14 +76,18 @@ export {
   taskSpec,
 } from "./nodes/catalog";
 export type { TaskSpec, NodeCategory } from "./nodes/catalog";
+export {
+  TARGET_PLATFORMS,
+  TARGET_SCOPE_TYPES,
+  isTargetTask,
+  targetPlatform,
+  targetResources,
+  changeTargetPlatform,
+} from "./nodes/target";
+export type { TargetPlatform } from "./nodes/target";
 export { availableSymbols, inferExpression } from "./values/symbols";
 export type { SymbolValue, ResourceValue } from "./values/symbols";
-export {
-  parseExpression,
-  isExpr,
-  isValue,
-  isValueType,
-} from "./values/validation";
+export { isExpr, isValue, isValueType } from "./values/validation";
 export { BINARY_OPS, FUNCTIONS } from "./model/contracts";
 export { loopTemplate, browserTemplate } from "./model/templates";
 export { useQueryEditor } from "./studio/useQueryEditor";

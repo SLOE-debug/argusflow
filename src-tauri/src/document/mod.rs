@@ -7,3 +7,7 @@ mod structure;
 pub(crate) mod wire;
 pub use model::*;
 pub use storage::Workspace;
+
+#[cfg(test)]
+#[path = "../../../tests/argusflow-desktop/unit/notepad_workflow.rs"]
+mod notepad_workflow;

@@ -1,11 +1,8 @@
 import { useStore } from "zustand";
-import { Maximize2, Minimize2 } from "lucide-react";
 import { studio, type EditorTab } from "../../../features/workflow";
-import { Button, ResizeHandle } from "../../ui";
+import { Button, ResizeHandle, Tabs } from "../../ui";
 import { LogPanel, locate } from "../execution/LogPanel";
 import { DataPanel } from "../data/DataPanel";
-import { AqlDock } from "./AqlDock";
-import { useState } from "react";
 export function Dock({
   tab,
   height,
@@ -16,7 +13,6 @@ export function Dock({
   readonly onHeight: (height: number) => void;
 }) {
   const state = useStore(studio.store);
-  const [maximized, setMaximized] = useState(false);
   if (!state.dockOpen) return null;
   const tabs: readonly {
     readonly id: typeof state.dock;
@@ -25,12 +21,27 @@ export function Dock({
     { id: "logs", title: "日志" },
     { id: "problems", title: "问题" },
     { id: "data", title: "输入输出" },
-    ...(state.aqlNode ? [{ id: "aql" as const, title: "目标查询" }] : []),
   ];
+  const navigation = (
+    <Tabs
+      label="运行信息"
+      value={state.dock}
+      onChange={(value) => studio.panel(value)}
+      items={tabs.map((item) => ({
+        value: item.id,
+        title: item.title,
+        label:
+          item.title +
+          (item.id === "problems" && state.problems.length
+            ? ` (${state.problems.length})`
+            : ""),
+      }))}
+    />
+  );
   return (
     <section
       className="flex shrink-0 flex-col border-t border-line bg-surface"
-      style={{ height: maximized ? "65vh" : height }}
+      style={{ height }}
     >
       {state.dockOpen && (
         <ResizeHandle
@@ -42,55 +53,18 @@ export function Dock({
           onChange={onHeight}
         />
       )}
-      <div className="flex h-8 shrink-0 items-center gap-2 border-b border-line px-3">
-        {tabs.map((item) => (
-          <Button
-            key={item.id}
-            variant="ghost"
-            className={
-              "h-8 rounded-none border-b-2 px-2 text-[11px] " +
-              (state.dock === item.id
-                ? "border-b-accent text-accent"
-                : "border-b-transparent text-muted")
-            }
-            onClick={() =>
-              studio.panel(
-                item.id,
-                item.id === "aql" ? (state.aqlNode ?? undefined) : undefined,
-              )
-            }
-          >
-            {item.title}
-            {item.id === "problems" && state.problems.length > 0 && (
-              <span className="rounded-full bg-danger-soft px-1.5 text-[10px] text-danger">
-                {state.problems.length}
-              </span>
-            )}
-          </Button>
-        ))}
-        <span className="flex-1" />
-        {state.dockOpen && (
-          <Button
-            variant="ghost"
-            aria-label="最大化编辑区"
-            className="h-6 px-1"
-            onClick={() => setMaximized(!maximized)}
-          >
-            {maximized ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
-          </Button>
-        )}
-      </div>
+      {state.dock !== "logs" && (
+        <div className="flex h-8 shrink-0 items-center gap-2 border-b border-line px-3">
+          {navigation}
+          <span className="flex-1" />
+        </div>
+      )}
       {state.dockOpen && (
         <div className="min-h-0 flex-1">
-          {state.dock === "logs" && <LogPanel run={state.run} />}
-          {state.dock === "data" && <DataPanel tab={tab} />}
-          {state.dock === "aql" && state.aqlNode && (
-            <AqlDock
-              key={tab.file.id + state.aqlNode}
-              tab={tab}
-              nodeId={state.aqlNode}
-            />
+          {state.dock === "logs" && (
+            <LogPanel run={state.run} navigation={navigation} />
           )}
+          {state.dock === "data" && <DataPanel tab={tab} />}
           {state.dock === "problems" && (
             <div className="h-full overflow-auto p-3">
               {!state.problems.length && (

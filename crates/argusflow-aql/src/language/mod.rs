@@ -3,6 +3,7 @@ mod documentation;
 mod formatter;
 mod hover;
 mod service;
+mod spatial;
 mod symbols;
 pub use formatter::format_query;
 pub use hover::{Hover, hover};

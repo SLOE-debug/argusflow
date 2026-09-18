@@ -7,6 +7,18 @@ use argusflow_core::Operation;
 pub(crate) struct BrowserSource(pub Page);
 impl SourceBackend for BrowserSource {
     type Target = BrowserMatch;
+    fn preview<'a>(
+        &'a self,
+        query: &'a BoundQuery,
+        operation: &'a Operation,
+    ) -> SourceFuture<'a, Vec<argusflow_aql::SpatialPreview>> {
+        Box::pin(async move {
+            self.0
+                .preview_aql(query, operation)
+                .await
+                .map_err(Into::into)
+        })
+    }
     fn find<'a>(
         &'a self,
         query: &'a BoundQuery,

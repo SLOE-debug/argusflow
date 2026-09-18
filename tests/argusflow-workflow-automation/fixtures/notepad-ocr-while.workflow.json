@@ -1,0 +1,2096 @@
+{
+  "id": "notepad-ocr-while-demo",
+  "definition": {
+    "name": "Notepad++ 编辑保存与 OCR 空间定位（While）",
+    "inputs": {
+      "output_path": {
+        "type": "text"
+      }
+    },
+    "outputs": {
+      "spatial_preview": {
+        "type": "record",
+        "of": {
+          "kind": {
+            "type": "text"
+          },
+          "items": {
+            "type": "list",
+            "of": {
+              "type": "record",
+              "of": {
+                "space": {
+                  "type": "text"
+                },
+                "scope": {
+                  "type": "list",
+                  "of": {
+                    "type": "float"
+                  }
+                },
+                "anchor": {
+                  "type": "list",
+                  "of": {
+                    "type": "float"
+                  }
+                },
+                "angles": {
+                  "type": "optional",
+                  "of": {
+                    "type": "list",
+                    "of": {
+                      "type": "float"
+                    }
+                  }
+                },
+                "candidates": {
+                  "type": "list",
+                  "of": {
+                    "type": "record",
+                    "of": {
+                      "node": {
+                        "type": "int"
+                      },
+                      "bounds": {
+                        "type": "list",
+                        "of": {
+                          "type": "float"
+                        }
+                      },
+                      "angle": {
+                        "type": "optional",
+                        "of": {
+                          "type": "float"
+                        }
+                      },
+                      "distance": {
+                        "type": "float"
+                      },
+                      "reason": {
+                        "type": "optional",
+                        "of": {
+                          "type": "text"
+                        }
+                      },
+                      "rank": {
+                        "type": "optional",
+                        "of": {
+                          "type": "int"
+                        }
+                      },
+                      "selected": {
+                        "type": "bool"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "saved": {
+        "type": "bool"
+      },
+      "written_lines": {
+        "type": "int"
+      },
+      "output_path": {
+        "type": "text"
+      },
+      "ocr_target": {
+        "type": "list",
+        "of": {
+          "type": "record",
+          "of": {
+            "source": {
+              "type": "text"
+            },
+            "space": {
+              "type": "text"
+            },
+            "frame": {
+              "type": "optional",
+              "of": {
+                "type": "text"
+              }
+            },
+            "name": {
+              "type": "optional",
+              "of": {
+                "type": "text"
+              }
+            },
+            "text": {
+              "type": "optional",
+              "of": {
+                "type": "text"
+              }
+            },
+            "confidence": {
+              "type": "optional",
+              "of": {
+                "type": "float"
+              }
+            },
+            "bounds": {
+              "type": "list",
+              "of": {
+                "type": "float"
+              }
+            }
+          }
+        }
+      }
+    },
+    "resources": {},
+    "root": "root",
+    "scopes": [
+      {
+        "id": "root",
+        "nodes": [
+          {
+            "id": "reserve",
+            "timeout_ms": {
+              "kind": "literal",
+              "value_type": {
+                "type": "int"
+              },
+              "value": {
+                "type": "int",
+                "value": "15000"
+              }
+            },
+            "action": {
+              "kind": "task",
+              "task": {
+                "type_id": "file.create_new",
+                "version": 1,
+                "config": {},
+                "inputs": {
+                  "path": {
+                    "kind": "input",
+                    "name": "output_path"
+                  }
+                },
+                "resources": {},
+                "resource_outputs": {},
+                "retry": null
+              }
+            },
+            "output_bindings": {}
+          },
+          {
+            "id": "launch",
+            "timeout_ms": {
+              "kind": "literal",
+              "value_type": {
+                "type": "int"
+              },
+              "value": {
+                "type": "int",
+                "value": "15000"
+              }
+            },
+            "action": {
+              "kind": "task",
+              "task": {
+                "type_id": "application.launch",
+                "version": 1,
+                "config": {
+                  "visible": true
+                },
+                "inputs": {
+                  "executable": {
+                    "kind": "literal",
+                    "value_type": {
+                      "type": "text"
+                    },
+                    "value": {
+                      "type": "text",
+                      "value": "C:\\Program Files\\Notepad++\\notepad++.exe"
+                    }
+                  },
+                  "arguments": {
+                    "kind": "list",
+                    "item_type": {
+                      "type": "text"
+                    },
+                    "items": [
+                      {
+                        "kind": "literal",
+                        "value_type": {
+                          "type": "text"
+                        },
+                        "value": {
+                          "type": "text",
+                          "value": "-multiInst"
+                        }
+                      },
+                      {
+                        "kind": "literal",
+                        "value_type": {
+                          "type": "text"
+                        },
+                        "value": {
+                          "type": "text",
+                          "value": "-nosession"
+                        }
+                      },
+                      {
+                        "kind": "literal",
+                        "value_type": {
+                          "type": "text"
+                        },
+                        "value": {
+                          "type": "text",
+                          "value": "-noPlugin"
+                        }
+                      }
+                    ]
+                  }
+                },
+                "resources": {},
+                "resource_outputs": {
+                  "application": "npp"
+                },
+                "retry": null
+              }
+            },
+            "output_bindings": {}
+          },
+          {
+            "id": "window",
+            "timeout_ms": {
+              "kind": "literal",
+              "value_type": {
+                "type": "int"
+              },
+              "value": {
+                "type": "int",
+                "value": "15000"
+              }
+            },
+            "action": {
+              "kind": "task",
+              "task": {
+                "type_id": "application.wait_window",
+                "version": 1,
+                "config": {
+                  "class_name": "Notepad++"
+                },
+                "inputs": {},
+                "resources": {
+                  "application": "npp"
+                },
+                "resource_outputs": {
+                  "window": "editor"
+                },
+                "retry": null
+              }
+            },
+            "output_bindings": {}
+          },
+          {
+            "id": "activate",
+            "timeout_ms": {
+              "kind": "literal",
+              "value_type": {
+                "type": "int"
+              },
+              "value": {
+                "type": "int",
+                "value": "15000"
+              }
+            },
+            "action": {
+              "kind": "task",
+              "task": {
+                "type_id": "window.activate",
+                "version": 1,
+                "config": {},
+                "inputs": {},
+                "resources": {
+                  "window": "editor"
+                },
+                "resource_outputs": {},
+                "retry": null
+              }
+            },
+            "output_bindings": {}
+          },
+          {
+            "id": "anchor-text",
+            "timeout_ms": {
+              "kind": "literal",
+              "value_type": {
+                "type": "int"
+              },
+              "value": {
+                "type": "int",
+                "value": "15000"
+              }
+            },
+            "action": {
+              "kind": "task",
+              "task": {
+                "type_id": "aql.type_text",
+                "version": 1,
+                "config": {
+                  "platform": "uia",
+                  "query": "目标(聚焦=是)",
+                  "mode": "focused_selection"
+                },
+                "inputs": {
+                  "text": {
+                    "kind": "literal",
+                    "value_type": {
+                      "type": "text"
+                    },
+                    "value": {
+                      "type": "text",
+                      "value": "ARGUS ANCHOR"
+                    }
+                  }
+                },
+                "resources": {
+                  "scope": "editor"
+                },
+                "resource_outputs": {},
+                "retry": null
+              }
+            },
+            "output_bindings": {}
+          },
+          {
+            "id": "init-line",
+            "timeout_ms": {
+              "kind": "literal",
+              "value_type": {
+                "type": "int"
+              },
+              "value": {
+                "type": "int",
+                "value": "15000"
+              }
+            },
+            "action": {
+              "kind": "let",
+              "name": "line",
+              "value_type": {
+                "type": "int"
+              },
+              "value": {
+                "kind": "literal",
+                "value_type": {
+                  "type": "int"
+                },
+                "value": {
+                  "type": "int",
+                  "value": "0"
+                }
+              }
+            },
+            "output_bindings": {}
+          },
+          {
+            "id": "write-lines",
+            "timeout_ms": {
+              "kind": "literal",
+              "value_type": {
+                "type": "int"
+              },
+              "value": {
+                "type": "int",
+                "value": "60000"
+              }
+            },
+            "action": {
+              "kind": "while",
+              "condition": {
+                "kind": "binary",
+                "op": "less",
+                "left": {
+                  "kind": "variable",
+                  "name": "line"
+                },
+                "right": {
+                  "kind": "literal",
+                  "value_type": {
+                    "type": "int"
+                  },
+                  "value": {
+                    "type": "int",
+                    "value": "3"
+                  }
+                }
+              },
+              "body": "write-body",
+              "max_iterations": 3
+            },
+            "output_bindings": {}
+          },
+          {
+            "id": "ocr",
+            "timeout_ms": {
+              "kind": "literal",
+              "value_type": {
+                "type": "int"
+              },
+              "value": {
+                "type": "int",
+                "value": "120000"
+              }
+            },
+            "action": {
+              "kind": "task",
+              "task": {
+                "type_id": "window.ocr",
+                "version": 1,
+                "config": {},
+                "inputs": {},
+                "resources": {
+                  "window": "editor"
+                },
+                "resource_outputs": {
+                  "source": "screen"
+                },
+                "retry": null
+              }
+            },
+            "output_bindings": {}
+          },
+          {
+            "id": "wait-anchor",
+            "timeout_ms": {
+              "kind": "literal",
+              "value_type": {
+                "type": "int"
+              },
+              "value": {
+                "type": "int",
+                "value": "60000"
+              }
+            },
+            "action": {
+              "kind": "task",
+              "task": {
+                "type_id": "aql.wait",
+                "version": 1,
+                "config": {
+                  "platform": "ocr",
+                  "query": "目标(文本包含=\"ANCHOR\")",
+                  "condition": "unique",
+                  "interval_ms": "200"
+                },
+                "inputs": {},
+                "resources": {
+                  "scope": "screen"
+                },
+                "resource_outputs": {},
+                "retry": null
+              }
+            },
+            "output_bindings": {}
+          },
+          {
+            "id": "wait-target",
+            "timeout_ms": {
+              "kind": "literal",
+              "value_type": {
+                "type": "int"
+              },
+              "value": {
+                "type": "int",
+                "value": "60000"
+              }
+            },
+            "action": {
+              "kind": "task",
+              "task": {
+                "type_id": "aql.wait",
+                "version": 1,
+                "config": {
+                  "platform": "ocr",
+                  "query": "目标(文本包含=\"TARGET\")",
+                  "condition": "exists",
+                  "interval_ms": "200"
+                },
+                "inputs": {},
+                "resources": {
+                  "scope": "screen"
+                },
+                "resource_outputs": {},
+                "retry": null
+              }
+            },
+            "output_bindings": {}
+          },
+          {
+            "id": "preview",
+            "timeout_ms": {
+              "kind": "literal",
+              "value_type": {
+                "type": "int"
+              },
+              "value": {
+                "type": "int",
+                "value": "30000"
+              }
+            },
+            "action": {
+              "kind": "task",
+              "task": {
+                "type_id": "aql.preview",
+                "version": 1,
+                "config": {
+                  "platform": "ocr",
+                  "query": "空间查找(锚点=目标(文本包含=\"ANCHOR\"),目标=目标(文本包含=\"TARGET\"),方向=下,最大距离=范围短边的75%,排序=距离从近到远,选择=第1个)"
+                },
+                "inputs": {},
+                "resources": {
+                  "scope": "screen"
+                },
+                "resource_outputs": {},
+                "retry": null
+              }
+            },
+            "output_bindings": {}
+          },
+          {
+            "id": "locate",
+            "timeout_ms": {
+              "kind": "literal",
+              "value_type": {
+                "type": "int"
+              },
+              "value": {
+                "type": "int",
+                "value": "30000"
+              }
+            },
+            "action": {
+              "kind": "task",
+              "task": {
+                "type_id": "aql.query",
+                "version": 1,
+                "config": {
+                  "platform": "ocr",
+                  "query": "空间查找(锚点=目标(文本包含=\"ANCHOR\"),目标=目标(文本包含=\"TARGET\"),方向=下,最大距离=范围短边的75%,排序=距离从近到远,选择=第1个)"
+                },
+                "inputs": {},
+                "resources": {
+                  "scope": "screen"
+                },
+                "resource_outputs": {},
+                "retry": null
+              }
+            },
+            "output_bindings": {}
+          },
+          {
+            "id": "save",
+            "timeout_ms": {
+              "kind": "literal",
+              "value_type": {
+                "type": "int"
+              },
+              "value": {
+                "type": "int",
+                "value": "15000"
+              }
+            },
+            "action": {
+              "kind": "task",
+              "task": {
+                "type_id": "aql.click",
+                "version": 1,
+                "config": {
+                  "platform": "uia",
+                  "query": "菜单项(名称=\"保存(S)\",可用=是)"
+                },
+                "inputs": {},
+                "resources": {
+                  "scope": "editor"
+                },
+                "resource_outputs": {},
+                "retry": null
+              }
+            },
+            "output_bindings": {}
+          },
+          {
+            "id": "verify",
+            "timeout_ms": {
+              "kind": "literal",
+              "value_type": {
+                "type": "int"
+              },
+              "value": {
+                "type": "int",
+                "value": "15000"
+              }
+            },
+            "action": {
+              "kind": "task",
+              "task": {
+                "type_id": "file.wait_text",
+                "version": 1,
+                "config": {},
+                "inputs": {
+                  "path": {
+                    "kind": "input",
+                    "name": "output_path"
+                  },
+                  "expected": {
+                    "kind": "literal",
+                    "value_type": {
+                      "type": "text"
+                    },
+                    "value": {
+                      "type": "text",
+                      "value": "ARGUS ANCHOR\r\n\r\nARGUS TARGET\r\n\r\nARGUS TARGET\r\n\r\nARGUS TARGET"
+                    }
+                  }
+                },
+                "resources": {},
+                "resource_outputs": {},
+                "retry": null
+              }
+            },
+            "output_bindings": {}
+          },
+          {
+            "id": "file-save-menu",
+            "timeout_ms": {
+              "kind": "literal",
+              "value_type": {
+                "type": "int"
+              },
+              "value": {
+                "type": "int",
+                "value": "15000"
+              }
+            },
+            "action": {
+              "kind": "task",
+              "task": {
+                "type_id": "aql.click",
+                "version": 1,
+                "config": {
+                  "platform": "uia",
+                  "query": "菜单项(名称=\"文件(F)\")"
+                },
+                "inputs": {},
+                "resources": {
+                  "scope": "editor"
+                },
+                "resource_outputs": {},
+                "retry": null
+              }
+            },
+            "output_bindings": {}
+          },
+          {
+            "id": "wait-save-menu",
+            "timeout_ms": {
+              "kind": "literal",
+              "value_type": {
+                "type": "int"
+              },
+              "value": {
+                "type": "int",
+                "value": "15000"
+              }
+            },
+            "action": {
+              "kind": "task",
+              "task": {
+                "type_id": "aql.wait",
+                "version": 1,
+                "config": {
+                  "platform": "uia",
+                  "query": "菜单项(名称=\"保存(S)\",可用=是)",
+                  "condition": "unique",
+                  "interval_ms": "100"
+                },
+                "inputs": {},
+                "resources": {
+                  "scope": "editor"
+                },
+                "resource_outputs": {},
+                "retry": null
+              }
+            },
+            "output_bindings": {}
+          },
+          {
+            "id": "file-new-menu",
+            "timeout_ms": {
+              "kind": "literal",
+              "value_type": {
+                "type": "int"
+              },
+              "value": {
+                "type": "int",
+                "value": "15000"
+              }
+            },
+            "action": {
+              "kind": "task",
+              "task": {
+                "type_id": "aql.click",
+                "version": 1,
+                "config": {
+                  "platform": "uia",
+                  "query": "菜单项(名称=\"文件(F)\")"
+                },
+                "inputs": {},
+                "resources": {
+                  "scope": "editor"
+                },
+                "resource_outputs": {},
+                "retry": null
+              }
+            },
+            "output_bindings": {}
+          },
+          {
+            "id": "wait-new-menu",
+            "timeout_ms": {
+              "kind": "literal",
+              "value_type": {
+                "type": "int"
+              },
+              "value": {
+                "type": "int",
+                "value": "15000"
+              }
+            },
+            "action": {
+              "kind": "task",
+              "task": {
+                "type_id": "aql.wait",
+                "version": 1,
+                "config": {
+                  "platform": "uia",
+                  "query": "菜单项(名称=\"新建(N)\",可用=是)",
+                  "condition": "unique",
+                  "interval_ms": "100"
+                },
+                "inputs": {},
+                "resources": {
+                  "scope": "editor"
+                },
+                "resource_outputs": {},
+                "retry": null
+              }
+            },
+            "output_bindings": {}
+          },
+          {
+            "id": "new-document",
+            "timeout_ms": {
+              "kind": "literal",
+              "value_type": {
+                "type": "int"
+              },
+              "value": {
+                "type": "int",
+                "value": "15000"
+              }
+            },
+            "action": {
+              "kind": "task",
+              "task": {
+                "type_id": "aql.click",
+                "version": 1,
+                "config": {
+                  "platform": "uia",
+                  "query": "菜单项(名称=\"新建(N)\",可用=是)"
+                },
+                "inputs": {},
+                "resources": {
+                  "scope": "editor"
+                },
+                "resource_outputs": {},
+                "retry": null
+              }
+            },
+            "output_bindings": {}
+          },
+          {
+            "id": "wait-new-editor",
+            "timeout_ms": {
+              "kind": "literal",
+              "value_type": {
+                "type": "int"
+              },
+              "value": {
+                "type": "int",
+                "value": "15000"
+              }
+            },
+            "action": {
+              "kind": "task",
+              "task": {
+                "type_id": "aql.wait",
+                "version": 1,
+                "config": {
+                  "platform": "uia",
+                  "query": "目标(聚焦=是)",
+                  "condition": "unique",
+                  "interval_ms": "100"
+                },
+                "inputs": {},
+                "resources": {
+                  "scope": "editor"
+                },
+                "resource_outputs": {},
+                "retry": null
+              }
+            },
+            "output_bindings": {}
+          },
+          {
+            "id": "save-dialog",
+            "timeout_ms": {
+              "kind": "literal",
+              "value_type": {
+                "type": "int"
+              },
+              "value": {
+                "type": "int",
+                "value": "15000"
+              }
+            },
+            "action": {
+              "kind": "task",
+              "task": {
+                "type_id": "application.wait_window",
+                "version": 1,
+                "config": {
+                  "title": "另存为",
+                  "class_name": "#32770"
+                },
+                "inputs": {},
+                "resources": {
+                  "application": "npp"
+                },
+                "resource_outputs": {
+                  "window": "save_dialog"
+                },
+                "retry": null
+              }
+            },
+            "output_bindings": {}
+          },
+          {
+            "id": "save-path",
+            "timeout_ms": {
+              "kind": "literal",
+              "value_type": {
+                "type": "int"
+              },
+              "value": {
+                "type": "int",
+                "value": "15000"
+              }
+            },
+            "action": {
+              "kind": "task",
+              "task": {
+                "type_id": "aql.type_text",
+                "version": 1,
+                "config": {
+                  "platform": "uia",
+                  "query": "输入框(名称=\"文件名:\")",
+                  "mode": "focused_selection"
+                },
+                "inputs": {
+                  "text": {
+                    "kind": "input",
+                    "name": "output_path"
+                  }
+                },
+                "resources": {
+                  "scope": "save_dialog"
+                },
+                "resource_outputs": {},
+                "retry": null
+              }
+            },
+            "output_bindings": {}
+          },
+          {
+            "id": "save-dialog-confirm",
+            "timeout_ms": {
+              "kind": "literal",
+              "value_type": {
+                "type": "int"
+              },
+              "value": {
+                "type": "int",
+                "value": "15000"
+              }
+            },
+            "action": {
+              "kind": "task",
+              "task": {
+                "type_id": "aql.click",
+                "version": 1,
+                "config": {
+                  "platform": "uia",
+                  "query": "按钮(名称=\"保存(S)\",可用=是)"
+                },
+                "inputs": {},
+                "resources": {
+                  "scope": "save_dialog"
+                },
+                "resource_outputs": {},
+                "retry": null
+              }
+            },
+            "output_bindings": {}
+          },
+          {
+            "id": "replace-dialog",
+            "timeout_ms": {
+              "kind": "literal",
+              "value_type": {
+                "type": "int"
+              },
+              "value": {
+                "type": "int",
+                "value": "15000"
+              }
+            },
+            "action": {
+              "kind": "task",
+              "task": {
+                "type_id": "application.wait_window",
+                "version": 1,
+                "config": {
+                  "title": "确认另存为",
+                  "class_name": "#32770"
+                },
+                "inputs": {},
+                "resources": {
+                  "application": "npp"
+                },
+                "resource_outputs": {
+                  "window": "replace_dialog"
+                },
+                "retry": null
+              }
+            },
+            "output_bindings": {}
+          },
+          {
+            "id": "replace-reserved",
+            "timeout_ms": {
+              "kind": "literal",
+              "value_type": {
+                "type": "int"
+              },
+              "value": {
+                "type": "int",
+                "value": "15000"
+              }
+            },
+            "action": {
+              "kind": "task",
+              "task": {
+                "type_id": "aql.click",
+                "version": 1,
+                "config": {
+                  "platform": "uia",
+                  "query": "按钮(名称=\"是(Y)\",可用=是)"
+                },
+                "inputs": {},
+                "resources": {
+                  "scope": "replace_dialog"
+                },
+                "resource_outputs": {},
+                "retry": null
+              }
+            },
+            "output_bindings": {}
+          },
+          {
+            "id": "select-save-path",
+            "timeout_ms": {
+              "kind": "literal",
+              "value_type": {
+                "type": "int"
+              },
+              "value": {
+                "type": "int",
+                "value": "15000"
+              }
+            },
+            "action": {
+              "kind": "task",
+              "task": {
+                "type_id": "aql.press_keys",
+                "version": 1,
+                "config": {
+                  "platform": "uia",
+                  "query": "输入框(名称=\"文件名:\",聚焦=是)",
+                  "keys": "Control+A"
+                },
+                "inputs": {},
+                "resources": {
+                  "scope": "save_dialog"
+                },
+                "resource_outputs": {},
+                "retry": null
+              }
+            },
+            "output_bindings": {}
+          }
+        ],
+        "outputs": {
+          "spatial_preview": {
+            "kind": "node_output",
+            "node": "preview",
+            "output": "spatial_preview"
+          },
+          "saved": {
+            "kind": "node_output",
+            "node": "verify",
+            "output": "equal"
+          },
+          "written_lines": {
+            "kind": "variable",
+            "name": "line"
+          },
+          "output_path": {
+            "kind": "input",
+            "name": "output_path"
+          },
+          "ocr_target": {
+            "kind": "node_output",
+            "node": "locate",
+            "output": "matches"
+          }
+        },
+        "edges": [
+          {
+            "id": "root:edge:0",
+            "source": {
+              "kind": "start"
+            },
+            "target": {
+              "kind": "node",
+              "node": "reserve"
+            }
+          },
+          {
+            "id": "root:edge:1",
+            "source": {
+              "kind": "node",
+              "node": "reserve"
+            },
+            "target": {
+              "kind": "node",
+              "node": "launch"
+            }
+          },
+          {
+            "id": "root:edge:2",
+            "source": {
+              "kind": "node",
+              "node": "launch"
+            },
+            "target": {
+              "kind": "node",
+              "node": "window"
+            }
+          },
+          {
+            "id": "root:edge:3",
+            "source": {
+              "kind": "node",
+              "node": "window"
+            },
+            "target": {
+              "kind": "node",
+              "node": "activate"
+            }
+          },
+          {
+            "id": "root:edge:4",
+            "source": {
+              "kind": "node",
+              "node": "activate"
+            },
+            "target": {
+              "kind": "node",
+              "node": "file-new-menu"
+            }
+          },
+          {
+            "id": "root:edge:5",
+            "source": {
+              "kind": "node",
+              "node": "anchor-text"
+            },
+            "target": {
+              "kind": "node",
+              "node": "init-line"
+            }
+          },
+          {
+            "id": "root:edge:6",
+            "source": {
+              "kind": "node",
+              "node": "init-line"
+            },
+            "target": {
+              "kind": "node",
+              "node": "write-lines"
+            }
+          },
+          {
+            "id": "root:edge:7",
+            "source": {
+              "kind": "node",
+              "node": "write-lines"
+            },
+            "target": {
+              "kind": "node",
+              "node": "ocr"
+            }
+          },
+          {
+            "id": "root:edge:8",
+            "source": {
+              "kind": "node",
+              "node": "ocr"
+            },
+            "target": {
+              "kind": "node",
+              "node": "wait-anchor"
+            }
+          },
+          {
+            "id": "root:edge:9",
+            "source": {
+              "kind": "node",
+              "node": "wait-anchor"
+            },
+            "target": {
+              "kind": "node",
+              "node": "wait-target"
+            }
+          },
+          {
+            "id": "root:edge:10",
+            "source": {
+              "kind": "node",
+              "node": "wait-target"
+            },
+            "target": {
+              "kind": "node",
+              "node": "preview"
+            }
+          },
+          {
+            "id": "root:edge:11",
+            "source": {
+              "kind": "node",
+              "node": "preview"
+            },
+            "target": {
+              "kind": "node",
+              "node": "locate"
+            }
+          },
+          {
+            "id": "root:edge:12",
+            "source": {
+              "kind": "node",
+              "node": "locate"
+            },
+            "target": {
+              "kind": "node",
+              "node": "file-save-menu"
+            }
+          },
+          {
+            "id": "root:edge:13",
+            "source": {
+              "kind": "node",
+              "node": "save"
+            },
+            "target": {
+              "kind": "node",
+              "node": "save-dialog"
+            }
+          },
+          {
+            "id": "root:edge:14",
+            "source": {
+              "kind": "node",
+              "node": "verify"
+            },
+            "target": {
+              "kind": "end"
+            }
+          },
+          {
+            "id": "root:edge:file-save-menu",
+            "source": {
+              "kind": "node",
+              "node": "file-save-menu"
+            },
+            "target": {
+              "kind": "node",
+              "node": "wait-save-menu"
+            }
+          },
+          {
+            "id": "root:edge:wait-save-menu",
+            "source": {
+              "kind": "node",
+              "node": "wait-save-menu"
+            },
+            "target": {
+              "kind": "node",
+              "node": "save"
+            }
+          },
+          {
+            "id": "root:edge:file-new-menu",
+            "source": {
+              "kind": "node",
+              "node": "file-new-menu"
+            },
+            "target": {
+              "kind": "node",
+              "node": "wait-new-menu"
+            }
+          },
+          {
+            "id": "root:edge:wait-new-menu",
+            "source": {
+              "kind": "node",
+              "node": "wait-new-menu"
+            },
+            "target": {
+              "kind": "node",
+              "node": "new-document"
+            }
+          },
+          {
+            "id": "root:edge:new-document",
+            "source": {
+              "kind": "node",
+              "node": "new-document"
+            },
+            "target": {
+              "kind": "node",
+              "node": "wait-new-editor"
+            }
+          },
+          {
+            "id": "root:edge:wait-new-editor",
+            "source": {
+              "kind": "node",
+              "node": "wait-new-editor"
+            },
+            "target": {
+              "kind": "node",
+              "node": "anchor-text"
+            }
+          },
+          {
+            "id": "root:edge:save-dialog",
+            "source": {
+              "kind": "node",
+              "node": "save-dialog"
+            },
+            "target": {
+              "kind": "node",
+              "node": "select-save-path"
+            }
+          },
+          {
+            "id": "root:edge:save-path",
+            "source": {
+              "kind": "node",
+              "node": "save-path"
+            },
+            "target": {
+              "kind": "node",
+              "node": "save-dialog-confirm"
+            }
+          },
+          {
+            "id": "root:edge:save-dialog-confirm",
+            "source": {
+              "kind": "node",
+              "node": "save-dialog-confirm"
+            },
+            "target": {
+              "kind": "node",
+              "node": "replace-dialog"
+            }
+          },
+          {
+            "id": "root:edge:replace-dialog",
+            "source": {
+              "kind": "node",
+              "node": "replace-dialog"
+            },
+            "target": {
+              "kind": "node",
+              "node": "replace-reserved"
+            }
+          },
+          {
+            "id": "root:edge:replace-reserved",
+            "source": {
+              "kind": "node",
+              "node": "replace-reserved"
+            },
+            "target": {
+              "kind": "node",
+              "node": "verify"
+            }
+          },
+          {
+            "id": "root:edge:select-save-path",
+            "source": {
+              "kind": "node",
+              "node": "select-save-path"
+            },
+            "target": {
+              "kind": "node",
+              "node": "save-path"
+            }
+          }
+        ]
+      },
+      {
+        "id": "write-body",
+        "nodes": [
+          {
+            "id": "newline-1",
+            "timeout_ms": {
+              "kind": "literal",
+              "value_type": {
+                "type": "int"
+              },
+              "value": {
+                "type": "int",
+                "value": "15000"
+              }
+            },
+            "action": {
+              "kind": "task",
+              "task": {
+                "type_id": "aql.press_keys",
+                "version": 1,
+                "config": {
+                  "platform": "uia",
+                  "query": "目标(聚焦=是)",
+                  "keys": "Enter"
+                },
+                "inputs": {},
+                "resources": {
+                  "scope": "editor"
+                },
+                "resource_outputs": {},
+                "retry": null
+              }
+            },
+            "output_bindings": {}
+          },
+          {
+            "id": "after-enter-1",
+            "timeout_ms": null,
+            "action": {
+              "kind": "wait",
+              "milliseconds": {
+                "kind": "literal",
+                "value_type": {
+                  "type": "int"
+                },
+                "value": {
+                  "type": "int",
+                  "value": "100"
+                }
+              }
+            },
+            "output_bindings": {}
+          },
+          {
+            "id": "newline-2",
+            "timeout_ms": {
+              "kind": "literal",
+              "value_type": {
+                "type": "int"
+              },
+              "value": {
+                "type": "int",
+                "value": "15000"
+              }
+            },
+            "action": {
+              "kind": "task",
+              "task": {
+                "type_id": "aql.press_keys",
+                "version": 1,
+                "config": {
+                  "platform": "uia",
+                  "query": "目标(聚焦=是)",
+                  "keys": "Enter"
+                },
+                "inputs": {},
+                "resources": {
+                  "scope": "editor"
+                },
+                "resource_outputs": {},
+                "retry": null
+              }
+            },
+            "output_bindings": {}
+          },
+          {
+            "id": "after-enter-2",
+            "timeout_ms": null,
+            "action": {
+              "kind": "wait",
+              "milliseconds": {
+                "kind": "literal",
+                "value_type": {
+                  "type": "int"
+                },
+                "value": {
+                  "type": "int",
+                  "value": "100"
+                }
+              }
+            },
+            "output_bindings": {}
+          },
+          {
+            "id": "target-text",
+            "timeout_ms": {
+              "kind": "literal",
+              "value_type": {
+                "type": "int"
+              },
+              "value": {
+                "type": "int",
+                "value": "15000"
+              }
+            },
+            "action": {
+              "kind": "task",
+              "task": {
+                "type_id": "aql.type_text",
+                "version": 1,
+                "config": {
+                  "platform": "uia",
+                  "query": "目标(聚焦=是)",
+                  "mode": "focused_selection"
+                },
+                "inputs": {
+                  "text": {
+                    "kind": "literal",
+                    "value_type": {
+                      "type": "text"
+                    },
+                    "value": {
+                      "type": "text",
+                      "value": "ARGUS TARGET"
+                    }
+                  }
+                },
+                "resources": {
+                  "scope": "editor"
+                },
+                "resource_outputs": {},
+                "retry": null
+              }
+            },
+            "output_bindings": {}
+          },
+          {
+            "id": "after-text",
+            "timeout_ms": null,
+            "action": {
+              "kind": "wait",
+              "milliseconds": {
+                "kind": "literal",
+                "value_type": {
+                  "type": "int"
+                },
+                "value": {
+                  "type": "int",
+                  "value": "100"
+                }
+              }
+            },
+            "output_bindings": {}
+          },
+          {
+            "id": "dismiss-completion",
+            "timeout_ms": {
+              "kind": "literal",
+              "value_type": {
+                "type": "int"
+              },
+              "value": {
+                "type": "int",
+                "value": "15000"
+              }
+            },
+            "action": {
+              "kind": "task",
+              "task": {
+                "type_id": "aql.press_keys",
+                "version": 1,
+                "config": {
+                  "platform": "uia",
+                  "query": "目标(聚焦=是)",
+                  "keys": "Escape"
+                },
+                "inputs": {},
+                "resources": {
+                  "scope": "editor"
+                },
+                "resource_outputs": {},
+                "retry": null
+              }
+            },
+            "output_bindings": {}
+          },
+          {
+            "id": "next-line",
+            "timeout_ms": {
+              "kind": "literal",
+              "value_type": {
+                "type": "int"
+              },
+              "value": {
+                "type": "int",
+                "value": "15000"
+              }
+            },
+            "action": {
+              "kind": "assign",
+              "assignments": [
+                {
+                  "name": "line",
+                  "value": {
+                    "kind": "binary",
+                    "op": "add",
+                    "left": {
+                      "kind": "variable",
+                      "name": "line"
+                    },
+                    "right": {
+                      "kind": "literal",
+                      "value_type": {
+                        "type": "int"
+                      },
+                      "value": {
+                        "type": "int",
+                        "value": "1"
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "output_bindings": {}
+          }
+        ],
+        "outputs": {},
+        "edges": [
+          {
+            "id": "write-body:edge:0",
+            "source": {
+              "kind": "start"
+            },
+            "target": {
+              "kind": "node",
+              "node": "newline-1"
+            }
+          },
+          {
+            "id": "write-body:edge:1",
+            "source": {
+              "kind": "node",
+              "node": "newline-1"
+            },
+            "target": {
+              "kind": "node",
+              "node": "after-enter-1"
+            }
+          },
+          {
+            "id": "write-body:edge:2",
+            "source": {
+              "kind": "node",
+              "node": "after-enter-1"
+            },
+            "target": {
+              "kind": "node",
+              "node": "newline-2"
+            }
+          },
+          {
+            "id": "write-body:edge:3",
+            "source": {
+              "kind": "node",
+              "node": "newline-2"
+            },
+            "target": {
+              "kind": "node",
+              "node": "after-enter-2"
+            }
+          },
+          {
+            "id": "write-body:edge:4",
+            "source": {
+              "kind": "node",
+              "node": "after-enter-2"
+            },
+            "target": {
+              "kind": "node",
+              "node": "target-text"
+            }
+          },
+          {
+            "id": "write-body:edge:5",
+            "source": {
+              "kind": "node",
+              "node": "target-text"
+            },
+            "target": {
+              "kind": "node",
+              "node": "after-text"
+            }
+          },
+          {
+            "id": "write-body:edge:6",
+            "source": {
+              "kind": "node",
+              "node": "after-text"
+            },
+            "target": {
+              "kind": "node",
+              "node": "dismiss-completion"
+            }
+          },
+          {
+            "id": "write-body:edge:7",
+            "source": {
+              "kind": "node",
+              "node": "dismiss-completion"
+            },
+            "target": {
+              "kind": "node",
+              "node": "next-line"
+            }
+          },
+          {
+            "id": "write-body:edge:8",
+            "source": {
+              "kind": "node",
+              "node": "next-line"
+            },
+            "target": {
+              "kind": "end"
+            }
+          }
+        ]
+      }
+    ],
+    "subflows": {}
+  },
+  "editor": {
+    "nodes": {
+      "$start:root": {
+        "x": 120,
+        "y": 80,
+        "label": "开始",
+        "note": ""
+      },
+      "reserve": {
+        "x": 120,
+        "y": 240,
+        "label": "预留新文件（不覆盖）",
+        "note": "output_path 必须是尚不存在的绝对 .txt 路径，父目录需已存在。"
+      },
+      "launch": {
+        "x": 120,
+        "y": 400,
+        "label": "打开 Notepad++",
+        "note": "本机 Notepad++ 路径；运行前可修改。"
+      },
+      "window": {
+        "x": 120,
+        "y": 560,
+        "label": "等待编辑器窗口",
+        "note": ""
+      },
+      "activate": {
+        "x": 120,
+        "y": 720,
+        "label": "激活编辑器",
+        "note": ""
+      },
+      "anchor-text": {
+        "x": 120,
+        "y": 880,
+        "label": "UIA · 输入 OCR 锚点",
+        "note": ""
+      },
+      "init-line": {
+        "x": 520,
+        "y": 80,
+        "label": "初始化行数",
+        "note": ""
+      },
+      "write-lines": {
+        "x": 520,
+        "y": 240,
+        "label": "While：重复输入 3 行目标",
+        "note": ""
+      },
+      "ocr": {
+        "x": 520,
+        "y": 400,
+        "label": "建立窗口 OCR 范围",
+        "note": "使用应用内置的 PaddleOCR 模型与 ONNX Runtime，无需配置依赖目录。"
+      },
+      "wait-anchor": {
+        "x": 520,
+        "y": 560,
+        "label": "OCR · 等待 OCR 锚点出现",
+        "note": ""
+      },
+      "wait-target": {
+        "x": 520,
+        "y": 720,
+        "label": "OCR · 等待 OCR 目标文字出现",
+        "note": ""
+      },
+      "preview": {
+        "x": 520,
+        "y": 880,
+        "label": "OCR · 预览：定位锚点下方目标",
+        "note": ""
+      },
+      "save": {
+        "x": 920,
+        "y": 240,
+        "label": "UIA · 点击保存菜单项",
+        "note": ""
+      },
+      "verify": {
+        "x": 920,
+        "y": 400,
+        "label": "等待保存并验证文件",
+        "note": ""
+      },
+      "$end:root": {
+        "x": 920,
+        "y": 560,
+        "label": "结束",
+        "note": ""
+      },
+      "$start:write-body": {
+        "x": 120,
+        "y": 80,
+        "label": "开始",
+        "note": ""
+      },
+      "newline-1": {
+        "x": 120,
+        "y": 240,
+        "label": "UIA · 输入换行",
+        "note": ""
+      },
+      "newline-2": {
+        "x": 120,
+        "y": 560,
+        "label": "UIA · 输入换行",
+        "note": ""
+      },
+      "target-text": {
+        "x": 120,
+        "y": 880,
+        "label": "UIA · 输入 OCR 目标",
+        "note": ""
+      },
+      "next-line": {
+        "x": 520,
+        "y": 400,
+        "label": "行数加 1",
+        "note": ""
+      },
+      "$end:write-body": {
+        "x": 520,
+        "y": 560,
+        "label": "结束",
+        "note": ""
+      },
+      "locate": {
+        "x": 920,
+        "y": 80,
+        "label": "OCR · 定位最近的目标行",
+        "note": "使用与预览相同的空间 AQL，输出真实 OCR 命中、置信度和边界。"
+      },
+      "after-enter-1": {
+        "label": "等待编辑器处理输入",
+        "note": "等待 100 ms，让编辑器处理前一个按键。",
+        "x": 120,
+        "y": 400
+      },
+      "after-enter-2": {
+        "label": "等待编辑器处理输入",
+        "note": "等待 100 ms，让编辑器处理前一个按键。",
+        "x": 120,
+        "y": 720
+      },
+      "after-text": {
+        "label": "等待编辑器处理输入",
+        "note": "等待 100 ms，让编辑器处理前一个按键。",
+        "x": 520,
+        "y": 80
+      },
+      "dismiss-completion": {
+        "x": 520,
+        "y": 240,
+        "label": "UIA · 关闭自动补全列表",
+        "note": "重复输入相同文字时，避免下一轮的 Enter 被自动补全接收。"
+      },
+      "file-save-menu": {
+        "x": 1320,
+        "y": 80,
+        "label": "UIA · 点击文件菜单保存",
+        "note": "通过 UIA 定位后点击控件；验证新建和关闭空白标签，再继续编辑预留的输出文件。"
+      },
+      "wait-save-menu": {
+        "x": 1320,
+        "y": 240,
+        "label": "UIA · 等待保存菜单项",
+        "note": "通过 UIA 定位后点击控件；验证新建和关闭空白标签，再继续编辑预留的输出文件。"
+      },
+      "file-new-menu": {
+        "x": -280,
+        "y": 80,
+        "label": "UIA · 打开文件菜单",
+        "note": ""
+      },
+      "wait-new-menu": {
+        "x": -280,
+        "y": 230,
+        "label": "UIA · 等待新建菜单项",
+        "note": ""
+      },
+      "new-document": {
+        "x": -280,
+        "y": 380,
+        "label": "UIA · 新建文档",
+        "note": ""
+      },
+      "wait-new-editor": {
+        "x": -280,
+        "y": 530,
+        "label": "UIA · 等待编辑区获得焦点",
+        "note": ""
+      },
+      "save-dialog": {
+        "x": 1120,
+        "y": 900,
+        "label": "等待另存为窗口",
+        "note": ""
+      },
+      "save-path": {
+        "x": 1120,
+        "y": 1050,
+        "label": "UIA · 填写保存路径",
+        "note": ""
+      },
+      "save-dialog-confirm": {
+        "x": 1120,
+        "y": 1200,
+        "label": "UIA · 确认保存",
+        "note": ""
+      },
+      "replace-dialog": {
+        "x": 1120,
+        "y": 1350,
+        "label": "等待预留文件确认",
+        "note": ""
+      },
+      "replace-reserved": {
+        "x": 1120,
+        "y": 1500,
+        "label": "UIA · 写入本次预留文件",
+        "note": ""
+      },
+      "select-save-path": {
+        "x": 1400,
+        "y": 900,
+        "label": "UIA · 选中默认文件名",
+        "note": ""
+      }
+    },
+    "edges": {
+      "root:edge:0": {
+        "source": "bottom",
+        "target": "top"
+      },
+      "root:edge:1": {
+        "source": "bottom",
+        "target": "top"
+      },
+      "root:edge:2": {
+        "source": "bottom",
+        "target": "top"
+      },
+      "root:edge:3": {
+        "source": "bottom",
+        "target": "top"
+      },
+      "root:edge:4": {
+        "source": "bottom",
+        "target": "top"
+      },
+      "root:edge:5": {
+        "source": "bottom",
+        "target": "top"
+      },
+      "root:edge:6": {
+        "source": "bottom",
+        "target": "top"
+      },
+      "root:edge:7": {
+        "source": "bottom",
+        "target": "top"
+      },
+      "root:edge:8": {
+        "source": "bottom",
+        "target": "top"
+      },
+      "root:edge:9": {
+        "source": "bottom",
+        "target": "top"
+      },
+      "root:edge:10": {
+        "source": "bottom",
+        "target": "top"
+      },
+      "root:edge:11": {
+        "source": "bottom",
+        "target": "top"
+      },
+      "root:edge:12": {
+        "source": "bottom",
+        "target": "top"
+      },
+      "root:edge:13": {
+        "source": "bottom",
+        "target": "top"
+      },
+      "root:edge:14": {
+        "source": "bottom",
+        "target": "top"
+      },
+      "write-body:edge:0": {
+        "source": "bottom",
+        "target": "top"
+      },
+      "write-body:edge:1": {
+        "source": "bottom",
+        "target": "top"
+      },
+      "write-body:edge:2": {
+        "source": "bottom",
+        "target": "top"
+      },
+      "write-body:edge:3": {
+        "source": "bottom",
+        "target": "top"
+      },
+      "write-body:edge:4": {
+        "source": "bottom",
+        "target": "top"
+      },
+      "write-body:edge:5": {
+        "source": "bottom",
+        "target": "top"
+      },
+      "write-body:edge:6": {
+        "source": "bottom",
+        "target": "top"
+      },
+      "write-body:edge:7": {
+        "source": "bottom",
+        "target": "top"
+      },
+      "write-body:edge:8": {
+        "source": "bottom",
+        "target": "top"
+      },
+      "root:edge:file-save-menu": {
+        "source": "bottom",
+        "target": "top"
+      },
+      "root:edge:wait-save-menu": {
+        "source": "bottom",
+        "target": "top"
+      },
+      "root:edge:file-new-menu": {
+        "source": "bottom",
+        "target": "top"
+      },
+      "root:edge:wait-new-menu": {
+        "source": "bottom",
+        "target": "top"
+      },
+      "root:edge:new-document": {
+        "source": "bottom",
+        "target": "top"
+      },
+      "root:edge:wait-new-editor": {
+        "source": "bottom",
+        "target": "top"
+      },
+      "root:edge:save-dialog": {
+        "source": "bottom",
+        "target": "top"
+      },
+      "root:edge:save-path": {
+        "source": "bottom",
+        "target": "top"
+      },
+      "root:edge:save-dialog-confirm": {
+        "source": "bottom",
+        "target": "top"
+      },
+      "root:edge:replace-dialog": {
+        "source": "bottom",
+        "target": "top"
+      },
+      "root:edge:replace-reserved": {
+        "source": "bottom",
+        "target": "top"
+      },
+      "root:edge:select-save-path": {
+        "source": "bottom",
+        "target": "top"
+      }
+    },
+    "drafts": {}
+  }
+}

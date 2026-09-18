@@ -1,3 +1,4 @@
+import { SelectOptions } from "./SelectOptions";
 import {
   useCallback,
   useEffect,
@@ -8,7 +9,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import { Check, ChevronDown } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { twMerge } from "tailwind-merge";
 import {
   CONTROL_HEIGHT,
@@ -208,42 +209,18 @@ export function Select<T extends string>({
             aria-label={aria["aria-label"]}
             aria-labelledby={aria["aria-labelledby"]}
             style={layout}
-            className="fixed z-[100] overflow-x-hidden overflow-y-auto rounded-md border border-line bg-surface p-1 text-xs text-ink shadow-lg"
+            className="fixed z-[100] overflow-x-auto overflow-y-auto rounded-md border border-line bg-surface p-1 text-xs text-ink shadow-lg"
             onPointerDown={(event) => event.preventDefault()}
             onPointerLeave={() => setActive(undefined)}
           >
-            {options.map((option, index) => (
-              <div
-                key={option.value}
-                id={listId + "-" + index}
-                role="option"
-                aria-selected={option.value === value}
-                aria-disabled={option.disabled}
-                data-highlighted={option.value === highlighted?.value}
-                className={
-                  "flex min-h-7 cursor-default items-center gap-2 rounded px-2 py-1 " +
-                  (option.disabled
-                    ? "text-muted opacity-60"
-                    : option.value === highlighted?.value
-                      ? "bg-accent-soft text-accent"
-                      : "hover:bg-hover")
-                }
-                onPointerMove={() => {
-                  if (!option.disabled) setActive(option.value);
-                }}
-                onClick={() => commit(option)}
-              >
-                <span className="min-w-0 flex-1 break-words">
-                  {option.label}
-                </span>
-                {option.value === value && (
-                  <Check size={13} className="shrink-0" />
-                )}
-              </div>
-            ))}
-            {!options.length && (
-              <div className="px-2 py-2 text-muted">没有可选项</div>
-            )}
+            <SelectOptions
+              options={options}
+              selected={[value]}
+              active={highlighted?.value}
+              listId={listId}
+              onActive={setActive}
+              onSelect={commit}
+            />
           </div>,
           host,
         )}

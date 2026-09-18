@@ -14,12 +14,6 @@ pub fn decode_workflow(value: &Value) -> Result<Workflow, String> {
             if let Some(nodes) = scope.get_mut("nodes").and_then(Value::as_array_mut) {
                 for node in nodes {
                     let object = node.as_object_mut().ok_or("节点必须为对象")?;
-                    if object
-                        .get("timeout_ms")
-                        .is_some_and(|value| !value.is_null())
-                    {
-                        convert_integer(object, "timeout_ms", false, false)?;
-                    }
                     if let Some(task) = object
                         .get_mut("action")
                         .and_then(|action| action.get_mut("task"))

@@ -28,6 +28,8 @@ pub(super) struct Output {
     raw: (u32, u32),
     pending: Option<(Timing, ClockTime, Instant)>,
     next: Instant,
+    /// 请求加速也不超过 30 FPS，避免密集查询耗尽 GPU/历史帧预算。
+    earliest: Instant,
     revision: u64,
 }
 impl Output {
@@ -47,8 +49,12 @@ impl Output {
             raw: (spec.raw_width, spec.raw_height),
             pending: None,
             next: Instant::now(),
+            earliest: Instant::now(),
             revision: 0,
         })
+    }
+    pub fn request_refresh(&mut self) {
+        self.next = self.next.min(self.earliest);
     }
     pub fn poll(
         &mut self,
@@ -111,7 +117,6 @@ impl Output {
         if Instant::now() < self.next {
             return Ok(());
         }
-        self.next = Instant::now() + Duration::from_secs_f64(1.0 / f64::from(config.fps));
         let checked = shared.clock.now();
         let mut info = DXGI_OUTDUPL_FRAME_INFO::default();
         let mut resource = None;
@@ -160,6 +165,10 @@ impl Output {
         }
         let acquired = shared.clock.now();
         self.scaler.submit(graphics, &source)?;
+        // 帧率预算只约束实际 GPU 复制；无新画面/仅鼠标移动时仍及时推进健康水位。
+        // 必须在提交成功后设定，不能让 WAIT_TIMEOUT 也强制等待一个采集周期。
+        self.next = Instant::now() + Duration::from_secs_f64(1.0 / f64::from(config.fps));
+        self.earliest = Instant::now() + Duration::from_secs_f64(1.0 / 30.0);
         self.pending = Some((
             Timing {
                 presented: (info.LastPresentTime != 0)

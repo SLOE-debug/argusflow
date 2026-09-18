@@ -64,9 +64,6 @@ pub(super) fn compile(
             if !valid_name(&node.id) || !node_ids.insert(&node.id) {
                 return Err(at_node("节点 ID 为空、过长或重复"));
             }
-            if node.timeout_ms.is_some_and(|n| n == 0 || n > 86_400_000) {
-                return Err(at_node("节点时限必须在 1..=86400000 毫秒"));
-            }
         }
     }
     let root = *scope_ids

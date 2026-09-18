@@ -78,7 +78,15 @@ fn session(
     }
     let mut topology_at = Instant::now();
     let desktop = crate::capture::desktop::current();
+    let mut refresh = shared.refresh.load(Ordering::Acquire);
     while !shared.stop.load(Ordering::Acquire) {
+        let requested = shared.refresh.load(Ordering::Acquire);
+        if requested != refresh {
+            for output in &mut outputs {
+                output.request_refresh();
+            }
+            refresh = requested;
+        }
         for output in &mut outputs {
             output.poll(&graphics, shared, config)?;
         }

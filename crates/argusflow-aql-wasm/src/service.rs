@@ -1,5 +1,5 @@
 //! 中文编辑文本到唯一英文语言服务的转换及范围回写。
-use crate::{localize, translate};
+use crate::localize;
 use argusflow_aql::{DiagnosticCode, EditorRange, analyze};
 use serde::Serialize;
 
@@ -25,7 +25,20 @@ pub struct LocalizedDocument {
 }
 /// 同步分析当前草稿，决不缓存旧的有效文本。
 pub fn inspect(source: &str) -> LocalizedDocument {
-    let translated = translate(source);
+    let translated = match argusflow_aql::translate_target(source) {
+        Ok(translated) => translated,
+        Err(error) => {
+            return LocalizedDocument {
+                english: None,
+                formatted: None,
+                diagnostics: vec![LocalizedDiagnostic {
+                    code: error.code,
+                    range: error.span.editor_range(source),
+                    message: error.message,
+                }],
+            };
+        }
+    };
     let analysis = analyze(translated.source());
     let diagnostics = analysis
         .diagnostics

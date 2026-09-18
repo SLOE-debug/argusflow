@@ -46,6 +46,7 @@ async fn finished(manager: &RunManager) -> RunSnapshot {
 }
 #[tokio::test]
 async fn instant_execution_drains_events_before_final_snapshot_and_releases_handle() {
+    let log_directory = tempfile::tempdir().unwrap();
     let manager = manager().await;
     let messages = Arc::new(SyncMutex::new(Vec::new()));
     let received = messages.clone();
@@ -59,7 +60,7 @@ async fn instant_execution_drains_events_before_final_snapshot_and_releases_hand
         Ok(())
     });
     manager
-        .start(fixture(0), Values::new(), channel)
+        .start(fixture(0), Values::new(), channel, log_directory.path())
         .await
         .unwrap();
     let snapshot = finished(&manager).await;
@@ -82,21 +83,56 @@ async fn instant_execution_drains_events_before_final_snapshot_and_releases_hand
         );
     }
     manager
-        .start(fixture(0), Values::new(), Channel::new(|_| Ok(())))
+        .start(
+            fixture(0),
+            Values::new(),
+            Channel::new(|_| Ok(())),
+            log_directory.path(),
+        )
         .await
         .unwrap();
     assert_eq!(finished(&manager).await.status, DesktopRunStatus::Completed);
+    let files: Vec<_> = std::fs::read_dir(log_directory.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    assert_eq!(files.len(), 2);
+    for file in files {
+        let text = std::fs::read_to_string(file).unwrap();
+        let records: Vec<serde_json::Value> = text
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(records.first().unwrap()["type"], "run_started");
+        assert_eq!(records.last().unwrap()["status"], "completed");
+        assert!(
+            records
+                .iter()
+                .any(|record| record["entry"]["kind"] == "node_completed")
+        );
+    }
 }
 #[tokio::test]
 async fn detached_frontend_can_query_final_cancelled_result_and_second_run_is_rejected() {
+    let log_directory = tempfile::tempdir().unwrap();
     let manager = manager().await;
     manager
-        .start(fixture(10000), Values::new(), Channel::new(|_| Ok(())))
+        .start(
+            fixture(10000),
+            Values::new(),
+            Channel::new(|_| Ok(())),
+            log_directory.path(),
+        )
         .await
         .unwrap();
     assert!(
         manager
-            .start(fixture(0), Values::new(), Channel::new(|_| Ok(())))
+            .start(
+                fixture(0),
+                Values::new(),
+                Channel::new(|_| Ok(())),
+                log_directory.path()
+            )
             .await
             .is_err()
     );
@@ -112,6 +148,7 @@ async fn detached_frontend_can_query_final_cancelled_result_and_second_run_is_re
 
 #[tokio::test(start_paused = true)]
 async fn shutdown_wait_is_bounded_and_preserves_the_active_handle_for_retry() {
+    let log_directory = tempfile::tempdir().unwrap();
     let manager = manager().await;
     let (sender, mut receiver) = mpsc::channel(1);
     *manager.active.lock().await = Some(sender);
@@ -124,7 +161,12 @@ async fn shutdown_wait_is_bounded_and_preserves_the_active_handle_for_retry() {
     manager.shutdown().await.unwrap();
     assert!(
         manager
-            .start(fixture(0), Values::new(), Channel::new(|_| Ok(())))
+            .start(
+                fixture(0),
+                Values::new(),
+                Channel::new(|_| Ok(())),
+                log_directory.path()
+            )
             .await
             .is_err()
     );

@@ -14,6 +14,58 @@ pub struct Locator {
     query: BoundQuery,
 }
 impl Locator {
+    /// 只读定位预览；三个平台统一返回锚点、扇形、候选距离与排名。
+    pub async fn preview_with_operation(
+        &self,
+        operation: &Operation,
+    ) -> Result<Vec<argusflow_aql::SpatialPreview>, Failure> {
+        use crate::source::SourceBackend;
+        operation.check("aql_preview_start")?;
+        let mut guard = operation.cancel_on_drop();
+        let result = match &self.source {
+            QuerySource::Browser(page) => {
+                BrowserSource(page.clone())
+                    .preview(&self.query, operation)
+                    .await
+            }
+            #[cfg(windows)]
+            QuerySource::Uia {
+                runtime,
+                window,
+                input,
+            } => {
+                UiaSource {
+                    runtime: runtime.clone(),
+                    window: window.clone(),
+                    input: input.clone(),
+                }
+                .preview(&self.query, operation)
+                .await
+            }
+            #[cfg(windows)]
+            QuerySource::Ocr {
+                sampler,
+                source,
+                region,
+                window,
+                input,
+            } => {
+                OcrSource {
+                    sampler: sampler.clone(),
+                    source: *source,
+                    region: *region,
+                    window: window.clone(),
+                    input: input.clone(),
+                }
+                .preview(&self.query, operation)
+                .await
+            }
+        }
+        .map_err(|error| operation.contextualize(error))?;
+        operation.check("aql_preview_complete")?;
+        guard.disarm();
+        Ok(result)
+    }
     /// 创建参数已冻结的定位器。
     pub fn new(source: QuerySource, query: BoundQuery) -> Self {
         Self { source, query }
@@ -73,6 +125,26 @@ impl Locator {
         operation: &Operation,
     ) -> Result<(), Failure> {
         self.run(Action::TypeText(text), operation)
+            .await
+            .map(|_| ())
+    }
+    /// 验证目标仍持有焦点后在当前选区输入，不移动光标或切换焦点。
+    pub async fn type_focused_with_operation(
+        &self,
+        text: &str,
+        operation: &Operation,
+    ) -> Result<(), Failure> {
+        self.run(Action::FocusedText(text), operation)
+            .await
+            .map(|_| ())
+    }
+    /// 验证唯一目标仍持有焦点后发送按键，不自动聚焦。
+    pub async fn press_keys_with_operation(
+        &self,
+        keys: &[argusflow_core::Key],
+        operation: &Operation,
+    ) -> Result<(), Failure> {
+        self.run(Action::PressKeys(keys), operation)
             .await
             .map(|_| ())
     }

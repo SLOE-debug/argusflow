@@ -1,23 +1,28 @@
-import { useStore } from "zustand";
-import { ArrowUpRight, ChevronDown, Plus } from "lucide-react";
+import { Collapse } from "../../ui";
+import { QueryFields } from "./QueryFields";
+import { KeyChordField } from "./KeyChordField";
 import {
   availableSymbols,
-  defaultValue,
-  literal,
   PORT_LABELS,
   studio,
   taskSpec,
   updateNode,
+  isTargetTask,
+  targetResources,
+  targetPlatform,
+  TARGET_PLATFORMS,
+  changeTargetPlatform,
   type Expr,
   type JsonValue,
   type WorkflowNode,
   type EditorTab,
   type ValueType,
 } from "../../../features/workflow";
-import { Button, FormField, Input, Select, Switch } from "../../ui";
+import { FormField, Input, Select, Switch } from "../../ui";
 import { ValueField } from "../value-editor/ValueField";
 import { useDocuments } from "./useDocuments";
 import { useTaskInputs } from "./useTaskInputs";
+import { LaunchArguments } from "./LaunchArguments";
 
 export function TaskFields({
   node,
@@ -69,36 +74,63 @@ export function TaskFields({
           : current,
       ),
     );
-  const resource = (key: string, value: string, output = false) =>
-    studio.draft(
-      node.id,
-      (output ? "created." : "resource.") + key,
-      null,
-      (file) =>
-        updateNode(file, node.id, (current) => {
-          if (current.action.kind !== "task") return current;
-          const field = output ? "resource_outputs" : "resources";
-          return {
-            ...current,
-            action: {
-              ...current.action,
-              task: {
-                ...current.action.task,
-                [field]: { ...current.action.task[field], [key]: value },
-              },
+  const resource = (key: string, value: string) =>
+    studio.draft(node.id, "resource." + key, null, (file) =>
+      updateNode(file, node.id, (current) => {
+        if (current.action.kind !== "task") return current;
+        return {
+          ...current,
+          action: {
+            ...current.action,
+            task: {
+              ...current.action.task,
+              resources: { ...current.action.task.resources, [key]: value },
             },
-          };
-        }),
+          },
+        };
+      }),
     );
   const isQuery = spec.config.some((field) => field.type === "aql");
   return (
     <div className="space-y-5">
-      {Object.entries(spec.resources).map(([port, type]) => (
+      {isQuery && (
+        <FormField label="平台" compact>
+          <Select
+            aria-label="自动化平台"
+            value={targetPlatform(task.config) ?? ""}
+            options={TARGET_PLATFORMS.map((value) => ({
+              value,
+              label: value.toUpperCase(),
+            }))}
+            onValueChange={(value) => {
+              const platform = TARGET_PLATFORMS.find((item) => item === value);
+              if (!platform) return;
+              studio.changeNode(node.id, (current) =>
+                current.action.kind === "task"
+                  ? {
+                      ...current,
+                      action: {
+                        ...current.action,
+                        task: changeTargetPlatform(
+                          current.action.task,
+                          platform,
+                        ),
+                      },
+                    }
+                  : current,
+              );
+            }}
+          />
+        </FormField>
+      )}
+      {Object.entries(
+        isTargetTask(task.type_id) ? targetResources(task) : spec.resources,
+      ).map(([port, type]) => (
         <div
           key={port}
           className="flex flex-wrap items-center gap-2 text-xs text-muted"
         >
-          <span>{isQuery ? "在" : (PORT_LABELS[port] ?? port)}</span>
+          <span>{PORT_LABELS[port] ?? port}</span>
           <Select
             aria-label={PORT_LABELS[port] ?? port}
             className="max-w-full"
@@ -108,47 +140,30 @@ export function TaskFields({
               { value: "", label: "选择" + (PORT_LABELS[port] ?? port) },
               ...symbols.resources
                 .filter((item) => item.type === type)
-                .map((item) => ({ value: item.name, label: item.name })),
+                .map((item) => ({ value: item.name, label: item.label })),
             ]}
           />
-          {isQuery && <span>中查找</span>}
         </div>
       ))}
       {spec.config.map((field) =>
-        field.type === "aql" ? (
-          <section key={field.key}>
-            <div className="mb-2 flex items-center justify-between">
-              <h3 className="text-xs font-medium">目标查询</h3>
-              <Button
-                variant="ghost"
-                className="h-6 px-1 text-[11px] text-muted"
-                onClick={() => studio.panel("aql", node.id)}
-              >
-                编辑
-                <ArrowUpRight size={12} />
-              </Button>
-            </div>
-            <Button
-              variant="ghost"
-              className="h-auto min-h-12 w-full justify-start whitespace-pre-wrap break-all bg-subtle px-3 py-2 text-left font-mono font-normal text-accent"
-              onClick={() => studio.panel("aql", node.id)}
-            >
-              {tab.file.editor.drafts[node.id + ":aql"] ??
-                String(task.config.query || "添加目标查询…")}
-            </Button>
-            <p
-              className={
-                "mt-1.5 text-[10px] " +
-                (tab.file.editor.drafts[node.id + ":aql"] !== undefined
-                  ? "text-danger"
-                  : "text-muted")
-              }
-            >
-              {tab.file.editor.drafts[node.id + ":aql"] !== undefined
-                ? "查询尚未通过检查"
-                : "中文编辑 · 英文执行"}
-            </p>
-          </section>
+        field.type === "platform" ? null : field.type === "select" ? (
+          <FormField key={field.key} label={field.label}>
+            <Select
+              aria-label={field.label}
+              value={String(task.config[field.key] ?? "")}
+              options={field.options ?? []}
+              onValueChange={(value) => config(field.key, value)}
+            />
+          </FormField>
+        ) : field.type === "aql" ? (
+          <QueryFields key={node.id} tab={tab} nodeId={node.id} />
+        ) : task.type_id === "aql.press_keys" && field.key === "keys" ? (
+          <FormField key={field.key} label={field.label}>
+            <KeyChordField
+              value={String(task.config[field.key] ?? "")}
+              onChange={(value) => config(field.key, value)}
+            />
+          </FormField>
         ) : field.type === "boolean" ? (
           <Switch
             key={field.key}
@@ -202,13 +217,27 @@ export function TaskFields({
           </FormField>
         ),
       )}
-      {Object.keys(task.inputs).length > 0 && (
+      {!isQuery && Object.keys(task.inputs).length > 0 && (
         <section className="space-y-2">
           <h3 className="mb-3 text-xs font-medium">参数</h3>
           {Object.entries(task.inputs).map(([key, value]) => {
             const type: ValueType =
               types[key] ??
               (value.kind === "literal" ? value.value_type : { type: "text" });
+            if (task.type_id === "application.launch" && key === "arguments")
+              return (
+                <FormField key={key} label="启动参数" stacked>
+                  <LaunchArguments
+                    value={value}
+                    symbols={symbols.values}
+                    pending={tab.file.editor.drafts[node.id + ":input." + key]}
+                    onChange={(next) => input(key, next)}
+                    onInvalid={(source) =>
+                      studio.draft(node.id, "input." + key, source)
+                    }
+                  />
+                </FormField>
+              );
             return (
               <FormField key={key} label={PORT_LABELS[key] ?? key}>
                 <ValueField
@@ -226,37 +255,22 @@ export function TaskFields({
           })}
         </section>
       )}
-      {isQuery && (
-        <Button
-          variant="ghost"
-          className="h-6 px-0 text-[11px] text-muted"
-          onClick={() => studio.panel("aql", node.id)}
-        >
-          <Plus size={12} />
-          在查询编辑器中配置参数
-        </Button>
-      )}
       {!!Object.keys(spec.creates).length && (
-        <details className="border-t border-line pt-3">
-          <summary className="cursor-pointer list-none text-xs text-muted">
-            <span className="inline-flex items-center gap-2">
-              <ChevronDown size={12} />
-              创建的资源
-            </span>
-          </summary>
+        <Collapse
+          className="border-t border-line pt-3"
+          title="此节点创建的资源"
+        >
           <div className="mt-3 space-y-2">
+            <p className="text-xs leading-5 text-muted">
+              后续步骤通过此节点的名称选择资源，无需另取别名。
+            </p>
             {Object.keys(spec.creates).map((port) => (
-              <FormField key={port} label={PORT_LABELS[port] ?? port}>
-                <Input
-                  aria-label={"资源名称 " + port}
-                  className="w-full"
-                  value={task.resource_outputs[port] ?? ""}
-                  onChange={(event) => resource(port, event.target.value, true)}
-                />
-              </FormField>
+              <p key={port} className="text-xs">
+                {PORT_LABELS[port] ?? port}
+              </p>
             ))}
           </div>
-        </details>
+        </Collapse>
       )}
     </div>
   );

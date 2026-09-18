@@ -13,17 +13,29 @@ pub struct Automation {
 impl Automation {
     /// 启动工作台所需 UIA 和输入服务，不操作现有用户窗口。
     pub async fn start() -> Result<Self, String> {
+        let ocr_resources = super::resources::ocr_directory()?;
         let uia = argusflow_windows::UiaRuntime::start(Default::default(), options()?)
             .await
             .map_err(|e| e.to_string())?;
         let input = match argusflow_windows::InputService::new() {
             Ok(input) => input,
             Err(error) => {
-                let _ = uia.shutdown(options()?).await;
-                return Err(error.to_string());
+                let cleanup = uia.shutdown(options()?).await;
+                return Err(match cleanup {
+                    Ok(()) => error.to_string(),
+                    Err(cleanup) => format!("{error}；关闭 UIA 时另有错误：{cleanup}"),
+                });
             }
         };
         let host = AutomationHost {
+            ocr: argusflow_workflow_automation::OcrServices::new(
+                ocr_resources,
+                argusflow_capture_contracts::FrameConfig {
+                    width: 3840,
+                    height: 2160,
+                    ..Default::default()
+                },
+            ),
             uia: Some(uia),
             input: Some(input),
             ..Default::default()
@@ -35,8 +47,10 @@ impl Automation {
         let mut registry = NodeRegistry::new();
         if let Err(error) = register_automation(&mut registry, host.clone()) {
             let service = Self { registry, host };
-            let _ = service.shutdown().await;
-            return Err(error);
+            return Err(match service.shutdown().await {
+                Ok(()) => error,
+                Err(cleanup) => format!("{error}；关闭服务时另有错误：{cleanup}"),
+            });
         }
         Ok(Self { registry, host })
     }
@@ -47,6 +61,14 @@ impl Automation {
     /// 关闭共享线程；调用方先取消并收尾所有工作流。
     pub async fn shutdown(&self) -> Result<(), String> {
         let mut errors = Vec::new();
+        if let Err(error) = self
+            .host
+            .ocr
+            .shutdown(&argusflow_core::Operation::new(options()?))
+            .await
+        {
+            errors.push(format!("{error:?}"));
+        }
         if let Some(input) = &self.host.input
             && let Err(error) = input.shutdown(options()?).await
         {

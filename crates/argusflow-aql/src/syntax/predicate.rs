@@ -19,7 +19,7 @@ impl Parser<'_> {
     }
     fn conjunction(&mut self) -> Result<Condition, AqlError> {
         let mut left = self.unary()?;
-        while self.take("and") || self.take(",") {
+        while self.take("and") || (!self.selection_follows() && self.take(",")) {
             self.enter()?;
             left = Condition::And(Box::new(left), Box::new(self.unary()?));
             self.leave();
@@ -69,7 +69,7 @@ impl Parser<'_> {
             operand,
         })
     }
-    fn operand(
+    pub(super) fn operand(
         &mut self,
         expected: ValueType,
         operator: MatchOperator,

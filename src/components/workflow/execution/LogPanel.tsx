@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Copy, Download, LocateFixed } from "lucide-react";
 import {
   buildScene,
@@ -36,7 +36,13 @@ export const STATUS_LABELS = {
   cancelled: "已停止",
   timed_out: "运行超时",
 } as const;
-export function LogPanel({ run }: { readonly run: RunSnapshot | null }) {
+export function LogPanel({
+  run,
+  navigation,
+}: {
+  readonly run: RunSnapshot | null;
+  readonly navigation?: ReactNode;
+}) {
   const [filter, setFilter] = useState("all");
   const entries = useMemo(
     () =>
@@ -61,6 +67,7 @@ export function LogPanel({ run }: { readonly run: RunSnapshot | null }) {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-8 shrink-0 items-center gap-2 border-b border-line px-3">
+        {navigation}
         <span
           className={
             "mr-auto text-[11px] " +
@@ -124,14 +131,14 @@ export function LogPanel({ run }: { readonly run: RunSnapshot | null }) {
             <div
               key={entry.sequence}
               className={
-                "group grid min-h-7 grid-cols-[64px_50px_140px_minmax(0,1fr)_28px] items-start gap-2 border-b border-line/50 px-3 py-1 " +
+                "group grid min-h-7 grid-cols-[88px_50px_140px_minmax(0,1fr)_28px] items-start gap-2 border-b border-line/50 px-3 py-1 " +
                 (entry.level === "error"
                   ? "bg-danger-soft text-danger"
                   : "text-muted")
               }
             >
-              <span className="tabular-nums">
-                {(Number(entry.elapsed_ms) / 1000).toFixed(2)}s
+              <span className="whitespace-nowrap tabular-nums">
+                {entry.elapsed_ms}ms
               </span>
               <span className="uppercase">{entry.level}</span>
               <span className="truncate font-sans" title={title}>

@@ -86,6 +86,7 @@ impl RunManager {
         bundle: WorkflowBundle,
         inputs: Values,
         channel: Channel<RunMessage>,
+        log_directory: &std::path::Path,
     ) -> Result<String, String> {
         let mut active = self.active.lock().await;
         if self.closing.load(Ordering::Acquire) {
@@ -104,6 +105,7 @@ impl RunManager {
                 .collect::<Vec<_>>()
                 .join("；")
         })?;
+        let mut log_file = super::log_file::RunLogFile::create(log_directory).await?;
         let mut handle = self
             .engine
             .start(
@@ -127,7 +129,18 @@ impl RunManager {
             outputs: serde_json::json!({}),
             errors: Vec::new(),
         };
+        log_file.begin(&snapshot).await;
         self.journal.begin(snapshot, channel).await;
+        self.journal
+            .append(LogEntry {
+                sequence: "log-file".into(),
+                elapsed_ms: "0".into(),
+                kind: "log_file".into(),
+                level: "info".into(),
+                message: format!("运行日志：{}", log_file.path()),
+                path: Vec::new(),
+            })
+            .await;
         let (sender, mut cancel) = mpsc::channel(1);
         *active = Some(sender);
         let manager = self.clone();
@@ -139,9 +152,15 @@ impl RunManager {
                 tokio::select! {
                     Some(()) = cancel.recv() => handle.cancel(),
                     item = events.recv(), if event_open => match item {
-                        EventRead::Event(value) => manager.journal.append(super::messages::event(value, started.elapsed().as_millis())).await,
+                        EventRead::Event(value) => {
+                            let entry = super::messages::event(value, started.elapsed().as_millis());
+                            log_file.append(&entry).await;
+                            manager.journal.append(entry).await;
+                        },
                         EventRead::Gap(count) => {
-                            manager.journal.append(LogEntry { sequence: format!("gap-{}", started.elapsed().as_nanos()), elapsed_ms: started.elapsed().as_millis().to_string(), kind: "gap".into(), level: "warning".into(), message: format!("事件消费落后，缺少 {count} 条记录"), path: Vec::new() }).await;
+                            let entry = LogEntry { sequence: format!("gap-{}", started.elapsed().as_nanos()), elapsed_ms: started.elapsed().as_millis().to_string(), kind: "gap".into(), level: "warning".into(), message: format!("事件消费落后，缺少 {count} 条记录"), path: Vec::new() };
+                            log_file.append(&entry).await;
+                            manager.journal.append(entry).await;
                         }
                         EventRead::Closed => event_open = false,
                     },
@@ -150,6 +169,15 @@ impl RunManager {
                         if !event_open && let Some(result) = handle.result() {
                             let mut active = manager.active.lock().await;
                             manager.journal.finish(&result, started.elapsed().as_millis()).await;
+                            if let Some(snapshot) = manager.journal.snapshot().await {
+                                log_file.finish(&snapshot, started.elapsed().as_millis()).await;
+                            }
+                            if let Some(message) = log_file.failure() {
+                                manager.journal.append(LogEntry {
+                                    sequence: "log-file-error".into(), elapsed_ms: started.elapsed().as_millis().to_string(),
+                                    kind: "error".into(), level: "error".into(), message: message.into(), path: Vec::new(),
+                                }).await;
+                            }
                             *active = None;
                             break;
                         }

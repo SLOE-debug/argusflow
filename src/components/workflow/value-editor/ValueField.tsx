@@ -5,12 +5,14 @@ import {
   defaultValue,
   expressionLabel,
   literal,
+  sameType,
   type Expr,
   type SymbolValue,
   type ValueType,
 } from "../../../features/workflow";
 import { LiteralInput } from "./LiteralInput";
 import { ExpressionDialog } from "./ExpressionDialog";
+import { ListExpressionEditor } from "./ListExpressionEditor";
 
 interface Props {
   readonly value: Expr;
@@ -40,13 +42,31 @@ export function ValueField({
   const [emptyReference, setEmptyReference] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const mode = emptyReference ? "reference" : inferredMode;
-  const candidates = symbols.filter(
-    (item) => JSON.stringify(item.type) === JSON.stringify(type),
-  );
+  const candidates = symbols.filter((item) => sameType(item.type, type));
+  const listItems =
+    type.type === "list"
+      ? value.kind === "list"
+        ? value.items
+        : value.kind === "literal" && value.value.type === "list"
+          ? value.value.value.map((item) => literal(type.of, item))
+          : null
+      : null;
   return (
     <div className="flex min-w-0 items-start gap-1">
       <div className="min-w-0 flex-1">
-        {mode === "literal" && value.kind === "literal" ? (
+        {listItems && type.type === "list" && !emptyReference && depth < 8 ? (
+          <ListExpressionEditor
+            items={listItems}
+            itemType={type.of}
+            symbols={symbols}
+            depth={depth}
+            pending={pending}
+            onInvalid={onInvalid}
+            onChange={(items) =>
+              onChange({ kind: "list", item_type: type.of, items })
+            }
+          />
+        ) : mode === "literal" && value.kind === "literal" ? (
           <LiteralInput
             value={value.value}
             type={type}
@@ -101,38 +121,39 @@ export function ValueField({
           </Button>
         )}
       </div>
-      <Select
-        aria-label="取值方式"
-        className="w-16 shrink-0 px-1 text-[10px] text-muted"
-        value={mode}
-        onValueChange={(next) => {
-          if (next === "literal") {
-            setEmptyReference(false);
-            onChange(literal(type, defaultValue(type)));
-          }
-          if (next === "reference") {
-            if (candidates[0]) {
+      {!listItems && (
+        <Select
+          aria-label="取值方式"
+          className="w-16 shrink-0 px-1 text-[10px] text-muted"
+          value={mode}
+          onValueChange={(next) => {
+            if (next === "literal") {
               setEmptyReference(false);
-              onChange(candidates[0].expression);
-            } else {
-              setEmptyReference(true);
-              onInvalid?.("请选择可见且类型一致的引用");
+              onChange(literal(type, defaultValue(type)));
             }
-          }
-          if (next === "expression") setExpanded(true);
-        }}
-        options={[
-          { value: "literal", label: "固定" },
-          { value: "reference", label: "引用" },
-          { value: "expression", label: "表达式", disabled: depth >= 8 },
-        ]}
-      />
+            if (next === "reference") {
+              if (candidates[0]) {
+                setEmptyReference(false);
+                onChange(candidates[0].expression);
+              } else {
+                setEmptyReference(true);
+                onInvalid?.("请选择可见且类型一致的引用");
+              }
+            }
+            if (next === "expression") setExpanded(true);
+          }}
+          options={[
+            { value: "literal", label: "固定" },
+            { value: "reference", label: "引用" },
+            { value: "expression", label: "表达式", disabled: depth >= 8 },
+          ]}
+        />
+      )}
       {expanded && (
         <ExpressionDialog
           value={value}
           type={type}
           symbols={symbols}
-          depth={depth}
           onClose={() => setExpanded(false)}
           onApply={(next) => {
             setEmptyReference(false);

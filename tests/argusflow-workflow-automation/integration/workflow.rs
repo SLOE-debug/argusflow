@@ -6,6 +6,8 @@ mod application;
 mod browser;
 #[path = "../support/cdp.rs"]
 mod cdp;
+#[path = "../unit/target_config.rs"]
+mod target_config;
 
 use argusflow_runtime::*;
 use argusflow_workflow::*;

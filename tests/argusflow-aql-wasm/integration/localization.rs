@@ -3,7 +3,7 @@ use argusflow_aql::{EditorPosition, Span, compile, symbols};
 use argusflow_aql_wasm::*;
 #[test]
 fn keywords_round_trip_without_translating_literals_or_parameters() {
-    let source = "/* 按钮 name */ 窗口(名称 包含 \"设置😀\") >> 按钮(名称 匹配 /按钮|name/i, 可用 = 真, 值 = $名称)";
+    let source = "/* 按钮 name */ 窗口(名称 包含 \"设置😀\") >> 按钮(名称 匹配 /按钮|name/i, 可用 = 是, 当前值 = $名称)";
     let english = translate(source);
     assert!(
         english
@@ -62,7 +62,7 @@ fn incomplete_drafts_do_not_produce_stale_english() {
 }
 #[test]
 fn formatting_is_idempotent_and_hover_uses_original_ranges() {
-    let source = "按钮( 名称 = \"保存\",可用=真 )";
+    let source = "按钮( 名称 = \"保存\",可用=是 )";
     let formatted = inspect(source).formatted.unwrap();
     assert_eq!(inspect(&formatted).formatted.unwrap(), formatted);
     let item = hover(source, EditorPosition { line: 0, column: 1 }).unwrap();
@@ -146,8 +146,8 @@ fn completion_retains_english_filter_and_existing_parentheses() {
     for (source, label, filter) in [
         ("按", "按钮", "按钮"),
         ("but", "按钮", "button"),
-        ("cla", "界面.类名", "class_name"),
-        ("界面.类", "界面.类名", "界面.类名"),
+        ("目", "目标", "目标"),
+        ("当", "当前值", "当前值"),
     ] {
         let items = suggest(source, EditorPosition::at(source, source.len()));
         let item = items.iter().find(|item| item.label == label).unwrap();
@@ -165,13 +165,31 @@ fn completion_retains_english_filter_and_existing_parentheses() {
         .unwrap();
     assert_eq!(item.insert_text, "按钮($0)");
     assert!(item.insert_as_snippet);
+    assert!(suggest("cla", EditorPosition::at("cla", 3)).is_empty());
 }
 
 #[test]
 fn completion_reuses_parameter_names_without_translating_them() {
-    let source = "按钮(名称 = $目标, 值 = $目";
+    let source = "按钮(名称 = $目标, 当前值 = $目";
     let items = suggest(source, EditorPosition::at(source, source.len()));
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].insert_text, "$目标");
     assert_eq!(items[0].kind, argusflow_aql::SymbolKind::Parameter);
+}
+
+#[test]
+fn compound_conditions_share_validation_formatting_and_completion() {
+    let source = "目标(文本包含=$联系人, 可用=是)";
+    let document = inspect(source);
+    assert!(document.diagnostics.is_empty());
+    assert!(argusflow_aql::compile_target(&document.formatted.unwrap()).is_ok());
+    let items = suggest("文本包", EditorPosition::at("文本包", "文本包".len()));
+    assert!(items.iter().any(|item| item.label == "文本包含"));
+    for source in [
+        "目标(网页.标识=\"x\")",
+        "目标(界面.类名=\"x\")",
+        "CSS(\"button\")",
+    ] {
+        assert!(!inspect(source).diagnostics.is_empty());
+    }
 }

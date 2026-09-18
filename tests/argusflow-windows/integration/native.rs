@@ -1,6 +1,7 @@
 #![cfg(windows)]
 //! 用户显式运行的真实 UIA / SendInput 验收，不操作日常应用。
 mod listening;
+mod menu;
 #[path = "../support/window.rs"]
 mod support;
 use argusflow_core::{ClickCount, FailureKind, Key, MouseButton, ScreenPoint, ScrollAxis};
@@ -17,6 +18,31 @@ use windows::Win32::{
 
 fn options() -> OperationOptions {
     OperationOptions::default()
+}
+
+#[test]
+#[ignore = "独立测试窗口的 OCR 表面查询基准"]
+fn surface_query_latency() {
+    let _fixture = support::Fixture::create();
+    let window = WindowLocator {
+        process_id: Some(std::process::id()),
+        title: Some("ArgusFlow Native Acceptance".into()),
+        ..Default::default()
+    }
+    .find_unique()
+    .unwrap()
+    .identity();
+    let mut times = Vec::new();
+    for _ in 0..20 {
+        let start = std::time::Instant::now();
+        assert!(!window.physical_surfaces().unwrap().is_empty());
+        times.push(start.elapsed().as_secs_f64() * 1000.0);
+    }
+    times.sort_by(f64::total_cmp);
+    println!(
+        "surfaces median_ms={:.3} max_ms={:.3}",
+        times[10], times[19]
+    );
 }
 fn query(window: &WindowIdentity, predicate: Predicate) -> Query {
     Query {
@@ -317,6 +343,7 @@ async fn exercise(
     unsafe { DestroyWindow(overlay) }?;
     assert_eq!(blocked.unwrap_err().kind(), FailureKind::InvalidInput);
     println!("PASS foreground, out-of-window and occlusion guards");
+    menu::exercise(fixture, window, input).await?;
     println!(
         "DISPLAY monitors={} virtual=({}, {}, {}, {}) dpi={}",
         unsafe { GetSystemMetrics(SM_CMONITORS) },

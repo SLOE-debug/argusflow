@@ -1,4 +1,5 @@
-import { ChevronRight, Plus, Trash2 } from "lucide-react";
+import { Collapse } from "../../ui";
+import { Plus, Trash2 } from "lucide-react";
 import {
   availableSymbols,
   childScopes,
@@ -54,16 +55,11 @@ export function OutputFields({
     ? []
     : childScopes(node.action);
   return (
-    <details className="group mt-5 border-t border-line pt-3">
-      <summary className="flex cursor-pointer list-none items-center gap-2 text-xs">
-        <ChevronRight size={12} className="group-open:rotate-90" />
-        输出
-        <span className="ml-auto text-[10px] text-muted">
-          {Object.keys(native ?? {}).length +
-            Object.keys(node.output_bindings).length}{" "}
-          项
-        </span>
-      </summary>
+    <Collapse
+      className="group mt-5 border-t border-line pt-3"
+      title="输出"
+      extra={`${Object.keys(native ?? {}).length + Object.keys(node.output_bindings).length} 项`}
+    >
       {native && (
         <p className="mt-3 text-[11px] leading-5 text-muted">
           可直接引用：{Object.keys(native).join("、") || "无原生数据输出"}
@@ -122,7 +118,7 @@ export function OutputFields({
           }
         />
       </section>
-    </details>
+    </Collapse>
   );
 }
 function OutputList({

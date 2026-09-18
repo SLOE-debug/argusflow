@@ -22,13 +22,26 @@ fn ocr_query_filters_confidence_and_keeps_reading_order() {
         ],
     };
     let operation = Operation::new(OperationOptions::default());
-    let query = compile("text(name = \"保存\", confidence > 0.9)")
+    let query = argusflow_aql::compile_target("目标(文本 = \"保存\", 置信度 > 0.9)")
         .unwrap()
         .bind(&Bindings::new())
         .unwrap();
     let found = result.query_aql(&query, &operation).unwrap();
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].index(), 0);
+    for source in [
+        "目标(名称=\"保存\")",
+        "目标(可用=是)",
+        "输入框()",
+        "目标(类型=\"按钮\")",
+    ] {
+        let query = argusflow_aql::compile_target(source)
+            .unwrap()
+            .bind(&Bindings::new())
+            .unwrap();
+        let error = result.query_aql(&query, &operation).unwrap_err();
+        assert_eq!(error.kind(), argusflow_core::FailureKind::Unsupported);
+    }
     let unsupported = compile("button(name = \"保存\")")
         .unwrap()
         .bind(&Bindings::new())

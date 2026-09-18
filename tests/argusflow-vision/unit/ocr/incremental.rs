@@ -26,7 +26,7 @@ fn run(
         image,
         cache,
         &Operation::new(OperationOptions::default()),
-        |_| Ok(polygons),
+        |_| Ok(polygons.clone()),
         |_, polygon| {
             calls.set(calls.get() + 1);
             Ok(Some(TextBlock {

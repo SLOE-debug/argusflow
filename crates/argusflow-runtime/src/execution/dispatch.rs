@@ -38,18 +38,27 @@ impl Runner {
             }
         }
         let node = &scope.nodes[frame.pc];
-        let timeout = node
-            .timeout_ms
-            .map(Duration::from_millis)
-            .unwrap_or_else(|| frame.operation.remaining().min(Duration::from_secs(86_400)));
-        if timeout.is_zero() {
-            return Err(RunError::new(ErrorKind::Timeout, "节点时限已到"));
-        }
-        self.frames[current].node_operation = Some(
-            self.frames[current]
+        let timeout = match &node.timeout_ms {
+            Some(expression) => {
+                let Value::Int(milliseconds) = self.eval(expression, &Values::new())? else {
+                    return Err(RunError::new(ErrorKind::Contract, "节点时限必须是整数"));
+                };
+                if !(1..=86_400_000).contains(&milliseconds) {
+                    return Err(RunError::new(
+                        ErrorKind::Expression,
+                        "节点时限必须在 1..=86400000 毫秒",
+                    ));
+                }
+                Some(Duration::from_millis(milliseconds as u64))
+            }
+            None => None,
+        };
+        self.frames[current].node_operation = Some(match timeout {
+            Some(timeout) => frame
                 .operation
                 .child(OperationOptions::new(timeout).map_err(RunError::from)?),
-        );
+            None => frame.operation.branch(),
+        });
         self.frames[current].execution = Some(self.steps + self.cleanup_steps);
         self.emit(EventKind::NodeStarted);
         match &node.action {

@@ -4,13 +4,13 @@ import { exportSource } from '../../../src/features/aql/files';
 import type { DocumentAnalysis } from '../../../src/features/aql/contracts';
 
 describe('中文草稿', () => {
-  it('丢弃过期结果并立即撤销旧英文导出', async () => {
+  it('丢弃过期结果并立即撤销旧的导出内容', async () => {
     const pending: ((value: DocumentAnalysis) => void)[] = [];
     const draft = new DraftController('', () => new Promise((resolve) => pending.push(resolve)));
     draft.edit('按钮()');
     pending[0]({ english: 'button()', diagnostics: [] });
     await Promise.resolve();
-    expect(exportSource(draft.getSnapshot())).toBe('button()');
+    expect(exportSource(draft.getSnapshot())).toBe('按钮()');
     draft.edit('窗口()');
     expect(exportSource(draft.getSnapshot())).toBeUndefined();
     draft.edit('窗口(');
@@ -31,6 +31,6 @@ describe('中文草稿', () => {
     draft.composition(false);
     await Promise.resolve();
     expect(calls).toBe(1);
-    expect(exportSource(draft.getSnapshot())).toBe('button()');
+    expect(exportSource(draft.getSnapshot())).toBe('按钮()');
   });
 });

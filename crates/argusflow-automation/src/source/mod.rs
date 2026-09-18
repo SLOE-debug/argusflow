@@ -2,10 +2,17 @@
 mod browser;
 mod contract;
 #[cfg(windows)]
-mod desktop;
+mod input;
 mod model;
-pub(crate) use browser::BrowserSource;
-pub(crate) use contract::SourceBackend;
 #[cfg(windows)]
-pub(crate) use desktop::{OcrSource, UiaSource};
+mod ocr;
+#[cfg(windows)]
+mod uia;
+pub(crate) use browser::BrowserSource;
+pub(crate) use contract::FocusedInput;
+pub(crate) use contract::SourceBackend;
 pub use model::{LocatedElement, QuerySource};
+#[cfg(windows)]
+pub(crate) use ocr::OcrSource;
+#[cfg(windows)]
+pub(crate) use uia::UiaSource;

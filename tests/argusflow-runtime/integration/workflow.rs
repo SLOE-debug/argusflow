@@ -11,6 +11,8 @@ mod expressions;
 mod failure;
 #[path = "../unit/limits.rs"]
 mod limits;
+#[path = "../unit/node_timeout.rs"]
+mod node_timeout;
 #[path = "../unit/scopes.rs"]
 mod scopes;
 #[path = "../support/builders.rs"]

@@ -1,4 +1,5 @@
-import { ArrowUpRight, ChevronRight, X } from "lucide-react";
+import { Collapse } from "../../ui";
+import { ArrowUpRight, X } from "lucide-react";
 import {
   nodeById,
   endpointKind,
@@ -8,10 +9,11 @@ import {
   studio,
   type EditorTab,
 } from "../../../features/workflow";
-import { Button, Input, Textarea, FormField } from "../../ui";
+import { Button, Input, Textarea } from "../../ui";
 import { NodeIcon } from "../presentation/NodeIcon";
-import { NODE_CATALOG, updateNode } from "../../../features/workflow";
+import { NODE_CATALOG } from "../../../features/workflow";
 import { nodeTone } from "../presentation/nodeTone";
+import { TimeoutFields } from "./TimeoutFields";
 import { TaskFields } from "./TaskFields";
 import { ControlFields } from "./ControlFields";
 import { OutputFields } from "./OutputFields";
@@ -29,6 +31,7 @@ export function Inspector({
     tab.selected.length === 1 ? nodeById(tab.file, tab.selected[0]) : undefined;
   const endpoint =
     tab.selected.length === 1 ? endpointKind(tab.scope, tab.selected[0]) : null;
+  if (endpoint === "start") return null;
   if (endpoint && tab.file.editor.nodes[tab.selected[0]])
     return <EndpointInspector kind={endpoint} tab={tab} onClose={onClose} />;
   const pending = node
@@ -106,6 +109,11 @@ export function Inspector({
             disabled={studio.readonly}
             onChange={(event) => studio.rename(node.id, event.target.value)}
           />
+          <p className="mt-1 text-xs font-medium text-muted">
+            节点类型 ·{" "}
+            {NODE_CATALOG.find((item) => item.id === nodeKind(node))?.title ??
+              nodeKind(node)}
+          </p>
           <p className="mt-0.5 text-[10px] text-muted">
             {
               NODE_CATALOG.find((item) => item.id === nodeKind(node))
@@ -134,63 +142,17 @@ export function Inspector({
           </div>
         )}
         {node.action.kind === "task" ? (
-          <TaskFields node={node} tab={tab} />
+          <TaskFields key={node.id} node={node} tab={tab} />
         ) : (
-          <ControlFields node={node} tab={tab} />
+          <ControlFields key={node.id} node={node} tab={tab} />
         )}
         <OutputFields node={node} tab={tab} />
-        <details className="group mt-6 border-t border-line pt-3">
-          <summary className="flex cursor-pointer list-none items-center gap-2 text-xs">
-            <ChevronRight
-              size={12}
-              className="transition-transform group-open:rotate-90"
-            />
-            执行设置
-            <span className="ml-auto text-[10px] text-muted">
-              {node.timeout_ms
-                ? "超时 " + Number(node.timeout_ms) / 1000 + " 秒"
-                : "使用流程时限"}
-            </span>
-          </summary>
-          <div className="mt-3">
-            <FormField label="超时">
-              <Input
-                aria-label="节点超时毫秒"
-                className="w-24"
-                placeholder="默认"
-                value={
-                  tab.file.editor.drafts[node.id + ":timeout"] ??
-                  node.timeout_ms ??
-                  ""
-                }
-                onChange={(event) => {
-                  const value = event.target.value;
-                  if (
-                    !value ||
-                    (/^\d+$/.test(value) &&
-                      BigInt(value) <= 18446744073709551615n)
-                  )
-                    studio.draft(node.id, "timeout", null, (file) =>
-                      updateNode(file, node.id, (current) => ({
-                        ...current,
-                        timeout_ms: value || null,
-                      })),
-                    );
-                  else studio.draft(node.id, "timeout", value);
-                }}
-              />
-              <span className="ml-2 text-xs text-muted">ms</span>
-            </FormField>
-          </div>
-        </details>
-        <details className="group mt-4 border-t border-line pt-3">
-          <summary className="flex cursor-pointer list-none items-center gap-2 text-xs">
-            <ChevronRight
-              size={12}
-              className="transition-transform group-open:rotate-90"
-            />
-            备注<span className="ml-auto text-[10px] text-muted">添加说明</span>
-          </summary>
+        <TimeoutFields node={node} tab={tab} />
+        <Collapse
+          className="group mt-4 border-t border-line pt-3"
+          title="备注"
+          extra="添加说明"
+        >
           <Textarea
             aria-label="节点备注"
             className="mt-3 h-20 w-full"
@@ -201,7 +163,7 @@ export function Inspector({
               )
             }
           />
-        </details>
+        </Collapse>
       </fieldset>
     </aside>
   );

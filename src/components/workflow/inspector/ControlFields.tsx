@@ -1,3 +1,4 @@
+import { AssignmentFields } from "./AssignmentFields";
 import { useStore } from "zustand";
 import { Plus, ArrowUpRight } from "lucide-react";
 import {
@@ -14,8 +15,7 @@ import {
   type WorkflowFile,
 } from "../../../features/workflow";
 import { Button, FormField, Input, Select } from "../../ui";
-import { ValueField } from "../value-editor/ValueField";
-import { TypeSelect } from "../value-editor/TypeSelect";
+import { ExpressionInput } from "../value-editor/ExpressionInput";
 import { CallWorkflowFields } from "./CallWorkflowFields";
 import { SwitchFields } from "./SwitchFields";
 import { useDocuments } from "./useDocuments";
@@ -41,7 +41,8 @@ export function ControlFields({
     update: (value: Expr) => Action,
   ) => (
     <FormField label={label}>
-      <ValueField
+      <ExpressionInput
+        key={field + JSON.stringify(type)}
         value={value}
         pending={tab.file.editor.drafts[node.id + ":" + field]}
         type={type}
@@ -60,81 +61,14 @@ export function ControlFields({
   );
   switch (action.kind) {
     case "let":
-      return (
-        <div className="space-y-3">
-          <div className="flex gap-2">
-            <Input
-              aria-label="变量名称"
-              className="w-full"
-              value={action.name}
-              onChange={(event) =>
-                change({ ...action, name: event.target.value })
-              }
-            />
-            <TypeSelect
-              value={action.value_type}
-              onChange={(value_type) =>
-                change({
-                  ...action,
-                  value_type,
-                  value: literal(value_type, defaultValue(value_type)),
-                })
-              }
-            />
-          </div>
-          {valueField(
-            "初始值",
-            "value",
-            action.value,
-            action.value_type,
-            (value) => ({ ...action, value }),
-          )}
-        </div>
-      );
     case "assign":
       return (
-        <div className="space-y-3">
-          {action.assignments.map((assignment, index) => (
-            <div key={index} className="space-y-2">
-              <Select
-                aria-label="赋值目标"
-                value={assignment.name}
-                onValueChange={(selected) =>
-                  change({
-                    ...action,
-                    assignments: action.assignments.map((item, position) =>
-                      position === index ? { ...item, name: selected } : item,
-                    ),
-                  })
-                }
-                options={[
-                  { value: "", label: "选择变量" },
-                  ...symbols.values.flatMap((item) =>
-                    item.expression.kind === "variable"
-                      ? [{ value: item.expression.name, label: item.label }]
-                      : [],
-                  ),
-                ]}
-              />
-              {valueField(
-                "赋值为",
-                "assignment." + index,
-                assignment.value,
-                symbols.values.find(
-                  (item) =>
-                    item.expression.kind === "variable" &&
-                    item.expression.name === assignment.name,
-                )?.type ?? { type: "int" },
-                (value) => ({
-                  ...action,
-                  assignments: action.assignments.map((item, position) =>
-                    position === index ? { ...item, value } : item,
-                  ),
-                }),
-              )}
-            </div>
-          ))}
-        </div>
+        <AssignmentFields
+          node={node}
+          tab={tab}
+          symbols={symbols.values}
+          action={action}
+        />
       );
     case "if":
     case "while":
@@ -244,7 +178,7 @@ export function ControlFields({
               { value: "", label: "选择资源" },
               ...symbols.resources.map((item) => ({
                 value: item.name,
-                label: item.name,
+                label: item.label,
               })),
             ]}
           />

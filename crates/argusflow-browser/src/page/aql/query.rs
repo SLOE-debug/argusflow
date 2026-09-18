@@ -16,6 +16,26 @@ impl Page {
         query: &BoundQuery,
         operation: &Operation,
     ) -> Result<Vec<BrowserMatch>, BrowserError> {
+        self.query_report(query, operation, false)
+            .await
+            .map(|report| report.0)
+    }
+    /// 从同一页面快照生成空间定位预览，不执行点击或输入。
+    pub async fn preview_aql(
+        &self,
+        query: &BoundQuery,
+        operation: &Operation,
+    ) -> Result<Vec<argusflow_aql::SpatialPreview>, BrowserError> {
+        self.query_report(query, operation, true)
+            .await
+            .map(|report| report.1)
+    }
+    async fn query_report(
+        &self,
+        query: &BoundQuery,
+        operation: &Operation,
+        preview: bool,
+    ) -> Result<(Vec<BrowserMatch>, Vec<argusflow_aql::SpatialPreview>), BrowserError> {
         let attributes = Attribute::ALL.iter().copied().filter(|attribute| {
             !matches!(
                 attribute,
@@ -69,8 +89,13 @@ impl Page {
                     for result in &results {
                         result.context.check()?;
                     }
+                    let previews = if preview {
+                        argusflow_aql::preview(query, &tree, operation)?
+                    } else {
+                        Vec::new()
+                    };
                     guard.disarm();
-                    return Ok(results);
+                    return Ok((results, previews));
                 }
                 QueryProgress::Boundary {
                     host,

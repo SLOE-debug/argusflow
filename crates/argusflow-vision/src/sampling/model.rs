@@ -25,6 +25,27 @@ pub struct SampledOcrResult {
     pub(crate) reused: bool,
 }
 impl SampledOcrResult {
+    /// 只保留完整落在指定屏幕区域内的文字，再查询可防止把包围矩形中的空隙当作目标。
+    /// 返回独立结果，不修改共享缓存；采样票据仍覆盖整个原始区域。
+    pub fn restricted_to(&self, regions: &[ScreenRect]) -> Self {
+        let mut result = (*self.result).clone();
+        result.blocks.retain(|block| {
+            regions.iter().any(|region| {
+                block.polygon().iter().all(|point| {
+                    let x = f64::from(self.bounds.x()) + f64::from(point.x);
+                    let y = f64::from(self.bounds.y()) + f64::from(point.y);
+                    x >= f64::from(region.x())
+                        && y >= f64::from(region.y())
+                        && x <= f64::from(region.x()) + f64::from(region.width())
+                        && y <= f64::from(region.y()) + f64::from(region.height())
+                })
+            })
+        });
+        Self {
+            result: Arc::new(result),
+            ..self.clone()
+        }
+    }
     /// 原图坐标中的完整 OCR 结果。
     pub fn result(&self) -> &OcrResult {
         &self.result

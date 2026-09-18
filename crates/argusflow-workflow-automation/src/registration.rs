@@ -9,6 +9,16 @@ pub fn register_automation(
     host: AutomationHost,
 ) -> Result<(), String> {
     let host = Arc::new(host);
+    for kind in [
+        crate::files::FileKind::CreateNew,
+        crate::files::FileKind::WaitText,
+    ] {
+        registry.register(Arc::new(crate::files::FileCompiler { kind }))?;
+    }
+    #[cfg(windows)]
+    registry.register(Arc::new(crate::desktop::ocr::OcrCompiler {
+        host: host.clone(),
+    }))?;
     for kind in query::QueryKind::ALL {
         registry.register(Arc::new(QueryCompiler {
             kind,
@@ -20,10 +30,7 @@ pub fn register_automation(
     }
     #[cfg(windows)]
     for kind in crate::desktop::DesktopKind::ALL {
-        registry.register(Arc::new(DesktopCompiler {
-            kind,
-            host: host.clone(),
-        }))?;
+        registry.register(Arc::new(DesktopCompiler { kind }))?;
     }
     Ok(())
 }
@@ -63,7 +70,6 @@ impl NodeCompiler for BrowserCompiler {
 #[cfg(windows)]
 struct DesktopCompiler {
     kind: crate::desktop::DesktopKind,
-    host: Arc<AutomationHost>,
 }
 #[cfg(windows)]
 impl NodeCompiler for DesktopCompiler {
@@ -76,7 +82,7 @@ impl NodeCompiler for DesktopCompiler {
         config: &serde_json::Value,
     ) -> Result<Arc<dyn PreparedTask>, String> {
         version_one(version)?;
-        crate::desktop::compile(self.kind, config, self.host.clone())
+        crate::desktop::compile(self.kind, config)
     }
 }
 fn version_one(version: u16) -> Result<(), String> {

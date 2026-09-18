@@ -143,7 +143,7 @@ export function CallWorkflowFields({
                 .filter(
                   (item) => item.type === target?.definition.resources[name],
                 )
-                .map((item) => ({ value: item.name, label: item.name })),
+                .map((item) => ({ value: item.name, label: item.label })),
             ]}
           />
         </FormField>

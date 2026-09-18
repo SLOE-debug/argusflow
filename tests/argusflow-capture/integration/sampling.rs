@@ -19,6 +19,40 @@ fn operation() -> Operation {
 }
 
 #[tokio::test]
+async fn completed_readback_after_watermark_can_prove_stability() {
+    let source = Frames::new();
+    source
+        .history
+        .lock()
+        .unwrap()
+        .frames
+        .push(frame(2, 1005, None));
+    let result = FrameSampler::new(source)
+        .unwrap()
+        .sample(request(None, 150), operation())
+        .await
+        .unwrap();
+    assert_eq!(result.observed_version.revision, 2);
+    assert_eq!(result.observed_through, ClockTime(1_000_000_000));
+}
+
+#[tokio::test]
+async fn completed_readback_after_watermark_still_checks_pixels() {
+    let source = Frames::new();
+    source
+        .history
+        .lock()
+        .unwrap()
+        .frames
+        .push(frame(2, 1005, Some((1, 1))));
+    let result = FrameSampler::new(source)
+        .unwrap()
+        .sample(request(None, 150), operation())
+        .await;
+    assert!(matches!(result, Err(error) if error.kind() == FailureKind::Timeout));
+}
+
+#[tokio::test]
 async fn unchanged_content_and_zero_quiet_confirmation() {
     let source = Frames::new();
     let sampler = FrameSampler::new(source.clone()).unwrap();
@@ -34,12 +68,22 @@ async fn unchanged_content_and_zero_quiet_confirmation() {
         .unwrap()
         .frames
         .push(frame(2, 900, None));
+    let shared_image = first.token.image.clone();
     let second = sampler
         .sample(request(Some(first.token), 0), operation())
         .await
         .unwrap();
     assert!(matches!(second.content, SampleContent::Unchanged));
     assert_eq!(second.observed_version.revision, 2);
+    assert!(std::ptr::eq(
+        shared_image.bytes(),
+        second.token.image.bytes()
+    ));
+    assert_eq!(second.token.snapshot.version.revision, 2);
+    assert_eq!(
+        source.refreshes.load(std::sync::atomic::Ordering::Relaxed),
+        2
+    );
 }
 #[tokio::test]
 async fn one_pixel_change_invalidates_confirmation() {

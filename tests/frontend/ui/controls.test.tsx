@@ -136,7 +136,7 @@ it("禁用和空选项不提交，外部点击关闭，监听在卸载后释放"
     />,
   );
   fireEvent.click(screen.getByRole("combobox"));
-  expect(screen.getByText("没有可选项")).toBeInTheDocument();
+  expect(screen.getByText("没有匹配选项")).toBeInTheDocument();
   fireEvent.keyDown(screen.getByRole("combobox"), { key: "Enter" });
   expect(change).not.toHaveBeenCalled();
   fireEvent.pointerDown(document.body);

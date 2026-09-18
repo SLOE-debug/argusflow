@@ -57,10 +57,13 @@ it("五层循环可放大到可读尺度，缩放不改变编辑作用域或 Can
   expect(host.querySelectorAll("[data-node], svg")).toHaveLength(0);
 });
 
-it("双击与面包屑平滑聚焦同一场景，用户滚轮可中断动画", () => {
+it("双击与显示全部平滑聚焦同一场景，用户滚轮可中断动画", () => {
   const fixture = nestedFixture();
   const { host } = installCanvas(fixture.file);
   const canvas = host.querySelector("canvas");
+  expect(
+    screen.queryByRole("navigation", { name: "流程层级" }),
+  ).not.toBeInTheDocument();
   fireEvent.doubleClick(host, nodePoint(fixture.root, fixture.containers[0]));
   expect(studio.active!.scope).toBe(fixture.scope);
   act(() => vi.advanceTimersByTime(220));
@@ -70,7 +73,7 @@ it("双击与面包屑平滑聚焦同一场景，用户滚轮可中断动画", (
     inverse(geometry.transform),
   );
   expect(studio.active!.viewport.zoom).toBeCloseTo(expected.zoom);
-  fireEvent.click(screen.getByRole("button", { name: "画布测试" }));
+  fireEvent.click(screen.getByRole("button", { name: "显示全部" }));
   act(() => vi.advanceTimersByTime(32));
   fireEvent.wheel(host, { deltaY: -100, clientX: 400, clientY: 300 });
   const interrupted = studio.active!.viewport;

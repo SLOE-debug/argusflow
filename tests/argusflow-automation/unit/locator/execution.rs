@@ -30,6 +30,41 @@ impl Backend {
 }
 impl SourceBackend for Backend {
     type Target = usize;
+    fn preview<'a>(
+        &'a self,
+        _: &'a BoundQuery,
+        _: &'a Operation,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<Vec<argusflow_aql::SpatialPreview>, Failure>>
+                + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+    fn focused_input<'a>(
+        &'a self,
+        _: &'a usize,
+        input: FocusedInput<'a>,
+        op: &'a Operation,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), Failure>> + Send + 'a>> {
+        Box::pin(async move {
+            if self.fail {
+                return Err(Failure::new(
+                    FailureKind::StaleHandle,
+                    "fake_focus",
+                    "焦点已变化",
+                ));
+            }
+            op.begin_effect("fake_focused_input")?;
+            self.clicks.fetch_add(1, Ordering::SeqCst);
+            if let FocusedInput::Text(text) = input {
+                self.text.lock().unwrap().push_str(text);
+            }
+            Ok(())
+        })
+    }
     fn find<'a>(
         &'a self,
         _: &'a BoundQuery,
@@ -76,6 +111,54 @@ impl SourceBackend for Backend {
 }
 fn query() -> BoundQuery {
     compile("button()").unwrap().bind(&Bindings::new()).unwrap()
+}
+
+#[tokio::test]
+async fn focused_input_requires_unique_target_and_current_focus() {
+    for count in [0, 2] {
+        let backend = Backend::new(count);
+        let error = execute(
+            &backend,
+            &query(),
+            Action::PressKeys(&[argusflow_core::Key::Enter]),
+            &Operation::new(OperationOptions::default()),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(
+            error.kind(),
+            if count == 0 {
+                FailureKind::NotFound
+            } else {
+                FailureKind::Ambiguous
+            }
+        );
+        assert_eq!(backend.clicks.load(Ordering::SeqCst), 0);
+    }
+    let mut backend = Backend::new(1);
+    backend.fail = true;
+    let error = execute(
+        &backend,
+        &query(),
+        Action::FocusedText("新增"),
+        &Operation::new(OperationOptions::default()),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.kind(), FailureKind::StaleHandle);
+    assert_eq!(error.effect(), Effect::None);
+    assert_eq!(*backend.text.lock().unwrap(), "已有");
+    backend.fail = false;
+    execute(
+        &backend,
+        &query(),
+        Action::FocusedText("新增"),
+        &Operation::new(OperationOptions::default()),
+    )
+    .await
+    .unwrap();
+    assert_eq!(*backend.text.lock().unwrap(), "已有新增");
+    assert_eq!(backend.clicks.load(Ordering::SeqCst), 1);
 }
 #[tokio::test]
 async fn unique_and_fresh_location() {

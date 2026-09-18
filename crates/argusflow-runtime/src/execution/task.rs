@@ -1,7 +1,7 @@
 //! 任务尝试、重试门禁与资源交付；映射失败不进入这里重试。
 use super::{guard::guard_future, runner::Runner, state::EventKind};
 use crate::{RunError, TaskContext, compilation::PlanTask};
-use argusflow_core::{Effect, OperationOptions};
+use argusflow_core::Effect;
 use argusflow_workflow::{ErrorKind, Values};
 use std::{collections::BTreeMap, time::Duration};
 
@@ -18,9 +18,7 @@ impl Runner {
         for attempt in 1..=attempts {
             self.check()?;
             let permit = self.pool.reserve(task.signature.resource_outputs.len())?;
-            let operation = self.operation().child(
-                OperationOptions::new(self.operation().remaining()).map_err(RunError::from)?,
-            );
+            let operation = self.operation().branch();
             let context = TaskContext {
                 inputs: &inputs,
                 resources: &resources,

@@ -137,6 +137,7 @@ pub async fn validate_workflow(
 }
 #[tauri::command]
 pub async fn start_workflow(
+    app: tauri::AppHandle,
     id: String,
     inputs: serde_json::Value,
     revisions: std::collections::BTreeMap<String, String>,
@@ -155,7 +156,12 @@ pub async fn start_workflow(
     )?;
     // 借助相同无损值边界解析运行输入，不接受浮点化的整数。
     let value = crate::document::wire::decode_inputs(inputs)?;
-    state.runs.start(bundle, value, channel).await
+    let logs = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("无法定位日志目录：{e}"))?
+        .join("logs");
+    state.runs.start(bundle, value, channel, &logs).await
 }
 #[tauri::command]
 pub async fn stop_workflow(state: State<'_, DesktopState>) -> Result<(), String> {

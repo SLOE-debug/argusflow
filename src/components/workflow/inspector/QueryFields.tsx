@@ -1,5 +1,6 @@
 import {
   availableSymbols,
+  PORT_LABELS,
   defaultValue,
   literal,
   nodeById,
@@ -13,7 +14,7 @@ import { Button, FormField } from "../../ui";
 import { ValueField } from "../value-editor/ValueField";
 
 /** 节点选择切换时由 key 重建，旧异步分析不能提交到新节点。 */
-export function AqlDock({
+export function QueryFields({
   tab,
   nodeId,
 }: {
@@ -36,8 +37,8 @@ export function AqlDock({
   const task = node?.action.kind === "task" ? node.action.task : null;
   const symbols = availableSymbols(tab.file, tab.scope, nodeId);
   return (
-    <div className="flex h-full min-h-0">
-      <div className="flex min-w-0 flex-1 flex-col border-r border-line">
+    <div className="min-w-0 space-y-3">
+      <div className="flex h-56 min-w-0 flex-col rounded-md border border-line">
         <div className="flex h-9 shrink-0 items-center justify-between border-b border-line px-3">
           <span className="text-[11px] text-muted">
             中文 AQL ·{" "}
@@ -70,10 +71,7 @@ export function AqlDock({
           <p className="p-4 text-xs text-muted">正在加载查询编辑器…</p>
         )}
       </div>
-      <fieldset
-        disabled={studio.readonly}
-        className="w-72 shrink-0 overflow-auto p-3"
-      >
+      <fieldset disabled={studio.readonly} className="min-w-0 space-y-2">
         <div className="mb-3 text-xs font-medium">查询参数</div>
         {!Object.keys(parameters).length && (
           <p className="text-[11px] leading-5 text-muted">
@@ -81,7 +79,7 @@ export function AqlDock({
           </p>
         )}
         {Object.entries(parameters).map(([key, type]) => (
-          <FormField key={key} label={key}>
+          <FormField key={key} label={PORT_LABELS[key] ?? key}>
             <ValueField
               value={task?.inputs[key] ?? literal(type, defaultValue(type))}
               type={type}

@@ -24,7 +24,7 @@ fn require_elements(output: Output) -> Result<(), AqlError> {
 fn output(expression: &Expr) -> Result<Output, AqlError> {
     match expression {
         Expr::Match { .. } | Expr::Css(_) => Ok(Output::Elements),
-        Expr::Nth { query, .. } => {
+        Expr::Nth { query, .. } | Expr::Position { query, .. } => {
             require_elements(output(query)?)?;
             Ok(Output::Elements)
         }
@@ -35,6 +35,17 @@ fn output(expression: &Expr) -> Result<Output, AqlError> {
         Expr::Relation { left, right, .. } => {
             output(left)?;
             output(right)
+        }
+        Expr::Spatial(spatial) => {
+            require_elements(output(&spatial.anchor)?)?;
+            require_elements(output(&spatial.target)?)?;
+            for inner in [&spatial.region, &spatial.second_anchor]
+                .into_iter()
+                .flatten()
+            {
+                require_elements(output(inner)?)?;
+            }
+            Ok(Output::Elements)
         }
     }
 }

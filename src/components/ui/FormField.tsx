@@ -6,12 +6,15 @@ export function FormField({
   children,
   error,
   stacked = false,
+  compact = false,
   htmlFor,
 }: {
   readonly label: string;
   readonly children: ReactNode;
   readonly error?: string;
   readonly stacked?: boolean;
+  /** 紧凑选择项的标签与控件按内容相邻排列。 */
+  readonly compact?: boolean;
   readonly htmlFor?: string;
 }) {
   const id = useId();
@@ -31,12 +34,13 @@ export function FormField({
           id={id}
           htmlFor={htmlFor}
           className={
-            "shrink-0 pt-1.5 text-xs text-muted " + (stacked ? "block" : "w-16")
+            "shrink-0 whitespace-nowrap pt-1.5 text-xs text-muted " +
+            (stacked ? "block" : "")
           }
         >
           {label}
         </label>
-        <div className="min-w-0 flex-1">{children}</div>
+        <div className={compact ? "min-w-0" : "min-w-0 flex-1"}>{children}</div>
       </div>
       {error && (
         <p

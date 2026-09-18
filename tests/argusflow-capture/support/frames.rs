@@ -3,11 +3,12 @@ use argusflow_capture_contracts::*;
 use argusflow_core::{FailureKind, Operation};
 use std::sync::{
     Arc, Mutex,
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 pub struct Frames {
     pub history: Mutex<FrameHistory>,
     pub stopped: AtomicBool,
+    pub refreshes: AtomicUsize,
 }
 pub fn frame(revision: u64, millis: u64, changed: Option<(usize, u8)>) -> Arc<DesktopFrame> {
     let mut bytes = vec![0; 8 * 4 * 4];
@@ -60,10 +61,14 @@ impl Frames {
                 frames: vec![first],
             }),
             stopped: AtomicBool::new(false),
+            refreshes: AtomicUsize::new(0),
         })
     }
 }
 impl DesktopFrameSource for Frames {
+    fn request_refresh(&self) {
+        self.refreshes.fetch_add(1, Ordering::Relaxed);
+    }
     fn clock(&self) -> ClockDomain {
         ClockDomain {
             session: 1,

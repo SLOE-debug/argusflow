@@ -5,6 +5,7 @@ mod incremental;
 mod pipeline;
 mod preprocessing;
 mod recognition;
+mod regions;
 mod result;
 pub(crate) use cache::RecognitionCache;
 pub(crate) use pipeline::recognize;

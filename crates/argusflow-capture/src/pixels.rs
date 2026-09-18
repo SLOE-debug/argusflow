@@ -17,6 +17,24 @@ pub(crate) fn differs(
     )
 }
 
+/// 将上次区域快照直接与当前完整帧的对应视图比较，避免先复制再判断。
+pub(crate) fn region_changed(
+    previous: &PixelImage,
+    current: &PixelImage,
+    region: PixelRect,
+    operation: &Operation,
+) -> CaptureResult<bool> {
+    has_changes(
+        ImageView::region(
+            previous,
+            PixelRect::new(0, 0, previous.width(), previous.height())?,
+        )?,
+        ImageView::region(current, region)?,
+        1,
+        operation,
+    )
+}
+
 pub(crate) fn crop(
     image: &PixelImage,
     region: PixelRect,

@@ -1,13 +1,13 @@
 import { useCallback, useId, useMemo, useRef, useState } from "react";
 import { useStore } from "zustand";
-import { ChevronRight, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import {
   buildCanvasScene,
   studio,
   type EditorTab,
 } from "../../../features/workflow";
 import { useTheme } from "../../../features/themes";
-import { Button, IconButton } from "../../ui";
+import { IconButton } from "../../ui";
 import { NodeSearch } from "../palette/NodeSearch";
 import { nodeStates } from "../execution/nodeStates";
 import { CanvasMenu } from "./CanvasMenu";
@@ -105,12 +105,6 @@ function CanvasSurface({ tab }: { readonly tab: EditorTab }) {
     preview,
   );
   const description = useId();
-  const crumbs = [];
-  let current: typeof active | undefined = active;
-  while (current) {
-    crumbs.unshift(current);
-    current = current.parent ? scene.scopes[current.parent] : undefined;
-  }
   const fit = () => navigation.focus(scene.root);
   const selection = tab.selected
     .map((id) => nodes.get(id)?.title)
@@ -178,27 +172,6 @@ function CanvasSurface({ tab }: { readonly tab: EditorTab }) {
               : "当前流程：" + active.label}
         </span>
       </div>
-      {active.parent && (
-        <nav
-          aria-label="流程层级"
-          className="absolute left-4 top-3 z-20 flex max-w-[calc(100%-280px)] items-center overflow-hidden rounded-lg border border-line bg-surface/95 px-2 py-1 shadow-sm"
-        >
-          {crumbs.map((scope, index) => (
-            <span key={scope.id} className="flex min-w-0 items-center gap-1">
-              {index > 0 && (
-                <ChevronRight size={12} className="shrink-0 text-muted" />
-              )}
-              <Button
-                variant="ghost"
-                className="h-7 max-w-32 truncate px-1 text-xs"
-                onClick={() => navigation.focus(scope.id)}
-              >
-                {scope.label}
-              </Button>
-            </span>
-          ))}
-        </nav>
-      )}
       <CanvasTools
         tab={tab}
         scene={scene}

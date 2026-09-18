@@ -29,8 +29,6 @@ pub enum ErrorKind {
     Cleanup,
     /// 用户取消；业务不可捕获。
     Cancelled,
-    /// 运行总时限；业务不可捕获。
-    RunTimeout,
     /// 引擎预算耗尽；业务不可捕获。
     Limit,
     /// 扩展实现违反契约；业务不可捕获。
@@ -41,7 +39,7 @@ impl ErrorKind {
     pub fn catchable(self) -> bool {
         !matches!(
             self,
-            Self::Cancelled | Self::RunTimeout | Self::Limit | Self::Contract
+            Self::Timeout | Self::Cancelled | Self::Limit | Self::Contract
         )
     }
 }
@@ -62,8 +60,8 @@ pub struct Assignment {
 pub struct Node {
     /// 文档内唯一节点 ID。
     pub id: String,
-    /// 可选节点总时限，含全部重试和子作用域，单位毫秒。
-    pub timeout_ms: Option<u64>,
+    /// 进入节点时求值一次的整数毫秒表达式；超时向上传播并终止运行。
+    pub timeout_ms: Option<Expr>,
     /// 控制或业务行为。
     pub action: Action,
     /// 从原生结果计算的附加输出；不能覆盖原生输出。

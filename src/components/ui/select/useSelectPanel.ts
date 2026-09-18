@@ -4,7 +4,7 @@ import { selectPlacement } from "./model";
 /** 菜单挂在最近的 dialog 内，避免落入模态对话框的 inert 区域。 */
 export function useSelectPanel(
   open: boolean,
-  trigger: RefObject<HTMLButtonElement | null>,
+  trigger: RefObject<HTMLElement | null>,
   panel: RefObject<HTMLDivElement | null>,
   count: number,
   close: () => void,
@@ -15,15 +15,22 @@ export function useSelectPanel(
     const button = trigger.current;
     if (!open || !button) return;
     setHost(button.closest("dialog") ?? document.body);
-    const position = () =>
+    const position = () => {
+      const rect = button.getBoundingClientRect();
       setLayout(
         selectPlacement(
-          button.getBoundingClientRect(),
+          {
+            left: rect.left,
+            top: rect.top,
+            bottom: rect.bottom,
+            width: Math.max(rect.width, panel.current?.scrollWidth ?? 0),
+          },
           { width: window.innerWidth, height: window.innerHeight },
           // 包含上下 padding（8px）与 border（2px），避免三项菜单也溢出。
           Math.min(264, Math.max(40, count * 28 + 10)),
         ),
       );
+    };
     const outside = (event: Event) => {
       if (
         event.target instanceof Node &&
@@ -35,6 +42,7 @@ export function useSelectPanel(
     position();
     const observer = new ResizeObserver(position);
     observer.observe(button);
+    if (panel.current) observer.observe(panel.current);
     window.addEventListener("resize", position);
     window.addEventListener("scroll", position, true);
     document.addEventListener("pointerdown", outside);
@@ -46,6 +54,6 @@ export function useSelectPanel(
       document.removeEventListener("pointerdown", outside);
       document.removeEventListener("focusin", outside);
     };
-  }, [open, trigger, panel, count, close]);
+  }, [open, trigger, panel, count, close, host]);
   return { layout, host };
 }

@@ -136,13 +136,8 @@ impl Runner {
         frame.node_operation.as_ref().unwrap_or(&frame.operation)
     }
     pub fn check(&self) -> Result<(), RunError> {
-        if !self.frames[self.current()].cleanup_mode {
-            if self.root_operation.is_cancelled() {
-                return Err(RunError::new(ErrorKind::Cancelled, "运行已取消"));
-            }
-            if self.root_operation.remaining().is_zero() {
-                return Err(RunError::new(ErrorKind::RunTimeout, "运行总时限已到"));
-            }
+        if !self.frames[self.current()].cleanup_mode && self.root_operation.is_cancelled() {
+            return Err(RunError::new(ErrorKind::Cancelled, "运行已取消"));
         }
         self.operation().check("workflow_node").map_err(Into::into)
     }
@@ -187,7 +182,7 @@ impl Runner {
         let operation = Operation::new(
             OperationOptions::new(self.options.cleanup_timeout).map_err(RunError::from)?,
         );
-        if self.root_operation.is_cancelled() || self.root_operation.remaining().is_zero() {
+        if self.root_operation.is_cancelled() {
             self.unwind_operation = Some(operation.clone());
         }
         Ok(operation)

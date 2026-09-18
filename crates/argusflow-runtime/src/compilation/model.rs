@@ -46,7 +46,7 @@ pub(crate) struct PlanScope {
 }
 pub(crate) struct PlanNode {
     pub id: String,
-    pub timeout_ms: Option<u64>,
+    pub timeout_ms: Option<PlanExpr>,
     pub action: PlanAction,
     pub mappings: BTreeMap<String, PlanExpr>,
     pub output_types: Fields,

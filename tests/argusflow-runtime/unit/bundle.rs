@@ -268,13 +268,13 @@ async fn failure_in_child_stops_parent_and_cleans_parent_owned_resource_once() {
     );
 }
 #[tokio::test]
-async fn cancellation_and_total_timeout_cross_independent_calls() {
+async fn cancellation_and_node_timeout_cross_independent_calls() {
     for cancel in [true, false] {
         let parent = workflow(
             vec![scope("root", vec![external("invoke", "child")], vec![])],
             Fields::new(),
         );
-        let child = workflow(
+        let mut child = workflow(
             vec![scope(
                 "root",
                 vec![node(
@@ -287,16 +287,10 @@ async fn cancellation_and_total_timeout_cross_independent_calls() {
             )],
             Fields::new(),
         );
+        child.scopes[0].nodes[0].timeout_ms = Some(Expr::int(40));
         let plan = prepare_bundle(bundle(parent, child), &NodeRegistry::new()).unwrap();
         let mut handle = WorkflowEngine::new()
-            .start(
-                plan,
-                RunInputs::default(),
-                RunOptions {
-                    timeout: Duration::from_millis(40),
-                    ..Default::default()
-                },
-            )
+            .start(plan, RunInputs::default(), RunOptions::default())
             .unwrap();
         let mut events = handle.subscribe();
         loop {

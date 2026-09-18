@@ -1,7 +1,7 @@
 //! 引擎额度、运行句柄与最终清理监督。
 use super::{guard::guard_future, runner::Runner, state::*};
 use crate::{PreparedWorkflow, Resource, ResourcePool, RunError};
-use argusflow_core::{Operation, OperationOptions};
+use argusflow_core::Operation;
 use argusflow_workflow::{ErrorKind, Values};
 use std::{
     collections::BTreeMap,
@@ -95,8 +95,7 @@ impl WorkflowEngine {
             .try_acquire_owned()
             .map_err(|_| RunError::new(ErrorKind::Busy, "活动运行额度已满"))?;
         let id = NEXT_RUN.fetch_add(1, Ordering::Relaxed);
-        let operation =
-            Operation::new(OperationOptions::new(options.timeout).map_err(RunError::from)?);
+        let operation = Operation::unbounded();
         let (events, _) = broadcast::channel(256);
         let (state, receiver) = watch::channel((RunStatus::Running, None));
         let initial_events = events.subscribe();
@@ -126,12 +125,8 @@ impl WorkflowEngine {
                     pool.cleanup_run(Some(id), cleanup_timeout).await,
                 ),
             };
-            if result.is_ok() {
-                if run_operation.is_cancelled() {
-                    result = Err(RunError::new(ErrorKind::Cancelled, "运行已取消"));
-                } else if run_operation.remaining().is_zero() {
-                    result = Err(RunError::new(ErrorKind::RunTimeout, "运行总时限已到"));
-                }
+            if result.is_ok() && run_operation.is_cancelled() {
+                result = Err(RunError::new(ErrorKind::Cancelled, "运行已取消"));
             }
             for error in cleanup {
                 match &mut result {
@@ -144,7 +139,7 @@ impl WorkflowEngine {
                 Err(error) => (
                     match error.kind {
                         ErrorKind::Cancelled => RunStatus::Cancelled,
-                        ErrorKind::Timeout | ErrorKind::RunTimeout => RunStatus::TimedOut,
+                        ErrorKind::Timeout => RunStatus::TimedOut,
                         _ => RunStatus::Failed,
                     },
                     Values::new(),

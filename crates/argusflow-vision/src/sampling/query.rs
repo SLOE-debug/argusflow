@@ -16,6 +16,35 @@ impl SampledOcr {
         query: &BoundQuery,
         operation: &Operation,
     ) -> Result<(SampledOcrResult, Vec<OcrMatch>), SampledOcrError> {
+        let result = self.sample_aql(source, region, query, operation).await?;
+        let matches = result
+            .result()
+            .query_aql(query, operation)
+            .map_err(CaptureError::from)?;
+        Ok((result, matches))
+    }
+    /// 使用同一稳定采样直接生成预览，不先执行并丢弃一次查询。
+    pub async fn preview_aql(
+        &self,
+        source: SourceId,
+        region: PixelRect,
+        query: &BoundQuery,
+        operation: &Operation,
+    ) -> Result<Vec<argusflow_aql::SpatialPreview>, SampledOcrError> {
+        let result = self.sample_aql(source, region, query, operation).await?;
+        result
+            .result()
+            .preview_aql(query, operation)
+            .map_err(|e| SampledOcrError::Capture(CaptureError::from(e)))
+    }
+    /// 返回通过能力检查和总时限约束的采样，供组合区域先筛选再执行 AQL。
+    pub async fn sample_aql(
+        &self,
+        source: SourceId,
+        region: PixelRect,
+        query: &BoundQuery,
+        operation: &Operation,
+    ) -> Result<SampledOcrResult, SampledOcrError> {
         ocr_query_capabilities()
             .check(query)
             .map_err(CaptureError::from)?;
@@ -23,7 +52,9 @@ impl SampledOcr {
             .check("ocr_aql_prepare")
             .map_err(CaptureError::from)?;
         let mut guard = operation.cancel_on_drop();
-        let options = OperationOptions::new(operation.remaining()).map_err(CaptureError::from)?;
+        // 单次采样保持有限预算；流程根票据可以没有截止时间。
+        let options = OperationOptions::new(operation.remaining().min(Duration::from_secs(86_400)))
+            .map_err(CaptureError::from)?;
         let recognize = self.recognize(source, region, options);
         tokio::pin!(recognize);
         let result = loop {
@@ -32,15 +63,11 @@ impl SampledOcr {
                 _ = tokio::time::sleep(operation.remaining().min(Duration::from_millis(8))) => operation.check("ocr_aql_wait").map_err(CaptureError::from)?,
             }
         };
-        let matches = result
-            .result()
-            .query_aql(query, operation)
-            .map_err(CaptureError::from)?;
         operation
             .check("ocr_aql_complete")
             .map_err(CaptureError::from)?;
         guard.disarm();
-        Ok((result, matches))
+        Ok(result)
     }
     /// 点击之前精确比较识别区域；画面变化时返回失效，不使用旧坐标。
     pub async fn confirm_aql_result(

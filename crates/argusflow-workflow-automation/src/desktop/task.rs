@@ -1,5 +1,5 @@
 //! 自有应用启动、外部窗口附加与共享 UIA 来源绑定。
-use crate::{AutomationHost, resources::*};
+use crate::resources::*;
 use argusflow_runtime::*;
 use argusflow_windows::{Application, ApplicationOptions, WindowLocator};
 use argusflow_workflow::{ErrorKind, Value, ValueType as Ty};
@@ -12,23 +12,15 @@ pub(crate) enum DesktopKind {
     Window,
     Attach,
     Activate,
-    Source,
 }
 impl DesktopKind {
-    pub const ALL: [Self; 5] = [
-        Self::Launch,
-        Self::Window,
-        Self::Attach,
-        Self::Activate,
-        Self::Source,
-    ];
+    pub const ALL: [Self; 4] = [Self::Launch, Self::Window, Self::Attach, Self::Activate];
     pub fn id(self) -> &'static str {
         match self {
             Self::Launch => "application.launch",
             Self::Window => "application.wait_window",
             Self::Attach => "window.attach",
             Self::Activate => "window.activate",
-            Self::Source => "source.uia",
         }
     }
 }
@@ -49,7 +41,6 @@ struct EmptyConfig {}
 pub(crate) fn compile(
     kind: DesktopKind,
     config: &serde_json::Value,
-    host: Arc<AutomationHost>,
 ) -> Result<Arc<dyn PreparedTask>, String> {
     let mut visible = false;
     let mut window = WindowConfig::default();
@@ -62,26 +53,21 @@ pub(crate) fn compile(
         DesktopKind::Window | DesktopKind::Attach => {
             window = serde_json::from_value(config.clone()).map_err(|e| e.to_string())?;
         }
-        DesktopKind::Activate | DesktopKind::Source => {
+        DesktopKind::Activate => {
             let _: EmptyConfig =
                 serde_json::from_value(config.clone()).map_err(|e| e.to_string())?;
         }
-    }
-    if matches!(kind, DesktopKind::Source) && (host.uia.is_none() || host.input.is_none()) {
-        return Err("UIA 来源要求宿主事先装配共享 UIA 和 Input 服务".into());
     }
     Ok(Arc::new(DesktopTask {
         kind,
         visible,
         window,
-        host,
     }))
 }
 struct DesktopTask {
     kind: DesktopKind,
     visible: bool,
     window: WindowConfig,
-    host: Arc<AutomationHost>,
 }
 impl PreparedTask for DesktopTask {
     fn signature(&self) -> TaskSignature {
@@ -106,10 +92,6 @@ impl PreparedTask for DesktopTask {
             }
             DesktopKind::Activate => {
                 s.resources.insert("window".into(), WINDOW.into());
-            }
-            DesktopKind::Source => {
-                s.resources.insert("window".into(), WINDOW.into());
-                s.resource_outputs.insert("source".into(), SOURCE.into());
             }
         }
         s
@@ -193,24 +175,6 @@ impl PreparedTask for DesktopTask {
                     .0
                     .activate(context.operation)
                     .map_err(native)?,
-                DesktopKind::Source => {
-                    let runtime =
-                        self.host.uia.clone().ok_or_else(|| {
-                            RunError::new(ErrorKind::Unavailable, "UIA 服务未装配")
-                        })?;
-                    let input =
-                        self.host.input.clone().ok_or_else(|| {
-                            RunError::new(ErrorKind::Unavailable, "Input 服务未装配")
-                        })?;
-                    let source = argusflow_automation::QuerySource::Uia {
-                        runtime,
-                        input,
-                        window: resource::<WindowResource>(&context, "window")?.0.clone(),
-                    };
-                    output
-                        .resources
-                        .insert("source".into(), Arc::new(QuerySourceResource::new(source)));
-                }
             }
             Ok(output)
         })

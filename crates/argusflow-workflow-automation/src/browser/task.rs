@@ -14,17 +14,15 @@ pub(crate) enum BrowserKind {
     Attach,
     NewPage,
     Navigate,
-    Source,
 }
 impl BrowserKind {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 6] = [
         Self::Launch,
         Self::Connect,
         Self::Pages,
         Self::Attach,
         Self::NewPage,
         Self::Navigate,
-        Self::Source,
     ];
     pub fn id(self) -> &'static str {
         match self {
@@ -34,7 +32,6 @@ impl BrowserKind {
             Self::Attach => "browser.attach",
             Self::NewPage => "browser.new_page",
             Self::Navigate => "browser.navigate",
-            Self::Source => "source.dom",
         }
     }
 }
@@ -107,10 +104,6 @@ impl PreparedTask for BrowserTask {
             BrowserKind::Navigate => {
                 s.resources = resource_port("page", PAGE);
                 s.inputs = texts(&["url"]);
-            }
-            BrowserKind::Source => {
-                s.resources = resource_port("page", PAGE);
-                s.resource_outputs = resource_port("source", SOURCE);
             }
         }
         s
@@ -188,16 +181,6 @@ impl PreparedTask for BrowserTask {
                         .navigate_with_operation(text(&context, "url")?, context.operation)
                         .await
                         .map_err(native)?;
-                }
-                BrowserKind::Source => {
-                    output.resources.insert(
-                        "source".into(),
-                        Arc::new(QuerySourceResource::new(
-                            argusflow_automation::QuerySource::Browser(
-                                resource::<PageResource>(&context, "page")?.page.clone(),
-                            ),
-                        )),
-                    );
                 }
             }
             Ok(output)

@@ -7,4 +7,4 @@ mod traversal;
 pub use api::UiaMatch;
 pub(super) use focus::focus;
 pub(super) use geometry::click_point;
-pub(super) use traversal::find;
+pub(super) use traversal::{find, preview};

@@ -108,7 +108,7 @@ export class DocumentLibrary {
           latest.active === id
             ? (Object.keys(tabs).at(-1) ?? null)
             : latest.active,
-        ...(latest.active === id ? { problems: [], aqlNode: null } : {}),
+        ...(latest.active === id ? { problems: [] } : {}),
       });
     });
   }

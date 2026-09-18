@@ -229,7 +229,7 @@ describe("canvas and inspector interaction without browser automation", () => {
       "没有可用引用",
     );
   });
-  it("the inspector uses an editable title and keeps secondary execution fields collapsed", () => {
+  it("属性面板提供节点名称和显式启用的节点时限", () => {
     const tab = install();
     const node = tab.file.definition.scopes[0].nodes[0];
     render(
@@ -239,8 +239,16 @@ describe("canvas and inspector interaction without browser automation", () => {
       screen.getByRole("textbox", { name: "节点名称" }),
     ).toBeInTheDocument();
     expect(screen.queryByText("基本属性")).not.toBeInTheDocument();
-    const timeout = screen.getByLabelText("节点超时毫秒");
-    expect(timeout.closest("details")).not.toHaveAttribute("open");
+    const timeout = screen.getByRole("switch", { name: "限制节点等待时间" });
+    expect(timeout).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(timeout);
+    expect(
+      studio.active!.file.definition.scopes[0].nodes[0].timeout_ms,
+    ).toEqual({
+      kind: "literal",
+      value_type: { type: "int" },
+      value: { type: "int", value: "10000" },
+    });
   });
 });
 it("an added theme and same-effective-color preference update work without component branches", () => {

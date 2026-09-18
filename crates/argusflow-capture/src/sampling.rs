@@ -48,6 +48,7 @@ impl RegionSource for FrameSampler {
                 ));
             }
             let started = sampler.source.now();
+            sampler.source.request_refresh();
             loop {
                 operation.check("frame_sample")?;
                 let histories = sampler.source.history()?;
@@ -71,20 +72,30 @@ impl RegionSource for FrameSampler {
                     && history.checked >= started
                     && let Some(frame) = stable(history, request.region, request.quiet, &operation)?
                 {
-                    let image =
-                        pixels::crop(&frame.image, request.region, &sampler.budget, &operation)?;
-                    let local = PixelRect::new(0, 0, image.width(), image.height())?;
-                    let reusable = if let Some(previous) = &request.previous {
+                    let reused = if let Some(previous) = &request.previous {
                         let old = previous.snapshot.version;
-                        old.session == frame.version.session
+                        let reusable = old.session == frame.version.session
                             && old.source == frame.version.source
                             && old.generation == frame.version.generation
                             && previous.snapshot.bounds == frame.source.bounds
                             && previous.region == request.region
                             && previous.snapshot.validity.valid()
-                            && !pixels::differs(&previous.image, &image, local, &operation)?
+                            && !pixels::region_changed(
+                                &previous.image,
+                                &frame.image,
+                                request.region,
+                                &operation,
+                            )?;
+                        reusable.then(|| previous.image.clone())
                     } else {
-                        false
+                        None
+                    };
+                    let reusable = reused.is_some();
+                    let image = match reused {
+                        Some(image) => image,
+                        None => {
+                            pixels::crop(&frame.image, request.region, &sampler.budget, &operation)?
+                        }
                     };
                     let snapshot = Arc::new(Snapshot {
                         version: frame.version,
@@ -158,9 +169,9 @@ fn stable<'a>(
                 "OCR 采样要求原始分辨率帧，不能使用缩略图",
             ));
         }
-        if frame.timing.frozen > history.checked {
-            return Ok(None);
-        }
+        // frozen 是 GPU 读回完成时间，天然可能晚于 AcquireNextFrame 的 checked。
+        // history 只发布已完成的不可变图像；不能据此拒绝持续更新的桌面。
+        // 起始帧仍须覆盖 quiet，且全部后续帧都精确比较，水位仍须晚于请求。
         if pixels::differs(&latest.image, &frame.image, region, operation)? {
             return Ok(None);
         }

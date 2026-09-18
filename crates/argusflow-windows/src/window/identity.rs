@@ -67,7 +67,7 @@ impl WindowIdentity {
     pub fn require_foreground(&self) -> Result<(), Failure> {
         self.validate()?;
         // SAFETY: GetForegroundWindow 是无参数只读查询。
-        if unsafe { GetForegroundWindow() } != hwnd(self.handle) {
+        if !self.owns_surface(unsafe { GetForegroundWindow() })? {
             return Err(Failure::new(
                 FailureKind::InvalidInput,
                 "foreground",

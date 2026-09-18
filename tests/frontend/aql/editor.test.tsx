@@ -15,13 +15,13 @@ const service: LanguageService = {
 };
 it('只允许当前合法草稿导出并在组合输入时隐藏旧预览', async () => {
   render(<EditorWorkspace service={service} />);
-  const exportButton = screen.getByRole('button', { name: '导出英文 AQL' });
+  const exportButton = screen.getByRole('button', { name: '导出 AQL' });
   await waitFor(() => expect(exportButton).toBeEnabled());
   const editor = screen.getByLabelText('中文查询');
   fireEvent.compositionStart(editor);
   fireEvent.change(editor, { target: { value: '按钮(' } });
   expect(exportButton).toBeDisabled();
-  expect(screen.getByLabelText('英文 AQL 预览')).not.toHaveTextContent('button()');
+  expect(screen.getByLabelText('AQL 导出预览')).not.toHaveTextContent('按钮()');
   fireEvent.compositionEnd(editor);
   await screen.findByText(/需要右括号/);
   expect(exportButton).toBeDisabled();
@@ -41,16 +41,16 @@ it('迟到的文件导入不会覆盖导入期间的新输入', async () => {
   render(<EditorWorkspace service={service} />);
   fireEvent.change(screen.getByLabelText('选择 AQL 文件'), { target: { files: [file] } });
   fireEvent.change(screen.getByLabelText('中文查询'), { target: { value: '输入框()' } });
-  await act(async () => { finish(new TextEncoder().encode('button()').buffer); });
+  await act(async () => { finish(new TextEncoder().encode('按钮()').buffer); });
   expect(screen.getByLabelText('中文查询')).toHaveValue('输入框()');
 });
 
-it('有效导入经语言服务回写并允许导出英文', async () => {
+it('有效中文文件导入后保留原文并允许导出', async () => {
   const file = new File([], 'query.aql');
-  Object.defineProperty(file, 'arrayBuffer', { value: async () => new TextEncoder().encode('button()').buffer });
+  Object.defineProperty(file, 'arrayBuffer', { value: async () => new TextEncoder().encode('按钮()').buffer });
   render(<EditorWorkspace service={service} />);
   fireEvent.change(screen.getByLabelText('选择 AQL 文件'), { target: { files: [file] } });
   await waitFor(() => expect(screen.getByLabelText('中文查询')).toHaveValue('按钮()'));
-  expect(screen.getByRole('button', { name: '导出英文 AQL' })).toBeEnabled();
-  expect(screen.getByLabelText('英文 AQL 预览')).toHaveTextContent('button()');
+  expect(screen.getByRole('button', { name: '导出 AQL' })).toBeEnabled();
+  expect(screen.getByLabelText('AQL 导出预览')).toHaveTextContent('按钮()');
 });

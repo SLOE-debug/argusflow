@@ -164,7 +164,8 @@ export type Action =
   | { readonly kind: "task"; readonly task: TaskDefinition };
 export interface WorkflowNode {
   readonly id: string;
-  readonly timeout_ms: string | null;
+  /** 进入节点时求值的整数毫秒表达式。 */
+  readonly timeout_ms: Expr | null;
   readonly action: Action;
   readonly output_bindings: Readonly<Record<string, Expr>>;
 }

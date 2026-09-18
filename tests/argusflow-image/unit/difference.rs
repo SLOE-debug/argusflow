@@ -1,6 +1,63 @@
 use super::*;
 use argusflow_core::OperationOptions;
 
+#[test]
+fn chunk_boundaries_and_last_pixel_preserve_thresholds() {
+    let a = vec![[0; 3]; 1026];
+    let mut b = a.clone();
+    for i in [255, 256, 512, 1025] {
+        b[i][2] = 2;
+    }
+    let regions = compare(&a, &b, 513, DifferencePolicy::default());
+    assert_eq!(regions.iter().map(|r| r.pixels).sum::<usize>(), 4);
+    assert!(
+        compare(
+            &a,
+            &b,
+            513,
+            DifferencePolicy {
+                threshold: 3,
+                ..Default::default()
+            }
+        )
+        .is_empty()
+    );
+}
+
+#[test]
+fn different_offsets_strides_and_alpha_compare_visible_colors() {
+    use argusflow_capture_contracts::{ByteBudget, PixelFormat, PixelImage};
+    let budget = ByteBudget::new(128).unwrap();
+    let make = |format, stride, bytes: Vec<u8>| {
+        let reservation = budget.reserve(bytes.len()).unwrap();
+        PixelImage::new(2, 2, stride, format, bytes, reservation).unwrap()
+    };
+    let a = make(PixelFormat::Rgba8, 8, vec![0; 16]);
+    let b = make(PixelFormat::Bgra8, 12, vec![255; 24]);
+    let operation = Operation::new(OperationOptions::default());
+    assert!(
+        !has_changes(
+            ImageView::region(&a, PixelRect::new(1, 0, 1, 2).unwrap()).unwrap(),
+            ImageView::region(&b, PixelRect::new(0, 0, 1, 2).unwrap()).unwrap(),
+            1,
+            &operation,
+        )
+        .unwrap()
+    );
+    let mut bytes = vec![0; 16];
+    bytes[8..12].copy_from_slice(&[255, 255, 255, 255]);
+    let c = make(PixelFormat::Rgba8, 8, bytes);
+    assert!(
+        !has_changes(
+            ImageView::region(&a, PixelRect::new(0, 0, 2, 2).unwrap()).unwrap(),
+            ImageView::region(&c, PixelRect::new(0, 0, 2, 2).unwrap()).unwrap(),
+            1,
+            &operation,
+        )
+        .unwrap()
+    );
+}
+
 fn compare(
     a: &[[u8; 3]],
     b: &[[u8; 3]],

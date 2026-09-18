@@ -120,19 +120,11 @@ async fn aql_query_adapter_returns_explicit_coordinate_snapshot() {
             vec![("page", "page")],
         ),
         task(
-            "source",
-            "source.dom",
-            json!({}),
-            vec![],
-            vec![("page", "page")],
-            vec![("source", "source")],
-        ),
-        task(
             "query",
             "aql.query",
-            json!({"query":"button()"}),
+            json!({"platform":"cdp", "query":"按钮()"}),
             vec![],
-            vec![("source", "source")],
+            vec![("scope", "page")],
             vec![],
         ),
     ];

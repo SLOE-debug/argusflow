@@ -37,3 +37,15 @@ fn child_deadline_cannot_extend_parent() {
     assert_eq!(child.deadline(), root.deadline());
     assert!(short.deadline() < root.deadline());
 }
+
+#[test]
+fn unbounded_root_has_no_deadline_but_children_keep_timeout_and_cancellation() {
+    let root = Operation::unbounded();
+    assert_eq!(root.deadline(), None);
+    assert_eq!(root.branch().deadline(), None);
+    let child = root.child(OperationOptions::default());
+    assert!(child.deadline().is_some());
+    assert_eq!(child.branch().deadline(), child.deadline());
+    root.cancel();
+    assert!(child.is_cancelled());
+}

@@ -97,7 +97,17 @@ pub(crate) fn visit(expression: &Expr, visitor: &mut impl FnMut(&Expr)) {
             visit(left, visitor);
             visit(right, visitor);
         }
-        Expr::Nth { query, .. } => visit(query, visitor),
+        Expr::Nth { query, .. } | Expr::Position { query, .. } => visit(query, visitor),
+        Expr::Spatial(spatial) => {
+            visit(&spatial.anchor, visitor);
+            visit(&spatial.target, visitor);
+            for inner in [&spatial.region, &spatial.second_anchor]
+                .into_iter()
+                .flatten()
+            {
+                visit(inner, visitor);
+            }
+        }
         Expr::Enter { host, .. } => visit(host, visitor),
         Expr::Match { .. } | Expr::Css(_) => {}
     }
@@ -124,7 +134,33 @@ fn bind_expression(expression: &mut Expr, bindings: &Bindings) {
             bind_expression(left, bindings);
             bind_expression(right, bindings);
         }
-        Expr::Nth { query, .. } => bind_expression(query, bindings),
+        Expr::Nth { query, .. } | Expr::Position { query, .. } => bind_expression(query, bindings),
+        Expr::Spatial(spatial) => {
+            bind_expression(&mut spatial.anchor, bindings);
+            bind_expression(&mut spatial.target, bindings);
+            for inner in [&mut spatial.region, &mut spatial.second_anchor]
+                .into_iter()
+                .flatten()
+            {
+                bind_expression(inner, bindings);
+            }
+            let o = &mut spatial.options;
+            for length in [
+                &mut o.min_distance,
+                &mut o.max_distance,
+                &mut o.tolerance,
+                &mut o.bandwidth,
+            ]
+            .into_iter()
+            .flatten()
+            {
+                if let Operand::Parameter(name) = &length.value
+                    && let Some(value) = bindings.get(name)
+                {
+                    length.value = Operand::Literal(value.clone());
+                }
+            }
+        }
         Expr::Enter { host, .. } => bind_expression(host, bindings),
         Expr::Match {
             condition: None, ..
