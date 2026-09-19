@@ -1,0 +1,22 @@
+输出一个 JSON 对象，顶层仅有 workflow 和 analysis。
+workflow 是当前 ArgusFlow Workflow 文档，或在无法完整表达录制时为 null。
+analysis 是旁路审计信息，结构为 {summary:string,node_evidence:[{node_id:string,evidence_ids:string[],outcome:"confirmed"|"request_only"|"uncertain",uncertainty:string|null}],unresolved:[{evidence_ids:string[],reason:string}],required_bindings:[{name:string,kind:"input"|"resource",reason:string}],replay_ready:false}。
+审计字段只放 analysis。workflow 使用以下完整字段：
+{name:string,inputs:字段类型表,outputs:字段类型表,resources:资源类型表,root:"root",scopes:[{id:"root",nodes:节点数组,edges:连接数组,outputs:输出表达式表}],subflows:{}}。
+本轮生成线性录制流程：每个节点形如 {id:string,timeout_ms:整数表达式或null,action:动作对象,output_bindings:{}}。
+节点、作用域、连线分别使用唯一且非空的 ID。每个节点按顺序显式连接；边格式 {id:string,source:端点,target:端点}。
+端点为 {kind:"start"}、{kind:"node",node:节点ID}、{kind:"end"}。开始连接首节点，最后一个普通节点连接结束；空流程由开始直接连接结束。每个普通节点恰有一个后继。
+本轮允许的动作形状：
+1. {kind:"task",task:{type_id:任务名,version:1,config:静态配置,inputs:输入表达式表,resources:输入资源绑定表,resource_outputs:新资源绑定表,retry:null}}。
+2. {kind:"wait",milliseconds:整数表达式}，只表达有证据支持的等待。
+3. {kind:"release",resource:当前作用域拥有的资源名称}。
+类型：{type:"bool"}、{type:"int"}、{type:"float"}、{type:"text"}、{type:"list",of:元素类型}、{type:"record",of:字段类型表}、{type:"optional",of:内部类型}。
+值：{type:"text",value:"内容"}、{type:"int",value:1000}、{type:"bool",value:true}、{type:"float",value:0.9}；list 的 value 是带类型值数组，record 是带类型值表，optional 是带类型值或 null。
+本轮表达式：{kind:"literal",value_type:类型,value:带类型值}；{kind:"input",name:声明输入名}；{kind:"node_output",node:已完成节点ID,output:已声明输出名}；{kind:"field",value:记录表达式,field:字段名}；{kind:"index",value:列表表达式,index:零基整数表达式}。
+例如文本常量 {kind:"literal",value_type:{type:"text"},value:{type:"text",value:"内容"}}；超时 {kind:"literal",value_type:{type:"int"},value:{type:"int",value:10000}}。
+inputs/outputs 声明使用类型表，Task.inputs 和 Scope.outputs 使用表达式表。Workflow.outputs 与根 Scope.outputs 逐项对应。无输出时两者均为 {}。
+资源类型为 automation.browser、automation.page、automation.application、automation.window、automation.query_source。
+Workflow.resources 声明宿主借入的资源；Task.resources 将端口名绑定到已存在资源名；Task.resource_outputs 将输出端口绑定到新资源名，创建后才能引用。借入资源由宿主管理。
+运行期进程 ID、页面 ID、连接端点及路径按需要声明为 inputs，并在 analysis.required_bindings 说明；已有窗口或页面可声明为借入资源。实际宿主尚未提供的绑定必须明确列出。录制中的瞬时句柄、节点编号只作为证据。
+只使用下方任务目录及中文 AQL 白名单。每个实质操作必须有节点及 evidence_ids，或在 analysis.unresolved 解释。无法表达任一必要操作、定位证据不足或顺序不确定时，workflow 为 null，保留完整问题清单；不要把可执行片段当作完整录制结果。格式完成不等于验证回放，replay_ready 保持 false。
+复制粘贴、保存与发送均按观察到的请求和结果分别审计；只将有证据的 UIA 按键序列转换为 aql.press_keys。选中文字和文本范围是观察信息；动作实现必须来自任务目录。

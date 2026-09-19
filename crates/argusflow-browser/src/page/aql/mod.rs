@@ -7,5 +7,6 @@ mod model;
 mod properties;
 mod query;
 mod snapshot;
+mod text_selection;
 pub(crate) use boundary::FrameSession;
 pub use model::BrowserMatch;

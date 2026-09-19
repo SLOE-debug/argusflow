@@ -21,7 +21,14 @@ impl Resource for ApplicationResource {
         })
     }
 }
-pub(crate) struct WindowResource(pub WindowIdentity);
+/// 宿主借入的窗口身份；不取得进程或窗口的关闭权限。
+pub struct WindowResource(pub(crate) WindowIdentity);
+impl WindowResource {
+    /// 绑定宿主已确认身份的窗口，运行时仍会检查句柄有效性。
+    pub fn borrowed(window: WindowIdentity) -> Self {
+        Self(window)
+    }
+}
 impl Resource for WindowResource {
     fn resource_type(&self) -> &str {
         super::WINDOW

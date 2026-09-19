@@ -6,12 +6,16 @@ use windows::Win32::{Foundation::POINT, UI::Accessibility::*};
 /// 脱离 COM 的有限结构观察。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UiaObservation {
+    /// UIA RuntimeId，仅用于同一录制生命周期内的观察关联，不作为回放定位器。
+    pub runtime_id: Vec<i32>,
     /// 目标的普通属性。
     pub target: UiaObservedNode,
     /// 至多四层祖先，包含相似控件的上下文。
     pub ancestors: Vec<UiaObservedNode>,
     /// 是否达到祖先／文字预算。
     pub truncated: bool,
+    /// 目标控件的只读文本与选区；祖先不重复读取全文。
+    pub text: super::text::UiaTextObservation,
 }
 /// 录制所需的相关属性，密码 Value 不读取。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -72,6 +76,8 @@ pub(super) fn observe(
     .map_err(|e| failure("uia_target", e))?;
     let mut truncated = false;
     let node = read(&target, &mut truncated)?;
+    let runtime_id = super::text::identity(&target)?;
+    let text = super::text::observe(&target, node.password, operation);
     let walker =
         unsafe { automation.ControlViewWalker() }.map_err(|e| failure("uia_ancestors", e))?;
     let mut ancestors = vec![];
@@ -85,9 +91,11 @@ pub(super) fn observe(
             }
             Err(error) if error.code().is_ok() => {
                 return Ok(UiaObservation {
+                    runtime_id,
                     target: node,
                     ancestors,
                     truncated,
+                    text,
                 });
             }
             Err(error) => return Err(failure("uia_parent", error)),
@@ -96,9 +104,11 @@ pub(super) fn observe(
     truncated = true;
     operation.check("uia_observe_complete")?;
     Ok(UiaObservation {
+        runtime_id,
         target: node,
         ancestors,
         truncated,
+        text,
     })
 }
 fn read(

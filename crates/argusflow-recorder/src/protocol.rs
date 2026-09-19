@@ -36,6 +36,7 @@ impl RecorderCommand {
             return Self::Append(data);
         }
         let (raw, stage) = match data {
+            RecordData::Clipboard(s) => (s.raw, crate::Stage::Clipboard),
             RecordData::Structure(s) => (
                 s.raw,
                 if s.source == crate::StructureSource::Uia {

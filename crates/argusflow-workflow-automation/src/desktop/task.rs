@@ -41,6 +41,7 @@ struct EmptyConfig {}
 pub(crate) fn compile(
     kind: DesktopKind,
     config: &serde_json::Value,
+    host: Arc<crate::AutomationHost>,
 ) -> Result<Arc<dyn PreparedTask>, String> {
     let mut visible = false;
     let mut window = WindowConfig::default();
@@ -62,9 +63,11 @@ pub(crate) fn compile(
         kind,
         visible,
         window,
+        host,
     }))
 }
 struct DesktopTask {
+    host: Arc<crate::AutomationHost>,
     kind: DesktopKind,
     visible: bool,
     window: WindowConfig,
@@ -171,10 +174,19 @@ impl PreparedTask for DesktopTask {
                         }
                     }
                 }
-                DesktopKind::Activate => resource::<WindowResource>(&context, "window")?
-                    .0
-                    .activate(context.operation)
-                    .map_err(native)?,
+                DesktopKind::Activate => {
+                    let input = self.host.input.as_ref().ok_or_else(|| {
+                        RunError::new(ErrorKind::Contract, "窗口激活需要宿主输入服务")
+                    })?;
+                    input
+                        .perform_operation(
+                            resource::<WindowResource>(&context, "window")?.0.clone(),
+                            argusflow_windows::InputAction::ActivateWindow,
+                            context.operation,
+                        )
+                        .await
+                        .map_err(native)?;
+                }
             }
             Ok(output)
         })

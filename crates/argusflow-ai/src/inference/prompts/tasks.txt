@@ -1,0 +1,29 @@
+当前任务目录（version=1）。下列未列出的 inputs/resources/resource_outputs/config 字段保持空对象；表中的数据输入均使用表达式。
+任务 | config | inputs | resources | resource_outputs | 数据输出
+browser.launch | {headless:boolean} | executable:text | {} | browser:automation.browser | {}
+browser.connect | {} | endpoint:text | {} | browser:automation.browser | {}
+browser.pages | {} | {} | browser:automation.browser | {} | pages:list<record{id:text,title:text,url:text}>
+browser.attach | {} | target_id:text | browser:automation.browser | page:automation.page | {}
+browser.new_page | {} | url:text | browser:automation.browser | page:automation.page | {}
+browser.navigate | {} | url:text | page:automation.page | {} | {}
+application.launch | {visible:boolean} | executable:text,arguments:list<text> | {} | application:automation.application | {}
+application.wait_window | {title:string|null,class_name:string|null} | {} | application:automation.application | window:automation.window | {}
+window.attach | {title:string|null,class_name:string|null} | process_id:int（正 u32） | {} | window:automation.window | {}
+window.activate | {} | {} | window:automation.window | {} | {}
+window.ocr | {} | {} | window:automation.window | source:automation.query_source | {}
+file.create_new | {} | path:text | {} | {} | {}
+file.wait_text | {} | path:text,expected:text | {} | {} | equal:bool
+source.host | {name:宿主已配置来源名} | {} | {} | source:automation.query_source | {}
+aql.query | {platform,query} | 查询参数 | scope:平台资源 | {} | matches:list<record{source:text,space:text,frame:optional<text>,name:optional<text>,text:optional<text>,confidence:optional<float>,bounds:list<float>}>
+aql.exists | {platform,query} | 查询参数 | scope:平台资源 | {} | exists:bool
+aql.wait | {platform,query,interval_ms:10到60000整数,condition:"exists"|"absent"|"unique"} | 查询参数 | scope:平台资源 | {} | exists:bool
+aql.click | {platform,query} | 查询参数 | scope:平台资源 | {} | {}
+aql.type_text | {platform,query,mode} | 查询参数及text:text | scope:平台资源 | {} | {}
+aql.press_keys | {platform:"uia",query,keys:组合键字符串} | 查询参数 | scope:automation.window | {} | {}
+aql.preview | {platform,query} | 查询参数 | scope:平台资源 | {} | spatial_preview（本轮只执行预览，不引用其内部字段）
+platform 取 uia、cdp、ocr；scope 分别绑定 automation.window、automation.page、automation.query_source。
+aql.type_text 的有效组合：cdp + append；uia + selection；uia + focused_selection。selection 会定位并聚焦目标；focused_selection 保留现有焦点与选区并校验。aql.press_keys 要求唯一目标已获得焦点。
+keys 用 + 连接 1–8 个不重复的键：Control、Shift、Alt、Enter、Escape、Tab、Home、End、Backspace、Delete、Space、Left、Right、Up、Down，以及 A–Z 字母。连续按键写成按顺序相连的多个节点。
+AQL 中 $参数 对应 Task.inputs 中同名端口，文字映射 text，布尔映射 bool，数值映射 float。aql.type_text 使用 text 端口传入正文，其查询参数使用其他名称。
+等待类任务在 Node.timeout_ms 显式填写总时限；interval_ms 只是轮询间隔。副作用任务 retry 为 null。
+查询、点击、输入均按平台实际查询来源执行；点击和输入使用唯一定位。OCR 资源需要宿主已有 OCR 服务。应用复用窗口时，使用真实窗口证据和 window.attach 或宿主借入窗口，而不是凭启动进程猜测文档身份。

@@ -8,6 +8,7 @@ autotests = false
 
 [dependencies]
 argusflow-core.workspace = true
+argusflow-input-contracts.workspace = true
 argusflow-workflow.workspace = true
 argusflow-runtime.workspace = true
 argusflow-aql.workspace = true
@@ -27,11 +28,12 @@ argusflow-windows = { path = "../argusflow-windows" }
 workspace = true
 
 [dev-dependencies]
+argusflow-ai.workspace = true
 futures-util = "0.3"
 tokio-tungstenite = "0.28"
 
 [target.'cfg(windows)'.dev-dependencies]
-windows = { workspace = true, features = ["Win32_Foundation", "Win32_System_Threading"] }
+windows = { workspace = true, features = ["Win32_Graphics_Gdi", "Win32_System_LibraryLoader", "Win32_UI_Controls", "Win32_UI_HiDpi", "Win32_Foundation", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [[test]]
 name = "workflow_automation"
@@ -44,3 +46,15 @@ path = "../../tests/argusflow-workflow-automation/support/process_fixture.rs"
 [[example]]
 name = "automation_lifecycle"
 path = "../../tests/argusflow-workflow-automation/support/examples/lifecycle.rs"
+
+[[example]]
+name = "validate_recording_workflow"
+path = "../../tests/argusflow-workflow-automation/support/validation/main.rs"
+
+[[example]]
+name = "replay_recording_workflow"
+path = "../../tests/argusflow-workflow-automation/support/replay/main.rs"
+
+[[example]]
+name = "infer_recording"
+path = "../../tests/argusflow-workflow-automation/support/infer_recording.rs"

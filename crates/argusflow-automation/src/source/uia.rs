@@ -20,6 +20,10 @@ impl SourceBackend for UiaSource {
         operation: &'a Operation,
     ) -> SourceFuture<'a, Vec<argusflow_aql::SpatialPreview>> {
         Box::pin(async move {
+            let mut sequence = self.input.sequence(operation)?;
+            sequence
+                .perform(self.window.clone(), InputAction::ActivateWindow)
+                .await?;
             self.runtime
                 .preview_aql(self.window.clone(), query.clone(), operation)
                 .await
@@ -34,7 +38,9 @@ impl SourceBackend for UiaSource {
     ) -> SourceFuture<'a, ()> {
         Box::pin(async move {
             let mut sequence = self.input.sequence(operation)?;
-            self.window.require_foreground()?;
+            sequence
+                .perform(self.window.clone(), InputAction::ActivateWindow)
+                .await?;
             self.runtime
                 .confirm_aql_focus(target.handle(), operation)
                 .await?;
@@ -54,6 +60,10 @@ impl SourceBackend for UiaSource {
         operation: &'a Operation,
     ) -> SourceFuture<'a, Vec<UiaMatch>> {
         Box::pin(async move {
+            let mut sequence = self.input.sequence(operation)?;
+            sequence
+                .perform(self.window.clone(), InputAction::ActivateWindow)
+                .await?;
             self.runtime
                 .query_aql(self.window.clone(), query.clone(), operation)
                 .await
@@ -63,7 +73,9 @@ impl SourceBackend for UiaSource {
     fn click<'a>(&'a self, target: &'a UiaMatch, operation: &'a Operation) -> SourceFuture<'a, ()> {
         Box::pin(async move {
             let mut sequence = self.input.sequence(operation)?;
-            self.window.require_foreground()?;
+            sequence
+                .perform(self.window.clone(), InputAction::ActivateWindow)
+                .await?;
             let point = self
                 .runtime
                 .aql_click_point(target.handle(), operation)
@@ -79,7 +91,9 @@ impl SourceBackend for UiaSource {
     ) -> SourceFuture<'a, ()> {
         Box::pin(async move {
             let mut sequence = self.input.sequence(operation)?;
-            self.window.require_foreground()?;
+            sequence
+                .perform(self.window.clone(), InputAction::ActivateWindow)
+                .await?;
             if target.snapshot().control_type != 50004
                 || target.attributes().get(&Attribute::Enabled) != Some(&Value::Boolean(true))
             {

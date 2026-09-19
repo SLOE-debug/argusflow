@@ -34,13 +34,20 @@ impl PreparedTask for OcrTask {
     fn execute<'a>(&'a self, context: TaskContext<'a>) -> TaskFuture<'a, TaskOutput> {
         Box::pin(async move {
             let window = resource::<WindowResource>(&context, "window")?.0.clone();
-            window.require_foreground().map_err(Failure::from)?;
             let input = self
                 .0
                 .input
                 .clone()
                 .ok_or_else(|| RunError::new(ErrorKind::Unavailable, "输入服务未装配"))?;
 
+            input
+                .perform_operation(
+                    window.clone(),
+                    argusflow_windows::InputAction::ActivateWindow,
+                    context.operation,
+                )
+                .await
+                .map_err(Failure::from)?;
             let session = self.0.ocr.acquire(context.operation).await?;
             let binding = OcrWindow {
                 session,

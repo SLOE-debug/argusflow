@@ -2,6 +2,37 @@ use super::*;
 use argusflow_core::{FailureKind, Key};
 
 #[tokio::test]
+async fn ordinary_dom_mutation_does_not_cancel_an_in_flight_command() {
+    let mut mock = Mock::new(8).await;
+    let page = mock.attach().await;
+    let before = page
+        .inner
+        .state
+        .epoch
+        .load(std::sync::atomic::Ordering::Acquire);
+    let reader = page.clone();
+    let task = tokio::spawn(async move { reader.evaluate("1", options(1000)).await });
+    let request = mock.next().await;
+    mock.send(json!({"method":"DOM.attributeModified","sessionId":"session-1","params":{"nodeId":42,"name":"class","value":"focused"}})).await;
+    mock.respond(&request, json!({"result":{"value":1}})).await;
+    assert_eq!(task.await.unwrap().unwrap(), 1);
+    assert_eq!(
+        page.inner
+            .state
+            .epoch
+            .load(std::sync::atomic::Ordering::Acquire),
+        before
+    );
+    assert!(
+        page.inner
+            .state
+            .revision
+            .load(std::sync::atomic::Ordering::Acquire)
+            > 1
+    );
+}
+
+#[tokio::test]
 async fn ambiguous_css_and_document_replacement_invalidate_handles() {
     let mut mock = Mock::new(8).await;
     let page = mock.attach().await;

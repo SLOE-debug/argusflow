@@ -1,0 +1,8 @@
+{
+  "name": "argusflow-patchright-demo",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "patchright": "1.63.0"
+  }
+}

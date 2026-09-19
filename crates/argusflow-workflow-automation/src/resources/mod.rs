@@ -19,6 +19,8 @@ mod types;
 pub(crate) use access::*;
 pub use browser::*;
 #[cfg(windows)]
-pub(crate) use desktop::*;
+pub(crate) use desktop::ApplicationResource;
+#[cfg(windows)]
+pub use desktop::WindowResource;
 pub use host::*;
 pub(crate) use types::*;

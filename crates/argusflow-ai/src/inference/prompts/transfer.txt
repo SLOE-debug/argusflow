@@ -1,0 +1,10 @@
+已实现的补充任务（version=1）：
+browser.copy_text：config={query:中文AQL}，inputs={expected:text,start:int,end:int}，resources={page:automation.page}，resource_outputs={}，outputs={text:text,sequence:int}。重新唯一定位目标，核对目标 textContent 全文，按目标内 UTF-16 [start,end) 重建选区，发送真实 Ctrl+C，并验证剪贴板序号改变且正文等于选区。可把证据中同一次浏览器选区+复制合并为此节点。只等效重放选区含义，不宣称重放鼠标轨迹。
+clipboard.checkpoint：config={}，inputs={}，resources={}，输出 sequence:int。记录复制前序号。
+clipboard.wait_text：config={}，inputs={previous:int,expected:text}，resources={}，输出 sequence:int。只读等待序号相对 previous 改变并验证正文，重复文本也必须产生新序号。
+window.wait_document：config={query:中文AQL}，inputs={expected:text}，resources={window:automation.window}，输出={}。查询必须包含文本属性条件以请求正文，例如 文档(文本 包含 "")。重新唯一定位读取文档，CR/LF/CRLF 统一为 LF 后精确比较；不去除首尾空白。需要目标窗口在前台。
+上述 query 使用静态中文 AQL，正文和偏移放 inputs。每个节点必须配置有限 timeout_ms、retry:null。剪贴板/UIA 服务由本次回放宿主装配。
+回放保护：建立空文档前置条件；每次粘贴后验证累积文档；保存后用 file.wait_text 验证磁盘内容；原生复制前用 clipboard.checkpoint，复制后用 clipboard.wait_text，previous 引用对应 checkpoint 的 node_output。
+窗口切换用 window.activate，并在需要输入焦点时用 aql.click 定位文档（点击只用于进入文档，建立选区后不要再点击）。发送按键前确认焦点；浏览器复制前激活对应浏览器窗口。
+保护节点引用其所保护的原始事件证据，并在 analysis 中说明这是新增的前后置检查，不是观察到的用户动作。不要把选区变更改成文本输入；不要用录制中的字面量替代真实复制粘贴。
+宿主绑定与录制事实分开：宿主可以准备新的空白 Windows 记事本文档、同内容的独立浏览器页面，并提供当前 PID、标题和 page 资源；这不属于 AI 推断的用户操作。

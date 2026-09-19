@@ -18,6 +18,7 @@ path = "src/main.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+argusflow-ai.workspace = true
 argusflow-image.workspace = true
 base64 = "0.22"
 argusflow-recorder.workspace = true

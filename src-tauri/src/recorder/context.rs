@@ -50,6 +50,7 @@ pub(super) fn read(path: &Path, raw_id: u64) -> Result<OperationContext, String>
             RecordData::Interaction(value) => value.from_qpc > through && value.from_qpc <= end,
             RecordData::Raw(_) => ids.contains(&record.id),
             RecordData::Structure(value) => value.raw.iter().any(|id| ids.contains(id)),
+            RecordData::Clipboard(value) => value.raw.iter().any(|id| ids.contains(id)),
             RecordData::Attempt { raw, .. } => raw.iter().any(|id| ids.contains(id)),
             _ => false,
         };

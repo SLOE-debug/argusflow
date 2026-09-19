@@ -3,7 +3,8 @@ import { RecorderBar } from "../../recorder";
 import { useStore } from "zustand";
 import { initializeDesktop } from "./lifecycle";
 import { studio } from "../../../features/workflow";
-import { ResizeHandle } from "../../ui";
+import { ResizeHandle, Button } from "../../ui";
+import { AiDialog } from "../../ai/AiDialog";
 import { TitleBar } from "../../shell/TitleBar";
 import { Sidebar } from "../palette/Sidebar";
 import { Canvas } from "../canvas/Canvas";
@@ -27,6 +28,7 @@ export function StudioApp() {
   const [rightWidth, setRightWidth] = usePanelSize("right", 310);
   const [dockHeight, setDockHeight] = usePanelSize("dock", 230);
   const [runDialog, setRunDialog] = useState(false);
+  const [aiSettings, setAiSettings] = useState(false);
   useEffect(() => {
     void studio.safely(initializeDesktop);
   }, []);
@@ -42,7 +44,18 @@ export function StudioApp() {
   }, []);
   return (
     <main className="flex h-screen min-h-[600px] min-w-[1000px] flex-col overflow-hidden bg-app font-sans text-ink">
-      <TitleBar menu={<RecorderBar />} tabs={<WorkflowTabs />} />
+      <TitleBar
+        menu={
+          <>
+            <RecorderBar />
+            <Button variant="ghost" onClick={() => setAiSettings(true)}>
+              AI 配置
+            </Button>
+          </>
+        }
+        tabs={<WorkflowTabs />}
+      />
+      {aiSettings && <AiDialog onClose={() => setAiSettings(false)} />}
       <StudioToast />
       <div className="flex min-h-0 flex-1">
         {left && (

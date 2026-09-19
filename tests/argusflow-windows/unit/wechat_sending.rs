@@ -184,6 +184,39 @@ fn uncleared_draft_and_status_icons_block_confirmation() {
         );
     }
 }
+
+#[test]
+fn split_blocks_match_only_inside_the_same_bubble() {
+    let mut snapshot = observation();
+    assert_eq!(
+        verify(&snapshot, Ok(bubble(390)), "你 好").unwrap(),
+        SendOutcome::LocalBubbleObserved
+    );
+    let blocks = Arc::make_mut(&mut snapshot.blocks);
+    blocks.pop();
+    blocks.push(block("你", rect(655, 394, 15, 19)));
+    blocks.push(block("好", rect(680, 394, 15, 19)));
+    assert_eq!(
+        verify(&snapshot, Ok(bubble(390)), "你 好").unwrap(),
+        SendOutcome::LocalBubbleObserved
+    );
+    assert_eq!(
+        verify(&snapshot, Ok(bubble(390)), "你 错").unwrap(),
+        SendOutcome::Unconfirmed(Reason::TextMismatch)
+    );
+    Arc::make_mut(&mut snapshot.blocks).last_mut().unwrap().rect = rect(680, 350, 15, 19);
+    assert_eq!(
+        verify(&snapshot, Ok(bubble(390)), "你 好").unwrap(),
+        SendOutcome::Unconfirmed(Reason::TextMismatch)
+    );
+    let last = Arc::make_mut(&mut snapshot.blocks).last_mut().unwrap();
+    last.rect = rect(680, 394, 15, 19);
+    last.confidence = 0.4;
+    assert_eq!(
+        verify(&snapshot, Ok(bubble(390)), "你 好").unwrap(),
+        SendOutcome::Unconfirmed(Reason::TextMismatch)
+    );
+}
 #[test]
 fn new_bubble_must_remain_stable_on_later_frame() {
     let before = observation().frame;

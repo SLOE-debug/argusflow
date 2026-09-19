@@ -153,6 +153,7 @@ impl Provider {
             }
             Command::FocusAql(handle) => {
                 let element = self.element(&handle, operation)?;
+                handle.window.activate(operation)?;
                 super::aql::focus(&element, operation)?;
                 Ok(Response::Done)
             }
@@ -183,6 +184,7 @@ impl Provider {
             }
             Command::Act(handle, action) => {
                 let element = self.element(&handle, operation)?;
+                handle.window.activate(operation)?;
                 action::execute(&element, action, operation)?;
                 Ok(Response::Done)
             }

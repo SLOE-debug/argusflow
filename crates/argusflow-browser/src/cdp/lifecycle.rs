@@ -19,7 +19,10 @@ pub enum ConnectionState {
     Disconnected,
 }
 pub(crate) struct PageState {
+    /// 文档替换使元素身份失效；普通属性变化不能冒充导航。
     pub(crate) epoch: AtomicU64,
+    /// DOM 快照采集期间的变化计数，用于拒绝混合了不同状态的查询树。
+    pub(crate) revision: AtomicU64,
     pub(crate) closed: AtomicBool,
     pub(crate) target: String,
     pub(crate) main_frame: Mutex<Option<String>>,
@@ -28,6 +31,7 @@ impl PageState {
     pub(crate) fn new(target: String) -> Self {
         Self {
             epoch: AtomicU64::new(1),
+            revision: AtomicU64::new(1),
             closed: AtomicBool::new(false),
             target,
             main_frame: Mutex::new(None),
@@ -113,14 +117,18 @@ impl Health {
             "Runtime.executionContextsCleared"
             | "Runtime.executionContextDestroyed"
             | "DOM.documentUpdated"
-            | "DOM.childNodeInserted"
-            | "DOM.childNodeRemoved"
-            | "DOM.characterDataModified"
-            | "DOM.attributeModified"
-            | "DOM.attributeRemoved"
             | "Page.frameDetached" => {
                 if let Some(page) = message["sessionId"].as_str().and_then(|id| pages.get(id)) {
                     page.epoch.fetch_add(1, Ordering::AcqRel);
+                }
+            }
+            "DOM.childNodeInserted"
+            | "DOM.childNodeRemoved"
+            | "DOM.characterDataModified"
+            | "DOM.attributeModified"
+            | "DOM.attributeRemoved" => {
+                if let Some(page) = message["sessionId"].as_str().and_then(|id| pages.get(id)) {
+                    page.revision.fetch_add(1, Ordering::AcqRel);
                 }
             }
             "Page.frameNavigated" => {

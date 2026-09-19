@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/argusflow-image", "crates/argusflow-input-contracts", "crates/argusflow-recorder", "crates/argusflow-core", "crates/argusflow-windows", "crates/argusflow-browser", "crates/argusflow-vision", "crates/argusflow-capture-contracts", "crates/argusflow-capture", "crates/argusflow-aql", "crates/argusflow-aql-wasm", "crates/argusflow-automation", "crates/argusflow-workflow", "crates/argusflow-runtime", "crates/argusflow-workflow-automation", "src-tauri"]
+members = ["crates/argusflow-ai", "crates/argusflow-image", "crates/argusflow-input-contracts", "crates/argusflow-recorder", "crates/argusflow-core", "crates/argusflow-windows", "crates/argusflow-browser", "crates/argusflow-vision", "crates/argusflow-capture-contracts", "crates/argusflow-capture", "crates/argusflow-aql", "crates/argusflow-aql-wasm", "crates/argusflow-automation", "crates/argusflow-workflow", "crates/argusflow-runtime", "crates/argusflow-workflow-automation", "src-tauri"]
 resolver = "3"
 
 [workspace.package]
@@ -9,6 +9,7 @@ rust-version = "1.91"
 license = "PolyForm-Strict-1.0.0"
 
 [workspace.dependencies]
+argusflow-ai = { path = "crates/argusflow-ai" }
 argusflow-image = { path = "crates/argusflow-image" }
 argusflow-input-contracts = { path = "crates/argusflow-input-contracts" }
 argusflow-recorder = { path = "crates/argusflow-recorder" }

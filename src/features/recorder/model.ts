@@ -12,6 +12,7 @@ export type Outcome =
   | "Cancelled"
   | "Failed";
 export type Stage =
+  | "Clipboard"
   | "Input"
   | "Journal"
   | "Uia"
@@ -177,7 +178,24 @@ export interface Ocr {
     readonly polygon: readonly (readonly number[])[];
   }[];
 }
+/** 剪贴板序号变化与输入只有时间关联；空文本、非文本、未变化分别记录。 */
+export interface ClipboardObservation {
+  readonly raw: readonly number[];
+  readonly from_qpc: number;
+  readonly through_qpc: number;
+  readonly observation: {
+    readonly previous_sequence: number | null;
+    readonly sequence: number;
+    readonly content:
+      | "Unchanged"
+      | "NoText"
+      | {
+          readonly Text: { readonly text: string; readonly truncated: boolean };
+        };
+  };
+}
 export type RecordData =
+  | { readonly Clipboard: ClipboardObservation }
   | { readonly Raw: RawInput }
   | { readonly Interaction: Interaction }
   | { readonly Structure: Structure }

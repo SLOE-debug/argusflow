@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none';"
+    />
+    <title>ArgusFlow · 录制证据查看器</title>
+    <style>
+      /* GENERATED_STYLE */
+    </style>
+  </head>
+  <body class="bg-stone-50 font-sans text-stone-900 antialiased">
+    <header class="border-b border-stone-200 bg-white px-5 py-5 md:px-9">
+      <div
+        class="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-4"
+      >
+        <div>
+          <p
+            class="text-xs font-semibold uppercase tracking-widest text-teal-700"
+          >
+            ArgusFlow / Evidence Inspector
+          </p>
+          <h1 class="mt-2 text-2xl font-semibold tracking-tight">
+            看看录制器实际看见了什么
+          </h1>
+        </div>
+        <div class="text-right text-xs leading-6 text-stone-500">
+          <p id="run-date"></p>
+          <p>model-03 · 离线查看 · 不调用模型</p>
+        </div>
+      </div>
+    </header>
+    <main class="mx-auto max-w-[1600px] px-5 py-6 md:px-9">
+      <div
+        class="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
+        id="stats"
+      ></div>
+      <section
+        class="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-7 text-amber-950"
+      >
+        <strong>这次是脚本模拟操作，由独立 demo 观察。</strong>
+        操作顺序是预设的；下方的按键、选区、剪贴板和画面来自实际采集。正式录制器与
+        demo 的接入范围见「能力来源」。本次没有操作微信，也没有录到完整的
+        Windows 浏览器拖动轨迹。
+      </section>
+      <nav
+        class="mb-6 flex flex-wrap gap-2 border-b border-stone-200 pb-3"
+        aria-label="查看器页面"
+        id="navigation"
+      ></nav>
+      <div id="page"></div>
+      <p
+        class="mt-8 border-t border-stone-200 pt-4 text-xs leading-6 text-stone-500"
+      >
+        本地只读产物。记录正文始终作为文本展示；所有图片是既有录制帧的展示副本。查看器不发起桌面操作，也不联系外部服务。
+      </p>
+    </main>
+    <dialog
+      id="source-dialog"
+      class="m-auto max-h-[85vh] w-[92vw] max-w-6xl rounded-2xl border border-stone-200 bg-white p-6 backdrop:bg-stone-900/40"
+    >
+      <div class="mb-4 flex items-center justify-between gap-3">
+        <h2 class="break-all font-mono text-sm"></h2>
+        <button
+          type="button"
+          class="rounded-lg bg-stone-100 px-4 py-2 text-sm focus:bg-teal-100 outline-none"
+          data-close
+        >
+          关闭
+        </button>
+      </div>
+      <pre
+        class="max-h-[65vh] overflow-auto whitespace-pre-wrap break-all rounded-xl bg-stone-50 p-4 font-mono text-xs leading-6"
+      ></pre>
+    </dialog>
+    <dialog
+      id="image-dialog"
+      class="m-auto max-h-[92vh] w-[96vw] rounded-2xl border border-stone-200 bg-white p-4 backdrop:bg-stone-900/40"
+    >
+      <div class="mb-3 flex justify-between gap-3">
+        <h2 class="text-sm"></h2>
+        <button
+          type="button"
+          class="rounded-lg bg-stone-100 px-4 py-2 text-sm focus:bg-teal-100 outline-none"
+          data-close
+        >
+          关闭
+        </button>
+      </div>
+      <img
+        class="mx-auto max-h-[80vh] max-w-full object-contain"
+        alt="放大的录制截图"
+      />
+    </dialog>
+    <script id="evidence-data" type="application/json">
+      /* GENERATED_DATA */
+    </script>
+    <script>
+      /* GENERATED_SCRIPT */
+    </script>
+  </body>
+</html>

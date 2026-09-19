@@ -1,4 +1,5 @@
 //! ArgusFlow 桌面应用装配入口。
+mod ai;
 mod commands;
 pub mod document;
 mod recorder;
@@ -15,11 +16,16 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(DesktopState::default())
+        .manage(ai::AiJobs::default())
         .setup(|app| {
             startup::native_ready(app);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            ai::ai_config,
+            ai::ai_save_config,
+            ai::ai_analyze,
+            ai::ai_cancel,
             startup::frontend_ready,
             recorder::recorder_start,
             recorder::recorder_status,

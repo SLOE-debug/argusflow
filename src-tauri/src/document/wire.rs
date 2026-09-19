@@ -35,6 +35,27 @@ pub fn decode_workflow(value: &Value) -> Result<Workflow, String> {
     let source = serde_json::to_string(&value).map_err(|e| e.to_string())?;
     Workflow::from_json(&source)
 }
+/// 将工作流及任务配置中的整数编码成前端无损协议。
+pub fn encode_workflow(workflow: &Workflow) -> Result<Value, String> {
+    let mut value = serde_json::to_value(workflow).map_err(|e| e.to_string())?;
+    convert(&mut value, true, 0)?;
+    if let Some(scopes) = value.get_mut("scopes").and_then(Value::as_array_mut) {
+        for scope in scopes {
+            if let Some(nodes) = scope.get_mut("nodes").and_then(Value::as_array_mut) {
+                for node in nodes {
+                    if let Some(task) = node.get_mut("action").and_then(|a| a.get_mut("task"))
+                        && task["type_id"] == "aql.wait"
+                        && let Some(config) = task.get_mut("config").and_then(Value::as_object_mut)
+                        && config.contains_key("interval_ms")
+                    {
+                        convert_integer(config, "interval_ms", true, false)?;
+                    }
+                }
+            }
+        }
+    }
+    Ok(value)
+}
 /// 将最终数据编码成前端无损值。
 pub fn encode_values(value: &argusflow_workflow::Values) -> Result<Value, String> {
     let mut value = serde_json::to_value(value).map_err(|e| e.to_string())?;

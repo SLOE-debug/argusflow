@@ -1,4 +1,5 @@
 //! 显式页面的被动事件观察；不点击、不聚焦、不滚动。
+pub use super::selection::{PageEventKind, PageSelection, PageTextEndpoint};
 use crate::{BrowserError, Page};
 use argusflow_core::{Operation, OperationOptions};
 use serde::{Deserialize, Serialize};
@@ -23,10 +24,16 @@ pub struct PageObservation {
     pub events: Vec<PageEvent>,
     /// 当前焦点属性。
     pub active: Option<PageTarget>,
+    /// 请求时的选区；事件发生时选区分别保存在 events 中。
+    pub selection: PageSelection,
 }
 /// 普通 DOM 属性，不保留 JS 对象。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PageTarget {
+    /// 当前文档内控件身份；不跨导航复用。
+    pub node: u64,
+    /// DOM 明确暴露的可编辑状态。
+    pub editable: bool,
     /// 标签。
     pub tag: String,
     /// ARIA 角色。
@@ -54,7 +61,7 @@ pub struct PageEvent {
     /// 当前文档内部事件序号。
     pub sequence: u64,
     /// 事件类别。
-    pub kind: String,
+    pub kind: PageEventKind,
     /// performance.now 时间，需由宿主请求区间换算。
     pub time: f64,
     /// 浏览器可信事件标记。
@@ -63,6 +70,12 @@ pub struct PageEvent {
     pub input_type: String,
     /// 目标属性，密码值不读取。
     pub target: Option<PageTarget>,
+    /// 事件时的实际文本选区。
+    pub selection: PageSelection,
+    /// 指针事件的视口 CSS 坐标，其他事件为空。
+    pub point: Option<[f64; 2]>,
+    /// 指针事件的按钮；其他事件为空。
+    pub button: Option<i16>,
 }
 /// 一次安装的监听所有者，stop 必须在暂停／停止时调用。
 pub struct PageObserver {
@@ -119,6 +132,7 @@ impl PageObserver {
             lost: u32,
             events: Vec<PageEvent>,
             active: Option<PageTarget>,
+            selection: PageSelection,
         }
         let snapshot: Snapshot = serde_json::from_value(value)
             .map_err(|e| super::handle::protocol("页面监听尚未安装或格式无效").with_source(e))?;
@@ -141,6 +155,7 @@ impl PageObserver {
             lost: snapshot.lost,
             events: snapshot.events,
             active: snapshot.active,
+            selection: snapshot.selection,
         })
     }
     /// 卸载当前文档及后续导航脚本；只脱离时页面仍保留。

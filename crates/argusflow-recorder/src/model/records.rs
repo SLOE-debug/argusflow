@@ -24,6 +24,8 @@ pub enum SessionPhase {
 /// 分阶段故障，不能合并成录制失败布尔值。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Stage {
+    /// 系统剪贴板只读观察。
+    Clipboard,
     /// 原始监听／队列。
     Input,
     /// 写入／同步。
@@ -109,6 +111,8 @@ pub struct Record {
 /// 相互引用的追加记录。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RecordData {
+    /// 剪贴板内容与序号变化，不等同于复制成功。
+    Clipboard(super::Clipboard),
     /// 不可修改的原始事实。
     Raw(InputEvent),
     /// 操作识别结果。

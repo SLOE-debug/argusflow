@@ -6,7 +6,7 @@ use argusflow_aql::{Bindings, compile};
 use argusflow_automation::{Locator, QuerySource};
 use argusflow_core::{Key, OperationOptions};
 use argusflow_windows::*;
-use windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow;
+use windows::Win32::UI::WindowsAndMessaging::{IsIconic, SW_MINIMIZE, ShowWindowAsync};
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "opens an isolated test window and temporarily uses mouse/keyboard"]
 async fn aql_native_click_and_insert() {
@@ -40,10 +40,6 @@ async fn aql_native_click_and_insert() {
         input: input.clone(),
     };
     let result = async {
-        unsafe {
-            let _ = SetForegroundWindow(fixture.hwnd());
-        }
-        window.require_foreground()?;
         let attributes = compile("window() >> element(checked = true or value = \"initial\")")?
             .bind(&Bindings::new())?;
         let matches = runtime
@@ -72,9 +68,15 @@ async fn aql_native_click_and_insert() {
             &Bindings::new(),
         )
         .unwrap();
+        // 从最小化状态直接查询，验证自动化来源自身完成激活。
+        unsafe { ShowWindowAsync(fixture.hwnd(), SW_MINIMIZE) }.ok()?;
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        assert!(unsafe { IsIconic(fixture.hwnd()) }.as_bool());
         if let argusflow_automation::LocatedElement::Uia(found) =
             button.find_unique(OperationOptions::default()).await?
         {
+            window.require_foreground()?;
+            assert!(!unsafe { IsIconic(fixture.hwnd()) }.as_bool());
             let mut rect = windows::Win32::Foundation::RECT::default();
             unsafe {
                 windows::Win32::UI::WindowsAndMessaging::GetWindowRect(
@@ -123,6 +125,8 @@ async fn aql_native_click_and_insert() {
                 OperationOptions::default(),
             )
             .await?;
+        unsafe { ShowWindowAsync(fixture.hwnd(), SW_MINIMIZE) }.ok()?;
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         runtime
             .perform(&field, UiaAction::Focus, OperationOptions::default())
             .await?;

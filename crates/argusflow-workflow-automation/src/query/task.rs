@@ -95,15 +95,16 @@ impl PreparedTask for QueryTask {
                 };
                 bindings.insert(name.clone(), value);
             }
-            let locate = || {
-                let source = source::resolve(self.platform, &self.host, &context)?;
+            let locate = || async {
+                let source = source::resolve(self.platform, &self.host, &context).await?;
                 Locator::bind(source, &self.query, &bindings)
                     .map_err(|_| RunError::new(ErrorKind::Expression, "AQL 参数绑定失败"))
             };
             let mut output = TaskOutput::default();
             match self.kind {
                 QueryKind::Preview => {
-                    let previews = locate()?
+                    let previews = locate()
+                        .await?
                         .preview_with_operation(context.operation)
                         .await
                         .map_err(RunError::from)?;
@@ -111,27 +112,32 @@ impl PreparedTask for QueryTask {
                         .values
                         .insert("spatial_preview".into(), super::preview::value(previews));
                 }
-                QueryKind::Click => locate()?
+                QueryKind::Click => locate()
+                    .await?
                     .click_with_operation(context.operation)
                     .await
                     .map_err(RunError::from)?,
                 QueryKind::Type if self.focused => {
-                    locate()?
+                    locate()
+                        .await?
                         .type_focused_with_operation(text(&context, "text")?, context.operation)
                         .await?
                 }
                 QueryKind::Keys => {
-                    locate()?
+                    locate()
+                        .await?
                         .press_keys_with_operation(&self.keys, context.operation)
                         .await?
                 }
-                QueryKind::Type => locate()?
+                QueryKind::Type => locate()
+                    .await?
                     .type_text_with_operation(text(&context, "text")?, context.operation)
                     .await
                     .map_err(RunError::from)?,
                 QueryKind::All | QueryKind::Exists | QueryKind::Wait => loop {
                     context.operation.check("workflow_query")?;
-                    let matches = locate()?
+                    let matches = locate()
+                        .await?
                         .find_all_with_operation(context.operation)
                         .await
                         .map_err(RunError::from)?;

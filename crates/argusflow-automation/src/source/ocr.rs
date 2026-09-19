@@ -18,7 +18,10 @@ impl OcrSource {
         query: &BoundQuery,
         operation: &Operation,
     ) -> Result<SampledOcrResult, Failure> {
-        self.window.require_foreground()?;
+        let mut sequence = self.input.sequence(operation)?;
+        sequence
+            .perform(self.window.clone(), InputAction::ActivateWindow)
+            .await?;
         let surfaces = self.window.physical_surfaces()?;
         let result = self
             .sampler
@@ -34,6 +37,7 @@ impl OcrSource {
                 || i64::from(r.y()) + i64::from(r.height())
                     > i64::from(bounds.y()) + i64::from(bounds.height())
         });
+        self.window.require_foreground()?;
         if outside || self.window.physical_surfaces()? != surfaces {
             return Err(Failure::new(
                 FailureKind::StaleHandle,
@@ -49,7 +53,9 @@ impl OcrSource {
         operation: &Operation,
         sequence: &mut InputSequence<'_>,
     ) -> Result<(), Failure> {
-        self.window.require_foreground()?;
+        sequence
+            .perform(self.window.clone(), InputAction::ActivateWindow)
+            .await?;
         self.sampler
             .confirm_aql_result(self.source, &target.0, operation)
             .await

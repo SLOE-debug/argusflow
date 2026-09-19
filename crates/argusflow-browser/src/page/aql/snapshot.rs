@@ -93,7 +93,14 @@ pub(super) async fn append(
         .call(
             root.backend_node_id,
             include_str!("snapshot.js"),
-            vec![json!(query.css_selectors())],
+            vec![
+                json!(query.css_selectors()),
+                json!(
+                    query
+                        .attributes()
+                        .contains(&argusflow_aql::Attribute::Value)
+                ),
+            ],
             false,
             operation,
         )

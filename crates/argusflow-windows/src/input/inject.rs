@@ -26,7 +26,18 @@ pub(super) fn perform(
     operation: &Operation,
 ) -> Result<(), Failure> {
     operation.check("input_validate")?;
-    window.require_foreground()?;
+    if matches!(action, InputAction::ActivateWindow) {
+        return window.activate(operation);
+    }
+    let focus_point = match &action {
+        InputAction::FocusClick(point) => Some(*point),
+        _ => None,
+    };
+    if focus_point.is_some() {
+        window.validate()?;
+    } else {
+        window.require_foreground()?;
+    }
     // SAFETY: 当前线程不创建窗口，守卫在返回时恢复原上下文。
     let previous =
         unsafe { SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
@@ -35,6 +46,19 @@ pub(super) fn perform(
     }
     let _dpi = DpiGuard(previous);
     let (events, _releases) = match action {
+        InputAction::ActivateWindow => unreachable!("激活在输入构造前处理"),
+        InputAction::FocusClick(point) => {
+            validate_point(&window, point)?;
+            ensure_released(VK_LBUTTON)?;
+            (
+                vec![
+                    absolute_move(point)?,
+                    mouse(MOUSEEVENTF_LEFTDOWN, 0),
+                    mouse(MOUSEEVENTF_LEFTUP, 0),
+                ],
+                vec![mouse(MOUSEEVENTF_LEFTUP, 0)],
+            )
+        }
         InputAction::Move(point) => {
             validate_point(&window, point)?;
             (vec![absolute_move(point)?], vec![])
@@ -77,7 +101,11 @@ pub(super) fn perform(
         InputAction::Text(text) => keyboard::text(&text)?,
         InputAction::Chord(keys) => keyboard::chord(&keys)?,
     };
-    window.require_foreground()?;
+    if let Some(point) = focus_point {
+        validate_point(&window, point)?;
+    } else {
+        window.require_foreground()?;
+    }
     operation.begin_effect("send_input")?;
     super::submission::submit(&events)?;
     operation.check("input_complete").map_err(Failure::from)
@@ -95,7 +123,7 @@ fn validate_point(window: &WindowIdentity, point: ScreenPoint) -> Result<(), Fai
     window.validate_input_point(point)
 }
 
-fn absolute_move(point: ScreenPoint) -> Result<INPUT, Failure> {
+pub(super) fn absolute_move(point: ScreenPoint) -> Result<INPUT, Failure> {
     // SAFETY: 以下系统参数都是只读物理虚拟桌面尺寸。
     let (left, top, width, height) = unsafe {
         (

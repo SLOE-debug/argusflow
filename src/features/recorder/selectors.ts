@@ -41,19 +41,21 @@ export function evidenceFor(
     }
   }
   return records.filter(({ id, data }) =>
-    "Raw" in data
-      ? ids.has(id)
-      : "Structure" in data
-        ? data.Structure.raw.some((ref) => ids.has(ref))
-        : "Visual" in data
-          ? data.Visual.raw.some((ref) => ids.has(ref))
-          : "Ocr" in data
-            ? data.Ocr.raw.some((ref) => ids.has(ref))
-            : "Attempt" in data
-              ? data.Attempt.raw.some((ref) => ids.has(ref))
-              : "Association" in data
-                ? data.Association.records.some((ref) => ids.has(ref))
-                : false,
+    "Clipboard" in data
+      ? data.Clipboard.raw.some((ref) => ids.has(ref))
+      : "Raw" in data
+        ? ids.has(id)
+        : "Structure" in data
+          ? data.Structure.raw.some((ref) => ids.has(ref))
+          : "Visual" in data
+            ? data.Visual.raw.some((ref) => ids.has(ref))
+            : "Ocr" in data
+              ? data.Ocr.raw.some((ref) => ids.has(ref))
+              : "Attempt" in data
+                ? data.Attempt.raw.some((ref) => ids.has(ref))
+                : "Association" in data
+                  ? data.Association.records.some((ref) => ids.has(ref))
+                  : false,
   );
 }
 /** 双击保留第一次点击为来源，在时间线中只显示最终组合项。 */

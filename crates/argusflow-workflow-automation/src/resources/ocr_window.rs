@@ -14,6 +14,14 @@ pub(crate) struct OcrWindow {
 }
 impl OcrWindow {
     pub async fn ready(&self, operation: &Operation) -> Result<(), RunError> {
+        self.input
+            .perform_operation(
+                self.window.clone(),
+                argusflow_windows::InputAction::ActivateWindow,
+                operation,
+            )
+            .await
+            .map_err(Failure::from)?;
         loop {
             operation.check("workflow_ocr_ready")?;
             let sources = self
@@ -70,10 +78,24 @@ impl OcrWindow {
 }
 
 impl QuerySourceProvider for OcrWindow {
-    fn resolve(&self) -> Result<QuerySource, RunError> {
-        self.source()
+    fn resolve<'a>(&'a self, operation: &'a Operation) -> TaskFuture<'a, QuerySource> {
+        Box::pin(async move {
+            let mut sequence = self.input.sequence(operation).map_err(Failure::from)?;
+            sequence
+                .perform(
+                    self.window.clone(),
+                    argusflow_windows::InputAction::ActivateWindow,
+                )
+                .await
+                .map_err(Failure::from)?;
+            self.source()
+        })
     }
     fn cleanup<'a>(&'a self, _: &'a Operation) -> TaskFuture<'a, ()> {
         Box::pin(async { Ok(()) })
     }
 }
+
+#[cfg(test)]
+#[path = "../../../../tests/argusflow-workflow-automation/unit/ocr_window.rs"]
+mod tests;

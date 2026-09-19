@@ -36,8 +36,8 @@ impl Drop for Handle {
         let _ = unsafe { CloseHandle(self.0) };
     }
 }
-/// 定位进程窗口，恢复隐藏/最小化状态，然后请求正常前台激活。
-pub async fn activate(target: &ApplicationTarget) -> Result<WindowIdentity> {
+/// 按进程身份定位或启动应用，不把已找到窗口等同于已取得前台。
+pub async fn attach(target: &ApplicationTarget) -> Result<WindowIdentity> {
     if !target.executable.is_absolute() || !target.executable.is_file() {
         return Err("应用目标必须是现存的绝对 EXE 路径".into());
     }
@@ -62,6 +62,11 @@ pub async fn activate(target: &ApplicationTarget) -> Result<WindowIdentity> {
         tokio::time::sleep(Duration::from_millis(80)).await;
         pids = processes(&executable)?;
     };
+    Ok(window)
+}
+/// 定位进程窗口，恢复隐藏/最小化状态，然后请求正常前台激活。
+pub async fn activate(target: &ApplicationTarget) -> Result<WindowIdentity> {
+    let window = attach(target).await?;
     let hwnd = HWND(window.handle() as *mut _);
     // SAFETY: 身份已经验证，只读取所选窗口状态。
     let command = if unsafe { IsIconic(hwnd) }.as_bool() {

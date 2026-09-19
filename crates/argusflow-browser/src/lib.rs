@@ -16,3 +16,4 @@ pub use page::{BrowserMatch, Element, ElementSnapshot, Page, PageInfo};
 #[path = "../../../tests/argusflow-browser/unit/mod.rs"]
 mod tests;
 pub use page::{PageEvent, PageObservation, PageObserver, PageTarget};
+pub use page::{PageEventKind, PageSelection, PageTextEndpoint};

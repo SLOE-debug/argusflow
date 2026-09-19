@@ -141,13 +141,17 @@ impl<T> QueryTree<T> {
         if depth > self.max_depth {
             return Err(limit());
         }
-        if node.attributes.iter().any(|(attribute, value)| {
+        if let Some((attribute, value)) = node.attributes.iter().find(|(attribute, value)| {
             attribute.value_type() != value.value_type() || !value.valid()
         }) {
+            let detail = match value {
+                Value::Text(text) => format!("文本字节数={}", text.len()),
+                _ => format!("实际类型={:?}", value.value_type()),
+            };
             return Err(Failure::new(
                 FailureKind::Protocol,
                 "aql_tree",
-                "来源返回无效属性类型或数值",
+                format!("来源返回无效属性类型或数值：{attribute:?}，{detail}"),
             ));
         }
         if let Some(parent) = node.parent {

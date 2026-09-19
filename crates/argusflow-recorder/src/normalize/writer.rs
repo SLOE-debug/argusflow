@@ -62,6 +62,7 @@ impl RecordingWriter {
     /// 追加证据前验证它只引用已写入事实；状态水位由本写者维护。
     pub fn derived(&mut self, data: RecordData, qpc: i64) -> StorageResult<Record> {
         let refs = match &data {
+            RecordData::Clipboard(s) => &s.raw,
             RecordData::Structure(s) => &s.raw,
             RecordData::Visual(s) => &s.raw,
             RecordData::Ocr(s) => &s.raw,

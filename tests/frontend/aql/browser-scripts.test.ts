@@ -19,7 +19,7 @@ it('DOM 插入前收起已有选区且不改写内容', () => {
 });
 
 it('文本不读取隐藏内容或无障碍名称，可见状态使用当前视口', () => {
-  const snapshot = window.eval(`(${snapshotSource})`) as (this: Node, selectors: string[]) => {
+  const snapshot = window.eval(`(${snapshotSource})`) as (this: Node, selectors: string[], includeValue: boolean) => {
     path: string; text: string | null; value: string | null; visible: boolean; enabled: boolean | null;
   }[];
   const host = document.createElement('div');
@@ -36,13 +36,13 @@ it('文本不读取隐藏内容或无障碍名称，可见状态使用当前视�
   const original = Range.prototype.getBoundingClientRect;
   Range.prototype.getBoundingClientRect = () => new DOMRect(10, 10, 80, 20);
   try {
-    const rows = snapshot.call(host, []);
+    const rows = snapshot.call(host, [], true);
     expect(rows.find((row) => row.path === '/0')).toMatchObject({ text: '可读', enabled: true, visible: true });
     expect(rows.find((row) => row.path === '/0/1')).toMatchObject({ text: '', visible: false });
     expect(rows.find((row) => row.path === '/1')).toMatchObject({ value: '当前值' });
     expect(rows.find((row) => row.path === '/2')?.enabled).toBeNull();
     vi.mocked(button.getBoundingClientRect).mockReturnValue(new DOMRect(-100, -100, 20, 20));
-    expect(snapshot.call(host, []).find((row) => row.path === '/0')?.visible).toBe(false);
+    expect(snapshot.call(host, [], false).find((row) => row.path === '/0')?.visible).toBe(false);
   } finally {
     Range.prototype.getBoundingClientRect = original;
     vi.restoreAllMocks();

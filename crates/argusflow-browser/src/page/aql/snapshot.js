@@ -1,4 +1,4 @@
-function(selectors) {
+function(selectors, includeValue) {
     const result = [];
     const pending = [[this, "", 0]];
     let bytes = 0;
@@ -28,7 +28,8 @@ function(selectors) {
                     ? (element.getAttribute(aria) === "mixed" ? null : element.getAttribute(aria) === "true") : null;
             const attributes = Object.fromEntries(Array.from(element.attributes, a => [a.name, a.value]));
             result.push({
-                path, text, value: typeof element.value === "string" ? element.value : null,
+                // 仅在查询请求 value 时读取；隐藏表单可能携带大型业务载荷。
+                path, text, value: includeValue && typeof element.value === "string" ? element.value : null,
                 enabled: element.matches("button,input,select,textarea,option,optgroup,fieldset") || element.hasAttribute("aria-disabled")
                     ? !element.matches(":disabled") && !element.closest('[aria-disabled="true"]') : null,
                 visible,

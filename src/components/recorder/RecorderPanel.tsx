@@ -1,6 +1,7 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { RecorderHistoryPopover } from "./RecorderHistoryPopover";
-import { Dialog } from "../ui";
+import { Dialog, Button } from "../ui";
+import { AiDialog } from "../ai/AiDialog";
 import { timeline, type useRecorder } from "../../features/recorder";
 import { PlaybackWorkspace } from "./playback/PlaybackWorkspace";
 type Controller = ReturnType<typeof useRecorder>;
@@ -15,6 +16,7 @@ export function RecorderPanel({
   const actions = useMemo(() => timeline(recorder.records), [recorder.records]);
   const directory = recorder.opened?.directory ?? "";
   const current = actions[0];
+  const [aiOpened, setAiOpened] = useState(false);
   return (
     <Dialog
       title="录制回看"
@@ -28,9 +30,20 @@ export function RecorderPanel({
             </span>
           )}
           <RecorderHistoryPopover recorder={recorder} />
+          <Button disabled={!directory} onClick={() => setAiOpened(true)}>
+            AI 整理
+          </Button>
         </>
       }
     >
+      {aiOpened && (
+        <AiDialog
+          key={directory}
+          directory={directory}
+          onClose={() => setAiOpened(false)}
+          onImported={onClose}
+        />
+      )}
       {(recorder.error || recorder.status?.input_fault) && (
         <p role="alert" className="px-4 py-2 text-xs text-danger">
           {recorder.error || recorder.status?.input_fault}

@@ -13,3 +13,6 @@
 /src/features/aql/generated/
 *.tsbuildinfo
 /src-tauri/gen/
+/.env
+/.env.*
+!/.env.example

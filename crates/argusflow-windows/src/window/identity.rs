@@ -18,15 +18,10 @@ pub struct WindowIdentity {
 }
 
 impl WindowIdentity {
-    /// 显式请求把目标窗口放到前台并复验；Windows 拒绝时明确失败，不绕过前台限制。
+    /// 移动鼠标并请求前台，复验稳定状态；不点击、不改变置顶、不恢复鼠标位置。
+    /// 同步入口供原生 worker 使用；异步调用方应通过 InputService 排他执行。
     pub fn activate(&self, operation: &argusflow_core::Operation) -> Result<(), Failure> {
-        self.validate()?;
-        operation.begin_effect("window_activate")?;
-        // SAFETY: 已复验窗口身份，调用仅请求 Windows 正常前台切换。
-        unsafe { windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow(hwnd(self.handle)) }
-            .ok()
-            .map_err(|error| operation.contextualize(failure("window_activate", error)))?;
-        self.require_foreground()
+        crate::input::activation::activate(self, operation)
             .map_err(|error| operation.contextualize(error))
     }
     /// 验证 HWND、捕获进程身份并建立窗口属性租约；UIPI 权限不足明确失败。

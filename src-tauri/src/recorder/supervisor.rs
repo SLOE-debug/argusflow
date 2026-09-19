@@ -136,7 +136,7 @@ pub(super) async fn run(
     drop(heartbeat);
     drop(video);
     let _ = services.pause().await;
-    services.shutdown().await;
+    let result = result.and(services.shutdown().await);
     let mut status = state.lock().await;
     status.pending = 0;
     if let Err(error) = result {

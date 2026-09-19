@@ -4,6 +4,8 @@
 
 mod application;
 mod capture;
+mod clipboard;
+pub use clipboard::ClipboardReader;
 mod error;
 mod input;
 mod platform;
@@ -20,6 +22,7 @@ pub use capture::video::{
 pub use error::WindowsError;
 pub use input::{InputAction, InputSequence, InputService, InputState};
 pub use uia::{UiaObservation, UiaObservedNode};
+pub use uia::{UiaTextChange, UiaTextObservation, UiaTextRange, UiaTextSnapshot};
 pub mod listening;
 pub use uia::{
     ControlType, ElementHandle, ElementSnapshot, Predicate, Query, ScrollAmount, SearchScope,

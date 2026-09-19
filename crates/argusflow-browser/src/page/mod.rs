@@ -7,4 +7,6 @@ pub use handle::{Page, PageInfo};
 mod aql;
 pub use aql::BrowserMatch;
 mod observation;
+mod selection;
 pub use observation::{PageEvent, PageObservation, PageObserver, PageTarget};
+pub use observation::{PageEventKind, PageSelection, PageTextEndpoint};

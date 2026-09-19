@@ -73,6 +73,7 @@ impl Page {
             owner: None,
             _lease: None,
         });
+        let revision = self.inner.state.revision.load(Ordering::Acquire);
         let root = snapshot::document(self, operation).await?;
         let mut tree = QueryTree::new(10000, 64, self.inner.connection.inner.config.max_elements)?;
         snapshot::append(&mut tree, root, context.clone(), None, query, operation).await?;
@@ -80,6 +81,13 @@ impl Page {
             match evaluate_step(query, &tree, operation)? {
                 QueryProgress::Complete(indices) => {
                     context.check()?;
+                    if revision != self.inner.state.revision.load(Ordering::Acquire) {
+                        return Err(BrowserError::new(
+                            FailureKind::StaleHandle,
+                            "aql_snapshot",
+                            "查询采集期间 DOM 已变化，请重新定位",
+                        ));
+                    }
                     let results = indices
                         .into_iter()
                         .filter_map(|index| {

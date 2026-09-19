@@ -19,6 +19,10 @@ use tokio::sync::oneshot;
 /// 显式的真实输入操作，坐标均为屏幕物理像素。
 #[derive(Debug, Clone)]
 pub enum InputAction {
+    /// 恢复窗口，移动鼠标到虚拟桌面左缘并请求前台；不点击、不恢复鼠标位置。
+    ActivateWindow,
+    /// 单击已验证且未被遮挡的目标以获得前台；只用于明确的聚焦操作，不要求目标已在前台。
+    FocusClick(ScreenPoint),
     /// 移动鼠标。
     Move(ScreenPoint),
     /// 点击目标位置。
@@ -184,7 +188,7 @@ impl InputService {
             }),
         })
     }
-    /// 提交一次真实输入；目标必须已经在前台，不自动激活窗口。
+    /// 提交一次真实输入；普通输入要求前台，只有显式激活动作可改变前台。
     pub async fn perform(
         &self,
         window: WindowIdentity,

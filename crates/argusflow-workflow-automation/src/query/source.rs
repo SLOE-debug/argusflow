@@ -5,7 +5,7 @@ use argusflow_automation::QuerySource;
 use argusflow_runtime::{RunError, TaskContext};
 use argusflow_workflow::ErrorKind;
 
-pub(super) fn resolve(
+pub(super) async fn resolve(
     platform: TargetPlatform,
     host: &AutomationHost,
     context: &TaskContext<'_>,
@@ -28,7 +28,9 @@ pub(super) fn resolve(
         }),
         #[cfg(windows)]
         TargetPlatform::Ocr => {
-            let source = resource::<QuerySourceResource>(context, "scope")?.resolve()?;
+            let source = resource::<QuerySourceResource>(context, "scope")?
+                .resolve(context.operation)
+                .await?;
             if !matches!(source, QuerySource::Ocr { .. }) {
                 return Err(RunError::new(
                     ErrorKind::Contract,
